@@ -9,6 +9,26 @@ export const fieldSourceSchema = z.enum([
 
 export type FieldSource = z.infer<typeof fieldSourceSchema>;
 
+export const provenanceSchema = z.object({
+  fileId: z.string().optional(),
+  page: z.number().int().positive().optional(),
+  method: z
+    .enum([
+      "pdf_text",
+      "docx",
+      "txt",
+      "ocr_mistral",
+      "ocr_grok_vision",
+      "paste",
+      "fetch",
+      "manual",
+    ])
+    .optional(),
+  excerpt: z.string().max(500).optional(),
+});
+
+export type Provenance = z.infer<typeof provenanceSchema>;
+
 export const fieldSchema = <T extends z.ZodTypeAny>(valueSchema: T) =>
   z.object({
     value: valueSchema.nullable(),
@@ -16,6 +36,7 @@ export const fieldSchema = <T extends z.ZodTypeAny>(valueSchema: T) =>
     source: fieldSourceSchema,
     confirmed: z.boolean(),
     rawEvidence: z.string().optional(),
+    provenance: provenanceSchema.optional(),
   });
 
 export type Field<T> = {
@@ -24,6 +45,7 @@ export type Field<T> = {
   source: FieldSource;
   confirmed: boolean;
   rawEvidence?: string;
+  provenance?: Provenance;
 };
 
 export const lengthValueSchema = z.object({
@@ -54,11 +76,24 @@ export const rubricCriterionSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const providedSourceOriginSchema = z.enum([
+  "manual",
+  "document_text",
+  "pdf_annotation",
+  "extracted_title",
+]);
+
+export type ProvidedSourceOrigin = z.infer<typeof providedSourceOriginSchema>;
+
 export const providedReadingSchema = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
   notes: z.string().optional(),
+  origin: providedSourceOriginSchema.optional(),
+  provenance: provenanceSchema.optional(),
 });
+
+export type ProvidedReading = z.infer<typeof providedReadingSchema>;
 
 export const citationStyleSchema = z.enum([
   "APA 7",
@@ -92,6 +127,8 @@ export const assignmentRequirementsSchema = z.object({
   formattingRules: fieldSchema(z.array(z.string())),
   requiredSources: fieldSchema(requiredSourcesValueSchema),
   providedReadings: fieldSchema(z.array(providedReadingSchema)),
+  /** Alias for providedReadings — same list, card label "Provided readings and links". */
+  providedSources: fieldSchema(z.array(providedReadingSchema)).optional(),
   structuralRequirements: fieldSchema(z.array(z.string())),
   dueDate: fieldSchema(z.string()),
   rubricCriteria: fieldSchema(z.array(rubricCriterionSchema)),
@@ -115,6 +152,7 @@ export function extractedField<T>(
   value: T,
   confidence: number,
   rawEvidence?: string,
+  provenance?: Provenance,
 ): Field<T> {
   return {
     value,
@@ -122,6 +160,7 @@ export function extractedField<T>(
     source: "extracted",
     confirmed: false,
     ...(rawEvidence ? { rawEvidence } : {}),
+    ...(provenance ? { provenance } : {}),
   };
 }
 
@@ -137,6 +176,7 @@ export function emptyRequirements(): AssignmentRequirements {
     formattingRules: emptyField<string[]>([]),
     requiredSources: emptyField(),
     providedReadings: emptyField([]),
+    providedSources: emptyField([]),
     structuralRequirements: emptyField<string[]>([]),
     dueDate: emptyField<string>(),
     rubricCriteria: emptyField([]),

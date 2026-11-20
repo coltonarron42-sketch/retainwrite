@@ -2,6 +2,10 @@ import {
   applyPageWordEstimates,
 } from "@/lib/assignment/pages-to-words";
 import {
+  extractUrlsFromText,
+  mergeProvidedSources,
+} from "@/lib/assignment/provided-sources";
+import {
   emptyRequirements,
   extractedField,
   type AssignmentRequirements,
@@ -140,6 +144,21 @@ export function parseAssignmentFallback(rawText: string): AssignmentRequirements
     req.aiPolicy = extractedField("forbidden", 0.9, "no AI");
   } else if (/\bAI (?:is )?(?:allowed|permitted)\b/i.test(text)) {
     req.aiPolicy = extractedField("allowed", 0.85, "AI allowed");
+  }
+
+  // Provided readings / links from corpus URLs
+  const urls = extractUrlsFromText(text);
+  const linkMarkers = [
+    ...text.matchAll(/\[Link provided[^\]]*\]:\s*(\S+)/gi),
+  ].map((m) => m[1]);
+  const provided = mergeProvidedSources([
+    ...urls.map((url) => ({ url, origin: "document_text" as const })),
+    ...linkMarkers.map((url) => ({ url, origin: "manual" as const })),
+  ]);
+  if (provided.length) {
+    const field = extractedField(provided, 0.7, provided[0].url);
+    req.providedReadings = field;
+    req.providedSources = field;
   }
 
   // Strip invalid evidence
