@@ -7,12 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  UploadPanel,
+  type StagedAssignmentFile,
+} from "@/components/stages/stage1/upload-panel";
+import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
   markNotSpecified,
 } from "@/lib/assignment/confirm";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
+import { parseLinkField } from "@/lib/assignment/provided-sources";
 import type {
   AssignmentRequirements,
   CitationStyle,
@@ -102,6 +107,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   const [paste, setPaste] = useState("");
   const [links, setLinks] = useState("");
   const [rightsOk, setRightsOk] = useState(false);
+  const [stagedFiles, setStagedFiles] = useState<StagedAssignmentFile[]>([]);
   const [parseStatus, setParseStatus] = useState("Extracting the text…");
   const [requirements, setRequirements] =
     useState<AssignmentRequirements | null>(null);
@@ -181,29 +187,66 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
 
   async function runParse() {
     setError(null);
-    const linkList = links
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
+    const linkList = parseLinkField(links);
     if (!rightsOk) {
       setError("Confirm you're uploading this for your own coursework.");
       return;
     }
-    if (!paste.trim() && linkList.length === 0) {
-      setError("Paste the prompt or add at least one link.");
+    const fileTexts = stagedFiles
+      .map((f) => f.extractedText.trim())
+      .filter(Boolean);
+    const hasBinaryOnly = stagedFiles.some(
+      (f) => !f.extractedText.trim() && f.method !== "unsupported",
+    );
+    if (!paste.trim() && fileTexts.length === 0 && linkList.length === 0) {
+      if (stagedFiles.length > 0 && hasBinaryOnly) {
+        setError(
+          "We received your files. Paste the prompt text for now so we can build the card — full PDF/OCR parse runs when those services are online.",
+        );
+        return;
+      }
+      setError("Upload a file, paste the prompt, or add at least one link.");
       return;
     }
 
     setScreen("parsing");
-    setParseStatus("Extracting the text…");
+    setParseStatus(
+      stagedFiles.some((f) => f.method === "ocr_pending")
+        ? "Reading your photos…"
+        : "Extracting the text…",
+    );
     await new Promise((r) => setTimeout(r, 700));
     setParseStatus("Looking for length, citation style, and sources…");
     await new Promise((r) => setTimeout(r, 700));
     setParseStatus("Pulling out the rubric and structure…");
     await new Promise((r) => setTimeout(r, 500));
 
+    // Prefer calling finalize in demo so the API path stays warm.
+    if (demoMode) {
+      try {
+        await fetch(`/api/papers/${paperId}/assignment/finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pasteText: paste.trim() || undefined,
+            links: linkList.length ? linkList : undefined,
+            extractedText: fileTexts.join("\n\n") || undefined,
+            extractionMethod: fileTexts.length ? "txt" : paste.trim() ? "paste" : "manual",
+          }),
+        });
+      } catch {
+        /* local parse continues */
+      }
+    }
+
+    const fileNotes = stagedFiles
+      .filter((f) => f.extractNote && !f.extractedText.trim())
+      .map((f) => `[${f.filename}] ${f.extractNote}`);
+
     const combined = [
+      ...fileTexts,
       paste.trim(),
+      ...fileNotes,
       ...linkList.map((u) => `[Link provided — paste content if fetch fails]: ${u}`),
     ]
       .filter(Boolean)
@@ -410,6 +453,10 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   }
 
   if (screen === "upload") {
+    const canSubmit =
+      rightsOk &&
+      (stagedFiles.length > 0 || Boolean(paste.trim()) || Boolean(links.trim()));
+
     return (
       <div className="mx-auto max-w-xl">
         <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
@@ -419,54 +466,28 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           Start with the assignment
         </h1>
         <p className="mt-3 text-sm text-rw-ink/65">
-          Upload the full prompt — the instructions, rubric, and anything your
-          teacher handed out. We&apos;ll pull out the requirements, and you&apos;ll
-          check them before we ask any questions.
+          Upload the full prompt — files, photos from your library, or a camera
+          shot of the handout. We&apos;ll pull out the requirements, and
+          you&apos;ll check them before we ask any questions.
         </p>
 
         <div className="mt-8 space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="paste">Paste the prompt</Label>
-            <Textarea
-              id="paste"
-              value={paste}
-              onChange={(e) => setPaste(e.target.value)}
-              rows={10}
-              placeholder="Paste the full assignment text here."
-            />
-            <p className="text-xs text-rw-ink/50">
-              PDF, Word, or a photo of a handout all work. File upload ships next;
-              paste works now.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="links">Add a link (one URL per line)</Label>
-            <Textarea
-              id="links"
-              value={links}
-              onChange={(e) => setLinks(e.target.value)}
-              rows={3}
-              placeholder="https://…"
-            />
-          </div>
-          <label className="flex items-start gap-2 text-sm text-rw-ink/70">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={rightsOk}
-              onChange={(e) => setRightsOk(e.target.checked)}
-            />
-            <span>I&apos;m uploading this for my own coursework.</span>
-          </label>
-          {error ? (
-            <p className="text-sm text-red-700" role="alert">
-              {error}
-            </p>
-          ) : null}
+          <UploadPanel
+            files={stagedFiles}
+            onFilesChange={setStagedFiles}
+            paste={paste}
+            onPasteChange={setPaste}
+            links={links}
+            onLinksChange={setLinks}
+            rightsOk={rightsOk}
+            onRightsOkChange={setRightsOk}
+            error={error}
+            onError={setError}
+          />
           <Button
             type="button"
             variant="secondary"
-            disabled={!rightsOk || (!paste.trim() && !links.trim())}
+            disabled={!canSubmit}
             onClick={() => void runParse()}
           >
             Read my assignment
@@ -474,7 +495,8 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
         </div>
         {demoMode ? (
           <p className="mt-6 text-xs text-rw-ink/45">
-            Demo mode uses a rule-based parser when Grok is offline.
+            Demo mode reads text files locally and uses a rule-based parser when
+            Grok / OCR are offline.
           </p>
         ) : null}
       </div>
@@ -775,7 +797,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           </CardField>
 
           <CardField
-            label="Provided readings"
+            label="Provided readings and links"
             attention={fieldNeedsAttention(requirements.providedReadings)}
             confirmed={requirements.providedReadings.confirmed}
           >

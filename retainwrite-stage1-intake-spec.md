@@ -6,14 +6,14 @@ Companion to `retainwrite-cursor-build-prompt.md` and `retainwrite-stage-specs.m
 
 LOCKED RULES (hold everywhere): coaching only (the app never writes submission prose: no paragraphs, no thesis, no rewrites, no fabricated sources or quotes). AI produces questions, probes, checklists, extracted requirements, and research *leads to verify*. The student writes every submitted sentence and chooses every lead. Style metrics are for feedback and voice baselines only. Paste is blocked on voice-sample answers. Every session is logged to `session_events`. Add `// SOP: coaching only, never generate submission text` at every AI call site. Use `lib/ai/guard.ts` on every model output.
 
-Stack (same as the rest of the app): Next.js App Router, TypeScript, Supabase, Grok via the official `openai` SDK (`baseURL: "https://api.x.ai/v1"`, `GROK_API_KEY`). `MODEL_FAST` = `grok-4.3` (`reasoning_effort: "none"`) for live coaching questions and adaptive decisions. `MODEL_STRONG` = `grok-4.7` (`reasoning_effort: "low"`) for assignment parsing and extraction. Structured output uses `response_format` `json_schema` (`strict: true`), then Zod; if the schema is rejected, retry with `json_object` + Zod. Optional `MISTRAL_OCR_API_KEY` for scanned PDFs and images (feature off if missing). Timeouts: 8 s fast, 30 s strong. On timeout or error, log `ai_fallback` and use the rule-based path; never block the student with a blank page.
+Stack (same as the rest of the app): Next.js App Router, TypeScript, Supabase, Grok via the official `openai` SDK (`baseURL: "https://api.x.ai/v1"`, `GROK_API_KEY`). `MODEL_FAST` = `grok-4.3` (`reasoning_effort: "none"`) for live coaching questions and adaptive decisions. `MODEL_STRONG` = `grok-4.7` (`reasoning_effort: "low"`) for assignment parsing, extraction, and Grok vision OCR. Structured output uses `response_format` `json_schema` (`strict: true`), then Zod; if the schema is rejected, retry with `json_object` + Zod. Optional `MISTRAL_OCR_API_KEY` is the first-choice OCR engine for images and scanned PDF pages (do **not** add a second env var named `MISTRAL_API_KEY`). If that key is missing or Mistral fails, fall back to Grok vision on `MODEL_STRONG` via `api.x.ai/v1` with image inputs. Timeouts: 8 s fast, 30 s strong, 60 s per OCR page. On timeout or error, log `ai_fallback` and use the rule-based path; never block the student with a blank page.
 
 ---
 
 ## 0. Decisions locked in this doc
 
-1. **Assignment first.** The student uploads the full prompt (files, paste, and/or links) before any coaching question is asked. Nothing in Stage 1 is inferred silently and used without a student check.
-2. **Assignment card is a hard gate.** `MODEL_STRONG` extracts a structured `assignment_requirements` JSON. Each field has a confidence score. Low-confidence or missing fields are highlighted. The student must confirm or edit every field before coaching begins.
+1. **Assignment first.** The student uploads the professor's actual documents (PDF/DOCX/TXT, gallery photos/screenshots, or a device-camera capture) before any coaching question is asked. File upload is the primary path. Paste is a secondary option; professor-provided URLs are an optional extra, not the main input. Nothing in Stage 1 is inferred silently and used without a student check.
+2. **Assignment card is a hard gate.** `MODEL_STRONG` extracts a structured `assignment_requirements` JSON from a merged, ordered corpus of every uploaded file (plus optional paste and links). Each field has a confidence score and cites the file and page it came from, with a **View source** peek at the snippet. Low-confidence or missing fields are highlighted. The student must confirm or edit every field before coaching begins.
 3. **Coaching questions are assignment-grounded and adaptive**, one at a time, only after the card is confirmed. The AI never decides the student's sources, stance, or leads.
 4. **Get-to-know-you is a short, skippable personalization layer** (3–5 questions, adaptive), run after the card is confirmed and before or woven into the coaching questions. Answers are stored as an `interest_profile` (tags plus the student's own words) and used only to steer research leads toward things the student finds engaging, while still satisfying the assignment.
 5. **Suggested people and resources are leads to verify, never citations.** Each lead must show why it connects to the assignment, and — when it came from an interest — why it also connects to that interest. Stage 4 verifies with real sources and drops leads it cannot verify. No unverified quotes, titles, or URLs are presented as fact.
@@ -40,8 +40,8 @@ The old Stage 1 was four generic blocks in this order: (1) course / prompt / due
 
 Routes stay under `/app/papers/[paperId]/stage/1`. Shared chrome (left rail, stages 1–6) is unchanged.
 
-1. **Upload** — files, paste, and/or links.
-2. **Parse** — extract text (OCR fallback for scans), then `MODEL_STRONG` fills the Assignment card.
+1. **Upload** — documents, gallery photos, and/or camera pages first (paste and professor links are secondary).
+2. **Parse** — native text for digital PDFs/DOCX; OCR for images and scanned pages (Mistral, else Grok vision); merge into one ordered corpus; then `MODEL_STRONG` fills the Assignment card.
 3. **Confirm** — student reviews, edits, and confirms every field. This is a hard gate.
 4. **Get to know you** — 3–5 skippable, adaptive questions about interests. May start immediately after confirm and/or be woven into step 5.
 5. **Coaching questions** — one at a time, grounded in the confirmed assignment; leads steered by the interest profile when present; background and the required personal question included.
@@ -55,36 +55,50 @@ The student can leave and resume. Progress is saved after every successful API c
 
 ### 3.1 Screen A — Upload the assignment
 
+This screen is built for the real flow: a student starts from the professor's assignment document, often plus a few source links, and coaching begins only after that anchor is in place. (Motivating example, no course number or personal details: a graduate leadership-course paper began with the professor's assignment document and the source links that came with it; the coach read those first, then asked questions.)
+
 **H1:** Start with the assignment
 
-**Sub:** Upload the full prompt — the instructions, rubric, and anything your teacher handed out. We'll pull out the requirements, and you'll check them before we ask any questions.
+**Sub:** Upload the document your professor sent — the prompt, rubric, or a photo of a handout. We'll read the requirements, and you'll check them before we ask any questions.
 
-Three equal actions:
+File upload is the **primary** path. Do not present a URL text field as an equal third method. Three input methods sit together as the hero of the screen:
 
-- **Upload files** — accept `.pdf`, `.docx`, `.txt`, `.md`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.heic`, `.gif`. Multiple files allowed, max **10**, max **20 MB** each. Reject `.doc` with “Save or export this as a PDF or a .docx and try again.”
-- **Paste the prompt** — textarea, paste allowed here (this is the teacher's text, not a voice sample). Max 20,000 words.
-- **Add a link** — one URL per line, max 10. We only fetch public pages (see 12.7). If a fetch fails, keep the URL and ask the student to paste or upload the content.
+1. **Upload a PDF or document** — `<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple>`. Accept **PDF, DOCX, and TXT**. Reject legacy `.doc` with “Save or export this as a PDF or a .docx and try again.” Reject other types with “That file type isn't supported. Try a PDF, a Word file, a text file, or a photo.”
+2. **Choose photos or screenshots** — gallery picker, `accept="image/jpeg,image/png,image/heic,image/heif,image/webp"`. Accept **JPG, PNG, HEIC, WEBP**. Convert HEIC/HEIF to JPEG **server-side** before OCR (do not rely on the browser to decode HEIC). Keep WEBP as WEBP or transcode to JPEG; either is fine if the stored MIME is accurate.
+3. **Take a photo** — on a phone, `<input type="file" accept="image/*" capture="environment">` (rear camera). On desktop, open a `getUserMedia` still-capture overlay (`{ video: { facingMode: "environment" } }`); if permission is denied or the API is missing, fall back to the file picker. After each shot, a **crop and rotate** step (90° steps plus free crop, plus auto-rotate suggestion when we detect sideways pages). Then **Add another page** so a multi-page printed syllabus can be captured as an ordered set. Each page is one file in the submission, in capture order, and can be reordered later.
 
-Helper: “PDF, Word, or a photo of a handout all work. You can add more than one.”
+Caps (constants in `lib/config.ts`): max **15** files, **25 MB** each, **100 MB** total. Enforce client-side and again on the signed-upload API.
 
-Short rights line + required checkbox: “I'm uploading this for my own coursework.” Disable the primary CTA until it's checked and at least one file, paste, or link is present.
+Desktop: the hero area is also a **drag-and-drop** target for documents and images. Mobile: large tap targets for the three methods; drag-and-drop is optional.
+
+Once files are chosen, show a **thumbnail strip** (document icon for PDF/DOCX/TXT, image thumb for photos). Each item has a name, size, per-file **upload progress**, a **Retry** action on failure, **Remove**, and drag handles (plus up/down buttons) to **reorder**. Reorder changes the corpus order used in parsing. Camera pages are labeled “Page 1, Page 2…” until renamed.
+
+Uploads go to a private Supabase Storage bucket **`assignment-files`** via **resumable** uploads (TUS / Supabase resumable upload) and **signed URLs**. RLS: owner-only (`${user_id}/...`). No public bucket, no public object URLs. The client never receives a service-role key. If a mobile upload is interrupted, reopen the screen, show incomplete items as “Upload paused,” and let the student resume or retry without losing the other files.
+
+**Secondary, below the hero:** a quieter control **Paste the assignment text**. Opens a textarea (paste allowed here — this is the teacher's text, not a voice sample). Max 20,000 words. Use when the student already has the prompt copied, not as the visual equal of upload.
+
+**Optional, further below, collapsed by default:** **Any links your professor gave you?** A multi-URL field (one URL per line or comma-separated, max 15). Helper: “Optional — syllabi and PDFs often already include these.” We store them as `providedSources` and dedupe with URLs found inside the documents (section 4.5). We may try a public fetch (section 12.7); if it fails, the URL is still kept as a source link. **Links alone are not enough to continue** — the student still needs at least one uploaded file or a paste of the assignment itself.
+
+Short rights line + required checkbox: “I'm uploading this for my own coursework.” Disable **Read my assignment** until it's checked and at least one file is fully uploaded (or a paste is present).
 
 Primary CTA: **Read my assignment**
 
-Log `assignment_uploaded`.
+Log `assignment_uploaded` (counts and kinds only, no file bytes).
 
 ### 3.2 Screen B — Parsing
 
-Full-width progress, not a blank spinner. Staged copy, 2–3 s each as work actually proceeds:
+Full-width progress, not a blank spinner, driven by parse status (polling or Realtime, section 10). Staged copy as work actually proceeds:
 
+- “Uploading and checking your files…”
 - “Extracting the text…”
-- “Looking for length, citation style, and sources…”
+- “Reading scanned pages…” (only if OCR/vision runs)
+- “Collecting links and sources…”
+- “Looking for length, citation style, and due date…”
 - “Pulling out the rubric and structure…”
 
-If OCR runs: “This looks like a scan — reading the page…”
-If OCR is needed but `MISTRAL_OCR_API_KEY` is missing: stop on a recovery state, not a dead end: “This looks like a scan, and we couldn't read the text automatically. Paste the prompt, or try a clearer photo.” Log `ocr_skipped`. Offer **Paste the prompt** and **Add another file**.
+Per-file, show a small status: ready / reading page N / needs a clearer photo / failed. If a page fails the quality check (section 4.4), pause that file with “This photo looks blurry or too dark — retake it?” Actions: **Retake**, **Use it anyway**. Do not silently drop the page.
 
-If extraction yields fewer than 20 words and there is no paste: same recovery state, “We couldn't read enough text from that file.”
+If every OCR path fails for a file and there is no usable text: “We couldn't read enough text from {filename}. Retake the photo, try a clearer scan, or paste that part.” Log `ocr_failed` (and `ocr_mistral_miss` / `ocr_grok_used` as appropriate). The student can add files, paste, and tap **Read my assignment** again. Do not invent a card from almost-empty text (under 20 usable words and no paste).
 
 Do not show coaching questions on this screen.
 
@@ -103,11 +117,13 @@ Render every field in the schema (section 4), including empty ones. Visual state
 | Missing / null | Dashed empty state, “We couldn't find this — add it if you know it.” |
 | Student-edited | Quiet “You edited this” mark |
 
-Each field has **Looks right** and **Edit**. Edit opens an inline control (text, select, date, list editor for sources / rubric / formatting / readings). List fields can add/remove rows.
+Each extracted field cites its provenance in quiet type: “From {filename}, p. {page}.” A **View source** control opens a sheet with that filename, page number, the highlighted snippet, and a page thumbnail when the source is an image or a scanned PDF page. If a field was merged from more than one place, list each citation and let View source page through them.
 
-Length display rules (section 4.3): if the prompt gives pages and not words, show the page range and the word estimate: “About {min}–{max} words (we count ~275 words per double-spaced page). This is an estimate, not a rule.” If the prompt already gives a word count, show that count and do **not** overwrite it with the estimate. If both are present, show both, with the teacher's word count primary.
+Each field has **Looks right** and **Edit**. Edit opens an inline control (text, select, date, list editor for sources / rubric / formatting / readings). List fields can add/remove rows. Provided readings and links (`providedSources`) show the merged, deduped list, marked as from the document, a PDF link, or a URL the student typed.
 
-**Confirm all after review:** button **Looks right — continue**. It is disabled until (a) every *displayed* field has been marked Looks right or edited-and-saved, and (b) required fields are filled or explicitly set to “Not specified” (section 4.4). Clicking it early scrolls to the first unreviewed or missing required field: “A few fields still need a look.”
+Length display rules (section 4.2): if the prompt gives pages and not words, show the page range and the word estimate: “About {min}–{max} words (we count ~275 words per double-spaced page). This is an estimate, not a rule.” If the prompt already gives a word count, show that count and do **not** overwrite it with the estimate. If both are present, show both, with the teacher's word count primary.
+
+**Confirm all after review:** button **Looks right — continue**. It is disabled until (a) every *displayed* field has been marked Looks right or edited-and-saved, and (b) required fields are filled or explicitly set to “Not specified” (section 4.3). Clicking it early scrolls to the first unreviewed or missing required field: “A few fields still need a look.”
 
 If the parser flagged a possible AI restriction (section 12.6), show the note on this screen *before* the continue button. The student must pick **Continue anyway** or **I'll check first**. The latter saves progress and leaves Stage 1 `in_progress`.
 
@@ -160,12 +176,20 @@ Canonical TypeScript / Zod shape (`lib/assignment/schema.ts`). Stored as `assign
 ```ts
 export type FieldSource = "extracted" | "student_edited" | "student_entered" | "missing";
 
+export type Provenance = {
+  fileId: string;
+  fileName?: string;
+  page?: number;               // 1-indexed page in that file
+  snippet?: string;            // short verbatim span for View source
+};
+
 export type Field<T> = {
   value: T | null;
   confidence: number;          // 0–1; 0 if missing
   source: FieldSource;
   confirmed: boolean;
   rawEvidence?: string;        // short verbatim span from the prompt, if any
+  provenance?: Provenance[];   // file + page citations; required when extracted
 };
 
 export type LengthValue = {
@@ -187,7 +211,15 @@ export type RequiredSourcesValue = {
 };
 
 export type RubricCriterion = { name: string; weight?: number; notes?: string };
-export type ProvidedReading = { title?: string; url?: string; notes?: string };
+export type ProvidedSourceOrigin = "manual" | "document_text" | "pdf_annotation" | "extracted_title";
+
+export type ProvidedReading = {
+  title?: string;
+  url?: string;
+  notes?: string;
+  origin?: ProvidedSourceOrigin;
+  provenance?: Provenance;
+};
 
 export type CitationStyle =
   | "APA 7" | "MLA 9" | "Chicago 17 Notes" | "Chicago 17 Author-Date"
@@ -204,7 +236,8 @@ export type AssignmentRequirements = {
   citationStyleOther?: string;
   formattingRules: Field<string[]>;
   requiredSources: Field<RequiredSourcesValue>;
-  providedReadings: Field<ProvidedReading[]>;
+  providedReadings: Field<ProvidedReading[]>;      // alias shown on the card as provided readings and links; same list as providedSources
+  providedSources: Field<ProvidedReading[]>;       // merged, deduped URLs + named readings (section 4.5)
   structuralRequirements: Field<string[]>;  // required sections, counterargument, abstract, etc.
   dueDate: Field<string>;          // ISO date or null
   rubricCriteria: Field<RubricCriterion[]>;
@@ -217,11 +250,12 @@ export type AssignmentRequirements = {
 ### 4.1 Parse rules (`MODEL_STRONG`)
 
 - If a field is not in the materials, `value` is `null`, `confidence` is `0`, `source` is `missing`. **Never invent** due dates, page counts, citation styles, rubric weights, or required-source counts.
-- `rawEvidence` must be a verbatim substring of the extracted text (enforce in code, case-insensitive). Drop it if verification fails.
+- `rawEvidence` must be a verbatim substring of the extracted corpus (enforce in code, case-insensitive). Drop it if verification fails. When present, also set `provenance` (file id, 1-indexed page, snippet) so **View source** can open the right page.
 - Confidence: 0.85+ when the text states the field clearly; 0.4–0.7 when implied or ambiguous; 0 when absent. Highlight if `confidence < 0.6` or `source === "missing"`.
-- If multiple assignments appear in one file, do not pick one silently. Return `parse_meta.candidates` (short labels + evidence) and show a picker first (section 12.3).
+- If multiple assignments appear in one file or across the corpus, do not pick one silently. Return `parse_meta.candidates` (short labels + evidence + provenance) and show a picker first (section 12.3).
 - `aiPolicy` is set only from explicit wording in the prompt (section 12.6). Default `unspecified`.
 - Pages-to-words conversion is done in **code**, not by the model.
+- Run requirements extraction only after the ordered corpus is built (section 4.4) and `providedSources` are merged (section 4.5).
 
 ### 4.2 Word estimate
 
@@ -249,6 +283,42 @@ On confirm, sync to `papers`:
 - `assignment_prompt` ← full concatenated extracted/pasted text (the raw prompt, not a paraphrase)
 - `required_length` ← raw length string, or a compact “{min}–{max} words” / “{min}–{max} pages”
 - `citation_style` ← confirmed style
+
+### 4.4 Extraction, OCR, and the ordered corpus
+
+Build one ordered **assignment corpus** from every item on the submission, in the student's thumbnail order (then paste, then fetched link text if any). Each segment is tagged `{ fileId, fileName, page, text, method, quality }`. This corpus is what `MODEL_STRONG` reads for the Assignment card, and what View source jumps into.
+
+**Native text first**
+
+- **TXT:** read as UTF-8 text (try UTF-8, then latin-1 fallback). Method: `txt`.
+- **DOCX:** `mammoth` (or equivalent) to plain text. Method: `docx`. One logical page if the format has no page map; otherwise keep what the library provides.
+- **Digital PDF:** extract the text layer **per page**. If a page has ≥ 40 characters of real text (not just page numbers or running headers), use it. Method: `pdf_text`. If a page is empty or nearly empty, treat that page as scanned and send it through OCR.
+
+**OCR / vision for images and scanned PDF pages — fallback order**
+
+For each image file and each scanned PDF page, in this order:
+
+1. **Quality and orientation check** (client preview + server). Score blur, darkness, and resolution (0–1). Auto-rotate using EXIF orientation and a simple rotation detector (0/90/180/270). If quality is below **0.45**, prompt to retake (“This photo looks blurry or too dark — retake it?”) and still allow **Use it anyway**. Store `quality_score` on the file / page. Then **strip EXIF GPS and other location metadata** before the object is stored (or rewrite the stored image without it). HEIC/HEIF is converted to JPEG at this step.
+2. **Mistral OCR**, if `MISTRAL_OCR_API_KEY` is set. Method: `ocr_mistral`. Use this key only — do not add `MISTRAL_API_KEY`. Timeout 60 s/page.
+3. **Grok vision fallback**, if the Mistral key is missing, the call fails or times out, or Mistral's per-page confidence is below **0.5**. Call `MODEL_STRONG` (`grok-4.7`, `reasoning_effort: "low"`) at `https://api.x.ai/v1` with image inputs (OpenAI-compatible `image_url` or base64 data URL from a short-lived signed URL). Ask only for a **verbatim transcription**, plus `{ rotationDegrees, quality: "good"|"blurry"|"dark"|"partial", handwritten: boolean, confidence }`. Never summarize, never rewrite, never invent text that is not visible. Method: `ocr_grok_vision`. Guard applies. Timeout 60 s/page.
+4. **Still unreadable:** mark the page `failed`, show the recovery copy on Screen B, and log `ocr_failed`. Offer retake or paste. Do not block other files in the same submission.
+
+**Per-page quality gate.** After transcription, if `confidence < 0.5` or the quality label is `blurry` / `dark`, surface the retake prompt for that page even if some text came back. Keep the text as a best-effort draft the student can check on the card.
+
+**Handwritten pages.** Attempt OCR anyway (step 2 then 3). If `handwritten` is true or the text is clearly fragmentary, show: “This looks handwritten — we'll do our best. Please check the card carefully, and paste any part we missed.” Log `ocr_handwritten`.
+
+Rasterize scanned PDF pages with a server-side renderer (e.g. pdf.js / poppler) at a readable resolution before OCR. Do not send a whole binary PDF to Grok unless the API is documented to accept it; send page images.
+
+### 4.5 Provided sources (links in the files + the optional URL field)
+
+After the corpus is built, collect URLs into `providedSources` / `providedReadings` (one list, two names on the card: “Provided readings and links”):
+
+- URLs in extracted text (plain text, footnotes, bibliographies)
+- PDF **link annotations** (URI actions on the page), even when the visible text is a short label
+- Named readings in the prompt that have no URL (`origin: "extracted_title"`)
+- URLs the student typed in **Any links your professor gave you?** (`origin: "manual"`)
+
+Dedupe case-insensitively on normalized URL (strip trailing slashes, lowercase host). Prefer the richest record (title + URL beats URL-only). Keep `origin` and provenance. Do not invent titles or URLs. These links are materials the professor provided, not Stage 4 research leads.
 
 ---
 
@@ -506,7 +576,9 @@ File: `supabase/migrations/0005_stage1_assignment_first.sql` (additive, after 00
 -- 0005_stage1_assignment_first.sql
 
 create type assignment_file_kind as enum ('file', 'paste', 'link');
-create type extraction_method as enum ('pdf_text', 'docx', 'ocr', 'paste', 'fetch', 'manual');
+create type extraction_method as enum ('pdf_text', 'docx', 'txt', 'ocr_mistral', 'ocr_grok_vision', 'paste', 'fetch', 'manual');
+create type assignment_upload_status as enum ('pending', 'uploading', 'ready', 'processing', 'failed');
+create type assignment_parse_status as enum ('idle', 'extracting', 'ocr', 'merging', 'extracting_requirements', 'ready', 'needs_input', 'failed');
 create type intake_question_kind as enum (
   'interest', 'coaching', 'background', 'personal', 'fallback_voice', 'lead_followup'
 );
@@ -515,12 +587,14 @@ create table assignments (
   id uuid primary key default gen_random_uuid(),
   paper_id uuid not null unique references papers on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
-  raw_text text not null default '',
+  raw_text text not null default '',              -- ordered merged corpus
   requirements jsonb not null default '{}',       -- AssignmentRequirements
-  parse_meta jsonb not null default '{}',         -- model, ocr, language, candidates, timings
+  parse_status assignment_parse_status not null default 'idle',
+  parse_meta jsonb not null default '{}',         -- model, ocr, language, candidates, timings, provenance index
   field_confirmations jsonb not null default '{}',
   confirmed_at timestamptz,
   ai_policy_ack_at timestamptz,
+  files_delete_after timestamptz,                 -- set when the paper is deleted: now + 90 days
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -530,15 +604,24 @@ create table assignment_files (
   assignment_id uuid not null references assignments on delete cascade,
   paper_id uuid not null references papers on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
-  kind assignment_file_kind not null,
+  kind assignment_file_kind not null,             -- file | paste | link
   filename text,
-  mime text,
+  mime text,                                      -- sniffed MIME, not the client-supplied type
   byte_size int,
-  storage_path text,
-  url text,
+  storage_path text,                              -- private bucket assignment-files
+  url text,                                       -- professor-provided link only; never a public storage URL
+  pages int,                                      -- page count (camera shots = 1)
+  page_meta jsonb not null default '[]',          -- [{page, method, confidence, quality, handwritten}]
+  ocr_method text,                                -- mistral | grok_vision | none
+  ocr_confidence numeric,                         -- roll-up 0–1
+  quality_score numeric,
+  sort_order int not null default 0,              -- corpus order (API field: order)
+  content_hash text,                              -- sha256 of stored bytes, for duplicates
+  upload_status assignment_upload_status not null default 'pending',
   extracted_text text,
   extraction_method extraction_method,
   ocr_used boolean not null default false,
+  exif_stripped boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -606,7 +689,9 @@ create index on research_leads (paper_id, status);
 create index on assignment_files (assignment_id);
 ```
 
-Also: trigger to keep `assignments.updated_at` fresh. New private Storage bucket `assignments`, RLS by user folder `${user_id}/...`, same pattern as `sources`. Generate types into `lib/database.types.ts`.
+Also: trigger to keep `assignments.updated_at` fresh. New private Storage bucket **`assignment-files`**, RLS owner-only by user folder `${user_id}/${paper_id}/...`, same pattern as `sources`. **No public policies and no public object URLs**; reads use short-lived signed URLs (preview, View source thumbnails, Grok vision fetch). Generate types into `lib/database.types.ts`.
+
+**Retention:** keep assignment files for the life of the paper plus **90 days**. When a paper is deleted, set `assignments.files_delete_after = now() + interval '90 days'` and leave the objects until a daily cron (`/api/cron/assignment-retention`, Bearer `CRON_SECRET`) purges expired rows and storage objects. The student can delete a file (or all assignment files for a paper) at any time from the upload screen or account/privacy settings; deletion removes the storage object and the row, and re-runs parse if the card was not yet confirmed. Log `assignment_file_deleted` with ids only. Add a note on the upload screen: “We keep these files while this paper is on your account, and for 90 days after it's deleted. You can remove a file anytime.”
 
 `stage_progress.data` for stage 1 (Zod-validated) may store UI state (`useInterestProfile`, `voiceChoice`, current question id). The source of truth for answers, files, requirements, leads, and interests is the tables above.
 
@@ -618,13 +703,21 @@ Also: trigger to keep `assignments.updated_at` fresh. New private Storage bucket
 
 All routes: session required, `assertStageUnlocked(paperId, 1)` (or complete-and-hand-off on `/complete`), Zod-validated bodies, `runtime = 'nodejs'` where files or model calls need it. Never import service-role keys on the client.
 
-### `POST /api/papers/[paperId]/assignment/upload`
+### `POST /api/papers/[paperId]/assignment/upload-url`
 
-Accepts multipart files and/or JSON `{ pasteText?: string, links?: string[] }` plus `rightsConfirmed: true`. Creates `assignments` if needed. Writes `assignment_files`, extracts text (PDF text layer, `mammoth` for DOCX, optional Mistral OCR for images and textless PDFs, public fetch for links — timeout 8 s, size cap 2 MB, no authenticated LMS pages). Does **not** call the LLM. Returns file ids, extraction method, word counts, and any `ocr_skipped` flags.
+Creates `assignments` if needed. Body (Zod): `{ filename, mime, byteSize, kind: "file", rightsConfirmed: true }`. Enforces caps (15 files, 25 MB each, 100 MB total), allowlisted types, and the rights checkbox. Inserts a `pending` `assignment_files` row and returns `{ fileId, path, signedUploadUrl, token }` for a **resumable** upload into `assignment-files`. Signed URLs expire in 15 minutes. Never return a public URL or the service-role key.
+
+### `POST /api/papers/[paperId]/assignment/finalize`
+
+Called after a file finishes uploading (or to register paste / links). Body: `{ fileId?, pasteText?, links?: string[] }`. For files: verify the object exists, **MIME-sniff magic bytes** and reject mismatches or non-allowlisted types (executables, HTML, SVG, etc.), convert HEIC/HEIF to JPEG, **strip EXIF GPS**, compute `content_hash`, warn (do not silently drop) if the hash matches a file already on this assignment, set `pages`, `mime`, `byte_size`, `upload_status = "ready"`, `exif_stripped`. For paste: store a `kind='paste'` row. For links: store `kind='link'` rows (normalized URLs). Does **not** have to finish OCR inline; kick off extraction and return quickly.
+
+### `GET /api/papers/[paperId]/assignment/parse-status`
+
+Returns `{ parseStatus, files: [{ id, filename, sortOrder, uploadStatus, pages, ocrMethod, ocrConfidence, qualityScore, error? }], needsRetake: [{ fileId, page, reason }] }`. The client **polls every 2 s** while status is in progress, and **also** subscribes to Supabase Realtime on the `assignments` and `assignment_files` rows for this paper. Either channel is enough to advance Screen B; polling is the fallback if Realtime is unavailable.
 
 ### `POST /api/papers/[paperId]/assignment/parse`
 
-Concatenates extracted text, calls `MODEL_STRONG` with the parse schema, Zod-validates, verifies `rawEvidence` substrings, computes word estimates in code, saves `requirements` + `parse_meta`. If `parse_meta.candidates.length > 1`, return the picker and do not pretend a single card is confirmed. Returns the Assignment card.
+Starts (or retries) corpus merge + requirements extraction once files are `ready`. Builds the ordered corpus (section 4.4), merges `providedSources` (section 4.5), calls `MODEL_STRONG` with the parse schema, Zod-validates, verifies `rawEvidence` substrings against the corpus, computes word estimates in code, saves `requirements` + `parse_meta` + `raw_text`. If `parse_meta.candidates.length > 1`, return the picker and do not pretend a single card is confirmed. Returns the Assignment card when `parse_status = "ready"` (clients may also wait on parse-status). Optional public fetch of manual/extracted links uses the section 12.7 rules and must not block the card.
 
 ### `POST /api/papers/[paperId]/assignment/confirm`
 
@@ -650,7 +743,7 @@ Add `// SOP: coaching only, never generate submission text` at every call site. 
 
 **Parse (`MODEL_STRONG`, `reasoning_effort: "low"`):**
 
-> You extract assignment requirements from teacher materials. Return only the JSON schema. Quote short evidence spans from the text, verbatim. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, or source counts. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line.
+> You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only the JSON schema. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.
 
 **Intake questions and leads (`MODEL_FAST`, `reasoning_effort: "none"`):**
 
@@ -666,9 +759,9 @@ Student data in prompts: send only the fields needed (confirmed card, recent ans
 
 **12.2 Vague prompt** (“write a paper about X”). Highlight missing length and citation style. The student fills what they know or marks Not specified. Coaching still starts after confirm, more general but still topic-grounded.
 
-**12.3 Multiple assignments in one PDF.** Parser returns `parse_meta.candidates`. Picker: “We found more than one assignment in this file. Which one is this paper for?” plus “It's all one assignment.” Then parse (or filter) the selected part. Never silently pick.
+**12.3 Multiple assignments in one file or across the upload.** Parser returns `parse_meta.candidates`. Picker: “We found more than one assignment in this file. Which one is this paper for?” plus “It's all one assignment.” Then parse (or filter) the selected part. Never silently pick.
 
-**12.4 Image-only or scanned PDF.** Try Mistral OCR when the key is set. If not, or if OCR fails, the recovery copy in 3.2. The student can always paste.
+**12.4 Image-only or scanned PDF.** Follow the section 4.4 fallback order (Mistral if `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision). Quality issues go through the retake prompt, not a dead end. The student can always paste or add another photo.
 
 **12.5 Non-English materials.** If detected language is not English: “This assignment looks like it's in {language}. Coaching questions and feedback are in English in this version, but you can still upload it and type answers in the assignment's language.” Continue is the student's choice. Parse extracts what it can. Do not block.
 
@@ -678,9 +771,25 @@ Student data in prompts: send only the fields needed (confirmed card, recent ans
 
 Buttons: **Continue anyway** (sets `ai_policy_ack_at`, logs `ai_policy_continued`) or **I'll check first** (saves, leaves Stage 1 in progress, logs `ai_policy_notice_shown`).
 
-**12.7 Link fetch failures.** Public GET only, 8 s timeout, 2 MB cap, follow a small redirect limit, no cookies or student LMS credentials. If the response is a login page or fails, keep the URL on the file row and ask the student to paste or upload. Never store fetched credentials.
+**12.7 Link fetch failures.** Public GET only, 8 s timeout, 2 MB cap, follow a small redirect limit, no cookies or student LMS credentials. If the response is a login page or fails, keep the URL as a `providedSources` entry and, if useful, ask the student to upload the document. Never store fetched credentials. A failed fetch must not block the Assignment card.
 
 **12.8 Empty or unreadable mix.** If after all files + paste the usable text is under 20 words, stay on the recovery state. Do not invent a card.
+
+**12.9 Blurry or dark photo.** If the quality score is below 0.45, or OCR returns `blurry` / `dark`, prompt to retake and show the score in debug-only logs (not to the student as a raw number unless useful: “This photo looks blurry or too dark”). **Retake** replaces that page in order; **Use it anyway** keeps the best-effort text.
+
+**12.10 Rotated pages.** Auto-rotate on EXIF and detected orientation, then let the student fix remaining issues in the crop/rotate step. Re-run OCR if they change rotation after a first pass.
+
+**12.11 Duplicate uploads.** If `content_hash` matches another file on this assignment, warn: “This looks like a file you already added.” Let them keep both or remove one. Do not silently drop it.
+
+**12.12 Password-protected PDFs.** Detect encryption and stop with “This PDF is password-protected. Export an unlocked copy or paste the text — we don't ask for the password.” Do not collect or store the PDF password. Log `pdf_encrypted`.
+
+**12.13 Handwritten notes.** Best-effort OCR (section 4.4) plus the handwritten check copy. Never guess missing words into a required field with high confidence; leave those fields low-confidence or missing so the student fills them.
+
+**12.14 Unsupported types.** Reject on the picker and again on finalize (magic-byte sniff). Clear message: “That file type isn't supported. Try a PDF, a Word file, a text file, or a photo.”
+
+**12.15 Upload interrupted on mobile.** Resumable uploads (TUS). On return, show paused items with progress and **Resume** / **Retry**. Other finished files stay. Don't start parse until the student taps **Read my assignment** again (or auto-resume parse if they already had, and only the interrupted file remains).
+
+**12.16 Security.** Treat every upload as untrusted. MIME-sniff magic bytes and reject type mismatches and non-allowlisted types (including executables, HTML, and SVG). Do not trust the client `Content-Type`. Strip EXIF GPS and location metadata from images before they are stored or sent to a model. No public storage URLs — signed URLs only, short TTL. Do not interpolate extracted text into HTML unsanitized (View source is escaped text plus an image thumbnail). Don't run uploaded files as code. A full antivirus engine is not required on Vercel; the allowlist, sniffing, and private bucket are the v1 control. Log `upload_rejected` with reason enum only.
 
 ---
 
@@ -690,7 +799,7 @@ Write `session_events` with `stage = 1`. Never put full assignment text, interes
 
 Events:
 
-`assignment_uploaded`, `assignment_parse_started`, `assignment_parsed`, `assignment_field_edited`, `assignment_confirmed`, `ocr_skipped`, `ai_policy_notice_shown`, `ai_policy_continued`, `interest_started`, `interest_skipped`, `interest_question_shown`, `interest_answered`, `interest_profile_updated`, `interest_profile_deleted`, `interest_profile_reused`, `intake_question_shown`, `intake_answered`, `intake_dig_deeper`, `intake_move_on`, `suggestions_offered`, `lead_accepted`, `lead_rejected`, `lead_student_added`, `lead_interest_rated`, `voice_shortfall`, `voice_fallback_shown`, `voice_sample_computed`, `voice_check_reused`, `voice_profile_updated`, `stage1_completed`, `ai_fallback`.
+`assignment_uploaded`, `assignment_file_finalized`, `assignment_file_deleted`, `assignment_parse_started`, `assignment_parsed`, `assignment_field_edited`, `assignment_confirmed`, `ocr_mistral_used`, `ocr_grok_used`, `ocr_failed`, `ocr_handwritten`, `upload_rejected`, `pdf_encrypted`, `retake_prompted`, `ai_policy_notice_shown`, `ai_policy_continued`, `interest_started`, `interest_skipped`, `interest_question_shown`, `interest_answered`, `interest_profile_updated`, `interest_profile_deleted`, `interest_profile_reused`, `intake_question_shown`, `intake_answered`, `intake_dig_deeper`, `intake_move_on`, `suggestions_offered`, `lead_accepted`, `lead_rejected`, `lead_student_added`, `lead_interest_rated`, `voice_shortfall`, `voice_fallback_shown`, `voice_sample_computed`, `voice_check_reused`, `voice_profile_updated`, `stage1_completed`, `ai_fallback`.
 
 `detail` should include, as relevant:
 
@@ -715,7 +824,7 @@ Stage 4 should log `lead_verified` and `lead_dropped` with `steered_by` so SOP c
 
 ## 14. Constants and tests
 
-In `lib/config.ts`, add the Stage 1 voice and page-to-word constants in section 8.2. Keep `MIN_VOICE_SAMPLE_WORDS = 150` for the checker.
+In `lib/config.ts`, add the Stage 1 voice and page-to-word constants in section 8.2, plus `ASSIGNMENT_MAX_FILES = 15`, `ASSIGNMENT_MAX_FILE_BYTES = 25 * 1024 * 1024`, and `ASSIGNMENT_MAX_TOTAL_BYTES = 100 * 1024 * 1024`. Keep `MIN_VOICE_SAMPLE_WORDS = 150` for the checker.
 
 Vitest, at minimum:
 
@@ -728,16 +837,29 @@ Vitest, at minimum:
 - StyleMetrics additive fields exist and do not break existing mismatch tests
 - Stage 2 stays locked until `/intake/complete` succeeds
 - Interest profile delete clears the user row
-- OCR skipped path when the Mistral key is missing
+- File caps (15 / 25 MB / 100 MB) enforced on `upload-url`
+- MIME sniff rejects mismatched and non-allowlisted types
+- EXIF GPS is stripped from a fixture image
+- HEIC conversion writes a JPEG (or a documented skip in environments without a HEIC decoder, with a student-facing “we couldn't read this photo — try JPG or PNG”)
+- Corpus merge respects `sort_order`; URL dedupe of document + pdf_annotation + manual links
+- Quality threshold prompts a retake below 0.45
+- OCR fallback: Mistral used when the key is set; Grok vision is used when the key is missing or Mistral fails; a double failure marks the page failed without inventing text
+- Password-protected PDF is rejected without asking for the password
 
 ---
 
 ## 15. Acceptance criteria
 
-- [ ] Stage 1 starts on the upload screen. No coaching question appears before the Assignment card is confirmed.
-- [ ] Multiple files, pasted text, and a link list are all accepted. Scanned/image uploads use OCR when the key is present, and fall back to a paste prompt when it is not.
-- [ ] The Assignment card shows paper type, topic/question, length (with a ~275 words/page estimate when only pages are given), citation style, formatting rules, required sources, provided readings, structural requirements, due date, and rubric criteria with weights.
-- [ ] Every field has a confidence state. Low-confidence and missing fields are highlighted. The student must confirm or edit every field. Confirm-all cannot skip unreviewed or missing required fields. Nothing is used downstream that the student did not confirm.
+- [ ] Stage 1 starts on the upload screen, with file upload as the primary CTA (PDF/document, gallery photos, and camera). No coaching question appears before the Assignment card is confirmed.
+- [ ] The three input methods work as specified: document picker (PDF/DOCX/TXT), gallery (JPG/PNG/HEIC→JPEG/WEBP), and camera (mobile `capture=environment`; desktop getUserMedia with file-picker fallback, crop/rotate, “add another page”).
+- [ ] Multiple files per submission (cap 15 / 25 MB / 100 MB), desktop drag-and-drop, thumbnails with reorder/remove, per-file progress and retry, and resumable uploads to the private `assignment-files` bucket (owner-only RLS, signed URLs only).
+- [ ] Paste is available as a secondary option. “Any links your professor gave you?” is optional, collapsed, and not enough on its own to continue.
+- [ ] Digital PDFs/DOCX use native text; images and scanned pages use Mistral OCR when `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision; per-page quality checks can prompt a retake. All files merge into one ordered corpus with file and page provenance.
+- [ ] URLs inside documents (including PDF link annotations) are extracted into provided sources and deduped with the manual URL field.
+- [ ] The Assignment card shows paper type, topic/question, length (with a ~275 words/page estimate when only pages are given), citation style, formatting rules, required sources, provided readings and links, structural requirements, due date, and rubric criteria with weights. Each extracted field cites file and page and offers **View source**. Low-confidence and missing fields are highlighted.
+- [ ] Every field has a confidence state. The student must confirm or edit every field. Confirm-all cannot skip unreviewed or missing required fields. Nothing is used downstream that the student did not confirm.
+- [ ] **Golden path: a 3-photo phone capture of a printed syllabus produces a correct Assignment card** (topic, length, due date, citation style, and visible requirements match the pages, with provenance pointing at the right photo/page).
+- [ ] **Golden path: one PDF + two screenshots + one professor URL merge correctly** into a single card; the URL appears in provided sources (and is deduped if the PDF also contains it); no field is missing solely because it lived in a screenshot rather than the PDF.
 - [ ] After confirm, a 3–5 question get-to-know-you conversation can run (and can be skipped). Answers are stored on `interest_profiles` as tags plus the student's own words.
 - [ ] Coaching questions are generated from the confirmed requirements, one at a time, adaptive. The margin-paper pattern asks about leaders and, on “I don't know,” offers 2–4 example names with a one-line why, as leads to verify.
 - [ ] Interest-steered leads, when shown, each explain the assignment fit and the interest fit. They never appear as citations or quotes. When scholarly sources are required, the hook-or-example note is visible and a scholarly-shaped lead is also offered.
@@ -746,7 +868,7 @@ Vitest, at minimum:
 - [ ] `StyleMetrics` and `voice_profiles` are reused, not forked. A recent checker baseline can be kept or refreshed. Completing Stage 1 writes `style_profiles` for the paper.
 - [ ] Background questions are brief and assignment-tied, not a generic survey.
 - [ ] **Start stance interview** is disabled until the card is confirmed, the voice minimum is met, and an early stance (≥ 25 words) exists. Stage 2 then receives requirements, early ideas, and leads. The six-stage structure is unchanged.
-- [ ] Edge cases in section 12 behave as specified (no rubric, vague prompt, multiple assignments, image-only, non-English, teacher forbids AI, failed link fetch).
+- [ ] Edge cases in section 12 behave as specified (no rubric, vague prompt, multiple assignments, image-only, non-English, teacher forbids AI, failed link fetch, blurry/dark retake, rotation, duplicates, password-protected PDFs, handwriting, unsupported types, interrupted mobile upload). Assignment files are private, EXIF GPS-stripped, retained for the life of the paper plus 90 days, and deletable by the student.
 - [ ] Interest data is only used to personalize this student's coaching, is hidden from other users and from admin text views, and can be deleted by the student.
 - [ ] Session events support SOP review of dig-deeper vs. move-on, time per step, fields corrected after parse, personalized vs. generic lead pickup, completion, and optional 1–5 lead-interest ratings — without storing interest prose in `detail`.
 - [ ] Sensitive categories are not asked for or inferred. Volunteered, assignment-relevant content may be used on this paper only and is not stored as a standing tag.

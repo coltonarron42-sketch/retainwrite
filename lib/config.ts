@@ -8,10 +8,27 @@ export const STAGE1_VOICE_MIN_WORDS = 250; // Stage 1 embedded voice sample
 export const STAGE1_VOICE_MIN_LONG_ANSWERS = 2;
 export const STAGE1_VOICE_MIN_LONG_ANSWER_WORDS = 40;
 export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
+export const ASSIGNMENT_MAX_FILES = 15;
+export const ASSIGNMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const ASSIGNMENT_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 export const MODEL_FAST = "grok-4.3"; // live probing / classification / Stage 1 questions
 export const MODEL_STRONG = "grok-4.7"; // assignment parsing, rubric, section feedback, extraction
 export const TTS_VOICE_DEFAULT = "en-US-Chirp3-HD-Charon";
 export const VOICE_BASELINE_MAX_AGE_DAYS = 180;
+
+/** Allowlisted MIME types for Stage 1 assignment uploads. */
+export const ASSIGNMENT_ALLOWED_MIME = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/markdown",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/gif",
+] as const;
 
 export const MISMATCH_THRESHOLDS = {
   sentenceLengthTell: 0.6,
