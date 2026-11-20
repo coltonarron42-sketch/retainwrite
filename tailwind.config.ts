@@ -1,0 +1,29 @@
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        rw: {
+          ink: "var(--rw-ink)",
+          paper: "var(--rw-paper)",
+          teal: "var(--rw-teal)",
+          sky: "var(--rw-sky)",
+          mist: "var(--rw-mist)",
+        },
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
