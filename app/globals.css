@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --rw-ink: #16312b;
+  --rw-paper: #eef4f1;
+  --rw-teal: #0f766e;
+  --rw-sky: #9ec9c3;
+  --rw-mist: #d7e8e2;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: var(--rw-ink);
+  background: var(--rw-paper);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+}
+
+.bg-hero-atmosphere {
+  background:
+    radial-gradient(120% 80% at 10% 20%, #f7fbf9 0%, transparent 55%),
+    radial-gradient(90% 70% at 85% 30%, #b7d8d1 0%, transparent 50%),
+    linear-gradient(160deg, #e7f2ee 0%, #cfe3dc 45%, #a9cfc6 100%);
+}
+
+.hero-notebook {
+  background:
+    linear-gradient(105deg, transparent 0%, transparent 38%, rgba(22, 49, 43, 0.04) 38%, rgba(22, 49, 43, 0.04) 39%, transparent 39%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.15)),
+    radial-gradient(ellipse at 70% 40%, rgba(15, 118, 110, 0.18), transparent 55%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 28%, black 100%);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-12px, 10px, 0) scale(1.03);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-drift {
+  animation: drift 14s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-drift {
+    animation: none;
+  }
+}
