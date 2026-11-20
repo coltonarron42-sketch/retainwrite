@@ -20,6 +20,8 @@ npm run dev
 
 **Demo mode:** Log in / Sign up pages include “Continue in demo mode,” which sets a session cookie and unlocks `/app` even when Supabase env vars are present. Paper data still uses localStorage. Without Supabase keys, `/app` is open with no cookie required.
 
+**Stage 1** follows `retainwrite-stage1-intake-spec.md` (assignment-first): upload/paste → confirm parsed Assignment card → coaching questions → voice gate → Start stance interview. Rule-based parse is used when Grok is offline.
+
 ### Supabase
 
 ```bash

@@ -349,18 +349,18 @@ Unit-test these rules with fixture drafts: a clean varied human-like fixture, a 
 
 Copy: **"Want even clearer results? Take this one-minute voice check."**
 
-It is a short **typed** conversational intake (four questions) that builds a baseline of vocabulary, tone, and scholarly register. It reuses Stage 1 Block 4 voice-sample logic (`MIN_VOICE_SAMPLE_WORDS = 150`, paste blocked, same "we need your natural typing voice" note, same `StyleMetrics` computation). Completing it **creates a free account** (or attaches to the signed-in user) and writes `voice_profiles`. That profile sharpens signals 3 and 4 (and the register sub-measure). After scoring, offer to re-run the comparison signals on the current draft. It is also the funnel into the free first paper: "Your first paper is free. No card."
+It is a short **typed** conversational intake (four questions) that builds a baseline of vocabulary, tone, and scholarly register. It reuses the shared voice-sample helpers: `MIN_VOICE_SAMPLE_WORDS = 150`, paste blocked, the same "we need your natural typing voice" / "we need your own typing here" note, and the same `StyleMetrics` computation (including any additive fields Stage 1 adds — variance, scholarly register, tone markers — which this checker may store but does not have to surface). The four questions and the 150-word floor are **unchanged**; do not raise them to Stage 1's 250-word paper-intake minimum. Completing it **creates a free account** (or attaches to the signed-in user) and writes `voice_profiles` (one table, shared with Stage 1; do not fork). That profile sharpens signals 3 and 4 (and the register sub-measure). After scoring, offer to re-run the comparison signals on the current draft. It is also the funnel into the free first paper: "Your first paper is free. No card."
 
 **The four questions:**
 
-1. "Write about 150–300 words, no editing, about anything you care about, the way you'd text a friend who asked." (The Stage 1 sample; required; ≥ 150 words; paste blocked.)
+1. "Write about 150–300 words, no editing, about anything you care about, the way you'd text a friend who asked." (The checker's standalone sample; required; ≥ 150 words; paste blocked. This is not the Stage 1 paper-intake sample, which is embedded in assignment-grounded answers and has a 250-word floor.)
 2. "In three or four sentences, explain a topic you know well to a classmate." (Scholarly vs. casual register.)
 3. "What's a word or phrase you rely on when you write, or one teachers often mark?" (Vocabulary awareness; short answer is fine.)
 4. "When you write for school, do you sound casual, in-between, or formal — and is that on purpose?" (Tone / register; short answer.)
 
 Show a friendly readout, same spirit as Stage 1: "Your natural voice: ~X words per sentence, grade-level Y, Z tone. Your go-to words: …"
 
-If a `voice_profiles` row younger than 180 days already exists when the student later starts a paper, Stage 1 Block 4 may offer "Use my voice check" or "Write a new sample."
+If a `voice_profiles` row younger than 180 days already exists when the student later starts a paper, Stage 1 offers "Keep this baseline" or "Refresh it with this paper" (see `retainwrite-stage1-intake-spec.md` section 8.3). Coaching questions still happen either way. Confirmed: auto-offer this; do not skip the prompt.
 
 ---
 
@@ -588,7 +588,7 @@ Most product decisions above are locked so Cursor can build. Remaining, none of 
 
 1. Should a voice-check re-score happen automatically on the same draft, or only after a button press? **Default if unset: a button, "Re-check with my voice baseline."**
 2. PDF library (`@react-pdf/renderer` vs. a print-to-PDF link only). **Default: printable HTML report + a server-generated PDF attachment if it stays within Vercel limits; otherwise the email links to the printable report and a "Download / Print PDF" action.**
-3. Whether Stage 1 should auto-offer "Use my voice check" (recommended above) needs a one-line confirm when Stage 1 is implemented.
+3. Whether Stage 1 should auto-offer "Use my voice check": **resolved.** Stage 1 auto-offers "Keep this baseline" or "Refresh it with this paper" when a `voice_profiles` row is younger than 180 days (`retainwrite-stage1-intake-spec.md` §8.3).
 4. After ~50 runs, who signs off on threshold retuning (target 40–60% "reads fine")? Recommended: Paper Coach + the owner, using `/admin/sop` aggregates only.
 
 No other blockers. Build v1.0 with the defaults.

@@ -3,10 +3,15 @@ export const SITE_URL = "https://retainwrite.com";
 export const EMAIL_FROM = "RetainWrite Coach <coach@send.retainwrite.com>";
 export const PRICES = { single: 900, pack3: 1500, audio: 199 } as const; // cents, USD
 export const PACK3_CREDITS = 3;
-export const MIN_VOICE_SAMPLE_WORDS = 150;
-export const MODEL_FAST = "grok-4.3";
-export const MODEL_STRONG = "grok-4.7";
+export const MIN_VOICE_SAMPLE_WORDS = 150; // AI checker voice check only
+export const STAGE1_VOICE_MIN_WORDS = 250; // Stage 1 embedded voice sample
+export const STAGE1_VOICE_MIN_LONG_ANSWERS = 2;
+export const STAGE1_VOICE_MIN_LONG_ANSWER_WORDS = 40;
+export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
+export const MODEL_FAST = "grok-4.3"; // live probing / classification / Stage 1 questions
+export const MODEL_STRONG = "grok-4.7"; // assignment parsing, rubric, section feedback, extraction
 export const TTS_VOICE_DEFAULT = "en-US-Chirp3-HD-Charon";
+export const VOICE_BASELINE_MAX_AGE_DAYS = 180;
 
 export const MISMATCH_THRESHOLDS = {
   sentenceLengthTell: 0.6,

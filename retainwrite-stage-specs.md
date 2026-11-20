@@ -1,6 +1,6 @@
 # RetainWrite — Stage Specs & Cross-Stage Decisions (companion to `retainwrite-cursor-build-prompt.md`)
 
-Paste this into Cursor **after** the build prompt. Where this doc conflicts with the build prompt, **this doc wins** (see "Overrides to the build prompt"). Table names, stage order, price constants and existing env var names are unchanged.
+Paste this into Cursor **after** the build prompt. Where this doc conflicts with the build prompt, **this doc wins** (see "Overrides to the build prompt") for Stages 2–6 and cross-stage rules. **Stage 1 intake is specified in `retainwrite-stage1-intake-spec.md`; that doc wins on Stage 1 behavior.** The six-stage structure is unchanged (intake, stance interview, outline, sources and audio beats, draft, revise and feedback); only Stage 1's internals change. Table names, stage order, price constants and existing env var names are unchanged.
 
 LOCKED RULES (hold everywhere): coaching only (the app never writes submission prose: no paragraphs, no thesis, no rewrites; AI produces questions, probes, checklists, feedback, and source summaries for study; the student writes every submitted sentence). Style metrics are for feedback/revision coaching only. Mismatch warnings name specific tells and never use detector-evasion framing. Every stage is gated on real student input. Every session is logged to `session_events`. Add `// SOP: coaching only, never generate submission text` at every AI call site.
 
@@ -12,7 +12,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 2. Stage 2 runs exactly 3 coach moves per paper (weighted by cluster, 3 distinct types), and the student writes ≥ 30 words in reply to each; up to 2 optional extra moves.
 3. Coach question slots ({claim}, {key_term}, {group}, {evidence_type}) are only ever filled with verbatim substrings of the student's own text, enforced in code; otherwise a slot-free fallback phrasing is used.
 4. Refined thesis passes only if it meets 5 criteria (arguable, specific scope, reason, survives a counterargument, differs from the original or is defended); max 3 attempts, then the student may advance with a flag (never a hard dead end).
-5. Stage 2 text boxes are paste-blocked (like the Stage 1 voice sample); Stage 5 allows paste.
+5. Stage 2 text boxes are paste-blocked (like Stage 1 voice-sample answers: interest, coaching, personal, and fallback); Stage 5 allows paste.
 6. Stage 3 outline = Intro + N body sections + Counterargument/Rebuttal + Conclusion, with N = 3 (< 1,500 words), 4 (1,500–3,000), 5 (> 3,000); N = 3 if length is unknown.
 7. Every outline section holds only student-written notes (claim, evidence notes, explanation note); the coach checks fit with the thesis; drag-to-reorder (with keyboard up/down buttons); the student clicks Approve; later edits are allowed and logged.
 8. Stage 5 coaching is not live per keystroke: prompts come before writing a section, "Ask coach" is on request (max 3 per section), and full feedback arrives when a section is submitted.
@@ -22,7 +22,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 12. Professor-feedback credit: grade + 1–3 files + consent checkbox; automated first pass by the strong model; auto-grant only at confidence ≥ 0.85 with all checks passing, otherwise it goes to the admin queue with a 48-hour review target; 1 credit per paper; the credit is a normal paper credit (audio included).
 13. Professor feedback is coded into praise/flag across thesis, evidence, organization, citation, voice, mechanics; raw uploads are deleted 90 days after the decision (30 days if rejected); coded, name-stripped data is kept.
 14. Mismatch thresholds are a two-level table (tell / strong): a warning fires on 2 tells or 1 strong signal; minimum 120 words; quotes and citations are excluded; all values are starting points to be tuned from logged data.
-15. AI: xAI Grok — `MODEL_FAST` = `grok-4.3` for fast live probing/classification; `MODEL_STRONG` = `grok-4.7` for rubric evaluation, section feedback, source extraction, and feedback coding. TTS is Google Cloud Text-to-Speech Chirp 3 HD (default voice `en-US-Chirp3-HD-Charon`). All of this is coaching content or study summaries, never student prose.
+15. AI: xAI Grok — `MODEL_FAST` = `grok-4.3` for fast live probing/classification and Stage 1 coaching questions; `MODEL_STRONG` = `grok-4.7` for assignment parsing, rubric evaluation, section feedback, source extraction, and feedback coding. TTS is Google Cloud Text-to-Speech Chirp 3 HD (default voice `en-US-Chirp3-HD-Charon`). All of this is coaching content or study summaries, never student prose.
 16. Audio beats are 45–90 words each, capped at 6,000 TTS characters per paper; the free paper has no audio; feedback credits and pack papers include audio.
 17. Under-13 is not permitted (no account, DOB not stored). Ages 13–17 need a guardian email plus a guardian email-confirmation click before the first paper or upload.
 18. Terms/Privacy language is drafted below and marked DRAFT: needs legal review.
@@ -30,6 +30,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 20. Email "from" is `RetainWrite Coach <coach@send.retainwrite.com>`; copy is drafted for signup confirmation (with minor variant), guardian consent, audio delivery, and feedback-credit confirmation (plus two short feedback-status emails).
 21. New env vars: `GROK_API_KEY`, `GOOGLE_CLOUD_TTS_API_KEY`, `GOOGLE_CLOUD_TTS_VOICE_ID`, `ADMIN_NOTIFY_EMAIL`, `UNPAYWALL_EMAIL`, `CRON_SECRET`, and optional `MISTRAL_OCR_API_KEY` (see section 8). Do not add `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, or `ELEVENLABS_VOICE_ID`.
 22. AI is never a single point of failure: if an AI call fails, rule-based fallbacks keep the student moving and the failure is logged.
+23. Stage 1 is assignment-first (upload → parsed Assignment card the student must confirm → skippable get-to-know-you → assignment-grounded coaching, with voice sampled from those typed answers). Full rules are in `retainwrite-stage1-intake-spec.md`. Interest-steered research leads are always "to verify," never citations; Stage 4 drops leads it cannot verify.
 
 ---
 
@@ -46,6 +47,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 | Mismatch: 1.6x / +4 grade / 0.35 / 12% / 20% | Two-level table (section 7). Same starting values, plus strong levels, minimum length, exclusions. |
 | Admin review sets `credit_granted` | Auto first pass, then admin queue (section 6.3). |
 | `purchase_kind` = single, pack3, audio | Add `feedback_credit` (migration 0002). |
+| Stage 1: 4 blocks (typed assignment fields, background survey, stance, separate 150-word voice sample) | Assignment-first intake in `retainwrite-stage1-intake-spec.md` (migration 0005). That doc wins on Stage 1. Old Block 3 stance becomes the early-take coaching question; voice is embedded in intake answers (250-word floor). The six-stage structure is unchanged. |
 
 ### Migration `supabase/migrations/0002_specs.sql` (additive; RLS on anything new, same `auth.uid() = user_id` pattern)
 ```sql
@@ -84,6 +86,7 @@ Notes:
 - `drafts`: version 1 = assembled Stage 5 draft; each Stage 6 save = next version. `drafts.metrics` / `mismatch` as in the build prompt.
 - Credit grant RPC `grant_feedback_credit(feedback_id uuid)` (security definer, service role only), one transaction: `update professor_feedback set credit_granted=true ... where id=$1 and credit_granted=false returning user_id, paper_id`; if a row returned then `update profiles set paper_credits = paper_credits + 1` and `insert into purchases (user_id, paper_id, kind, amount_cents, status) values (.., 'feedback_credit', 0, 'paid')`. Idempotent.
 - New `session_events.event` names: `cluster_selected`, `move_shown`, `move_answered`, `thesis_attempt`, `thesis_flag_advanced`, `outline_section_checked`, `outline_approved`, `outline_edited`, `section_topic_submitted`, `coach_asked`, `section_feedback`, `section_done`, `paste`, `paste_confirm`, `mismatch_warned`, `mismatch_response`, `checklist_item`, `revision_saved`, `feedback_submitted`, `feedback_auto_granted`, `feedback_queued`, `feedback_reviewed`, `audio_generated`, `guardian_requested`, `guardian_granted`, `ai_fallback`, `email_failed`.
+- Stage 1 session event names (assignment parse/confirm, interest, leads, voice) are listed in `retainwrite-stage1-intake-spec.md` section 13. Do not put interest prose or assignment full text in `session_events.detail`.
 
 ---
 
@@ -93,7 +96,7 @@ Notes:
 - **AI output guard** (`lib/ai/guard.ts`): every coaching call returns Zod-validated JSON with length-capped fields (questions ≤ 35 words each, max 3 per response, feedback bullets ≤ 40 words). Reject and retry once (then fall back) if output contains rewrite-style phrases ("here is a revised", "you could write", "try this:", "for example, write") or any sentence of ≥ 12 consecutive words copied from the student's text *with edits* (quoting the student verbatim in quotation marks is allowed). System prompts for every call state: "You are a writing coach. Never write, rewrite, or complete sentences or paragraphs for the student. Ask questions, point to what is present or missing, and stop."
 - **AI fallback**: on timeout (8 s `MODEL_FAST`, 30 s `MODEL_STRONG`) or error, log `ai_fallback` and use the rule-based path (lexical overlap with thesis keywords, non-empty checks, scripted probes). The student is never blocked by an AI outage; flagged items show "Coach check unavailable — we'll recheck later" and are re-run when the student next opens the stage.
 - **Student data in prompts**: send only the fields needed for the call; never send email/name. Cache static system prompts.
-- **Paste policy by place**: Stage 1 Block 4 and Stage 2 text boxes block paste/drop (`onPaste`/`onDrop` preventDefault + note "we need your own typing here"). Stages 3 and 5: paste allowed and logged.
+- **Paste policy by place**: Stage 1 voice-sample answers (get-to-know-you, assignment-grounded coaching, the personal question, and any fallback) and Stage 2 text boxes block paste/drop (`onPaste`/`onDrop` preventDefault + note "we need your own typing here"). Assignment upload/paste is allowed (teacher text). Stages 3 and 5: paste allowed and logged.
 
 ---
 
@@ -105,13 +108,13 @@ Fixed clusters (`lib/coaching/clusters.ts`):
 `policy_ethics`, `literary_analysis`, `historical_causation`, `science_empirical`, `social_issue`, `business_econ`, `compare_contrast`, `personal_reflective`, plus fallback `general`.
 
 Method:
-1. On Stage 2 entry, `MODEL_FAST` classifies Stage 1 inputs (assignment prompt, course, Block 3 stance) into `{cluster, confidence 0–1}` (constrained to the enum). Log `cluster_selected` with `source`.
+1. On Stage 2 entry, `MODEL_FAST` classifies Stage 1 inputs (confirmed assignment prompt and course, plus the student's Stage 1 early stance) into `{cluster, confidence 0–1}` (constrained to the enum). Log `cluster_selected` with `source`.
 2. Show the student a picker: 8 cards, one-line descriptions (e.g. "Literary analysis — arguing what a text means or how it works"), the suggested card pre-highlighted only if confidence ≥ 0.6, copy "We think this fits — change it if not."
 3. Student's choice always wins. If they choose "Not sure": use the LLM cluster if confidence ≥ 0.6, else `general` (all move weights = 2).
 4. Store `cluster`, `cluster_source` (`student` | `llm` | `fallback`), `cluster_confidence`.
 
 ### 3.2 Move bank (`lib/coaching/moves.ts`)
-Slots are filled from the student's Block 3 stance (and refined later from earlier answers). **Slot fill rule:** `MODEL_FAST` extracts candidates `{claim, key_term, group, evidence_type}` as *verbatim substrings* of the student's text; code verifies each is a case-insensitive substring of the source text (claim ≤ 25 words; trim to the main clause if longer). A slot that fails verification is dropped, and the phrasing whose slots all verified is used; if none, use `fallback`. The coach never paraphrases the student. `{claim}` falls back to the student's whole Block 3 stance (first sentence).
+Slots are filled from the student's Stage 1 early stance (and refined later from earlier answers). **Slot fill rule:** `MODEL_FAST` extracts candidates `{claim, key_term, group, evidence_type}` as *verbatim substrings* of the student's text; code verifies each is a case-insensitive substring of the source text (claim ≤ 25 words; trim to the main clause if longer). A slot that fails verification is dropped, and the phrasing whose slots all verified is used; if none, use `fallback`. The coach never paraphrases the student. `{claim}` falls back to the student's whole Stage 1 early stance (first sentence).
 
 **1. `alternative_explanation`** — Offers a different cause or reason for the same outcome the student is explaining.
 - Use when: the claim asserts a cause, effect, or interpretation.
@@ -188,7 +191,7 @@ Stage 2 data shape:
 ```ts
 type Stage2Data = {
   cluster: ClusterId; clusterSource: 'student'|'llm'|'fallback'; clusterConfidence: number;
-  originalThesis: string;                      // Block 3 stance, snapshot
+  originalThesis: string;                      // Stage 1 early stance, snapshot
   moves: { type: MoveType; phrasingId: string; prompt: string; slots: Record<string,string>;
            response: string; probes: string[]; flaggedStuck: boolean }[];
   thesisAttempts: { text: string; rubric: RubricResult; at: string }[];
@@ -225,7 +228,7 @@ Student writes the refined thesis in a paste-blocked textarea with the prompt: "
 ## 4. STAGE 3 — Outline
 
 ### 4.1 Structure
-Target length: parse `papers.required_length` (`/(\d[\d,]*)\s*(words?|pages?)/i`; 1 page = 275 words double-spaced; ranges use the midpoint). If unparseable, ask the student for a number of words or pages in a small inline field; default 1,000 words.
+Target length: prefer the confirmed Stage 1 assignment card (`assignments.requirements.length` — explicit words if present, otherwise the page-derived estimate at 275 words per double-spaced page; ranges use the midpoint). If the card is missing or marked "Not specified," fall back to parsing `papers.required_length` (`/(\d[\d,]*)\s*(words?|pages?)/i`; same 275 and midpoint rules). If still unparseable, ask the student for a number of words or pages in a small inline field; default 1,000 words.
 
 | Target words | Body sections (N) |
 |---|---|
@@ -269,7 +272,7 @@ No keystroke-level or auto-triggered mid-sentence coaching. Coaching happens (a)
 - **Allowed:** pasting from Google Docs/Word and .docx/.txt import (import inserts into the open section only, logged as a paste).
 - **Logged:** each paste → `session_events` `paste` `{section_id, chars, words, source:'paste'|'import'}`; the client tracks pasted spans (offsets) in the section state so they can be evaluated separately.
 - **Threshold:** a single paste ≥ **80 words** shows a non-blocking modal: "You pasted {n} words. Quick check: is this your own writing?" Options: **"Yes, I wrote this"**, **"Partly — I'll rework it"**, **"It's from a source — I'll quote and cite it."** Choice logged as `paste_confirm`. The third option adds a reminder: "Put quotation marks around it and add the citation in {citation_style}." Then: if the pasted span is ≥ 120 words, run the style comparison on it (section 7) and show the standard warning in-panel if it trips (non-blocking); smaller pastes are evaluated with the section at submit.
-- **Never** blocks or accuses; never shows the word "detector". Stage 1 Block 4 stays paste-blocked.
+- **Never** blocks or accuses; never shows the word "detector". Stage 1 voice-sample answers stay paste-blocked.
 
 ### 5.3 Per-section gate (sequential in outline order)
 Sections unlock in outline order; Conclusion unlocks after all others are done. Done sections can be reopened (a new revision of that section, feedback re-runs).
@@ -497,7 +500,7 @@ From: `RetainWrite Coach <coach@send.retainwrite.com>`; reply-to `support@retain
 >
 > Welcome! RetainWrite is a writing coach: we ask the questions, you write the paper, and you end up understanding it better.
 >
-> Your first paper is free (no card needed). Here's how it goes: tell us about the assignment, record how you naturally write, work through a few tough questions on your argument, build your outline, and then draft it one section at a time with a coach in your corner.
+> Your first paper is free (no card needed). Here's how it goes: upload the assignment and check what we pulled out, answer a few questions in your own words, work through a few tough questions on your argument, build your outline, and then draft it one section at a time with a coach in your corner.
 >
 > [Start your first paper → {SITE_URL}/app/papers/new]
 >

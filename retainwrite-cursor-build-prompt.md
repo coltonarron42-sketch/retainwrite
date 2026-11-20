@@ -37,16 +37,20 @@ export const SITE_URL = "https://retainwrite.com";
 export const EMAIL_FROM = "RetainWrite <hello@send.retainwrite.com>";
 export const PRICES = { single: 900, pack3: 1500, audio: 199 }; // cents, USD
 export const PACK3_CREDITS = 3;
-export const MIN_VOICE_SAMPLE_WORDS = 150;
-export const MODEL_FAST = "grok-4.3";   // live probing / classification
-export const MODEL_STRONG = "grok-4.7"; // rubric, section feedback, extraction, coding
+export const MIN_VOICE_SAMPLE_WORDS = 150;          // AI checker voice check only
+export const STAGE1_VOICE_MIN_WORDS = 250;          // Stage 1 embedded voice sample
+export const STAGE1_VOICE_MIN_LONG_ANSWERS = 2;
+export const STAGE1_VOICE_MIN_LONG_ANSWER_WORDS = 40;
+export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
+export const MODEL_FAST = "grok-4.3";   // live probing / classification / Stage 1 questions
+export const MODEL_STRONG = "grok-4.7"; // assignment parsing, rubric, section feedback, extraction, coding
 export const TTS_VOICE_DEFAULT = "en-US-Chirp3-HD-Charon";
 ```
 
 ### AI client (xAI Grok) and TTS
 - Use the official `openai` npm SDK with `baseURL: "https://api.x.ai/v1"` and `apiKey: process.env.GROK_API_KEY`. Do **not** install or use `@anthropic-ai/sdk`. Plain `fetch` to `https://api.x.ai/v1/chat/completions` is also fine.
 - Structured JSON via `response_format: { type: "json_schema", json_schema: { name, strict: true, schema } }` (supported by xAI). Always validate with Zod. If a schema is rejected, retry with `response_format: { type: "json_object" }` + Zod. The coaching-only code guard stays: reject any AI output that rewrites the student's work. Add `// SOP: coaching only, never generate submission text` at every AI call site.
-- `MODEL_FAST` (`grok-4.3`) for live probing/classification, with `reasoning_effort: "none"`. `MODEL_STRONG` (`grok-4.7`) for rubric evaluation, section feedback, source extraction, and feedback coding, with `reasoning_effort: "low"` unless a task clearly benefits from more. IDs verified against https://docs.x.ai/developers/models (19 Nov 2026).
+- `MODEL_FAST` (`grok-4.3`) for live probing/classification, with `reasoning_effort: "none"`. `MODEL_STRONG` (`grok-4.7`) for assignment parsing/extraction, rubric evaluation, section feedback, source extraction, and feedback coding, with `reasoning_effort: "low"` unless a task clearly benefits from more. IDs verified against https://docs.x.ai/developers/models (19 Nov 2026).
 - TTS: implement `lib/audio/tts.ts` with Google Cloud Text-to-Speech Chirp 3 HD (`GOOGLE_CLOUD_TTS_API_KEY`, voice `GOOGLE_CLOUD_TTS_VOICE_ID` or `TTS_VOICE_DEFAULT`, MP3). Send only beat-script text, never student writing. Optional `MISTRAL_OCR_API_KEY` for scanned PDFs (feature off if missing). `UNPAYWALL_EMAIL` is the contact email for the Unpaywall open-access fallback.
 
 ## 1. Product rules (hard requirements — enforce in code, not just UI)
@@ -103,7 +107,7 @@ create table stage_progress (
   primary key (paper_id, stage)
 );
 
-create table style_profiles (            -- one per paper, from Stage 1 Block 4
+create table style_profiles (            -- one per paper, from Stage 1 voice sample (see 0005 for additive columns)
   paper_id uuid primary key references papers on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
   raw_sample text not null,
@@ -173,7 +177,7 @@ create table professor_feedback (        -- feedback loop: earns 1 free credit
   created_at timestamptz not null default now()
 );
 ```
-Also: trigger to insert a `profiles` row on `auth.users` insert; trigger to keep `papers.updated_at` fresh; when a paper is created, insert stage_progress rows 1–6 with stage 1 `in_progress` and 2–6 `locked`. Storage buckets: `sources`, `feedback`, `audio` (all private, RLS by user folder `${user_id}/...`).
+Also: trigger to insert a `profiles` row on `auth.users` insert; trigger to keep `papers.updated_at` fresh; when a paper is created, insert stage_progress rows 1–6 with stage 1 `in_progress` and 2–6 `locked`. Storage buckets: `sources`, `feedback`, `audio`, `assignments` (all private, RLS by user folder `${user_id}/...`). The `assignments` bucket is created in migration `0005_stage1_assignment_first.sql`.
 
 Generate TypeScript types into `lib/database.types.ts`.
 
@@ -183,16 +187,24 @@ Generate TypeScript types into `lib/database.types.ts`.
 - On first signup, send the Welcome email (section 8).
 
 ## 4. Six stages (routes under `/app/papers/[paperId]/stage/[n]`)
-Shared UI: left rail showing stages 1–6 with lock icons; conversational one-question-at-a-time panel; "Continue" disabled until requirements met. Every question answered logs a `session_events` row.
+The six-stage structure is unchanged: intake, stance interview, outline, sources and audio beats, draft, revise and feedback. Only Stage 1's internals change (assignment first). Shared UI: left rail showing stages 1–6 with lock icons; conversational one-question-at-a-time panel; "Continue" disabled until requirements met. Every question answered logs a `session_events` row.
 
 **Thin-answer detection** (`lib/coaching/thin.ts`): an answer is thin if under its min word count, is a stock phrase ("idk", "not sure", "whatever", "n/a"), or repeats the question. Thin → show a scripted follow-up probe (stored per question), log `probe_shown`, do not advance. Max 2 probes, then allow "I'm stuck — flag for help" which saves and lets them continue.
 
-### Stage 1 — Intake (4 blocks, one question at a time)
-- **Block 1 Assignment:** course, assignment prompt (paste or upload), due date, length, citation style. Min: prompt ≥ 15 words or file uploaded.
-- **Block 2 Background:** school level, what they already know about the topic, past writing struggles. Min 10 words each for the open answers.
-- **Block 3 Topic stance:** their initial position and why. Min 25 words; probe "What's one reason someone might disagree?" if thin.
-- **Block 4 Raw voice sample:** "Write ~150–300 words, no editing, about anything you care about, the way you'd text a friend who asked." Paste disabled on this textarea (onPaste preventDefault + note "we need your natural typing voice"). Require ≥ `MIN_VOICE_SAMPLE_WORDS`. On submit, compute style metrics (section 5) and save `style_profiles`. Show the student a friendly readout: "Your natural voice: ~X words per sentence, grade-level Y, Z tone. Your go-to words: ..."
-- Stage complete when all 4 blocks pass.
+### Stage 1 — Intake (assignment first)
+Full spec: `retainwrite-stage1-intake-spec.md` (that doc wins on Stage 1). Additive migration `supabase/migrations/0005_stage1_assignment_first.sql` (0003 is the AI checker, 0004 is access codes). The six-stage structure is unchanged; only Stage 1's internals change, and nothing in Stage 1 advances until the student confirms the parsed assignment.
+
+1. **Upload first.** The student uploads the full assignment (PDF / DOCX / image / pasted text), multiple files plus an optional link list. Extract text; if a PDF or image has no text and `MISTRAL_OCR_API_KEY` is set, run Mistral OCR, otherwise ask them to paste and log `ocr_skipped`. Store files in the private `assignments` bucket. Paste is allowed on the assignment prompt (teacher text), not on later voice-sample answers.
+
+2. **Assignment card.** `MODEL_STRONG` (`grok-4.7`, `reasoning_effort: "low"`) extracts a structured `assignment_requirements` JSON (Zod schema in the Stage 1 spec): paper type, topic/question, length, citation style, formatting rules, required sources, provided readings, structural requirements, due date, rubric criteria with weights, other instructions, optional AI-policy flag. Convert pages to a word estimate at `WORDS_PER_PAGE_DOUBLE_SPACED` (275), labeled as an estimate; never overwrite an explicit word count. Each field has a confidence score; low-confidence (< 0.6) or missing fields are highlighted. The student must confirm or edit every field ("Looks right" per field, or confirm-all after review). Nothing is inferred silently. Required before continue: topic or prompt question, plus length and citation style or an explicit "Not specified." Sync confirmed values onto the existing `papers` columns (`course`, `due_date`, `assignment_prompt`, `required_length`, `citation_style`).
+
+3. **Get to know you, then coaching questions** (only after confirm). First a short, **skippable**, adaptive "get to know you" conversation (3–5 questions: what they care about, hobbies, interests, favorite topics, people they follow, what they'd rather be doing). Start with ~2 interest questions, and weave any remainder into coaching when a natural opening appears (cap 5). Store an `interest_profiles` row (one per user): tags plus the student's own words. Privacy: used only to personalize this student's coaching, never shown to others, deletable; do not ask or infer health, religion, politics, or sexuality (use volunteered content only if it is relevant to this assignment, and never as a standing tag). Then `MODEL_FAST` (`grok-4.3`, `reasoning_effort: "none"`) asks assignment-grounded coaching questions, one at a time, adaptive (dig deeper vs. move on). Example: a 5–7 page APA paper on the value of margin for business owners that must cite 3 leaders who speak about margin → "Do you have any leaders in mind who've talked about margin? Who are you curious to look into?" If they don't know, offer 2–4 example names with a one-line why (e.g. Alex Hormozi on pricing and gross margin) as suggestions to research, not citations; optionally search terms, source types, or links to that person's own books/talks where known. Use the interest profile to steer leads toward things the student finds engaging and authentic while still satisfying the assignment (each interest-steered lead must say why it fits the assignment AND the interest). Illustrative pattern only — do not bake any celebrity–organization pairing in as fact: a student who loves music and names an artist they admire might be offered a related figure, collaborator, or project as a lead, if and only if it also meets the requirement; Stage 4 verifies with real sources and drops leads it cannot verify. If scholarly sources are required, an interest lead may be a hook or example and the card must say scholarly support is still required. Never present unverified quotes or fabricate citations. Every suggestion is marked `to_verify` and stored in `research_leads` for Stage 4. The student chooses; the AI never decides. Fold in brief assignment-tied background (year, major, comfort with the citation style, prior grades/feedback) — not a generic survey. Always include one open-ended personal question: why this topic matters / a personal experience (min 40 words). Always capture an early stance (min 25 words) to hand to Stage 2 as `originalThesis`. After lead suggestions, optionally ask a skippable 1–5 "How interesting do these options feel?" for SOP/retention logging.
+
+4. **Voice capture is embedded.** Paste-blocked answers to the interest, coaching, personal, and fallback questions ARE the voice sample (they count toward the minimum). Minimum: `STAGE1_VOICE_MIN_WORDS` (250) across those answers, at least `STAGE1_VOICE_MIN_LONG_ANSWERS` (2) answers of ≥ `STAGE1_VOICE_MIN_LONG_ANSWER_WORDS` (40), including the personal question at ≥ 40 words. If short, show a fallback prompt (still assignment-grounded). Compute `StyleMetrics` (section 5, including additive variance / register / tone-marker fields) and save `style_profiles`. Reuse the AI checker's `voice_profiles` table (do not fork). If a `voice_profiles` row younger than 180 days exists, offer "Keep this baseline" or "Refresh it with this paper" (see the Stage 1 spec). Show the same friendly readout: "Your natural voice: ~X words per sentence, grade-level Y, Z tone. Your go-to words: ..."
+
+5. **Gate.** Stage 1 completes only when the assignment card is student-confirmed, the voice minimum is met, an early stance (≥ 25 words) is saved, and the student clicks "Start stance interview." Stage 2 then receives the confirmed requirements, early ideas/stance, and research leads.
+
+API routes, schema, microcopy, edge cases (no rubric, vague prompt, multiple assignments in one file, image-only, non-English, teacher forbids AI, failed link fetch), and SOP logging (including personalized vs. generic lead pickup and 1–5 interest ratings) are in the Stage 1 spec. Implement them.
 
 ### Stage 2 — Stance interview (counterargument moves)
 - Seed table/JSON `lib/coaching/moves.ts` with 5 move types: alternative_explanation, scope_limit, conflicting_evidence, opposing_stakeholder, definition_challenge. Each has 2–3 templated prompts with `{claim}` slot.
@@ -231,9 +243,12 @@ Shared UI: left rail showing stages 1–6 with lock icons; conversational one-qu
 export type StyleMetrics = {
   wordCount: number;
   avgSentenceLength: number;        // words / sentences
+  sentenceLengthVariance: number;   // population variance of sentence lengths (additive; Stage 1 / checker share this)
   readingGrade: number;             // Flesch-Kincaid: 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59
   formality: 'casual'|'neutral'|'formal';
   formalityScore: number;           // 0..1
+  scholarlyRegisterScore: number;   // 0..1 academic register; deterministic, not a detector score
+  toneMarkers: string[];            // e.g. 'first-person', 'hedging', 'contractions'
   topContentWords: {word:string; count:number}[]; // top 10, stopwords removed
   vocabulary: string[];             // distinct lowercase content words
 };
@@ -279,13 +294,13 @@ App: `/app` (dashboard: papers list, credits, "Start new paper"), `/app/papers/n
 Admin (gate on `profiles.is_admin` — add that boolean column): `/admin/feedback` to review professor-feedback uploads, code praise/flags, grant credits; `/admin/sop` showing session_events aggregates (probe rates per question, drop-off by stage, upsell take rate, mismatch rate).
 
 ## 10. Quality bar
-- Vitest unit tests for metrics, mismatch, thin-answer detection, stage gating, webhook idempotency.
+- Vitest unit tests for metrics, mismatch, thin-answer detection, stage gating, webhook idempotency, Stage 1 confirm gate, page-to-word estimate (275), voice-minimum calculator, and interest-tag / lead `to_verify` rules (see the Stage 1 spec).
 - Accessible (labels, focus states, keyboard nav), mobile-first.
 - Loading and error states on every action.
 - README with: setup, `supabase db push`, how to run the Stripe webhook locally (`stripe listen --forward-to localhost:3000/api/stripe/webhook`), and deploy notes.
 - Do not hardcode any secrets. Use exactly the env var names listed in section 0; do not invent others. Do not add Anthropic or ElevenLabs keys.
 
-Build it end to end now. Start with the migration, env validation, and lib/ utilities with tests, then auth, then stages 1–6, then payments, then email, then admin. After each phase, run typecheck and tests and fix failures before moving on. Then build the public content phases below (blog, then the free AI checker). The checker has its own spec: `retainwrite-ai-checker-spec.md` (that doc wins on checker behavior).
+Build it end to end now. Start with the migration, env validation, and lib/ utilities with tests, then auth, then stages 1–6, then payments, then email, then admin. Implement Stage 1 from `retainwrite-stage1-intake-spec.md` (that doc wins on Stage 1; migration `0005_stage1_assignment_first.sql`) — do not implement the old four-block intake. After each phase, run typecheck and tests and fix failures before moving on. Then build the public content phases below (blog, then the free AI checker). The checker has its own spec: `retainwrite-ai-checker-spec.md` (that doc wins on checker behavior).
 
 ## 11. Phase — Public blog (after admin)
 
@@ -306,7 +321,7 @@ Build the standalone free tool specified in `retainwrite-ai-checker-spec.md`. Ro
 
 ### Stack (same as the rest of the app)
 - Grok via `openai` SDK, `baseURL: "https://api.x.ai/v1"`, `GROK_API_KEY`. `MODEL_FAST` (`grok-4.3`, `reasoning_effort: "none"`) for light classification; `MODEL_STRONG` (`grok-4.7`, `reasoning_effort: "low"`) for topic sentences and personal-specifics judgments. Zod-validate `response_format` `json_schema` (fallback `json_object`). Timeouts and `ai_fallback` as in the stage specs: deterministic signals still return if the model fails.
-- Reuse `lib/style/metrics.ts` and mismatch thresholds for the vocabulary / register comparison when a voice profile exists. Reuse Stage 1 Block 4 logic for the voice-check 150-word sample (`MIN_VOICE_SAMPLE_WORDS`, paste blocked).
+- Reuse `lib/style/metrics.ts` and mismatch thresholds for the vocabulary / register comparison when a voice profile exists. Reuse the shared voice-sample helpers (paste blocked, `StyleMetrics`, the same "we need your own typing here" note) for the checker's 150-word sample (`MIN_VOICE_SAMPLE_WORDS`). The checker's four questions and 150-word floor stay unchanged; Stage 1's 250-word minimum applies only to paper intake. Stage 1 writes or reuses the same `voice_profiles` row (do not fork).
 - Resend from existing `EMAIL_FROM` (`RetainWrite Coach <coach@send.retainwrite.com>`). No new env vars.
 
 ### API, data, limits

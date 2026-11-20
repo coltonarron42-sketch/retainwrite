@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IntakeQuestionnaire } from "@/components/stages/intake-questionnaire";
+import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
 import { StageRail } from "@/components/stages/stage-rail";
 import { assertStageUnlocked } from "@/lib/stages/assert";
 import { getDemoPaper, type DemoPaper } from "@/lib/demo/store";
@@ -76,7 +76,7 @@ export function StageShell({ paperId, stage }: Props) {
       <StageRail paperId={paperId} current={stage} statuses={statuses} />
       <div className="flex-1 px-5 py-10 md:px-10">
         {stage === 1 ? (
-          <IntakeQuestionnaire paperId={paperId} demoMode />
+          <AssignmentIntake paperId={paperId} demoMode />
         ) : (
           <div className="mx-auto max-w-xl">
             <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
