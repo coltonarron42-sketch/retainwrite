@@ -1,6 +1,13 @@
 import Link from "next/link";
+import { requireUser } from "@/lib/auth/require-user";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  await requireUser("/app");
+
   return (
     <div className="min-h-screen bg-rw-paper">
       <header className="border-b border-rw-ink/10 bg-white/50">
