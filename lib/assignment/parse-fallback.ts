@@ -57,7 +57,10 @@ export function parseAssignmentFallback(rawText: string): AssignmentRequirements
   }
   length = applyPageWordEstimates(length);
   if (length.raw || length.pagesMin || length.wordsMin) {
-    req.length = extractedField(length, 0.85, length.raw);
+    req.length = extractedField(length, 0.85, length.raw, {
+      method: "paste",
+      excerpt: length.raw?.slice(0, 200),
+    });
   }
 
   // Citation style
@@ -74,7 +77,10 @@ export function parseAssignmentFallback(rawText: string): AssignmentRequirements
   for (const row of citationMap) {
     const m = text.match(row.re);
     if (m) {
-      req.citationStyle = extractedField(row.style, 0.85, m[0]);
+      req.citationStyle = extractedField(row.style, 0.85, m[0], {
+        method: "paste",
+        excerpt: m[0],
+      });
       break;
     }
   }

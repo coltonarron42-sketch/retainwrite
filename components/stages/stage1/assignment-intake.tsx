@@ -15,6 +15,10 @@ import {
   markFieldConfirmed,
   markNotSpecified,
 } from "@/lib/assignment/confirm";
+import {
+  AI_POLICY_NOTICE,
+  needsAiPolicyAck,
+} from "@/lib/assignment/ai-policy-notice";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
@@ -40,7 +44,7 @@ import {
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
-type Screen = "upload" | "parsing" | "card" | "coaching" | "gate";
+type Screen = "upload" | "parsing" | "card" | "ai_policy" | "coaching" | "gate";
 
 type IntakeAnswer = {
   questionId: string;
@@ -119,6 +123,11 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiPolicyAck, setAiPolicyAck] = useState(false);
+  const [viewSource, setViewSource] = useState<{
+    label: string;
+    excerpt: string;
+  } | null>(null);
 
   useEffect(() => {
     setPaper(getDemoPaper(paperId) ?? null);
@@ -221,22 +230,19 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     setParseStatus("Pulling out the rubric and structure…");
     await new Promise((r) => setTimeout(r, 500));
 
-    // Prefer calling finalize in demo so the API path stays warm.
-    if (demoMode) {
-      try {
-        await fetch(`/api/papers/${paperId}/assignment/finalize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pasteText: paste.trim() || undefined,
-            links: linkList.length ? linkList : undefined,
-            extractedText: fileTexts.join("\n\n") || undefined,
-            extractionMethod: fileTexts.length ? "txt" : paste.trim() ? "paste" : "manual",
-          }),
-        });
-      } catch {
-        /* local parse continues */
-      }
+    try {
+      await fetch(`/api/papers/${paperId}/assignment/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pasteText: paste.trim() || undefined,
+          links: linkList.length ? linkList : undefined,
+          extractedText: fileTexts.join("\n\n") || undefined,
+          extractionMethod: fileTexts.length ? "txt" : paste.trim() ? "paste" : "manual",
+        }),
+      });
+    } catch {
+      /* parse continues */
     }
 
     const fileNotes = stagedFiles
@@ -253,6 +259,35 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       .join("\n\n");
 
     // SOP: coaching only, never generate submission text
+    try {
+      const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ corpusText: combined }),
+      });
+      const data = (await res.json()) as {
+        requirements?: AssignmentRequirements;
+        rawText?: string;
+        parseStatus?: string;
+        error?: string;
+      };
+      if (res.ok && data.requirements) {
+        if (data.parseStatus === "needs_input") {
+          setError(
+            "We couldn't get enough readable text yet. Add another file or paste the prompt.",
+          );
+          setScreen("upload");
+          return;
+        }
+        setRawText(data.rawText ?? combined);
+        setRequirements(data.requirements);
+        setScreen("card");
+        return;
+      }
+    } catch {
+      /* local fallback */
+    }
+
     const parsed = parseAssignmentFallback(combined);
     setRawText(combined);
     setRequirements(parsed);
@@ -266,7 +301,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     setRequirements((prev) => (prev ? { ...prev, [key]: next } : prev));
   }
 
-  function confirmCard() {
+  async function confirmCard(opts?: { aiPolicyAck?: boolean }) {
     if (!requirements) return;
     const gate = assertAssignmentConfirmGate(requirements);
     if (!gate.ok) {
@@ -274,6 +309,31 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       return;
     }
     setError(null);
+
+    if (
+      !opts?.aiPolicyAck &&
+      needsAiPolicyAck(requirements, rawText) &&
+      !aiPolicyAck
+    ) {
+      setScreen("ai_policy");
+      return;
+    }
+
+    const ack = Boolean(opts?.aiPolicyAck || aiPolicyAck);
+    if (ack) setAiPolicyAck(true);
+
+    try {
+      await fetch(`/api/papers/${paperId}/assignment/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requirements,
+          aiPolicyAck: ack || undefined,
+        }),
+      });
+    } catch {
+      /* demo local continue */
+    }
 
     const nextPaper: DemoPaper = {
       ...paper!,
@@ -342,6 +402,19 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     setDraftAnswer("");
     setError(null);
 
+    void fetch(`/api/papers/${paperId}/intake/next-question`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answer: text,
+        questionId: q.id,
+        questionText: q.text,
+        questionKind: q.kind,
+        sequence: qIndex,
+        skipInterest: skippedInterest || undefined,
+      }),
+    }).catch(() => undefined);
+
     // Offer leads after early take
     if (q.id === "stance_early" && requirements) {
       const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
@@ -401,7 +474,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     );
   }
 
-  function completeStage1() {
+  async function completeStage1() {
     if (!requirements || !paper) return;
     if (!cardGate.ok) {
       setError("Confirm the assignment card first.");
@@ -415,6 +488,26 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     if (!stanceOk) {
       setError("Save an early stance of at least 25 words.");
       return;
+    }
+
+    try {
+      const res = await fetch(`/api/papers/${paperId}/intake/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requirements,
+          answers,
+          leads,
+          useInterestProfile: !skippedInterest,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string; reasons?: string[] };
+        setError(data.reasons?.[0] ?? data.error ?? "Could not finish Stage 1.");
+        return;
+      }
+    } catch {
+      /* fall through to local demo complete */
     }
 
     const sample = answers
@@ -593,6 +686,13 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
                   markFieldConfirmed(requirements.promptQuestion),
                 );
               }}
+              onViewSource={sourceAction(
+                requirements.topic.value
+                  ? requirements.topic
+                  : requirements.promptQuestion,
+                "Topic / prompt",
+                setViewSource,
+              )}
             />
           </CardField>
 
@@ -627,6 +727,11 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
               onNotSpecified={() =>
                 updateField("length", markNotSpecified(requirements.length))
               }
+              onViewSource={sourceAction(
+                requirements.length,
+                "Length",
+                setViewSource,
+              )}
             />
           </CardField>
 
@@ -679,6 +784,11 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
                   markNotSpecified(requirements.citationStyle),
                 )
               }
+              onViewSource={sourceAction(
+                requirements.citationStyle,
+                "Citation style",
+                setViewSource,
+              )}
             />
           </CardField>
 
@@ -915,8 +1025,73 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           <Button type="button" variant="outline" onClick={() => setScreen("upload")}>
             Back
           </Button>
-          <Button type="button" variant="secondary" onClick={confirmCard}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void confirmCard()}
+          >
             Looks right — continue
+          </Button>
+        </div>
+
+        {viewSource ? (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-rw-ink/40 p-4 sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-label="View source"
+          >
+            <div className="max-h-[70vh] w-full max-w-lg overflow-auto rounded-xl bg-rw-paper p-5 shadow-lg">
+              <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+                View source · {viewSource.label}
+              </p>
+              <pre className="mt-3 whitespace-pre-wrap font-sans text-sm text-rw-ink/80">
+                {viewSource.excerpt}
+              </pre>
+              <Button
+                type="button"
+                className="mt-4"
+                variant="outline"
+                onClick={() => setViewSource(null)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (screen === "ai_policy" && requirements) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+          Teacher AI policy
+        </p>
+        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+          Check before you continue
+        </h1>
+        <p className="mt-4 text-sm leading-relaxed text-rw-ink/75">
+          {AI_POLICY_NOTICE}
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setScreen("card");
+              setError(null);
+            }}
+          >
+            I&apos;ll check first
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void confirmCard({ aiPolicyAck: true })}
+          >
+            Continue anyway
           </Button>
         </div>
       </div>
@@ -1080,7 +1255,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
             type="button"
             variant="secondary"
             disabled={!cardGate.ok || !voiceEval.ok || !stanceOk}
-            onClick={completeStage1}
+            onClick={() => void completeStage1()}
           >
             Start stance interview
           </Button>
@@ -1127,9 +1302,11 @@ function CardField({
 function FieldActions({
   onLooksRight,
   onNotSpecified,
+  onViewSource,
 }: {
   onLooksRight: () => void;
   onNotSpecified?: () => void;
+  onViewSource?: () => void;
 }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
@@ -1141,6 +1318,24 @@ function FieldActions({
           Not specified
         </Button>
       ) : null}
+      {onViewSource ? (
+        <Button type="button" size="sm" variant="ghost" onClick={onViewSource}>
+          View source
+        </Button>
+      ) : null}
     </div>
   );
+}
+
+function sourceAction(
+  field: Field<unknown>,
+  label: string,
+  setViewSource: (v: { label: string; excerpt: string } | null) => void,
+) {
+  const excerpt =
+    field.provenance?.excerpt ||
+    field.rawEvidence ||
+    "";
+  if (!excerpt) return undefined;
+  return () => setViewSource({ label, excerpt });
 }

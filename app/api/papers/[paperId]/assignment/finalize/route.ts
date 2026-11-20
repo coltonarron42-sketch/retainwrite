@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { assertSniffedUpload } from "@/lib/assignment/mime-sniff";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
+import { logSessionEvent } from "@/lib/session-events";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,6 +27,9 @@ const bodySchema = z.object({
       "manual",
     ])
     .optional(),
+  /** Optional first bytes (base64) for magic-byte sniff before trusting mime. */
+  contentBase64Head: z.string().max(40_000).optional(),
+  clientMime: z.string().optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -53,6 +58,39 @@ export async function POST(request: Request, ctx: Ctx) {
     );
   }
 
+  let sniffedMime: string | undefined;
+  if (body.contentBase64Head) {
+    const bytes = Uint8Array.from(Buffer.from(body.contentBase64Head, "base64"));
+    const sniff = assertSniffedUpload(bytes, body.clientMime);
+    if (!sniff.ok) {
+      await logSessionEvent({
+        paperId,
+        stage: 1,
+        event: "upload_rejected",
+        detail: { reason: sniff.reason },
+      });
+      if (sniff.reason === "encrypted_pdf") {
+        return NextResponse.json(
+          {
+            error:
+              "This PDF is password-protected. Export an unlocked copy or paste the text — we don't ask for the password.",
+            reason: sniff.reason,
+          },
+          { status: 400 },
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "That file type isn't supported. Try a PDF, a Word file, a text file, or a photo.",
+          reason: sniff.reason,
+        },
+        { status: 400 },
+      );
+    }
+    sniffedMime = sniff.mime;
+  }
+
   const demo = await getDemoSession();
   if (demo) {
     const links = body.links ? parseLinkField(body.links.join("\n")) : [];
@@ -61,6 +99,7 @@ export async function POST(request: Request, ctx: Ctx) {
       demo: true,
       fileId: body.fileId ?? null,
       uploadStatus: "ready",
+      mime: sniffedMime ?? body.clientMime ?? null,
       pasteStored: Boolean(body.pasteText?.trim()),
       linksStored: links.length,
       extractedPreview: (body.extractedText || body.pasteText || "").slice(0, 200),
