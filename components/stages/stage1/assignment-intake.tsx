@@ -1,0 +1,1124 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  assertAssignmentConfirmGate,
+  markFieldConfirmed,
+  markNotSpecified,
+} from "@/lib/assignment/confirm";
+import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
+import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
+import type {
+  AssignmentRequirements,
+  CitationStyle,
+  Field,
+} from "@/lib/assignment/schema";
+import {
+  STAGE1_VOICE_MIN_WORDS,
+} from "@/lib/config";
+import {
+  getDemoPaper,
+  upsertDemoPaper,
+  type DemoPaper,
+} from "@/lib/demo/store";
+import { extractInterestTags } from "@/lib/stage1/interest-tags";
+import { createLead, type ResearchLeadDraft } from "@/lib/stage1/leads";
+import {
+  evaluateStage1VoiceMinimum,
+  type VoiceAnswer,
+} from "@/lib/stage1/voice";
+import { computeStyleMetrics } from "@/lib/style/metrics";
+import { wordCount } from "@/lib/utils";
+
+type Screen = "upload" | "parsing" | "card" | "coaching" | "gate";
+
+type IntakeAnswer = {
+  questionId: string;
+  questionText: string;
+  kind: "interest" | "coaching" | "personal" | "fallback_voice" | "background";
+  answerText: string;
+  isVoiceSample: boolean;
+};
+
+type Props = {
+  paperId: string;
+  demoMode?: boolean;
+};
+
+const CITATION_OPTIONS: Array<CitationStyle | ""> = [
+  "",
+  "APA 7",
+  "MLA 9",
+  "Chicago 17 Notes",
+  "Chicago 17 Author-Date",
+  "Harvard",
+  "IEEE",
+  "AMA",
+  "other",
+];
+
+const INTEREST_Qs = [
+  {
+    id: "interest_1",
+    text: "What topics, hobbies, or people do you actually enjoy following right now?",
+  },
+  {
+    id: "interest_2",
+    text: "Is there a story, show, sport, job, or place that gets you talking?",
+  },
+];
+
+function PasteBlockedTextarea(props: React.ComponentProps<typeof Textarea>) {
+  return (
+    <Textarea
+      {...props}
+      onPaste={(e) => {
+        e.preventDefault();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+      }}
+      placeholder={
+        props.placeholder ??
+        "Type in your own words — paste is blocked here."
+      }
+    />
+  );
+}
+
+function fieldNeedsAttention(field: Field<unknown>) {
+  return field.confidence < 0.6 || field.source === "missing";
+}
+
+export function AssignmentIntake({ paperId, demoMode = true }: Props) {
+  const router = useRouter();
+  const [paper, setPaper] = useState<DemoPaper | null>(null);
+  const [screen, setScreen] = useState<Screen>("upload");
+  const [paste, setPaste] = useState("");
+  const [links, setLinks] = useState("");
+  const [rightsOk, setRightsOk] = useState(false);
+  const [parseStatus, setParseStatus] = useState("Extracting the text…");
+  const [requirements, setRequirements] =
+    useState<AssignmentRequirements | null>(null);
+  const [rawText, setRawText] = useState("");
+  const [answers, setAnswers] = useState<IntakeAnswer[]>([]);
+  const [leads, setLeads] = useState<ResearchLeadDraft[]>([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [draftAnswer, setDraftAnswer] = useState("");
+  const [skippedInterest, setSkippedInterest] = useState(false);
+  const [needFallback, setNeedFallback] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPaper(getDemoPaper(paperId) ?? null);
+  }, [paperId]);
+
+  const coachingPlan = useMemo(() => {
+    if (!requirements) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
+    const topic =
+      requirements.topic.value ||
+      requirements.promptQuestion.value ||
+      "this assignment";
+    const plan: { id: string; kind: IntakeAnswer["kind"]; text: string }[] = [];
+    if (!skippedInterest) {
+      INTEREST_Qs.forEach((q) =>
+        plan.push({ id: q.id, kind: "interest", text: q.text }),
+      );
+    }
+    plan.push({
+      id: "bg_comfort",
+      kind: "background",
+      text: `How comfortable are you with ${requirements.citationStyle.value ?? "the required"} citations so far?`,
+    });
+    plan.push({
+      id: "coaching_take",
+      kind: "coaching",
+      text: `In your own words, what is ${topic} asking you to figure out?`,
+    });
+    plan.push({
+      id: "stance_early",
+      kind: "coaching",
+      text: `What's your early take on ${topic}? (at least 25 words — this becomes your starting stance)`,
+    });
+    plan.push({
+      id: "personal_1",
+      kind: "personal",
+      text: `When have you seen an idea like ${topic} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
+    });
+    if (needFallback) {
+      plan.push({
+        id: "fallback_voice",
+        kind: "fallback_voice",
+        text: "Before we start the stance interview, write a little more in your own words — no editing. Why does this assignment matter to you, or what's a moment when you saw this idea in real life?",
+      });
+    }
+    return plan;
+  }, [requirements, skippedInterest, needFallback]);
+
+  const voiceEval = useMemo(() => {
+    const voiceAnswers: VoiceAnswer[] = answers.map((a) => ({
+      text: a.answerText,
+      isVoiceSample: a.isVoiceSample,
+      kind: a.kind,
+    }));
+    return evaluateStage1VoiceMinimum({ answers: voiceAnswers });
+  }, [answers]);
+
+  const earlyStance = answers.find((a) => a.questionId === "stance_early");
+  const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
+  const cardGate = requirements
+    ? assertAssignmentConfirmGate(requirements)
+    : { ok: false as const, reasons: ["No card"] };
+
+  if (!paper) {
+    return <p className="text-rw-ink/55">Loading paper…</p>;
+  }
+
+  async function runParse() {
+    setError(null);
+    const linkList = links
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (!rightsOk) {
+      setError("Confirm you're uploading this for your own coursework.");
+      return;
+    }
+    if (!paste.trim() && linkList.length === 0) {
+      setError("Paste the prompt or add at least one link.");
+      return;
+    }
+
+    setScreen("parsing");
+    setParseStatus("Extracting the text…");
+    await new Promise((r) => setTimeout(r, 700));
+    setParseStatus("Looking for length, citation style, and sources…");
+    await new Promise((r) => setTimeout(r, 700));
+    setParseStatus("Pulling out the rubric and structure…");
+    await new Promise((r) => setTimeout(r, 500));
+
+    const combined = [
+      paste.trim(),
+      ...linkList.map((u) => `[Link provided — paste content if fetch fails]: ${u}`),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    // SOP: coaching only, never generate submission text
+    const parsed = parseAssignmentFallback(combined);
+    setRawText(combined);
+    setRequirements(parsed);
+    setScreen("card");
+  }
+
+  function updateField<K extends keyof AssignmentRequirements>(
+    key: K,
+    next: AssignmentRequirements[K],
+  ) {
+    setRequirements((prev) => (prev ? { ...prev, [key]: next } : prev));
+  }
+
+  function confirmCard() {
+    if (!requirements) return;
+    const gate = assertAssignmentConfirmGate(requirements);
+    if (!gate.ok) {
+      setError(gate.reasons[0] ?? "Confirm every field first.");
+      return;
+    }
+    setError(null);
+
+    const nextPaper: DemoPaper = {
+      ...paper!,
+      title:
+        paper!.title ||
+        requirements.topic.value ||
+        requirements.promptQuestion.value ||
+        null,
+      course: requirements.course.value,
+      due_date: requirements.dueDate.value,
+      assignment_prompt: rawText,
+      required_length: formatLengthLabel(requirements.length.value),
+      citation_style:
+        requirements.citationStyle.value === "other"
+          ? requirements.citationStyleOther ?? "other"
+          : requirements.citationStyle.value,
+    };
+    upsertDemoPaper(nextPaper);
+    setPaper(nextPaper);
+    setScreen("coaching");
+    setQIndex(0);
+    setDraftAnswer("");
+  }
+
+  function skipInterest() {
+    setSkippedInterest(true);
+    setAnswers((prev) => prev.filter((a) => a.kind !== "interest"));
+    setQIndex(0);
+    setDraftAnswer("");
+  }
+
+  function submitAnswer() {
+    const q = coachingPlan[qIndex];
+    if (!q) return;
+    const text = draftAnswer.trim();
+    if (!text && q.kind !== "background") {
+      setError("Type an answer to continue.");
+      return;
+    }
+    if (q.id === "stance_early" && wordCount(text) < 25) {
+      setError("Your early take needs at least 25 words.");
+      return;
+    }
+    if (q.kind === "personal" && wordCount(text) < 40) {
+      setError("The personal question needs at least 40 words.");
+      return;
+    }
+
+    const isVoice =
+      q.kind === "interest" ||
+      q.kind === "coaching" ||
+      q.kind === "personal" ||
+      q.kind === "fallback_voice";
+
+    const nextAnswers = [
+      ...answers.filter((a) => a.questionId !== q.id),
+      {
+        questionId: q.id,
+        questionText: q.text,
+        kind: q.kind,
+        answerText: text,
+        isVoiceSample: isVoice,
+      },
+    ];
+    setAnswers(nextAnswers);
+    setDraftAnswer("");
+    setError(null);
+
+    // Offer leads after early take
+    if (q.id === "stance_early" && requirements) {
+      const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
+      const tags = extractInterestTags(
+        nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText),
+      );
+      const suggested = [
+        createLead({
+          name: "A practitioner voice in this topic",
+          whyAssignment:
+            "Someone who has written or spoken about the same question your prompt asks.",
+          scholarlyRequired: scholarly,
+        }),
+      ];
+      if (tags[0]) {
+        suggested.push(
+          createLead({
+            name: `A ${tags[0]}-adjacent example`,
+            whyAssignment: "Connects to the assignment's required angle.",
+            whyInterest: `Touches on your interest in ${tags[0]}.`,
+            steeredBy: "both",
+            scholarlyRequired: scholarly,
+          }),
+        );
+      }
+      setLeads(suggested);
+    }
+
+    if (qIndex + 1 < coachingPlan.length) {
+      setQIndex(qIndex + 1);
+      return;
+    }
+
+    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
+      text: a.answerText,
+      isVoiceSample: a.isVoiceSample,
+      kind: a.kind,
+    }));
+    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
+    if (
+      evalResult.needsFallback &&
+      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
+      !needFallback
+    ) {
+      setNeedFallback(true);
+      setQIndex(coachingPlan.length); // next render appends fallback at end
+      return;
+    }
+    setScreen("gate");
+  }
+
+  function acceptLead(lead: ResearchLeadDraft) {
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.name === lead.name ? { ...l, status: "to_verify" as const } : l,
+      ),
+    );
+  }
+
+  function completeStage1() {
+    if (!requirements || !paper) return;
+    if (!cardGate.ok) {
+      setError("Confirm the assignment card first.");
+      return;
+    }
+    if (!voiceEval.ok) {
+      setError(voiceEval.reasons[0] ?? "Voice sample is still short.");
+      setScreen("coaching");
+      return;
+    }
+    if (!stanceOk) {
+      setError("Save an early stance of at least 25 words.");
+      return;
+    }
+
+    const sample = answers
+      .filter((a) => a.isVoiceSample)
+      .map((a) => a.answerText)
+      .join("\n");
+    const metrics = computeStyleMetrics(sample);
+
+    const progress = paper.stage_progress.map((s) => {
+      if (s.stage === 1) {
+        return {
+          ...s,
+          status: "complete" as const,
+          data: {
+            requirements,
+            answers,
+            leads,
+            useInterestProfile: !skippedInterest,
+          },
+        };
+      }
+      if (s.stage === 2) {
+        return { ...s, status: "in_progress" as const };
+      }
+      return s;
+    });
+
+    const next: DemoPaper = {
+      ...paper,
+      current_stage: 2,
+      stage_progress: progress,
+      style_profile: { ...metrics, raw_sample: sample },
+    };
+    upsertDemoPaper(next);
+    router.push(`/app/papers/${paperId}/stage/2`);
+  }
+
+  if (screen === "upload") {
+    return (
+      <div className="mx-auto max-w-xl">
+        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+          Stage 1 · Intake
+        </p>
+        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+          Start with the assignment
+        </h1>
+        <p className="mt-3 text-sm text-rw-ink/65">
+          Upload the full prompt — the instructions, rubric, and anything your
+          teacher handed out. We&apos;ll pull out the requirements, and you&apos;ll
+          check them before we ask any questions.
+        </p>
+
+        <div className="mt-8 space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="paste">Paste the prompt</Label>
+            <Textarea
+              id="paste"
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              rows={10}
+              placeholder="Paste the full assignment text here."
+            />
+            <p className="text-xs text-rw-ink/50">
+              PDF, Word, or a photo of a handout all work. File upload ships next;
+              paste works now.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="links">Add a link (one URL per line)</Label>
+            <Textarea
+              id="links"
+              value={links}
+              onChange={(e) => setLinks(e.target.value)}
+              rows={3}
+              placeholder="https://…"
+            />
+          </div>
+          <label className="flex items-start gap-2 text-sm text-rw-ink/70">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={rightsOk}
+              onChange={(e) => setRightsOk(e.target.checked)}
+            />
+            <span>I&apos;m uploading this for my own coursework.</span>
+          </label>
+          {error ? (
+            <p className="text-sm text-red-700" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!rightsOk || (!paste.trim() && !links.trim())}
+            onClick={() => void runParse()}
+          >
+            Read my assignment
+          </Button>
+        </div>
+        {demoMode ? (
+          <p className="mt-6 text-xs text-rw-ink/45">
+            Demo mode uses a rule-based parser when Grok is offline.
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (screen === "parsing") {
+    return (
+      <div className="mx-auto max-w-xl py-16 text-center">
+        <p className="font-display text-2xl text-rw-ink">{parseStatus}</p>
+        <p className="mt-3 text-sm text-rw-ink/55">
+          No coaching questions yet — we only extract what the prompt says.
+        </p>
+      </div>
+    );
+  }
+
+  if (screen === "card" && requirements) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <h1 className="font-display text-3xl text-rw-ink">Does this look right?</h1>
+        <p className="mt-2 text-sm text-rw-ink/65">
+          We read your prompt. Check every field. Fix anything that&apos;s off
+          before we continue — we won&apos;t guess for you.
+        </p>
+
+        <div className="mt-8 space-y-6">
+          <CardField
+            label="Course"
+            attention={fieldNeedsAttention(requirements.course)}
+            confirmed={requirements.course.confirmed}
+          >
+            <Input
+              value={requirements.course.value ?? ""}
+              onChange={(e) =>
+                updateField(
+                  "course",
+                  markFieldConfirmed(requirements.course, {
+                    value: e.target.value || null,
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() =>
+                updateField("course", markFieldConfirmed(requirements.course))
+              }
+              onNotSpecified={() =>
+                updateField("course", markNotSpecified(requirements.course))
+              }
+            />
+          </CardField>
+
+          <CardField
+            label="Topic / prompt question"
+            attention={
+              fieldNeedsAttention(requirements.topic) ||
+              fieldNeedsAttention(requirements.promptQuestion)
+            }
+            confirmed={
+              requirements.topic.confirmed && requirements.promptQuestion.confirmed
+            }
+          >
+            <Label className="text-xs text-rw-ink/50">Topic</Label>
+            <Input
+              value={requirements.topic.value ?? ""}
+              onChange={(e) =>
+                updateField(
+                  "topic",
+                  markFieldConfirmed(requirements.topic, {
+                    value: e.target.value || null,
+                  }),
+                )
+              }
+            />
+            <Label className="mt-3 text-xs text-rw-ink/50">Prompt question</Label>
+            <Textarea
+              rows={3}
+              value={requirements.promptQuestion.value ?? ""}
+              onChange={(e) =>
+                updateField(
+                  "promptQuestion",
+                  markFieldConfirmed(requirements.promptQuestion, {
+                    value: e.target.value || null,
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() => {
+                updateField("topic", markFieldConfirmed(requirements.topic));
+                updateField(
+                  "promptQuestion",
+                  markFieldConfirmed(requirements.promptQuestion),
+                );
+              }}
+            />
+          </CardField>
+
+          <CardField
+            label="Length"
+            attention={fieldNeedsAttention(requirements.length)}
+            confirmed={requirements.length.confirmed}
+          >
+            <p className="text-sm text-rw-ink/70">
+              {formatLengthLabel(requirements.length.value)}
+            </p>
+            <Input
+              className="mt-2"
+              value={requirements.length.value?.raw ?? ""}
+              placeholder='e.g. 5–7 pages or 1500 words'
+              onChange={(e) =>
+                updateField(
+                  "length",
+                  markFieldConfirmed(requirements.length, {
+                    value: {
+                      ...(requirements.length.value ?? {}),
+                      raw: e.target.value,
+                    },
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() =>
+                updateField("length", markFieldConfirmed(requirements.length))
+              }
+              onNotSpecified={() =>
+                updateField("length", markNotSpecified(requirements.length))
+              }
+            />
+          </CardField>
+
+          <CardField
+            label="Citation style"
+            attention={fieldNeedsAttention(requirements.citationStyle)}
+            confirmed={requirements.citationStyle.confirmed}
+          >
+            <select
+              className="flex h-11 w-full rounded-md border border-rw-ink/15 bg-white/80 px-3 text-sm"
+              value={requirements.citationStyle.value ?? ""}
+              onChange={(e) =>
+                updateField(
+                  "citationStyle",
+                  markFieldConfirmed(requirements.citationStyle, {
+                    value: (e.target.value || null) as CitationStyle | null,
+                  }),
+                )
+              }
+            >
+              {CITATION_OPTIONS.map((opt) => (
+                <option key={opt || "empty"} value={opt}>
+                  {opt || "Select…"}
+                </option>
+              ))}
+            </select>
+            {requirements.citationStyle.value === "other" ? (
+              <Input
+                className="mt-2"
+                placeholder="Describe the style"
+                value={requirements.citationStyleOther ?? ""}
+                onChange={(e) =>
+                  setRequirements({
+                    ...requirements,
+                    citationStyleOther: e.target.value,
+                  })
+                }
+              />
+            ) : null}
+            <FieldActions
+              onLooksRight={() =>
+                updateField(
+                  "citationStyle",
+                  markFieldConfirmed(requirements.citationStyle),
+                )
+              }
+              onNotSpecified={() =>
+                updateField(
+                  "citationStyle",
+                  markNotSpecified(requirements.citationStyle),
+                )
+              }
+            />
+          </CardField>
+
+          {(
+            [
+              ["paperType", "Paper type"],
+              ["dueDate", "Due date"],
+              ["otherInstructions", "Other instructions"],
+              ["language", "Language"],
+            ] as const
+          ).map(([key, label]) => (
+            <CardField
+              key={key}
+              label={label}
+              attention={fieldNeedsAttention(requirements[key])}
+              confirmed={requirements[key].confirmed}
+            >
+              <Input
+                value={(requirements[key].value as string | null) ?? ""}
+                onChange={(e) =>
+                  updateField(
+                    key,
+                    markFieldConfirmed(requirements[key], {
+                      value: e.target.value || null,
+                    }),
+                  )
+                }
+              />
+              <FieldActions
+                onLooksRight={() =>
+                  updateField(key, markFieldConfirmed(requirements[key]))
+                }
+                onNotSpecified={() =>
+                  updateField(key, markNotSpecified(requirements[key]))
+                }
+              />
+            </CardField>
+          ))}
+
+          {(
+            [
+              ["formattingRules", "Formatting rules"],
+              ["structuralRequirements", "Structural requirements"],
+            ] as const
+          ).map(([key, label]) => (
+            <CardField
+              key={key}
+              label={label}
+              attention={fieldNeedsAttention(requirements[key])}
+              confirmed={requirements[key].confirmed}
+            >
+              <Textarea
+                rows={2}
+                value={(requirements[key].value ?? []).join("\n")}
+                onChange={(e) =>
+                  updateField(
+                    key,
+                    markFieldConfirmed(requirements[key], {
+                      value: e.target.value
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    }),
+                  )
+                }
+              />
+              <FieldActions
+                onLooksRight={() =>
+                  updateField(key, markFieldConfirmed(requirements[key]))
+                }
+                onNotSpecified={() =>
+                  updateField(key, markNotSpecified(requirements[key]))
+                }
+              />
+            </CardField>
+          ))}
+
+          <CardField
+            label="Required sources"
+            attention={fieldNeedsAttention(requirements.requiredSources)}
+            confirmed={requirements.requiredSources.confirmed}
+          >
+            <Textarea
+              rows={2}
+              value={
+                requirements.requiredSources.value?.types ||
+                requirements.requiredSources.value?.notes ||
+                ""
+              }
+              onChange={(e) =>
+                updateField(
+                  "requiredSources",
+                  markFieldConfirmed(requirements.requiredSources, {
+                    value: {
+                      ...(requirements.requiredSources.value ?? {}),
+                      types: e.target.value,
+                    },
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() =>
+                updateField(
+                  "requiredSources",
+                  markFieldConfirmed(requirements.requiredSources),
+                )
+              }
+              onNotSpecified={() =>
+                updateField(
+                  "requiredSources",
+                  markNotSpecified(requirements.requiredSources),
+                )
+              }
+            />
+          </CardField>
+
+          <CardField
+            label="Provided readings"
+            attention={fieldNeedsAttention(requirements.providedReadings)}
+            confirmed={requirements.providedReadings.confirmed}
+          >
+            <Textarea
+              rows={2}
+              value={(requirements.providedReadings.value ?? [])
+                .map((r) => r.title || r.url || "")
+                .filter(Boolean)
+                .join("\n")}
+              onChange={(e) =>
+                updateField(
+                  "providedReadings",
+                  markFieldConfirmed(requirements.providedReadings, {
+                    value: e.target.value
+                      .split("\n")
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .map((title) => ({ title })),
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() =>
+                updateField(
+                  "providedReadings",
+                  markFieldConfirmed(requirements.providedReadings),
+                )
+              }
+              onNotSpecified={() =>
+                updateField(
+                  "providedReadings",
+                  markNotSpecified(requirements.providedReadings),
+                )
+              }
+            />
+          </CardField>
+
+          <CardField
+            label="Rubric criteria"
+            attention={fieldNeedsAttention(requirements.rubricCriteria)}
+            confirmed={requirements.rubricCriteria.confirmed}
+          >
+            <Textarea
+              rows={2}
+              value={(requirements.rubricCriteria.value ?? [])
+                .map((c) => c.name)
+                .join("\n")}
+              onChange={(e) =>
+                updateField(
+                  "rubricCriteria",
+                  markFieldConfirmed(requirements.rubricCriteria, {
+                    value: e.target.value
+                      .split("\n")
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .map((name) => ({ name })),
+                  }),
+                )
+              }
+            />
+            <FieldActions
+              onLooksRight={() =>
+                updateField(
+                  "rubricCriteria",
+                  markFieldConfirmed(requirements.rubricCriteria),
+                )
+              }
+              onNotSpecified={() =>
+                updateField(
+                  "rubricCriteria",
+                  markNotSpecified(requirements.rubricCriteria),
+                )
+              }
+            />
+          </CardField>
+
+          <CardField
+            label="AI policy in the prompt"
+            attention={fieldNeedsAttention(requirements.aiPolicy)}
+            confirmed={requirements.aiPolicy.confirmed}
+          >
+            <select
+              className="flex h-11 w-full rounded-md border border-rw-ink/15 bg-white/80 px-3 text-sm"
+              value={requirements.aiPolicy.value ?? "unspecified"}
+              onChange={(e) =>
+                updateField(
+                  "aiPolicy",
+                  markFieldConfirmed(requirements.aiPolicy, {
+                    value: e.target.value as AssignmentRequirements["aiPolicy"]["value"],
+                  }),
+                )
+              }
+            >
+              <option value="unspecified">Unspecified</option>
+              <option value="allowed">Allowed</option>
+              <option value="restricted">Restricted</option>
+              <option value="forbidden">Forbidden</option>
+            </select>
+            <FieldActions
+              onLooksRight={() =>
+                updateField("aiPolicy", markFieldConfirmed(requirements.aiPolicy))
+              }
+            />
+          </CardField>
+        </div>
+
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button type="button" variant="outline" onClick={() => setScreen("upload")}>
+            Back
+          </Button>
+          <Button type="button" variant="secondary" onClick={confirmCard}>
+            Looks right — continue
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === "coaching" && requirements) {
+    const q = coachingPlan[qIndex];
+    const isInterest = q?.kind === "interest";
+
+    return (
+      <div className="mx-auto max-w-xl">
+        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+          {isInterest ? "Get to know you" : "Assignment coaching"}
+        </p>
+        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+          {q?.text ?? "Loading…"}
+        </h1>
+        {isInterest ? (
+          <p className="mt-2 text-sm text-rw-ink/60">
+            Optional. We use this only to steer research leads toward things you
+            find engaging.
+          </p>
+        ) : null}
+        <div className="mt-6 space-y-3">
+          {q?.kind === "background" ? (
+            <Textarea
+              rows={3}
+              value={draftAnswer}
+              onChange={(e) => setDraftAnswer(e.target.value)}
+              placeholder="A short answer is fine."
+            />
+          ) : (
+            <PasteBlockedTextarea
+              rows={8}
+              value={draftAnswer}
+              onChange={(e) => setDraftAnswer(e.target.value)}
+            />
+          )}
+          <p className="text-xs text-rw-ink/45">
+            {wordCount(draftAnswer)} words
+            {q?.kind && q.kind !== "background"
+              ? " · counts toward your voice sample after you continue"
+              : ""}
+          </p>
+        </div>
+
+        {leads.length > 0 && q?.id !== "stance_early" ? (
+          <div className="mt-8 space-y-3 border-t border-rw-ink/10 pt-6">
+            <h2 className="font-semibold text-rw-ink">Leads to verify</h2>
+            <p className="text-xs text-rw-ink/55">
+              These are starting points for Stage 4 — not citations.
+            </p>
+            {leads.map((lead) => (
+              <div
+                key={lead.name}
+                className="border-b border-rw-ink/10 py-3 text-sm"
+              >
+                <p className="font-medium text-rw-ink">{lead.name}</p>
+                <p className="mt-1 text-rw-ink/65">{lead.whyAssignment}</p>
+                {lead.whyInterest ? (
+                  <p className="mt-1 text-rw-ink/65">{lead.whyInterest}</p>
+                ) : null}
+                {lead.hookOrExampleNote ? (
+                  <p className="mt-1 text-xs text-rw-ink/50">
+                    {lead.hookOrExampleNote}
+                  </p>
+                ) : null}
+                <span className="mt-2 inline-block text-xs font-semibold uppercase tracking-wide text-rw-teal">
+                  To verify
+                </span>
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => acceptLead(lead)}
+                  >
+                    Add as a lead
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          {isInterest ? (
+            <Button type="button" variant="ghost" onClick={skipInterest}>
+              Skip get-to-know-you
+            </Button>
+          ) : null}
+          <Button type="button" variant="secondary" onClick={submitAnswer}>
+            Continue
+          </Button>
+        </div>
+        <p className="mt-4 text-xs text-rw-ink/45">
+          Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words
+        </p>
+      </div>
+    );
+  }
+
+  if (screen === "gate") {
+    const sample = answers
+      .filter((a) => a.isVoiceSample)
+      .map((a) => a.answerText)
+      .join("\n");
+    const metrics = sample ? computeStyleMetrics(sample) : null;
+
+    return (
+      <div className="mx-auto max-w-xl">
+        <h1 className="font-display text-3xl text-rw-ink">Ready for stance?</h1>
+        <p className="mt-2 text-sm text-rw-ink/65">
+          Stage 1 finishes when the assignment card is confirmed, your voice
+          sample meets the minimum, and you have an early take.
+        </p>
+
+        {metrics ? (
+          <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
+            <p>
+              Your natural voice: ~{metrics.avgSentenceLength} words per
+              sentence, grade-level {metrics.readingGrade}, {metrics.formality}{" "}
+              tone.
+            </p>
+            <p className="mt-2">
+              Your go-to words:{" "}
+              {metrics.topContentWords.map((w) => w.word).slice(0, 6).join(", ") ||
+                "—"}
+            </p>
+          </div>
+        ) : null}
+
+        <ul className="mt-6 space-y-2 text-sm">
+          <li>{cardGate.ok ? "✓" : "○"} Assignment card confirmed</li>
+          <li>
+            {voiceEval.ok ? "✓" : "○"} Voice minimum (
+            {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words,{" "}
+            {voiceEval.longAnswerCount} long answers)
+          </li>
+          <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
+        </ul>
+
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button type="button" variant="outline" onClick={() => setScreen("coaching")}>
+            Back to questions
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!cardGate.ok || !voiceEval.ok || !stanceOk}
+            onClick={completeStage1}
+          >
+            Start stance interview
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function CardField({
+  label,
+  attention,
+  confirmed,
+  children,
+}: {
+  label: string;
+  attention?: boolean;
+  confirmed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-md border px-4 py-4 ${
+        attention && !confirmed
+          ? "border-amber-500/50 bg-amber-50/40"
+          : "border-rw-ink/10 bg-white/40"
+      }`}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-rw-ink">{label}</p>
+        {confirmed ? (
+          <span className="text-xs text-rw-teal">Confirmed</span>
+        ) : attention ? (
+          <span className="text-xs text-amber-700">Needs a look</span>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FieldActions({
+  onLooksRight,
+  onNotSpecified,
+}: {
+  onLooksRight: () => void;
+  onNotSpecified?: () => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="outline" onClick={onLooksRight}>
+        Looks right
+      </Button>
+      {onNotSpecified ? (
+        <Button type="button" size="sm" variant="ghost" onClick={onNotSpecified}>
+          Not specified
+        </Button>
+      ) : null}
+    </div>
+  );
+}

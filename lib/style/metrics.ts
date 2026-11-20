@@ -3,9 +3,14 @@ import { STOPWORDS } from "./stopwords";
 export type StyleMetrics = {
   wordCount: number;
   avgSentenceLength: number;
+  /** Population variance of sentence lengths (additive). */
+  sentenceLengthVariance: number;
   readingGrade: number;
   formality: "casual" | "neutral" | "formal";
   formalityScore: number;
+  /** Academic register 0..1 — not a detector score. */
+  scholarlyRegisterScore: number;
+  toneMarkers: string[];
   topContentWords: { word: string; count: number }[];
   vocabulary: string[];
 };
@@ -40,6 +45,16 @@ const PERSON_PRONOUNS = new Set([
   "you",
   "your",
   "yours",
+]);
+const HEDGING = new Set([
+  "maybe",
+  "perhaps",
+  "might",
+  "could",
+  "seems",
+  "appears",
+  "possibly",
+  "somewhat",
 ]);
 
 export function splitSentences(text: string): string[] {
@@ -120,12 +135,39 @@ export function computeStyleMetrics(text: string): StyleMetrics {
         ? "neutral"
         : "formal";
 
+  const sentenceLengths = sentences.map(
+    (s) => tokenizeWords(s).length || 0,
+  );
+  const mean =
+    sentenceLengths.reduce((a, b) => a + b, 0) /
+    Math.max(1, sentenceLengths.length);
+  const sentenceLengthVariance =
+    sentenceLengths.reduce((sum, n) => sum + (n - mean) ** 2, 0) /
+    Math.max(1, sentenceLengths.length);
+
+  let scholarlyRegisterScore = 0.45;
+  scholarlyRegisterScore += Math.min(0.2, connectorHits * 0.04);
+  if (avgWordLen > 5) scholarlyRegisterScore += Math.min(0.15, (avgWordLen - 5) * 0.04);
+  scholarlyRegisterScore -= Math.min(0.2, slangRate * 4);
+  scholarlyRegisterScore -= Math.min(0.15, contractions / Math.max(1, wordCount) * 3);
+  scholarlyRegisterScore = Math.max(0, Math.min(1, scholarlyRegisterScore));
+
+  const toneMarkers: string[] = [];
+  if (personRate > 0.02) toneMarkers.push("first-person");
+  if (words.some((w) => HEDGING.has(w))) toneMarkers.push("hedging");
+  if (contractions > 0) toneMarkers.push("contractions");
+  if (formality === "formal") toneMarkers.push("formal-tone");
+  if (formality === "casual") toneMarkers.push("casual-tone");
+
   return {
     wordCount,
     avgSentenceLength: Number(avgSentenceLength.toFixed(2)),
+    sentenceLengthVariance: Number(sentenceLengthVariance.toFixed(2)),
     readingGrade: Number(readingGrade.toFixed(2)),
     formality,
     formalityScore: Number(formalityScore.toFixed(3)),
+    scholarlyRegisterScore: Number(scholarlyRegisterScore.toFixed(3)),
+    toneMarkers,
     topContentWords,
     vocabulary: [...new Set(content)],
   };
