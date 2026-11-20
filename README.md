@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Without Supabase/Stripe keys the app runs in **demo mode** (localStorage) so you can walk homepage → intake → checkout locally.
+**Demo mode:** Log in / Sign up pages include “Continue in demo mode,” which sets a session cookie and unlocks `/app` even when Supabase env vars are present. Paper data still uses localStorage. Without Supabase keys, `/app` is open with no cookie required.
 
 ### Supabase
 
