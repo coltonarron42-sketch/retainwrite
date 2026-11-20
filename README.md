@@ -30,6 +30,8 @@ supabase db push
 
 Migrations live in `supabase/migrations/`.
 
+**Auth email confirmations (Safari / Gmail):** set Site URL + Redirect URLs and the Confirm sign-up template per `docs/supabase-auth-url-checklist.md`. Or run `SUPABASE_ACCESS_TOKEN=… ./scripts/update-supabase-auth-urls.sh` with a [personal access token](https://supabase.com/dashboard/account/tokens). Confirmation links must hit `/auth/confirm` on `retainwrite.com` (token_hash), not a localhost redirect.
+
 ### Stripe webhook (local)
 
 ```bash

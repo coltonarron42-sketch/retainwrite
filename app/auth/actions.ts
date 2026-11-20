@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { formatAuthError } from "@/lib/auth/messages";
+import { getEmailConfirmRedirectTo } from "@/lib/auth/site-url";
 import { clearDemoSession, setDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -85,17 +86,14 @@ export async function signUpAction(
     redirect(next);
   }
 
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
-    "https://www.retainwrite.com";
-
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: `${siteUrl}/auth/callback`,
+      // Must be allow-listed in Supabase Auth → Redirect URLs.
+      // Template should use token_hash → /auth/confirm on our domain.
+      emailRedirectTo: getEmailConfirmRedirectTo(next),
     },
   });
 
@@ -107,7 +105,7 @@ export async function signUpAction(
   if (!data.session) {
     return {
       notice:
-        "Check your email to confirm your account, then log in. Or continue in demo mode to explore now.",
+        "Check your email for a confirmation link from RetainWrite. Open it in Safari or Chrome (not only the mail app’s preview). Or continue in demo mode to explore now.",
     };
   }
 
