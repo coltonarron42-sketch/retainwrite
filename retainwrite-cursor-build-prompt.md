@@ -274,7 +274,7 @@ Do not mention AI detectors or "avoiding flags" anywhere.
 All sends are server-side, wrapped in try/catch, failures logged to `session_events` (event `email_failed`) and never block the user flow.
 
 ## 9. Pages / routes summary
-Public: `/` (landing + how pricing works), `/pricing`, `/login`, `/signup`, `/terms`, `/privacy` (placeholders incl. student-upload rights and feedback-data use).
+Public: `/` (landing + how pricing works), `/pricing`, `/login`, `/signup`, `/terms`, `/privacy` (placeholders incl. student-upload rights and feedback-data use), `/blog`, `/blog/[slug]`, `/ai-checker`, `/ai-checker/rubric`, `/ai-checker/report/[token]`.
 App: `/app` (dashboard: papers list, credits, "Start new paper"), `/app/papers/new`, `/app/papers/[id]` (redirects to current stage), `/app/papers/[id]/stage/[n]`, `/app/billing`, `/app/billing/success`.
 Admin (gate on `profiles.is_admin` — add that boolean column): `/admin/feedback` to review professor-feedback uploads, code praise/flags, grant credits; `/admin/sop` showing session_events aggregates (probe rates per question, drop-off by stage, upsell take rate, mismatch rate).
 
@@ -285,4 +285,71 @@ Admin (gate on `profiles.is_admin` — add that boolean column): `/admin/feedbac
 - README with: setup, `supabase db push`, how to run the Stripe webhook locally (`stripe listen --forward-to localhost:3000/api/stripe/webhook`), and deploy notes.
 - Do not hardcode any secrets. Use exactly the env var names listed in section 0; do not invent others. Do not add Anthropic or ElevenLabs keys.
 
-Build it end to end now. Start with the migration, env validation, and lib/ utilities with tests, then auth, then stages 1–6, then payments, then email, then admin. After each phase, run typecheck and tests and fix failures before moving on.
+Build it end to end now. Start with the migration, env validation, and lib/ utilities with tests, then auth, then stages 1–6, then payments, then email, then admin. After each phase, run typecheck and tests and fix failures before moving on. Then build the public content phases below (blog, then the free AI checker). The checker has its own spec: `retainwrite-ai-checker-spec.md` (that doc wins on checker behavior).
+
+## 11. Phase — Public blog (after admin)
+
+Add `/blog` (index) and `/blog/[slug]` (MDX or Markdown posts in e.g. `content/blog/`). Clean, mobile-first, SEO title + description + canonical, listing page with date and excerpt. Marketing will supply posts; ship the routes and a placeholder post so the pages are not empty. RSS is optional. No chat UI. After this phase, typecheck and fix failures, then immediately build the AI checker in section 12 — do not wait for more blog content.
+
+## 12. Phase — Free AI checker (after the blog)
+
+Build the standalone free tool specified in `retainwrite-ai-checker-spec.md`. Routes: `/ai-checker` (landing + paste box + results), `/ai-checker/rubric` (public rubric v1.0, thresholds, changelog, "updates as detection methods evolve"), `/ai-checker/report/[token]` (shareable/printable report). Landing copy starts from `/workspace/retainwrite/ai-checker-landing-copy.md`, with the copy-alignment fixes in the checker spec section 6 (especially: 0–100 is Signal strength, not an authorship verdict; email gate; typed voice check; privacy FAQ).
+
+### Product rules for this phase (enforce in code)
+- Coaching only. Never rewrite, paraphrase, or "humanize" text; never offer alternate sentences. `lib/ai/guard.ts` applies. `// SOP: coaching only, never generate submission text` at every call site. Each named tell is a verbatim quote from the student's text plus a coaching question from the spec's bank.
+- Ratings are pattern strength, not authorship probability. Label every 0–100 number **Signal strength**. Never "AI likelihood %," "chance AI wrote this," or similar. high/moderate/low = how strongly the pattern shows up.
+- No detector-evasion framing: no "bypass," "beat Turnitin," "undetectable," "pass AI detection." Frame: "Does this sound like you?"
+- Honesty disclaimer is visible in the report itself, the email, and the print view, not only on the landing page. Cite Liang et al. (2023) on the landing/rubric/FAQ. Claim no accuracy rate of our own.
+- Checker needs no account. Preview is free. Voice check creates a free account and stores a `voice_profiles` baseline (vocabulary, tone, scholarly register). First paper stays free, no card.
+- Privacy: drafts aren't stored unless the user is signed in and opts in; never used for training. Users must be 13+.
+- Do not pad results. If signals are low, show "Your draft reads fine" / "Reads like you."
+
+### Stack (same as the rest of the app)
+- Grok via `openai` SDK, `baseURL: "https://api.x.ai/v1"`, `GROK_API_KEY`. `MODEL_FAST` (`grok-4.3`, `reasoning_effort: "none"`) for light classification; `MODEL_STRONG` (`grok-4.7`, `reasoning_effort: "low"`) for topic sentences and personal-specifics judgments. Zod-validate `response_format` `json_schema` (fallback `json_object`). Timeouts and `ai_fallback` as in the stage specs: deterministic signals still return if the model fails.
+- Reuse `lib/style/metrics.ts` and mismatch thresholds for the vocabulary / register comparison when a voice profile exists. Reuse Stage 1 Block 4 logic for the voice-check 150-word sample (`MIN_VOICE_SAMPLE_WORDS`, paste blocked).
+- Resend from existing `EMAIL_FROM` (`RetainWrite Coach <coach@send.retainwrite.com>`). No new env vars.
+
+### API, data, limits
+- `POST /api/ai-checker/analyze`, `/unlock`, `/voice`, and `GET /api/ai-checker/unsubscribe`, plus cron `/api/cron/checker-retention` (Bearer `CRON_SECRET`). Request/response shapes are in the checker spec section 11.
+- Migration `supabase/migrations/0003_ai_checker.sql`: `rubric_versions`, `ai_checker_runs` (counts and numeric scores only — no draft text), `ai_checker_reports` (result + quoted tells, 30-day TTL, token hash), `ai_checker_saved_runs` (signed-in opt-in full draft only), `ai_checker_leads` (source + UTM + marketing_consent default false + age_band), `voice_profiles`. RLS as in the spec. IP stored only as HMAC-SHA256 with `CRON_SECRET`.
+- Word limits: min 120, max 4,000. Rate limits: 5/hour and 15/day per IP hash anonymous; 10/hour and 30/day unlocked or signed-in; 3 voice-check completions / user / day.
+
+### Results report design (required in this phase)
+Follow checker spec section 5 exactly.
+- Each signal and each section shows a prominent 0–100 **Signal strength** score, with a tooltip and a footnote: it is how strongly the pattern appears in the text, not the chance AI wrote it. Overall `ReportSummaryRing` uses the same scale with a plain-language summary: **Reads like you** (0–39, headline "Your draft reads fine" when calibrated low), **A few generic spots** (40–69), **Several machine-like patterns** (70–100).
+- Color + icons, never color alone, WCAG AA: green check **Keep** (0–39), amber **Worth a look** (40–69), coral/red flag **Fix first** (70–100). Flagged items expand to the quoted tell and a coaching question.
+- **Email gate:** free preview = overall verdict/summary + top 2 signals. "Enter your email to get your full report" unlocks all seven signals, the per-section breakdown, and an emailed PDF/HTML copy via Resend from `coach@send.retainwrite.com`. Marketing consent checkbox unchecked by default, separate from report delivery, hidden for 13–17 (report delivery only, no marketing). CAN-SPAM unsubscribe + physical address 3629 Maizeland Rd, Colorado Springs, CO 80909 on marketing mail. Store leads in `ai_checker_leads` with source and UTM. Under-13 blocked.
+- Bottom of the report: `UpsellPanel` with "Want even clearer results? Take this one-minute voice check" and "Start your free first paper" (free trial, no card).
+- Premium aesthetic using the spec's design tokens (Newsreader + Source Sans 3, deep ink `#15202B`, warm off-white `#F6F1E8`, restrained terracotta accent `#9A4A2C`, generous spacing, card-based sections). Subtle motion: score count-up and ring fill, skipped when `prefers-reduced-motion`. Skeleton loading with staged progress copy. Mobile-first. Shareable/printable report view. **No chat-bubble UI.**
+- Named components: `ReportSummaryRing`, `SignalCard`, `SectionHeatmap`, `EmailGate`, `UpsellPanel`.
+- Meet the report acceptance criteria in spec section 5.7 and the product checklist in section 17.
+
+### Rubric and calibration
+Implement all seven v1.0 signals and the aggregation / "reads fine" count rules in spec sections 7–9. Do not add an eighth top-level signal. Vocabulary is `needs_voice` until a baseline exists (not scored, not treated as high). Unit-test metrics, stock-phrase clustering, calibration fixtures (clean → Reads like you; stock-heavy → high band; no padding of a clean draft), guard rejections, rate limits, and lead marketing-consent defaults.
+
+After this phase, run typecheck and tests and fix failures.
+
+
+## 13. Phase — Admin access passcodes (after payments and admin; may run before or after the checker)
+
+Read and implement `/workspace/retainwrite-admin-passcodes-spec.md`. That doc wins on passcode and entitlement behavior. This is a general admin tool for creating access codes that skip Stripe and grant paper access (primary use: the owner issues an unlimited code so his wife can test with real papers).
+
+### Product rules for this phase (enforce in code)
+- Admin-only dashboard `/admin/passcodes` plus `POST/GET /api/admin/passcodes` and `GET/PATCH /api/admin/passcodes/[id]`. Gate on the existing `profiles.is_admin` boolean (do not add a `role` column). 404 for non-admins. Service role is server-only, after the admin check; never import `SUPABASE_SERVICE_ROLE_KEY` or `PASSCODE_PEPPER` in client code.
+- Codes are `RW-XXXX-XXXX` in Crockford base32, CSPRNG, case-insensitive, optional vanity code. Store only SHA-256(`PASSCODE_PEPPER + ":" + canonical`) and `last4`. Show the full code once at creation, never again.
+- Redemption limits: `single_use`, `multi_use` (max N), `unlimited_redemptions`. Grants: `unlimited` (unlimited papers, audio included), `credits` (N credits, audio included by default), `audio`. Optional expiry (redemption deadline only), label, email restriction, revoke. A user may redeem a given code only once.
+- "Have an access code?" collapsible on `/signup` and the paywall/checkout screen only — not on Stage 1 intake. Inline validation. Generic error "That code isn't valid." for invalid/expired/used-up/revoked/wrong-email (no enumeration). Distinct copy only for already-redeemed, rate-limited, and unauthenticated.
+- Age/guardian gate still applies. Coaching-only rules and `lib/ai/guard.ts` are unchanged. A passcode skips Stripe only.
+
+### Env, data, entitlements
+- Add exactly one new env var: `PASSCODE_PEPPER` (server only, required; `openssl rand -hex 32`). Add it to `.env.example`, `lib/env.ts`, and the Vercel env list. Do not invent other names.
+- Migration `supabase/migrations/0004_access_codes.sql` (0003 is the AI checker). Tables `access_codes`, `access_code_redemptions`, `access_code_attempts`; profile columns `unlimited_access`, `unlimited_until`, `audio_included`, `passcode_credits`, `access_code_id`; `purchase_kind` value `access_code`. RLS: no client read on those three tables. Security-definer RPC `redeem_access_code(p_code_hash text, p_ip_hash text)` atomically locks the row, checks, increments, and applies the grant. The Route Handler normalizes and hashes; the RPC never receives plaintext.
+- Single helper `lib/entitlements.ts` used by every paywall, "Start new paper", `/api/checkout`, and the Stage 4 audio upsell. Funding order: guardian block → active unlimited → unused free first paper → `paper_credits` → `passcode_credits` → paywall. Unlimited users never see the audio upsell or Stripe checkout. Papers funded this way use `funded_by='access_code'` and analytics `source=passcode`. Refund and feedback-credit logic ignore `passcode_credits` and exclude `kind='access_code'` from revenue.
+- Rate limit redemptions: 5 per 15 minutes per IP and per user. Audit via `access_code_redemptions` + `session_events`. Toggleable Resend notify to `ADMIN_NOTIFY_EMAIL` on each redemption (`AccessCodeRedeemedAdmin`).
+
+### Tests and seed
+- Vitest: normalize/hash/generate, vanity rules, entitlements matrix, checkout refusal, refund isolation, rate limit, admin 404.
+- Required race test: two simultaneous redemptions of a `single_use` code yield exactly one success and `redemption_count = 1`.
+- README seed (spec section 12): after first deploy, `update profiles set is_admin = true where email = '...'`, confirm `PASSCODE_PEPPER` is set, then create an unlimited code labeled "Angie test" in `/admin/passcodes` and copy it from the one-time modal. Do not bake a code or admin email into the repo.
+
+After this phase, run typecheck and tests and fix failures.
