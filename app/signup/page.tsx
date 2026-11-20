@@ -1,18 +1,17 @@
 import { SiteHeader } from "@/components/marketing/site-header";
 import { SignupForm } from "@/components/auth/signup-form";
+import { authErrorMessage, safeInternalPath } from "@/lib/auth/site-url";
 
 export const metadata = { title: "Sign up" };
 
 type Props = {
-  searchParams?: Promise<{ next?: string }>;
+  searchParams?: Promise<{ next?: string; error?: string }>;
 };
 
 export default async function SignupPage({ searchParams }: Props) {
   const params = searchParams ? await searchParams : {};
-  const nextPath =
-    params.next && params.next.startsWith("/") && !params.next.startsWith("//")
-      ? params.next
-      : "/app";
+  const nextPath = safeInternalPath(params.next);
+  const errorMessage = params.error ? authErrorMessage(params.error) : null;
 
   return (
     <main className="min-h-screen bg-rw-paper">
@@ -23,6 +22,14 @@ export default async function SignupPage({ searchParams }: Props) {
           First paper free. No card at signup. Must be 13+. Ages 13–17 need
           guardian confirmation.
         </p>
+        {errorMessage ? (
+          <p
+            className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+            role="alert"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
         <SignupForm nextPath={nextPath} />
       </div>
     </main>
