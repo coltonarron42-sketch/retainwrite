@@ -39,6 +39,46 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
   return text;
 }
 
+const KEYWORD_STOP = new Set([
+  "this", "that", "with", "from", "your", "about", "have", "what", "when", "where",
+  "which", "would", "could", "their", "there", "they", "them", "into", "than",
+  "then", "just", "like", "some", "more", "also", "been", "were", "because",
+  "after", "before", "want", "look", "looking", "really", "very",
+]);
+
+/** A few words from the student's note, for a search box rather than a sentence to paste. */
+export function searchKeywords(note: string, topic: string): string {
+  const words = note
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .map((word) => word.replace(/^-+|-+$/g, ""))
+    .filter((word) => word.length > 3 && !KEYWORD_STOP.has(word));
+  const unique = [...new Set(words)].slice(0, 4);
+  if (unique.length >= 2) return unique.join(" ");
+  const fromTopic = topic
+    .replace(/[^a-z0-9\s-]/gi, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3)
+    .slice(0, 6);
+  return fromTopic.join(" ") || topic.slice(0, 80);
+}
+
+export function sourceSearchDirections(topic: string, note: string): string {
+  const keywords = searchKeywords(note, topic);
+  return `Search JSTOR, Google Scholar, or your school library for “${keywords}”. Look for a peer-reviewed study or a report you can open. Check the author and the date, then decide if it fits. This is a direction, not a sentence to paste.`;
+}
+
+export function stageLessonHeader(subject: string, lessonStatement: string): string {
+  if (subject && subject !== "your topic" && !/the assigned concept/i.test(subject)) {
+    if (/the assigned concept/i.test(lessonStatement)) {
+      return `How ${subject} shows up in the examples you choose`;
+    }
+    return lessonStatement;
+  }
+  return "What this assignment is asking you to learn";
+}
+
 export function topicLabel(concept: string | null, assignmentText: string): string | null {
   const cleaned = concept?.trim() ?? "";
   if (cleaned && cleaned.toLowerCase() !== "the concept") return cleaned.slice(0, 80);
@@ -67,28 +107,29 @@ export function exampleLeadBatch(input: {
   }
 
   const ref = input.rubricRef;
+  const keywords = searchKeywords(idea, subject);
   const candidates: LeadCandidate[] = [
     {
-      name: `Research on ${subject}`,
+      name: `A peer-reviewed study on ${keywords}`,
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Look for a real source about ${subject}. Check it yourself before you rely on it.`,
+      whyFits: `Search JSTOR or your school library for “${keywords}”. Open the study and decide if it fits ${subject}. This is a direction, not a sentence to paste.`,
     },
     {
-      name: `A real example of ${subject}`,
+      name: `A report you can check on ${keywords}`,
       rubricMatch: 0.78,
       rubricRef: ref,
       lessonLink: `Shows ${subject}`,
-      whyFits: `A person, case, or event where ${subject} shows up. Verify the details yourself.`,
+      whyFits: `Look for a report or article about ${keywords}. Check the author and the date yourself before you rely on it.`,
     },
     idea
       ? {
-          name: "A direction close to what you wrote",
+          name: "A source that speaks to what you wrote",
           rubricMatch: 0.7,
           rubricRef: ref,
-          lessonLink: `Your idea about ${subject}`,
-          whyFits: `You wrote: “${idea.slice(0, 120)}”. Find a source that speaks to that, then explain it in your own words.`,
+          lessonLink: `Your note about ${keywords}`,
+          whyFits: `Your note mentions ${keywords}. Find one source about that, then explain the connection in your own words.`,
           studentNamed: true,
         }
       : {

@@ -10,7 +10,13 @@ import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
 import { TeachCardView } from "@/components/coaching/teach-card";
 import { VoiceNote } from "@/components/coaching/voice-note";
 import { VoiceNudge } from "@/components/coaching/voice-nudge";
-import { coachingSubject, exampleLeadBatch, visibleSourceLead } from "@/lib/coaching/exampleLeads";
+import {
+  coachingSubject,
+  exampleLeadBatch,
+  sourceSearchDirections,
+  stageLessonHeader,
+  visibleSourceLead,
+} from "@/lib/coaching/exampleLeads";
 import {
   assembleLeadBatch,
   buildGoogleSearchPrompt,
@@ -447,7 +453,9 @@ export function CoachingLoop({
       <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
         What you&apos;re learning
       </p>
-      <h1 className="mt-2 font-display text-3xl text-rw-ink">{lesson.statement}</h1>
+      <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        {stageLessonHeader(subject, lesson.statement)}
+      </h1>
       <p className="mt-2 text-sm text-rw-ink/70">
         {session.extraction.promptType === "personal_experience"
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
@@ -880,11 +888,10 @@ export function CoachingLoop({
         <ProductNotes
           title="Sources"
           intro="Directions to verify yourself. The app does not write the citations or the sentences."
-          direction={
-            subject === "your topic"
-              ? "Name the topic on the checklist, then look up a source you can check yourself."
-              : `Look up a source about ${subject} that you can check yourself. Search the phrase, open the real page, and decide if it fits.`
-          }
+          direction={sourceSearchDirections(
+            subject,
+            session.sections.map((item) => keptIdeas(item.ideas).join(" ")).join(" "),
+          )}
           sections={session.sections}
           showLeads
           onContinue={continueProductStage}
