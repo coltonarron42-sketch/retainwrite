@@ -1,10 +1,13 @@
 # RetainWrite — Free AI Checker Spec (companion to `retainwrite-cursor-build-prompt.md` and `retainwrite-stage-specs.md`)
 
-Public routes: `https://retainwrite.com/ai-checker` and `https://retainwrite.com/ai-checker/rubric`.
-Landing copy (Paper Coach Marketing): `/workspace/retainwrite/ai-checker-landing-copy.md`.
-Rubric version at launch: **v1.0**. This is a standalone free tool, separate from the paid six-stage paper pipeline.
+**Route:** `/ai-checker` (App Router: `app/(marketing)/ai-checker/page.tsx`). **Canonical URL:** `https://www.retainwrite.com/ai-checker`. The apex `https://retainwrite.com/ai-checker` 308-redirects to www (domain-level redirect in Vercel; www is the primary domain). Supporting routes: `https://www.retainwrite.com/ai-checker/rubric` (public, versioned rubric) and, for signed-in opt-in saves only, `https://www.retainwrite.com/ai-checker/report/[token]`.
+Build phase: **Phase 11 in `retainwrite-cursor-build-prompt.md`**, run right after the Stage 1 paste-gate fix and Stage 1 rewrite.
+Landing copy (Paper Coach Marketing): `/workspace/retainwrite/ai-checker-landing-copy.md` (reconciled in section 6.3; conflicts flagged there).
+Rubric version at launch: **v1.0**.
 
-Where this doc conflicts with the build prompt, **this doc wins** for the checker. Existing product rules still hold: coaching only, `lib/ai/guard.ts`, no detector-evasion framing, Grok via `https://api.x.ai/v1`, Zod-validated `json_schema` output, no new env var names.
+**This is a standalone lead-capture and credibility landing page. It is NOT part of the six-stage coaching flow.** It has no stage gates, no `stage_progress` rows, and no paper. It never calls `assertStageUnlocked`. Its only links into the app are the account created at the email step and the **Start your free first paper** CTA. This doc is complete on its own: a developer can build the checker from this file plus the shared stack conventions (build prompt section 0).
+
+Where this doc conflicts with the build prompt, **this doc wins** for the checker. Existing product rules still hold: coaching only, `lib/ai/guard.ts`, no detector-evasion framing, Grok via `https://api.x.ai/v1` (`openai` SDK, `GROK_API_KEY`), Zod-validated `json_schema` output. Migrations: `0003_ai_checker.sql` (existing) plus the additive `0007_ai_checker_standalone.sql` (section 12.1; 0005 and 0006 are Stage 1). Env vars: no new required names; one **optional** pair for the visible challenge is a decision for the owner (section 14).
 
 ---
 
@@ -14,13 +17,13 @@ Where this doc conflicts with the build prompt, **this doc wins** for the checke
 
 **(b) The voice check builds a baseline.** The 1-minute voice check captures the student's own vocabulary, tone, and scholarly register (typed writing voice, not a spoken recording). That baseline is what "vocabulary vs. your own writing" and register comparisons run against.
 
-**(c) Accounts.** The checker itself needs **no account**. A student can paste a draft and see a preview with no signup. Unlocking the full report asks for an email (and age confirmation). The voice check **creates a free account** (magic link / signup) and attaches the baseline to it. The first paper remains free, no card.
+**(c) Accounts.** Running a check needs **no account and no login**. A student can paste a draft and see a preview with no signup. Unlocking the full report asks for an email, age confirmation, and terms acceptance; that email step **creates a free RetainWrite account** (Supabase magic link, delivered through Resend) and the account comes with the **free first paper** (all six stages, no audio, no card), matching pricing. If the email already has an account, it just gets a sign-in link, and the free paper only if it's still unused. The optional voice check attaches a writing baseline to that account.
 
 **(d) Privacy line (use this wording, or a close paraphrase, on the page, in the report, and in the FAQ):**
 
 > Drafts aren't stored unless you are signed in and opt in. We never use drafts for training.
 
-Full pasted text is processed to produce the report, then discarded, unless the user is signed in and opts in to save it. Quoted tells in a report are kept only as long as the report link lasts (30 days). Users must be 13+.
+**Analyze in memory only.** The pasted draft (and the optional writing sample) is processed in memory to produce the report, then discarded. The server stores only **anonymous aggregate metrics** (word count, numeric signal scores, band, flags; no text, no quotes). Quoted lines live only in the student's browser and in the report email sent to them. Nothing with draft text is stored on our servers unless the student is **signed in and opts in** ("Save this report to my account"). Users must be 13+. (This replaces the earlier 30-day stored-quotes link; see section 6.3 for the FAQ 7 conflict.)
 
 ---
 
@@ -34,7 +37,7 @@ Frame, everywhere (UI, emails, SEO body copy, social):
 
 > Does this sound like you? See which parts read generic or machine-like, and why.
 
-Allowed in the title tag and keywords only, because it is the search term: "AI detector for student papers." Any use of "detector" is immediately framed as: this tool rates writing patterns; it does not prove who wrote something. Banned in copy, UI, and SEO: "bypass," "beat Turnitin," "undetectable," "pass AI detection," "humanize," "make this undetectable."
+Allowed in the title tag, the **H1**, an H2, and keywords, because it is the search term: "AI detector for student papers." The H1 is fixed: **"AI Detector for Student Papers: Does It Sound Like You?"** Any use of "detector" is immediately framed as: this tool rates writing patterns; it does not prove who wrote something. Never in buttons or CTAs ("Run the detector," "Detection score"). Banned in copy, UI, and SEO: "bypass," "beat Turnitin," "undetectable," "pass AI detection," "humanize," "make this undetectable."
 
 Public-facing marketing uses the name **Retain and Write**; code, table names, and technical docs use **RetainWrite**. Both refer to retainwrite.com.
 
@@ -50,23 +53,27 @@ Public-facing marketing uses the name **Retain and Write**; code, table names, a
 
   Cite Liang et al. (2023) on the landing page, rubric page, and FAQ (section 18). Turnitin itself tells instructors to use its indicator to start a conversation, not to draw a conclusion, and reports a sentence-level false-positive rate of about 4% (Chechitelli, 2023).
 - **Privacy** as in section 0(d). Under-13 users are not allowed. Ages 13–17 may receive the report but must not be added to marketing lists.
-- **Abuse limits:** per-IP and per-account rate limits, plus word limits (section 15).
+- **Abuse limits:** per-IP and per-account rate limits, plus BotID, a challenge after 3 checks, and word/character limits (section 14).
 - **Do not pad results to create alarm.** If the signals are low, the report must say the draft reads fine (section 9).
+- **Never force, randomize, or quota outcomes.** Every result is a deterministic function of the submitted text (plus the optional sample), the rubric version, and the model's judgments. The "about half come back clean" goal is met only by **honest calibration** on a calibration set of real student writing (section 9). The live clean rate is a **monitored metric**, never a target the code steers toward. No per-request adjustment, no random draw, no A/B test of scores.
+- **The overall headline is "Signal strength," never "likelihood of AI."** The owner asked for an "overall likelihood headline"; we use Signal strength so the number stays honest. The two are not interchangeable.
 
 ---
 
 ## 3. User flow
 
-1. Student lands on `/ai-checker` (no account required).
-2. Pastes a draft (min **120** words, max **4,000** words). Optional: if already signed in with a `voice_profiles` row, the vocabulary and register signals run immediately.
-3. Clicks **Check my draft**. Server validates length and rate limits, strips quotes/citations/references the same way Stage 6 mismatch does, computes deterministic metrics, then calls Grok for the judgment signals. Skeleton loading with staged progress copy (section 5.6).
-4. **Free preview:** the overall summary ring plus the **top 2** signals by signal strength. Disclaimer visible. No full grid, no per-section heatmap.
-5. **Email gate:** "Enter your email to get your full report." Required age confirmation. Marketing checkbox unchecked by default, hidden for 13–17. On submit: unlock the full report on the page and email a PDF/HTML copy from `RetainWrite Coach <coach@send.retainwrite.com>`.
-6. **Full report:** all seven signals, per-section breakdown, quoted tells, coaching questions, disclaimer, public-rubric link (v1.0).
-7. **Bottom of the report:** voice-check upsell and **Start your free first paper** (free trial, no card). The voice check creates a free account, stores the baseline, and can continue into `/app/papers/new`.
-8. Signed-in users with an existing session skip the email gate (still offered "Email me a copy"). Users 13–17 never see a prechecked or required marketing opt-in.
+1. Student lands on `https://www.retainwrite.com/ai-checker` (no account, no login).
+2. Pastes a draft into the clean submit box: min **120** words, max **4,000** words and **30,000 characters** (whichever hits first). Live word + character counter.
+3. **Optional:** opens **Add a sample of your own writing (optional)** and pastes or types 150–1,500 words (max 10,000 characters) of something they wrote themselves (an older paper, a discussion post, an email). If they are signed in with a `voice_profiles` row, that baseline is used automatically and the field says so. With no sample and no baseline, the vocabulary signal is **N/A** and its weight is renormalized away (section 8).
+4. Clicks **Check my draft**. Server: BotID check, rate limits, and (if needed) the visible challenge (section 14); validates length; strips quotes/citations/references the same way Stage 6 mismatch does; computes deterministic metrics; calls Grok for the judgment signals. Skeleton loading with staged progress copy (section 5.5).
+5. **Free preview:** the overall result (ring + Signal strength + headline, or **Your draft reads fine**) plus the **top 2** signals by strength, each with its quoted examples. Disclaimer visible. The other five signals show as locked cards (name only).
+6. **Email gate:** "Enter your email to get your full report." Email, age band (13–17 / 18+; under 13 blocked), required terms checkbox, and an unchecked-by-default marketing checkbox (hidden for 13–17). Copy states that this creates a free account with a free first paper.
+7. On submit: unlock the full report on the page **immediately**; email the full report (HTML + PDF) with a magic-link button **Start your free first paper**; create the account (section 5.3).
+8. **Full report:** all seven signals (or six + vocabulary N/A), per-section breakdown, **Your draft, highlighted** view (section 5.8), quoted tells, coaching questions, disclaimer, link to the public rubric (v1.0).
+9. **Bottom of the report:** **Start your free first paper** and the optional voice-check upsell.
+10. Signed-in users skip the email gate (still offered **Email me a copy** and **Save this report to my account**).
 
-If the student is under the minimum word count, or over the maximum, do not run the model. Show a clear error. For a paper over 4,000 words: "Paste up to 4,000 words (about 8 pages). For a longer paper, check one section at a time."
+If the draft is under the minimum or over the maximum, do not run the model. Show a clear error: "Paste at least 120 words." / "Paste up to 4,000 words (about 8 pages). For a longer paper, check one section at a time."
 
 ---
 
@@ -76,11 +83,11 @@ If the student is under the minimum word count, or over the maximum, do not run 
 
 Use the heading structure and body copy in `/workspace/retainwrite/ai-checker-landing-copy.md`, with the copy-alignment fixes in section 6.
 
-1. **Hero.** H1: "Does this sound like you?" Subhead, primary CTA **Check my draft** (smooth-scrolls to the paste box), microcopy: "Free. No account needed to check. No card required. Ratings measure writing patterns, not who wrote it — no tool can prove that."
+1. **Hero.** H1 (exact): **AI Detector for Student Papers: Does It Sound Like You?** Subhead from the landing copy, primary CTA **Check my draft** (smooth-scrolls to the paste box, or the box sits in the hero on mobile), microcopy: "Free. No account needed to check. No card required. Ratings measure writing patterns, not who wrote it — no tool can prove that."
 2. **What the checker looks at.** The seven signals, each in one line, plus a link to the public rubric (v1.0).
 3. **What you get back.** Named tells, coaching questions, and that many drafts come back "reads fine."
 4. **What no detector can tell you.** Liang et al. (2023) + formal-writing caveat.
-5. **Paste box.** Label, word-count live readout (120–4,000), "Check my draft" button, privacy line from section 0(d).
+5. **Paste box (the clean submit box).** One large textarea, label "Paste your draft (120 to 4,000 words)", live word and character readout, a collapsed **Add a sample of your own writing (optional)** disclosure with its own textarea and helper ("Something you wrote yourself. It sharpens the vocabulary signal. Not stored."), the **Check my draft** button, and the privacy line from section 0(d) right under the button. Nothing else competes with it. On mobile the paste box is in the first viewport.
 6. **Results panel.** Preview or full report (section 5). The honesty disclaimer is inside this panel.
 7. **Email gate** (after preview, if locked).
 8. **Voice-check upsell** and **Start your free first paper** (after the report, or after preview as secondary links).
@@ -89,7 +96,7 @@ Use the heading structure and body copy in `/workspace/retainwrite/ai-checker-la
 
 ### 4.2 `/ai-checker/rubric`
 
-Publish the full v1.0 table (section 7), the scoring and calibration rules in plain language, a short changelog, and this note:
+Publish the full v1.0 table (section 7), the signal weights and the renormalization rule (section 8), the calibration method and calibration-set summary (section 9.1, including "We never adjust a single result"), a short changelog, and this note:
 
 > This rubric is public and versioned. It will be updated as writing tools and detection methods evolve. Changes ship under a new version number and are listed below.
 
@@ -97,11 +104,25 @@ Link back to the checker. Do not hide thresholds.
 
 ### 4.3 `/blog` and `/blog/[slug]`
 
-Implemented in the same public-content phase, alongside the checker. Marketing supplies posts. The checker is not blocked on blog content existing.
+Built in Phase 12 of the build prompt, right after this checker (Phase 11). Marketing supplies posts. The checker is not blocked on the blog existing; hide any blog links until `/blog` ships.
 
-### 4.4 `/ai-checker/report/[token]`
+### 4.4 `/ai-checker/report/[token]` (signed-in, opt-in saves only)
 
-Shareable / printable full report (no site chrome beyond a slim header). Token is unguessable. Expires in 30 days. Includes the disclaimer. No chat-bubble UI anywhere on these routes.
+Exists only for reports a signed-in student chose to **Save this report to my account**. Requires the owner's session (RLS), token unguessable, no expiry until the student deletes it. Includes the disclaimer. Anonymous and just-unlocked reports are not stored, so they have no link: their **Print / Save as PDF** action prints the in-page report (`@media print`), and the email carries the HTML + PDF copy. No chat-bubble UI anywhere on these routes.
+
+### 4.5 SEO metadata
+
+- `<title>`: **AI Detector for Student Papers: Does It Sound Like You?** (55 chars). H1 is the same text.
+- Meta description (from landing copy, ≤ 155 chars): "Paste your draft and get a 0–100 signal-strength score on seven writing signals, with quoted lines and coaching questions. Free to check, no account."
+- Canonical: `https://www.retainwrite.com/ai-checker`. `metadataBase = new URL("https://www.retainwrite.com")`.
+- Open Graph + Twitter card: same title/description, `og:url` canonical, 1200×630 image generated with `next/og` (`opengraph-image.tsx`) showing the title and a sample ring labeled "Signal strength" (never "AI %").
+- JSON-LD: `FAQPage` (the shipped FAQ, section 16) and `WebApplication` (`applicationCategory: "EducationalApplication"`, `offers.price: "0"`). No `aggregateRating` (we have none).
+- `robots`: index, follow for `/ai-checker` and `/ai-checker/rubric`; `noindex` for `/ai-checker/report/*`. Add both public URLs to `sitemap.ts`.
+- Internal links: the page links to `/ai-checker/rubric` ("See the public rubric, v1.0") in the signals section, in the report header, and in the footer disclaimer. The rubric page links back.
+
+### 4.6 Routing and the www canonical
+
+www is canonical. Configure in Vercel: `www.retainwrite.com` is the primary domain; `retainwrite.com` redirects to it with **308** (preserves method and body). Do not add a second redirect in `middleware.ts` (avoid loops). All absolute URLs (canonical, OG, sitemap, email links, magic-link `redirectTo`) use `https://www.retainwrite.com`. Server-to-server webhooks must target www directly (Stripe does not follow redirects; see build prompt).
 
 ---
 
@@ -122,7 +143,14 @@ An **overall summary ring** uses the same 0–100 strength scale and a plain-lan
 | 40–69 | **A few generic spots** |
 | 70–100 | **Several machine-like patterns** |
 
-When the band is 0–39, the headline must be one of: **"Your draft reads fine"** or **"Reads like you."** Do not bury it.
+**Headline rules (exact):**
+
+- Every report's overall block is titled **Signal strength** (never "likelihood of AI," "AI score," or "AI %").
+- **Clean (0–39):** the big headline is **"Your draft reads fine"**. The ring shows a check icon and "Reads like you"; the number appears as secondary text ("Signal strength 18 of 100 · low"). No mid-band number is ever shown for a clean draft (the count rules cap it at 39).
+- **40–69:** headline "A few spots worth a look" with the number in the ring.
+- **70–100:** headline "Several patterns to fix first" with the number in the ring.
+
+Directly under the headline, one line says what to do: clean → "Keep doing what you're doing. Nothing here needs fixing first." Otherwise → "Start with: {top Fix first or Worth a look signal}." Do not bury the headline.
 
 There is still no "score out of 100 that you passed or failed," and no authorship verdict. The number is pattern strength. Marketing copy that said "there is no score out of 100 and no verdict" must be revised (section 6).
 
@@ -138,29 +166,36 @@ Meet **WCAG AA**: body text and labels ≥ 4.5:1 against the page background; la
 
 Each flagged item (Worth a look or Fix first) is a collapsed row that expands to (1) the quoted tell from the student's own text and (2) one coaching question. Keep items can expand too, but start collapsed and do not demand attention.
 
-### 5.3 Email gate
+### 5.3 Email gate, account, and the free first paper
 
-The free preview shows the overall ring (number, band, summary label) plus the **top 2** signals (name, strength, icon, label). A short line: "The other five signals and the section-by-section view are in your full report."
+The free preview shows the overall result (ring, Signal strength, headline) plus the **top 2** signals (name, strength, icon, label, and their quoted examples). Ties break by fixed signal order. Below them, the other signals appear as locked cards (name + lock icon). Line: "The other five signals, the highlighted draft, and the section-by-section view are in your full report."
 
-Unlock copy: **"Enter your email to get your full report."** That unlocks all seven signals, the per-section breakdown, and an emailed PDF/HTML copy via Resend from `coach@send.retainwrite.com` (`EMAIL_FROM` in the stage specs: `RetainWrite Coach <coach@send.retainwrite.com>`).
+Unlock copy: **"Enter your email to get your full report."**
 
 Form fields:
 
 - Email (required).
-- Age: required confirmation "I am 13 or older," plus a choice of **13–17** or **18+**. Under 13: block with "You must be 13 or older to use RetainWrite."
-- Marketing consent checkbox, **unchecked by default**, copy: "Also send me occasional writing-coach tips. This is optional and separate from your report." Hidden for 13–17; stored as `false`.
-- Submit: "Send my full report."
+- Age: "I am 13 or older" (required) and a choice of **13–17** or **18+**. Under 13: block with "You must be 13 or older to use RetainWrite." No lead, no account.
+- **Terms** (required checkbox): "Create my free RetainWrite account. I agree to the Terms and Privacy Policy." (links). Helper: "Your first paper is free. No card."
+- Marketing consent, **unchecked by default**: "Also send me occasional writing-coach tips. This is optional and separate from your report." Hidden for 13–17 and stored as `false`.
+- Submit: **Send my full report**.
 
-Report email: subject "Your RetainWrite writing-signals report"; HTML body with the summary, all signals, top tells, a private link to `/ai-checker/report/[token]`, and a PDF attachment (or a clear "Download PDF" link that works without signing in). Marketing emails (only if consented and 18+) include a visible unsubscribe link and the physical address **3629 Maizeland Rd, Colorado Springs, CO 80909** (CAN-SPAM; same address as the growth-ops doc). Report-delivery mail is transactional and is sent even when marketing is declined.
+On submit (`POST /api/ai-checker/unlock`, section 11):
 
-Leads go to `ai_checker_leads` with `source` and UTM fields (section 12).
+1. Verify the sealed result (section 11) and that it's unexpired. Unlock the full report on the page right away; the student doesn't wait for email.
+2. **Create the account:** server-side `supabase.auth.admin.generateLink({ type: "magiclink", email, options: { redirectTo: "https://www.retainwrite.com/app/papers/new?from=checker" } })`. This creates the auth user if it doesn't exist (the existing trigger inserts `profiles`), sets `terms_accepted_at`, and returns the magic link. Existing users get a sign-in link only. Never create a second account for the same email.
+3. **Free first paper:** a new profile has `free_paper_used = false`, so the existing entitlement helper (`lib/entitlements.ts`) grants the free first paper (all stages, no audio, no card) on **Start new paper**. No credits or purchases are written here. Existing users keep whatever they have; if their free paper is used, the CTA goes to the normal paywall/pricing. 13–17 accounts still go through the guardian-consent gate (stage specs decision 17) before the first paper; say so in the email.
+4. **One email** via Resend from `RetainWrite Coach <coach@send.retainwrite.com>`: subject "Your RetainWrite writing-signals report"; HTML body with the headline, all signals, quoted tells, coaching questions, the disclaimer, the public-rubric link, a PDF attachment rendered in memory, and the magic-link button **Start your free first paper**. It's transactional, so it's sent even when marketing is declined. Supabase's own confirmation email is not sent for this path (we deliver the magic link ourselves). Supabase Auth SMTP should still point at Resend for normal signups.
+5. Write `ai_checker_leads` (email, user id, age band, consent, UTM). No draft text, no quotes.
+
+Marketing emails (only if consented and 18+) include a visible unsubscribe link and the physical address **3629 Maizeland Rd, Colorado Springs, CO 80909** (CAN-SPAM; same address as the growth-ops doc).
 
 ### 5.4 Bottom CTAs
 
 After the full report (and visible on the print view as links, not as a second sales page):
 
 1. Upsell: **"Want even clearer results? Take this one-minute voice check."** Subcopy: "We'll build a baseline of your vocabulary, tone, and scholarly register, then re-score the comparison signals. Creates a free account. No card."
-2. **"Start your free first paper"** → `/signup` or `/app/papers/new` (free trial, no card).
+2. **"Start your free first paper"** → `/app/papers/new?from=checker` when signed in, otherwise the magic link from the report email (or `/signup` if they never unlocked). Free first paper, no audio, no card.
 
 ### 5.5 Design tokens (premium, academic, not a chat app)
 
@@ -181,7 +216,7 @@ After the full report (and visible on the print view as links, not as a second s
 | Motion | Score count-up (~600ms, ease-out, `prefers-reduced-motion` skips). Ring fill draws once. No bounce, no chat typing dots. |
 | Loading | Skeleton cards plus staged copy: "Counting sentence lengths… / Checking rhythm… / Looking for stock phrases… / Reading topic sentences…" |
 | Layout | Mobile-first. On a phone, the ring is at the top, then signal cards in a single column. On desktop, ring + overall label in a left column, signal cards on the right, section heatmap below. |
-| Print / share | `@media print` on `/ai-checker/report/[token]`: white background, no gate, no nav, disclaimer included. |
+| Print / share | `@media print` on the in-page report (`/ai-checker`) and on saved `/ai-checker/report/[token]`: white background, no gate, no nav, disclaimer included. |
 
 No chat-bubble UI, no avatars, no "the coach is typing." This is a report, not a messenger.
 
@@ -192,6 +227,50 @@ No chat-bubble UI, no avatars, no "the coach is typing." This is a report, not a
 - `SectionHeatmap` — per-section strength for each signal or an aggregate per section; expandable tells scoped to that section.
 - `EmailGate` — preview-to-full unlock form.
 - `UpsellPanel` — voice check + free-first-paper CTAs.
+- `HighlightedDraft` — the student's own text with highlighted spans per tell (section 5.8). Client-only.
+- `SubmitBox` — draft textarea, optional writing-sample disclosure, counters, privacy line, submit.
+- `Disclaimer` — the honesty disclaimer with the Liang et al. (2023) citation link.
+
+### 5.8 Highlighted examples (quotes only, never rewrites)
+
+Every tell carries a verbatim `quote` plus `start` / `end` character offsets into the submitted text (verified in code: `text.slice(start, end) === quote`; drop the tell if not). The full report adds **Your draft, highlighted**: the student's own text, rendered from the copy still in their browser (never re-fetched from the server), with each tell's span underlined and tinted by band, paired with a small icon and a numbered marker (not color alone). Tapping a marker opens the signal name, why it fired, and the coaching question. A "Keep" filter can show what's working (for example, a paragraph with strong personal specifics gets a green "Keep" marker), so the student sees what to keep as well as what to fix.
+
+Never show replacement text, alternate sentences, "try this" suggestions, or a rewritten version. Quotes are capped at 2 sentences / 300 characters each, max 3 per signal.
+
+### 5.9 Voice-baseline paste note (Colton, Nov 20, 2026, t45; softer wording t46)
+
+**What:** when the voice baseline used for the comparison signals came from text that was mostly or entirely **pasted** (not typed or spoken), show one kind, factual note at the **very bottom of the report**, below every score and the highlighted draft, above only the disclaimer/footer. It never interrupts, replaces or recolors the main score or headline. No warning icon or amber color: plain body text, with a small ℹ︎ info icon at most. It's not in the preview's top area.
+
+**Wording (t46, one consistent soft style on every surface):**
+
+| Baseline used | Exact text (`lib/copy/voiceNotes.ts`) |
+|---|---|
+| The writing-sample box (public standalone checker) | `VOICE_NOTE_SAMPLE`: “Your writing sample was pasted in, which is totally fine. A typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
+| Voice answers: a `voice_profiles` row (signed-in checker), any in-app voice check, and the Stage 6 comparison (Stage 1 answers) | `VOICE_NOTE_ANSWERS`: “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+
+Colton's t45 wording (“Voice was not reliably determined…”) is retired everywhere in favor of this softer style (t46). The note never says “unreliable,” “less confidence,” “pasted instead of,” or anything that implies wrongdoing.
+
+**Which baseline it looks at (scoped by surface):**
+
+| Surface | Baseline whose paste share is checked |
+|---|---|
+| Standalone `/ai-checker` with the optional writing sample | The writing-sample box (`sampleInputMeta` sent with the request; nothing stored) |
+| Standalone `/ai-checker`, signed in, no sample, using `voice_profiles` | The profile's answers: pasted share = `1 − voice_profiles.typed_word_share` (from the checker voice check or Stage 1) |
+| Any in-app voice check, and the Stage 6 voice comparison | The Stage 1 coaching answers that form the baseline (`intake_answers.pasted_chars` / `typed_chars`) |
+
+**Threshold ("mostly pasted"):** `pastedShare = pastedChars / (pastedChars + typedChars)` over the baseline actually used. The note shows when **`pastedShare > 0.60`** (strictly greater). Constant: `VOICE_PASTED_SHARE_NOTE = 0.60` in `lib/config.ts`.
+
+**Typed vs. spoken vs. pasted:** `typedChars` includes keyboard input, autocorrect/predictive text, OS dictation (it arrives as `insertText` / `insertReplacementText`) and any in-app speech-to-text (`spokenChars`, added to typed). Only `insertFromPaste`, `insertFromPasteAsQuotation` and `insertFromDrop` count as pasted. Missing meta (no JS, older rows) counts as typed, so it never triggers the note.
+
+**No baseline → no note.** If there is no sample and no profile, the vocabulary signal stays `needs_voice` / **N/A** exactly as today (section 7, weight renormalized) and this note is not shown. The note only appears when a baseline exists and is mostly pasted.
+
+**Combined with backend weighting:** the same paste ratio drives the typed-weighted baseline (`w = 1 − 0.8 × paste_ratio`; Stage 1 spec 8.1a). With a sample, weighting is per paste event span: pasted spans get weight 0.2 and typed spans 1.0. If typed + spoken words in the baseline are under 150, comparison signals use the short-sample downgrade (no strong levels). The scores are honest about lower confidence, and the note says so in words.
+
+**Where it appears:** the on-page full report (bottom), the emailed HTML report and PDF (bottom, before the disclaimer), and the saved `/report/[token]` view. In the locked preview it appears only once the full report is unlocked, since the comparison signals aren't in the preview. Never in a modal, toast or banner.
+
+**Response field:** `voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, lowConfidence: boolean, note: string | null }`, where `note` is `VOICE_NOTE_SAMPLE` (source `sample`), `VOICE_NOTE_ANSWERS` (source `voice_profile`), or null.
+
+**Aggregate (no text):** `ai_checker_runs.baseline_pasted_bucket text` (`none | 0-20 | 20-60 | 60-90 | 90-100`), added in 0007's alter block (if 0007 is already applied, ship it in the next free migration). Event `checker_voice_paste_note_shown { surface, bucket }`.
 
 ### 5.7 Report acceptance criteria
 
@@ -201,11 +280,15 @@ No chat-bubble UI, no avatars, no "the coach is typing." This is a report, not a
 - [ ] Color is not the only indicator; contrast meets WCAG AA.
 - [ ] A calibrated-low draft shows "Your draft reads fine" or "Reads like you," not a padded mid score.
 - [ ] Preview shows only the overall ring and top 2 signals until the email gate is completed (or the user is already signed in).
-- [ ] Full report emails from `coach@send.retainwrite.com` and is unlockable from the private link.
+- [ ] Full report emails from `coach@send.retainwrite.com` (HTML + PDF + magic link); signed-in students can save it to `/ai-checker/report/[token]` by opting in.
 - [ ] Marketing checkbox defaults unchecked, is separate from delivery, and is not offered to 13–17.
 - [ ] Unsubscribe works on marketing mail.
 - [ ] Disclaimer is visible in the on-page report, the emailed copy, and the printable view.
 - [ ] Reduced-motion is respected; layout works at 320px width; report is keyboard-navigable.
+- [ ] The overall block is titled "Signal strength"; a clean draft's headline is "Your draft reads fine" with no mid-band number.
+- [ ] Highlighted spans match verbatim quotes and carry icon + marker, not color alone.
+- [ ] (t45/t46) The voice-baseline paste note (5.9) shows the exact soft text for its source (`VOICE_NOTE_SAMPLE` / `VOICE_NOTE_ANSWERS`) at the very bottom of the full report, email and PDF only when the baseline used has pasted share > 0.60; never above or inside the score area, never in a modal.
+- [ ] Each band states what to do: Keep = keep it; Worth a look / Fix first = the coaching question.
 
 ---
 
@@ -228,7 +311,7 @@ Use these in "What you get back" and similar lines, instead of made-up placehold
 1. **"There is no score out of 100 and no verdict."** Conflicts with the owner-required 0–100 Signal strength scores and the plain-language summary labels. Replace with something like: "Each signal gets a 0–100 signal-strength score — how strongly the pattern shows up, not the chance that AI wrote it. There is no pass/fail grade and no authorship verdict. Plenty of drafts come back 'reads fine.'"
 2. **Email gate is missing.** The landing copy does not mention that the free preview is the overall summary plus the top 2 signals, and that an email unlocks the full report. Add one honest line near the paste box or results: "You'll see a preview right away. Enter your email for the full report and a copy in your inbox." Hero microcopy may keep "Free. No card required" but should also say no account is needed to check.
 3. **"…how you actually write and speak."** The voice check is a **typed** conversational intake, not an audio recording. Say "how you actually write" (vocabulary, tone, and scholarly register). Drop "and speak" unless a spoken recording is added later.
-4. **Account behavior is unstated.** Add: the checker needs no account; the voice check creates a free account.
+4. **Account behavior is unstated.** Add: the checker needs no account; the email step creates a free account with the free first paper (updated Nov 20, 2026; previously the voice check created it).
 5. **Privacy is unstated.** Add the privacy FAQ in section 17 (question 7) and the one-line privacy notice by the paste box.
 6. **Brand name.** Copy says "Retain and Write"; the app and technical docs say "RetainWrite." Acceptable if marketing is standardizing the spaced name in public copy. Keep the domain retainwrite.com either way.
 7. **"Detector" in the title, an H2, and keywords** is allowed for search intent, as the copy already frames the tool as not a verdict. Do not expand that wording into body CTAs ("Run the detector," "Detection score").
@@ -237,9 +320,24 @@ Assumptions in the landing copy that this spec **confirms:** (a) high / moderate
 
 ---
 
+### 6.3 Reconciliation with the landing copy (Nov 20, 2026) — conflicts to resolve
+
+The landing copy is DRAFT v2 and marked PENDING COLTON CONFIRMATION for privacy (FAQ 7 and the paste-box line). This spec now differs in these places. **Marketing should patch after Colton decides; do not publish the conflicting lines.**
+
+| # | Landing copy says | This spec now says | Status |
+|---|---|---|---|
+| 1 | H1 "Does this sound like you?" (heading structure: "Does this sound like you? An AI checker for student papers") | H1 = **"AI Detector for Student Papers: Does It Sound Like You?"** (matches the title tag the copy already uses) | Patch the H1; keep "Does this sound like you?" as the subhead lead or an H2. |
+| 2 | **FAQ 7:** "If you enter your email for the full report, we keep the scores and the short quoted lines in a private link for 30 days…" | Analyze in memory only; the server stores only anonymous aggregate metrics; quotes are not stored; the email carries the full copy; saved reports exist only for signed-in opt-in | **CONFLICT, pending Colton.** Proposed FAQ 7 in section 16. |
+| 3 | FAQ 6 / voice-check line: "The voice check creates a free account" | The **email step** creates the free account (with the free first paper); the voice check attaches a baseline to it | Patch FAQ 6 and the voice-check line ("Saves to your free account"). |
+| 4 | "What you get back": email unlocks "all seven signals, a section-by-section view and a copy in your inbox" | Same, plus the highlighted draft; vocabulary may show N/A without a sample | Minor add. |
+| 5 | Voice baseline only via the voice check | An **optional writing sample** field on the submit box also powers the vocabulary signal (not stored) | Add one line near the paste box. |
+| 6 | Overall labels "Reads like you / A few generic spots / Several machine-like patterns" | Kept as ring labels; headlines are "Your draft reads fine" / "A few spots worth a look" / "Several patterns to fix first", under the title "Signal strength" | Compatible; align wording. |
+| 7 | Paste-box privacy line ("Drafts aren't stored unless you are signed in and opt in. We never use drafts for training.") | Same wording | No conflict (still pending Colton's sign-off). |
+| 8 | "No account needed to check" | Same | No conflict. |
+
 ## 7. Rubric v1.0 — seven writing signals
 
-Starting thresholds, in the same spirit as the Stage 6 mismatch table in `retainwrite-stage-specs.md` section 7: published, unit-tested, and tuned from logged (non-text) metrics after roughly 50 real runs. Target: about 40–60% of genuine student drafts should land in **Reads like you**. If that share is under 25%, loosen; if over 80% and obvious stock-phrase drafts are slipping through, tighten. Log every metric, never to force a mid-band result.
+Starting thresholds, in the same spirit as the Stage 6 mismatch table in `retainwrite-stage-specs.md` section 7: published, unit-tested, and **set on a calibration set of real student writing** before launch (section 9). The thresholds below are the pre-calibration starting points; calibration may move them, and any move ships as a new rubric version with a public changelog. Every signal is scored **0–100 for strength** (how strongly the pattern shows up).
 
 **Exclusions (all deterministic signals):** text inside quotation marks and block quotes, in-text citations, headings, and the references list — same as mismatch. **Minimum to score a signal:** generally 120 words and 8 sentences; otherwise mark the signal `insufficient` and exclude it from the overall mean (do not treat as high).
 
@@ -269,11 +367,12 @@ Starting thresholds, in the same spirit as the Stage 6 mismatch table in `retain
   - Fix first: window-mean CV < 0.14, **or** both sub-measures in the moderate band.
 - **Coaching question:** "Where does this section speed up or slow down in your own thinking?"
 
-#### 3. Vocabulary vs. your own writing (deterministic, **requires a voice baseline**)
+#### 3. Vocabulary vs. your own writing (deterministic, **needs a writing sample — optional**)
 
 - **Definition:** Whether the draft's vocabulary and complexity match the student's own sample. Marketing: "Do the words match how you usually write?"
 - **Measured:** Reuse `lib/style/metrics.ts` and the mismatch table in the stage specs (section 7): unseen content words (≥ 8 letters, not in the allow-list) at **> 12%** (tell) and **> 20%** (strong); sentence-length jump **+60% / +100%**; reading grade **+4.0 / +6.0**; formality **+0.35 / +0.50**. Allow-list: sample vocabulary, plus any assignment text the student pasted (none, on this standalone tool, unless they later start a paper). Direction: only upward jumps. If the sample is under 200 words, a "strong" sentence-length jump is treated as a tell, same as mismatch.
-- **Without a baseline:** status = `needs_voice`. **Do not score, do not treat as high, do not invent a comparison.** Card copy: "Want a clearer read on vocabulary? Take the 1-minute voice check."
+- **Baseline source, in order:** (1) the optional writing sample on the submit box (≥ 150 words; processed in memory, not stored); (2) the signed-in student's `voice_profiles` row. If both exist, the sample wins for this run, **except (t45)** when the sample is mostly pasted (pasted share > 0.60) and the profile is reliable (pasted share ≤ 0.60); then the profile is used. Comparison metrics are typed-weighted the same way as Stage 1 (spec 8.1a), and the bottom note in 5.9 applies when the baseline actually used is mostly pasted.
+- **Without a sample or baseline:** status = `needs_voice`, shown as **N/A**. **Do not score, do not treat as high, do not invent a comparison**, and remove its weight from the overall (renormalize, section 8). Card copy: "N/A — add a sample of your own writing to score this one." 
 - **With a baseline:** Keep if no tell; Worth a look if one tell and no strong; Fix first if one strong or two or more tells (same trigger rule as mismatch).
 - **Coaching question:** "Which of these words would you use if you were explaining this to a classmate?"
 
@@ -316,8 +415,22 @@ Starting thresholds, in the same spirit as the Stage 6 mismatch table in `retain
 1. Strip exclusions, count words and sentences, enforce 120–4,000 words.
 2. Split **sections**: use student headings if present; otherwise treat the first paragraph(s) as Introduction, the last as Conclusion if it looks like a close, and the middle paragraphs as Body (group very short paragraphs with a neighbor so a section is usually ≥ 80 words). Score signals at draft level and, where the metric is local, at section level.
 3. Compute each available signal's 0–100 **signal strength** with the thresholds above. `needs_voice` and `insufficient` are omitted from averages and do not count as high.
+
+   **Weights (rubric v1.0, public on the rubric page):**
+
+   | Signal | Weight |
+   |---|---|
+   | 1. Sentence-length variance | 12 |
+   | 2. Burstiness | 12 |
+   | 3. Vocabulary vs. your own writing | 16 |
+   | 4. Tone consistency | 14 |
+   | 5. Topic sentences | 14 |
+   | 6. Personal specifics | 16 |
+   | 7. Stock phrases | 16 |
+
+   **Renormalization:** `weightedMean = Σ(wᵢ · sᵢ) / Σ wᵢ` over **scored** signals only. With no writing sample, vocabulary's 16 drops out and the other six are divided by 84 (not 100). Same for any `insufficient` signal. Unit-test that an N/A signal never lowers or raises the overall by its absence alone.
 4. Band the 0–100 number: 0–39 Keep / low, 40–69 Worth a look / moderate, 70–100 Fix first / high.
-5. **Overall strength** starts as the **mean of available signal scores**, then is **constrained by the count rules in section 9** so the label and the number never disagree, and so a clean draft cannot be nudged into a mid band.
+5. **Overall strength** starts as the **renormalized weighted mean** of available signal scores, then is **constrained by the count rules in section 9** so the label and the number never disagree, and so a clean draft cannot be nudged into a mid band.
 
 Per-section "section strength" is the mean of the signals available in that section (stock phrases, topic sentences, personal specifics, local length variance, local tone). Same 0–100 label and colors.
 
@@ -329,9 +442,9 @@ The tool must often return **"Your draft reads fine"** / **Reads like you** when
 
 **Count rules (decisive):**
 
-- **Reads like you (0–39):** zero signals at Fix first, and at most **one** signal at Worth a look. Overall number = `min(39, mean of available scores)`.
-- **A few generic spots (40–69):** exactly one Fix first, **or** two or three Worth a look and zero Fix first. Overall number = `clamp(max(mean, 40), 40, 69)`.
-- **Several machine-like patterns (70–100):** two or more Fix first, **or** one Fix first plus two or more Worth a look, **or** four or more Worth a look. Overall number = `clamp(max(mean, 70), 70, 100)`.
+- **Reads like you (0–39):** zero signals at Fix first, and at most **one** signal at Worth a look. Overall number = `min(39, weightedMean)`.
+- **A few generic spots (40–69):** exactly one Fix first, **or** two or three Worth a look and zero Fix first. Overall number = `clamp(max(weightedMean, 40), 40, 69)`.
+- **Several machine-like patterns (70–100):** two or more Fix first, **or** one Fix first plus two or more Worth a look, **or** four or more Worth a look. Overall number = `clamp(max(weightedMean, 70), 70, 100)`.
 
 **Anti-padding rules:**
 
@@ -343,17 +456,27 @@ The tool must often return **"Your draft reads fine"** / **Reads like you** when
 
 Unit-test these rules with fixture drafts: a clean varied human-like fixture, a mildly generic fixture, and a stock-phrase-heavy fixture.
 
+### 9.1 Honest calibration toward "about half come back clean"
+
+The owner wants roughly half of submissions to come back **Your draft reads fine**. We get there **only by honest calibration**, never by forcing, randomizing, or steering results. State this on the rubric page: "We tune thresholds on real student writing so typical human drafts read fine. We never adjust a single result."
+
+1. **Calibration set (before launch, stored as metrics only):** at least **300** real student drafts written without AI help, spanning high school, undergrad, and grad; including **≥ 60 ESL** writers and **≥ 60 steadily formal** papers (lab reports, literature reviews). Sources: drafts written before late 2022 (pre-ChatGPT) from consenting students or the owner's own archive, or openly licensed student-essay corpora, used under their license. Plus a smaller **contrast set** (≥ 100) of clearly AI-generated or heavily AI-assisted texts on similar prompts, labeled as such. Keep only per-signal numeric metrics in `checker_calibration_samples` (section 12.1); no text in the database. Text lives only in an offline, access-controlled calibration folder outside the app.
+2. **Set thresholds** so that **typical human drafts land in Keep**: each signal's Keep upper bound is at or above the human set's **80th percentile** for that metric, and the overall "reads fine" rate on the human set is **≥ 80%**, with **≥ 75%** in the ESL and formal subsets (protecting against the known false-positive groups). Check that the contrast set lands mostly outside Keep; report that number on the rubric page as a description of the calibration set, never as an accuracy claim.
+3. **Expected live clean rate:** real submissions mix untouched human drafts, edited drafts, and AI-assisted drafts, so the live share of "reads fine" is expected around **40–60%**. That's a forecast from calibration, not a quota.
+4. **Monitored metric — clean rate:** `clean_rate = runs with overall band low / scored runs` (exclude `partial` and mostly-`insufficient` runs), daily and 7-day rolling, split by with/without sample. Shown on `/admin/sop` and the `ai_checker_daily_stats` view (section 12.1). If the 7-day rate leaves **30–70%** for two consecutive weeks, open a **review**: re-run the calibration set, inspect signal-level drift, and, if thresholds change, ship rubric **v1.x** with a public changelog. Never change thresholds to hit a number on live traffic alone, and never per request.
+5. **Forbidden (code-review and test enforced):** random number use anywhere in scoring; any input to scoring other than the text, the optional sample/baseline, the rubric version, and the model's judgments; reading `clean_rate` from scoring code; per-user or per-time-of-day adjustments; A/B tests that change scores. A determinism test runs the same fixture twice (with model judgments mocked) and expects identical output.
+
 ---
 
 ## 10. Voice check
 
 Copy: **"Want even clearer results? Take this one-minute voice check."**
 
-It is a short **typed** conversational intake (four questions) that builds a baseline of vocabulary, tone, and scholarly register. It reuses the shared voice-sample helpers: `MIN_VOICE_SAMPLE_WORDS = 150`, paste blocked, the same "we need your natural typing voice" / "we need your own typing here" note, and the same `StyleMetrics` computation (including any additive fields Stage 1 adds — variance, scholarly register, tone markers — which this checker may store but does not have to surface). The four questions and the 150-word floor are **unchanged**; do not raise them to Stage 1's 250-word paper-intake minimum. Completing it **creates a free account** (or attaches to the signed-in user) and writes `voice_profiles` (one table, shared with Stage 1; do not fork). That profile sharpens signals 3 and 4 (and the register sub-measure). After scoring, offer to re-run the comparison signals on the current draft. It is also the funnel into the free first paper: "Your first paper is free. No card."
+It is a short **typed** conversational intake (four questions) that builds a baseline of vocabulary, tone, and scholarly register. It reuses the shared voice-sample helpers: `MIN_VOICE_SAMPLE_WORDS = 150`, **paste allowed** (Colton, Nov 20, 2026, t44: no paste blocks anywhere; the old "we need your own typing here" note is removed; the passive `usePasteMeta()` records a paste ratio, Stage 1 spec 8.1a), and the same `StyleMetrics` computation (including any additive fields Stage 1 adds — variance, scholarly register, tone markers — which this checker may store but does not have to surface). The four questions and the 150-word floor are **unchanged**; do not raise them to Stage 1's 200-word paper-intake minimum (lowered from 250 by Colton, Nov 20, 2026). Completing it attaches to the account created at the email step (or, if the student skipped the email step, creates the free account the same way) and writes `voice_profiles` (one table, shared with Stage 1; do not fork). That profile sharpens signals 3 and 4 (and the register sub-measure). After scoring, offer to re-run the comparison signals on the current draft. It is also the funnel into the free first paper: "Your first paper is free. No card."
 
 **The four questions:**
 
-1. "Write about 150–300 words, no editing, about anything you care about, the way you'd text a friend who asked." (The checker's standalone sample; required; ≥ 150 words; paste blocked. This is not the Stage 1 paper-intake sample, which is embedded in assignment-grounded answers and has a 250-word floor.)
+1. "Write about 150–300 words, no editing, about anything you care about, the way you'd text a friend who asked." (The checker's standalone sample; required; ≥ 150 words; paste allowed, paste ratio recorded quietly. This is not the Stage 1 paper-intake sample, which is embedded in assignment-grounded answers and has a 200-word floor.)
 2. "In three or four sentences, explain a topic you know well to a classmate." (Scholarly vs. casual register.)
 3. "What's a word or phrase you rely on when you write, or one teachers often mark?" (Vocabulary awareness; short answer is fine.)
 4. "When you write for school, do you sound casual, in-between, or formal — and is that on purpose?" (Tone / register; short answer.)
@@ -372,7 +495,7 @@ If a `voice_profiles` row younger than 180 days already exists when the student 
 
 Structured output: `response_format: { type: "json_schema", json_schema: { name: "ai_checker_judgment", strict: true, schema } }`, then Zod. If the schema is rejected (HTTP 400), retry with `json_object` + Zod.
 
-**Request (Zod):** `{ text: string, voiceProfileId?: string, utm?: { source?, medium?, campaign?, content?, term? } }`.
+**Request (Zod):** `{ text: string (≤ 30,000 chars, 120–4,000 words), sample?: string (≤ 10,000 chars, 150–1,500 words), sampleInputMeta?: { pastedChars: number, typedChars: number, spokenChars: number, pasteEvents: number } (t45; clamped server-side to the sample length), useVoiceProfile?: boolean, challengeToken?: string, utm?: { source?, medium?, campaign?, content?, term? } }`. The route runs `checkBotId()` (Vercel BotID) and the rate limiter before reading the body.
 
 **Response (shape the UI consumes):**
 
@@ -392,7 +515,7 @@ Structured output: `response_format: { type: "json_schema", json_schema: { name:
     status: "scored" | "needs_voice" | "insufficient",
     band: "low" | "moderate" | "high" | null,
     label: "Keep" | "Worth a look" | "Fix first" | null,
-    tells: [{ quote: string, note: string, sectionId?: string }],
+    tells: [{ quote: string, start: number, end: number, note: string, sectionId?: string }],  // quote === text.slice(start, end)
     coachingQuestion: string
   }],
   sections: [{
@@ -405,15 +528,23 @@ Structured output: `response_format: { type: "json_schema", json_schema: { name:
   }],
   preview: { topSignalIds: [string, string?] },
   locked: boolean,             // true until email gate or signed-in session
-  reportToken?: string,        // only after unlock
+  // When locked, `signals` contains ONLY the top 2 (others are { id, locked: true }) and `sections` is empty.
+  sealed?: string,             // locked only: AES-256-GCM sealed full result, 2-hour expiry; opaque to the client
+  runId: string,               // ai_checker_runs id (aggregate row)
   partial: boolean,
+  weightsUsed: Record<string, number>, // after renormalization
+  voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, lowConfidence: boolean, note: string | null }, // t45, section 5.9
   disclaimer: string
 }
 ```
 
 Quotes must be verbatim substrings of the submitted text (enforce in code, same spirit as Stage 2 slot filling). Coaching questions are selected from a small fixed bank per signal, optionally filled with a verbatim slot; the model must not invent a rewrite.
 
-`POST /api/ai-checker/unlock` — email, age band, marketing consent, UTM, preview report id. Creates `ai_checker_leads` + `ai_checker_reports`, sends the email, returns the full result and token.
+**Sealed result (no server-side storage of quotes):** when the result is locked, the server returns the preview plus `sealed`, the full result encrypted with AES-256-GCM under a key derived via HKDF-SHA256 from `CRON_SECRET` with info `"ai-checker-seal-v1"` (no new env var; a dedicated key is an optional later improvement). Payload includes `runId` and `exp` (2 hours). The client can't read it; the server never stores it.
+
+`POST /api/ai-checker/unlock` — `{ sealed, email, ageBand, termsAccepted: true, marketingConsent, utm? }`. BotID + rate limit. Opens the seal (reject if tampered/expired: "This preview expired — check your draft again"), creates or finds the account via `generateLink` (section 5.3), writes `ai_checker_leads`, sends the one report email (HTML + in-memory PDF + magic link), and returns the full result. **Does not store the result or quotes.**
+
+`POST /api/ai-checker/save` — signed-in only, explicit opt-in. `{ result, includeDraft: boolean, draftText? }`. Writes `ai_checker_reports` (owner-scoped, no expiry until deleted) and, if `includeDraft`, `ai_checker_saved_runs`. Returns the `/ai-checker/report/[token]` URL. `DELETE` on the same route removes both.
 
 `POST /api/ai-checker/voice` — the four answers; requires or creates a session; writes `voice_profiles`; may return updated comparison signals.
 
@@ -446,7 +577,7 @@ create table ai_checker_runs (            -- anonymous / aggregate; NO draft tex
   partial boolean not null default false
 );
 
-create table ai_checker_reports (         -- operational store for preview/unlock/email, 30-day TTL
+create table ai_checker_reports (         -- as of 0007: signed-in opt-in saves only (see 12.1); originally a 30-day TTL store
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
@@ -497,7 +628,63 @@ create table voice_profiles (             -- one per user; baseline for signals 
 
 Indexes: `ai_checker_runs (ip_hash, created_at)`, `ai_checker_leads (email)`, `ai_checker_reports (expires_at)`. RLS: `ai_checker_saved_runs` and `voice_profiles` by `auth.uid() = user_id`; leads and reports readable by the owner once `user_id` is set; otherwise service role only.
 
-Retention cron (add `/api/cron/checker-retention`, still authed with `CRON_SECRET`): delete expired reports (and their quoted tells); never keep opted-out draft text after the user deletes it. Anonymous `ai_checker_runs` rows (counts and numeric scores only) may be kept for tuning.
+Retention cron (add `/api/cron/checker-retention`, still authed with `CRON_SECRET`): delete any `ai_checker_reports` rows without a `user_id` (legacy from before 0007), purge `ip_hash` values older than 30 days, and never keep opted-out draft text after the user deletes it. Anonymous `ai_checker_runs` rows (counts and numeric scores only) may be kept for tuning.
+
+### 12.1 Migration `supabase/migrations/0007_ai_checker_standalone.sql` (additive, after 0006)
+
+```sql
+-- 0007_ai_checker_standalone.sql
+-- Reports are stored only for signed-in, opt-in saves.
+alter table ai_checker_reports
+  alter column expires_at drop not null,
+  add column if not exists saved_opt_in boolean not null default false;
+-- New rows must belong to a user and be opt-in (legacy rows are purged by the retention cron).
+alter table ai_checker_reports
+  add constraint ai_checker_reports_owner_optin
+  check (user_id is not null and saved_opt_in) not valid;
+
+alter table ai_checker_runs
+  add column if not exists had_sample boolean not null default false,
+  add column if not exists used_voice_profile boolean not null default false,
+  add column if not exists weights_used jsonb not null default '{}',
+  add column if not exists signal_status jsonb not null default '{}',  -- id -> scored | needs_voice | insufficient
+  add column if not exists challenge_shown boolean not null default false,
+  add column if not exists baseline_pasted_bucket text,                -- t45: none | 0-20 | 20-60 | 60-90 | 90-100 (no text)
+  add column if not exists unlocked boolean not null default false;    -- set by /unlock via runId
+
+alter table ai_checker_leads
+  add column if not exists terms_accepted_at timestamptz,
+  add column if not exists account_created boolean not null default false,
+  add column if not exists run_id uuid references ai_checker_runs;
+
+-- Calibration metrics only (no text). Service role only.
+create table if not exists checker_calibration_samples (
+  id uuid primary key default gen_random_uuid(),
+  rubric_version text not null references rubric_versions(version),
+  set_name text not null,            -- human | human_esl | human_formal | contrast_ai
+  level text,                        -- high_school | undergrad | grad
+  word_count int not null,
+  signal_scores jsonb not null,
+  overall_strength int not null,
+  overall_band text not null,
+  created_at timestamptz not null default now()
+);
+alter table checker_calibration_samples enable row level security;  -- no policies: service role only
+
+create or replace view ai_checker_daily_stats as
+select date_trunc('day', created_at) as day,
+       rubric_version,
+       count(*) filter (where not partial) as scored_runs,
+       count(*) filter (where not partial and overall_band = 'low') as clean_runs,
+       round(100.0 * count(*) filter (where not partial and overall_band = 'low')
+             / nullif(count(*) filter (where not partial), 0), 1) as clean_rate_pct,
+       count(*) filter (where had_sample) as runs_with_sample,
+       count(*) filter (where unlocked) as unlocks
+from ai_checker_runs
+group by 1, 2;
+```
+
+`ai_checker_runs.ip_hash` remains a daily HMAC (key from `CRON_SECRET`), used only for rate limits and purged after 30 days. The view is read by `/admin/sop` with the service role only.
 
 ---
 
@@ -505,13 +692,18 @@ Retention cron (add `/api/cron/checker-retention`, still authed with `CRON_SECRE
 
 Log to `session_events` (or a checker-specific event name in `detail`) without storing draft text:
 
-`checker_viewed`, `checker_submitted`, `checker_preview_shown`, `checker_reads_fine`, `checker_partial`, `email_gate_submitted`, `report_unlocked`, `report_emailed`, `marketing_consent_yes`, `marketing_consent_no`, `unsubscribe`, `voice_check_started`, `voice_check_completed`, `account_created_from_checker`, `cta_free_paper_clicked`, `rubric_viewed`, `report_printed`, `rate_limited`, `ai_fallback`.
+`checker_viewed`, `checker_submitted`, `checker_sample_added`, `checker_voice_paste_note_shown` (`{ surface, bucket }`, t45), `checker_sample_skipped`, `checker_validation_error` (`{ reason: too_short | too_long | too_many_chars }`), `checker_challenge_shown`, `checker_challenge_passed`, `checker_bot_blocked`, `checker_preview_shown`, `checker_reads_fine`, `checker_band` (`{ band }`), `checker_highlight_opened`, `checker_signal_expanded` (`{ signalId }`), `checker_rubric_link_clicked`, `report_saved_opt_in`, `report_deleted`, `checker_magic_link_sent`, `free_paper_started_from_checker`, `checker_partial`, `email_gate_submitted`, `report_unlocked`, `report_emailed`, `marketing_consent_yes`, `marketing_consent_no`, `unsubscribe`, `voice_check_started`, `voice_check_completed`, `account_created_from_checker`, `cta_free_paper_clicked`, `rubric_viewed`, `report_printed`, `rate_limited`, `ai_fallback`.
 
 ---
 
-## 14. Rate limits and word limits
+Event `detail` holds ids, enums, counts, and numeric scores only; never draft text, sample text, quotes, or email addresses. Attribution: the `utm_*` values and `from=checker` flow through to `account_created_from_checker` and `free_paper_started_from_checker`, so the funnel (view → submit → preview → unlock → account → free paper started) is measurable on `/admin/sop`. Clean rate (section 9.1) is on the same dashboard.
 
-- **Words:** min **120** (same floor as mismatch evaluation), max **4,000**.
+## 14. Rate limits, abuse protection, and size limits
+
+- **Words / characters:** draft min **120** words, max **4,000** words and **30,000 characters**; optional sample 150–1,500 words, max **10,000 characters**. Enforce on the client (counter, disabled button) and on the server (Zod) before any model call. Request body cap 64 KB.
+- **Bot check (no login, no keys):** Vercel **BotID** (`botid` package): `initBotId({ protect: [{ path: "/api/ai-checker/analyze", method: "POST" }, { path: "/api/ai-checker/unlock", method: "POST" }] })` in `instrumentation-client.ts`, `checkBotId()` first thing in both routes; bots get 403 and `checker_bot_blocked`. No new env vars.
+- **Visible challenge after N checks:** after **3** analyzes from the same `ip_hash` in 24 hours, the next request must include a Cloudflare **Turnstile** token (verified server-side) before the model runs. This needs two optional env vars (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`) — **a decision for the owner**. If they are not set, the fallback is: after 3 anonymous checks in 24 hours, ask for the email step (or sign-in) to keep checking, which uses no new keys.
+- **Edge rate limit:** a Vercel Firewall rate-limit rule on `POST /api/ai-checker/*` (e.g. 20 requests / minute / IP) as a backstop, configured in the dashboard.
 - **Anonymous, per `ip_hash`:** 5 analyzes / hour, 15 / day.
 - **Unlocked or signed-in:** 10 / hour, 30 / day.
 - **Voice-check completions:** 3 / user / day.
@@ -524,26 +716,28 @@ Enforce on the server with the runs table. Fail closed if the table write fails.
 
 ## 15. Privacy and age (implementation)
 
-- Process the draft in memory. Persist full `draft_text` only in `ai_checker_saved_runs` when the user is signed in and opts in.
-- `ai_checker_reports.result` may include quoted tells for 30 days so the private link and email work; then delete.
-- Never send drafts or reports to a training API, a third-party detector, or a fine-tune job. Grok inference is request-response only, for scoring and coaching questions.
-- IP is stored only as a daily HMAC (`CRON_SECRET` as the HMAC key — no new env var).
-- Under 13: no account, no report, no lead.
-- 13–17: transactional report only; `marketing_consent` forced false; do not send tips.
-- Update `/privacy` with the paste-box line and a pointer to this tool. Terms already require age 13+; the email gate must enforce it, not only the signup form.
+- **Analyze in memory only.** The draft and optional sample exist only in the request's memory and in the student's browser. Never write them to logs, error trackers, analytics, or the database. Scrub request bodies from error reporting (e.g. Sentry `beforeSend`) and never `console.log` them.
+- **Store only anonymous aggregate metrics:** `ai_checker_runs` (word count, numeric scores, band, flags, daily IP HMAC purged after 30 days). No text, no quotes.
+- **Quotes** live in the browser and in the report email the student asked for. The email is delivered through Resend, which keeps its own delivery logs under its retention; say "we email you a copy" rather than "nothing is kept anywhere."
+- **Saved reports and drafts** exist only when the student is signed in and taps **Save this report to my account** (and, separately, "include my draft"). Deletable anytime from the report page and account settings.
+- **Never** send drafts or reports to a training API, a third-party detector, or a fine-tune job. Grok inference is request-response only, for scoring and coaching questions.
+- Under 13: no account, no report unlock, no lead. 13–17: transactional report and account only; `marketing_consent` forced false; guardian gate before the first paper.
+- Update `/privacy` with the paste-box line and a pointer to this tool. The email gate enforces 13+ and records `terms_accepted_at`.
 
 ---
 
 ## 16. FAQ (ship on the page)
 
-Use marketing FAQ 1–6, with FAQ 4 already correctly defining high / moderate / low as pattern strength. Add FAQ 6 clarifications (typed baseline; creates a free account) and this privacy answer, which the landing copy can paste as **question 7**:
+Use marketing FAQ 1–6, with FAQ 4 already correctly defining high / moderate / low as pattern strength. Patch FAQ 6 (typed baseline; the email step creates the free account) and use this privacy answer as **question 7** once Colton signs off:
 
-**7. What happens to the draft I paste?**
-Drafts aren't stored unless you are signed in and opt in. We never use drafts for training. You can check a draft with no account. If you enter your email for the full report, we keep the scores and the short quoted lines in a private link for 30 days so you can reopen it, then we delete them. We do not keep the full text unless you have an account and ask us to save it. You must be 13 or older to use the tool.
+**7. What happens to the draft I paste?** (**proposed replacement — pending Colton**; conflicts with the current landing-copy FAQ 7, see section 6.3)
+Drafts aren't stored unless you are signed in and opt in. We never use drafts for training. We analyze your draft in memory to build your report, then discard it. We keep only anonymous numbers, like word count and signal scores, to keep the tool honest and fair. If you enter your email, we email you a copy of your full report; we don't keep the quoted lines on our servers. If you have an account, you can choose to save a report (and, separately, your draft) and delete it anytime. You must be 13 or older to use the tool.
 
-Also add, if space: **8. Do I need an account?** No, not to check a draft and see a preview. Your email unlocks the full report. The optional voice check creates a free account so we can save your writing baseline. Your first paper is free and we do not ask for a card.
+**6. (patch) Do I need an account?** You don't need an account or a card to check a draft. Your email unlocks the full report and creates a free account that includes your first paper free, no card, no audio. The optional one-minute voice check is typed, not recorded, and saves a baseline of your own writing to that account.
 
-Update FAQPage JSON-LD to include question 7.
+(The optional question 8 is dropped; its content is now in the FAQ 6 patch above.)
+
+Update FAQPage JSON-LD to match the shipped questions exactly (including 6 and 7 once Colton signs off).
 
 ---
 
@@ -553,14 +747,25 @@ Update FAQPage JSON-LD to include question 7.
 - [ ] Paste of < 120 words or > 4,000 words is rejected with a clear message and no model call.
 - [ ] A clean fixture draft returns **Your draft reads fine** / Reads like you; a stock-phrase-heavy fixture returns the high band; a mixed fixture can land in the middle. Unit tests lock this.
 - [ ] Each tell quotes verbatim student text and a coaching question; no rewritten sentence appears in the UI or the model output (guard tests).
-- [ ] Vocabulary signal is `needs_voice` until a voice profile exists; after the voice check, comparison signals use the baseline.
-- [ ] Voice check: four questions, 150-word paste-blocked sample, free account created, `voice_profiles` written, funnel into the free first paper.
+- [ ] (t45/t46) Paste note tests: the retired t45 sentence and the words “not reliably” / “less confidence” appear nowhere in app copy (CI grep); a fully pasted writing sample (pastedShare 1.0) → `VOICE_NOTE_SAMPLE` appears at the bottom of the full report, email and PDF, and the headline/ring are unchanged; a typed sample → no note; exactly 0.60 → no note, 0.61 → note; a dictated sample (`insertText` / `spokenChars`) → counts as typed, no note; no sample and no profile → vocabulary N/A, **no note**; signed-in, no sample, profile with `typed_word_share` 0.2 → note; a mostly pasted sample plus a reliable profile → the profile is used, no note; `sampleInputMeta` larger than the sample is clamped; the preview never shows the note.
+- [ ] Vocabulary signal is `needs_voice` (shown N/A, weight renormalized) until a writing sample is pasted or a voice profile exists; after the voice check, comparison signals use the baseline.
+- [ ] Voice check: four questions, 150-word sample (paste allowed, paste ratio recorded), free account created, `voice_profiles` written, funnel into the free first paper.
 - [ ] Preview vs. full report and email gate behave as in section 5.3; 13–17 cannot opt into marketing; CAN-SPAM footer and unsubscribe work on marketing mail.
 - [ ] Report design criteria in section 5.7 all pass.
 - [ ] Rate limits enforced; IP hashed; drafts not in `ai_checker_runs`.
 - [ ] No banned phrases ("bypass," "beat Turnitin," "undetectable," "pass AI detection," "humanize") in UI copy.
 - [ ] Disclaimer visible on the landing page, in the report, in the email, and on the print view; Liang et al. (2023) cited correctly.
 - [ ] Fallback still returns deterministic signals if Grok fails.
+- [ ] `https://www.retainwrite.com/ai-checker` renders with H1 and title "AI Detector for Student Papers: Does It Sound Like You?"; `https://retainwrite.com/ai-checker` returns **308** to the www URL; canonical, OG, and sitemap use www.
+- [ ] No login is needed to run a check; the page has no stage rail and creates no `stage_progress` rows.
+- [ ] Optional writing sample: without it, vocabulary shows N/A and `weightsUsed` sums to the six remaining weights; with it, vocabulary is scored; the sample is never stored.
+- [ ] The email step creates exactly one account per email via magic link, records terms acceptance, and the new account can start the free first paper (no audio, no card); an existing account is not duplicated; under-13 is blocked.
+- [ ] After a check, `ai_checker_runs` holds numbers only, and no table, log line, or analytics event contains draft text, sample text, or quotes (test with a canary string in the draft).
+- [ ] The sealed preview can't be read or altered by the client; an expired or tampered seal is rejected.
+- [ ] Calibration: the human calibration set reads fine at ≥ 80% (ESL and formal subsets ≥ 75%); the result is recorded in `checker_calibration_samples` and summarized on the rubric page. Clean rate appears on `/admin/sop`.
+- [ ] Determinism: identical input (model mocked) gives identical output; scoring code contains no randomness and does not read live clean-rate data.
+- [ ] Abuse: BotID blocks a flagged bot request (dev bypass `BAD-BOT`); the 4th check in 24 h from one IP requires the challenge (or the email step if Turnstile keys are unset); over-limit returns 429 with no model call; > 30,000 characters is rejected client- and server-side.
+- [ ] Performance budgets in section 21 pass in Lighthouse CI (mobile).
 
 ---
 
@@ -589,6 +794,27 @@ Most product decisions above are locked so Cursor can build. Remaining, none of 
 1. Should a voice-check re-score happen automatically on the same draft, or only after a button press? **Default if unset: a button, "Re-check with my voice baseline."**
 2. PDF library (`@react-pdf/renderer` vs. a print-to-PDF link only). **Default: printable HTML report + a server-generated PDF attachment if it stays within Vercel limits; otherwise the email links to the printable report and a "Download / Print PDF" action.**
 3. Whether Stage 1 should auto-offer "Use my voice check": **resolved.** Stage 1 auto-offers "Keep this baseline" or "Refresh it with this paper" when a `voice_profiles` row is younger than 180 days (`retainwrite-stage1-intake-spec.md` §8.3).
-4. After ~50 runs, who signs off on threshold retuning (target 40–60% "reads fine")? Recommended: Paper Coach + the owner, using `/admin/sop` aggregates only.
+4. Who signs off on threshold changes after a clean-rate review (section 9.1)? Recommended: Paper Coach + the owner, using the calibration set and `/admin/sop` aggregates only. Changes ship as a new rubric version.
+5. **(owner decision)** FAQ 7: adopt the in-memory-only wording (section 16) or keep the 30-day stored-quotes link. Default in this spec: in-memory only.
+6. **(owner decision)** Turnstile keys for the visible challenge (two new optional env vars) vs. the no-keys fallback (email step after 3 checks/day). Default: fallback until keys are added.
+7. **Optional writing sample — paste allowed (decided by Colton, Nov 20, 2026, t44; no paste blocks anywhere).** Consequence to know: an older paper will usually be pasted, so many sample runs will show the 5.9 note. **Resolved t46:** the note uses Colton-approved soft wording (“…which is totally fine…”).
+8. **(owner decision)** Source for the calibration set (owner archive of pre-2023 drafts with consent, an openly licensed corpus, or both).
 
 No other blockers. Build v1.0 with the defaults.
+
+---
+
+## 21. Performance and mobile
+
+- **Targets (p75, mobile, field data via Vercel Speed Insights):** **LCP ≤ 2.0 s**, CLS ≤ 0.05, INP ≤ 200 ms. Lighthouse CI (mobile, simulated 4G) on `/ai-checker`: performance ≥ 90, accessibility ≥ 95, SEO 100.
+- The landing page is a static Server Component (SSG; no per-request data), served from the edge cache. The LCP element is the H1 text, not an image. Fonts via `next/font` (Newsreader + Source Sans 3, subset latin, `display: swap`, preloaded). No hero image above the fold.
+- Initial route JS ≤ 120 KB gzipped. The report components (ring, cards, highlighted draft, PDF trigger) load with `next/dynamic` after the first submit. No third-party scripts beyond BotID (and Turnstile only when the challenge is shown).
+- Mobile-first: the paste box is in the first viewport at 375×667; tap targets ≥ 44 px; works at 320 px; the textarea grows with content; the submit button stays visible (sticky footer) while typing on mobile.
+- `/api/ai-checker/analyze`: deterministic signals respond first; Grok calls run in parallel with the 8 s / 30 s budgets; p95 end-to-end ≤ 12 s, with staged skeleton copy. `maxDuration` 60 s.
+
+## Changelog
+
+- **Nov 20, 2026 (t46)** — Softened the 5.9 voice-baseline note per Colton. One consistent kind style: `VOICE_NOTE_SAMPLE` for the public checker's writing sample and `VOICE_NOTE_ANSWERS` for voice answers (profile, in-app checks, Stage 6). t45's “Voice was not reliably determined…” sentence is retired. Placement, the > 60% threshold, the no-baseline behavior and the weighting are unchanged. No icon alarm; tests and a retired-wording grep added.
+- **Nov 20, 2026 (t45)** — Added the voice-baseline paste note (section 5.9): one factual line at the very bottom of the full report, email and PDF when the baseline actually used is more than 60% pasted. It's scoped per surface (standalone sample, voice profile, Stage 1 answers for in-app and Stage 6 checks). Dictation and speech count as typed, missing data counts as typed, and with no baseline the N/A behavior is kept with no note. It's combined with typed-weighted baseline metrics, and a mostly pasted sample now falls back to a reliable voice profile. Added `sampleInputMeta`, the `voiceBaseline` response field, `baseline_pasted_bucket`, an event and tests. Also per Colton t44: the voice check and sample box allow paste (open question 7 resolved), and the stale "250-word" Stage 1 reference is fixed to 200.
+- **Nov 20, 2026 (t40)** — One cross-reference updated: Stage 1's paper-intake voice minimum is now 200 words (Colton). The checker's own 150-word voice check is unchanged.
+- **Nov 20, 2026** — Made the checker a complete standalone spec for a lead-capture and credibility landing page at `/ai-checker` (canonical `https://www.retainwrite.com/ai-checker`; apex 308s to www), built as Phase 11 right after the Stage 1 rewrite. H1/title set to "AI Detector for Student Papers: Does It Sound Like You?". Added the optional writing sample with N/A + weight renormalization, public signal weights, the "Signal strength" title and "Your draft reads fine" headline rules, highlighted examples with verified offsets (quotes only), and email-step account creation via magic link that grants the free first paper. Privacy is now analyze-in-memory with anonymous aggregate metrics only (sealed preview, no stored quotes; saved reports only for signed-in opt-in), which conflicts with landing-copy FAQ 7 (pending Colton). Calibration now uses a real-student calibration set with clean rate as a monitored metric, never forced or randomized. Added BotID, the challenge after 3 checks, character limits, SEO metadata, performance targets (LCP ≤ 2.0 s), new analytics events, acceptance tests, and migration `0007_ai_checker_standalone.sql`.

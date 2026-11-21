@@ -1,10 +1,12 @@
 # RetainWrite — Stage 1 Intake (assignment first)
 
-Companion to `retainwrite-cursor-build-prompt.md` and `retainwrite-stage-specs.md`. Paste this into Cursor with those docs. **This doc wins on Stage 1 behavior.** Stages 2–6 and cross-stage rules still follow the stage specs (that doc wins there). Table names, prices, and existing env var names are unchanged except for the additive migration `supabase/migrations/0005_stage1_assignment_first.sql` (0003 is the AI checker, 0004 is access codes).
+Companion to `retainwrite-cursor-build-prompt.md` and `retainwrite-stage-specs.md`. Paste this into Cursor with those docs. **This doc wins on Stage 1 behavior.** Stages 2–6 and cross-stage rules still follow the stage specs (that doc wins there). Table names, prices, and existing env var names are unchanged except for the additive migration `supabase/migrations/0005_stage1_assignment_first.sql` (0003 is the AI checker, 0004 is access codes). The Nov 20, 2026 revision (read-the-upload-first, no paste gate, single follow-up question, story pick, INTD600 mapping) adds `supabase/migrations/0006_stage1_extract_first.sql` (additive; fold it into 0005 only if 0005 has never been applied in any environment).
+
+**Governing document:** `retainwrite-coaching-philosophy.md` (v1.2, Nov 20, 2026) governs every probe, summary, and interaction. It wins over this doc on philosophy; this doc holds Stage 1 implementation detail. Stage 1 ends with the loop's **DISSECT** step (section 3.4b).
 
 **The six-stage structure is unchanged:** intake → stance interview → outline → sources and audio beats → draft → revise and feedback. This doc only changes what happens *inside* Stage 1, before the student clicks **Start stance interview**.
 
-LOCKED RULES (hold everywhere): coaching only (the app never writes submission prose: no paragraphs, no thesis, no rewrites, no fabricated sources or quotes). AI produces questions, probes, checklists, extracted requirements, and research *leads to verify*. The student writes every submitted sentence and chooses every lead. Style metrics are for feedback and voice baselines only. Paste is blocked on voice-sample answers. Every session is logged to `session_events`. Add `// SOP: coaching only, never generate submission text` at every AI call site. Use `lib/ai/guard.ts` on every model output.
+LOCKED RULES (hold everywhere): coaching only (the app never writes submission prose: no paragraphs, no thesis, no rewrites, no fabricated sources or quotes). AI produces questions, probes, checklists, extracted requirements, and research *leads to verify*. The student writes every submitted sentence and chooses every lead. Style metrics are for feedback and voice baselines only. **Paste is allowed in every text input, with no exceptions (Colton, Nov 20, 2026, t44)**; whether an answer was mostly pasted is recorded quietly as metadata and is never shown, warned about, or used to block. **Pasting assignment text is never required:** uploaded files are read automatically, and paste and professor links are optional secondary inputs, never a gate. Every session is logged to `session_events`. Add `// SOP: coaching only, never generate submission text` at every AI call site. Use `lib/ai/guard.ts` on every model output.
 
 Stack (same as the rest of the app): Next.js App Router, TypeScript, Supabase, Grok via the official `openai` SDK (`baseURL: "https://api.x.ai/v1"`, `GROK_API_KEY`). `MODEL_FAST` = `grok-4.3` (`reasoning_effort: "none"`) for live coaching questions and adaptive decisions. `MODEL_STRONG` = `grok-4.7` (`reasoning_effort: "low"`) for assignment parsing, extraction, and Grok vision OCR. Structured output uses `response_format` `json_schema` (`strict: true`), then Zod; if the schema is rejected, retry with `json_object` + Zod. Optional `MISTRAL_OCR_API_KEY` is the first-choice OCR engine for images and scanned PDF pages (do **not** add a second env var named `MISTRAL_API_KEY`). If that key is missing or Mistral fails, fall back to Grok vision on `MODEL_STRONG` via `api.x.ai/v1` with image inputs. Timeouts: 8 s fast, 30 s strong, 60 s per OCR page. On timeout or error, log `ai_fallback` and use the rule-based path; never block the student with a blank page.
 
@@ -12,14 +14,86 @@ Stack (same as the rest of the app): Next.js App Router, TypeScript, Supabase, G
 
 ## 0. Decisions locked in this doc
 
-1. **Assignment first.** The student uploads the professor's actual documents (PDF/DOCX/TXT, gallery photos/screenshots, or a device-camera capture) before any coaching question is asked. File upload is the primary path. Paste is a secondary option; professor-provided URLs are an optional extra, not the main input. Nothing in Stage 1 is inferred silently and used without a student check.
-2. **Assignment card is a hard gate.** `MODEL_STRONG` extracts a structured `assignment_requirements` JSON from a merged, ordered corpus of every uploaded file (plus optional paste and links). Each field has a confidence score and cites the file and page it came from, with a **View source** peek at the snippet. Low-confidence or missing fields are highlighted. The student must confirm or edit every field before coaching begins.
+1. **Assignment first, read automatically.** The student uploads the professor's actual documents (PDF/DOCX/TXT/Word, gallery photos/screenshots, or a device-camera capture) before any coaching question is asked. File upload is the primary path. Every file is read **as soon as it finishes uploading** (native text for typed PDFs/DOCX/TXT; Mistral OCR or Grok vision for photos, screenshots, and scanned pages). **Pasting text is never required when files exist.** Paste and professor URLs are optional secondary inputs, never a gate. If a file can't be read, the student gets a per-file retry/retake message, never a paste demand. Nothing in Stage 1 is inferred silently and used without a student check.
+2. **Short confirm checklist (replaces the field-by-field hard gate).** `MODEL_STRONG` extracts a structured `assignment_requirements` JSON (Zod `json_schema`) from a merged, ordered corpus of every uploaded file (plus optional paste and links). Each field has a confidence score and cites the file and page it came from, with a **View source** peek at the snippet. The student sees a short checklist of what was captured (assignment prompt, required format/citation style, page or word count, rubric criteria, required sections/layout, readings and research links, plus course and due date when found), fixes anything that's off, and confirms once. Low-confidence lines are highlighted. Missing fields become **"Not specified,"** never blockers.
 3. **Coaching questions are assignment-grounded and adaptive**, one at a time, only after the card is confirmed. The AI never decides the student's sources, stance, or leads.
 4. **Get-to-know-you is a short, skippable personalization layer** (3–5 questions, adaptive), run after the card is confirmed and before or woven into the coaching questions. Answers are stored as an `interest_profile` (tags plus the student's own words) and used only to steer research leads toward things the student finds engaging, while still satisfying the assignment.
 5. **Suggested people and resources are leads to verify, never citations.** Each lead must show why it connects to the assignment, and — when it came from an interest — why it also connects to that interest. Stage 4 verifies with real sources and drops leads it cannot verify. No unverified quotes, titles, or URLs are presented as fact.
-6. **Voice capture is embedded.** Typed answers to get-to-know-you, assignment-grounded, personal, and fallback questions *are* the voice sample (paste blocked). Minimum: ≥ 250 words across those answers, at least 2 answers of ≥ 40 words, and one required personal question of ≥ 40 words. Fallback prompt if short. Metrics reuse the shared `StyleMetrics` helper and the AI checker's `voice_profiles` table (do not fork).
-7. **Stage 1 completes** only when the assignment card is student-confirmed, the voice minimum is met, an early stance (≥ 25 words) is saved, and the student clicks **Start stance interview**. Stage 2 receives the confirmed requirements, the early stance, and the accepted research leads.
+6. **Voice capture is embedded.** Typed answers to get-to-know-you, assignment-grounded, personal, and fallback questions *are* the voice sample (paste allowed, as everywhere; a quiet paste ratio per answer lets the baseline weight typed answers more, see decision 17). Minimum (updated Nov 20, 2026, Colton): ≥ **200** words across the answers given (skipped answers allowed) and at least 2 answers of ≥ 40 words. The personal question is always asked but is no longer separately required. Fallback prompt if short. Metrics reuse the shared `StyleMetrics` helper and the AI checker's `voice_profiles` table (do not fork).
+7. **Stage 1 completes** only when the assignment checklist is student-confirmed, the voice minimum is met, a story angle is picked (or written), an early stance (≥ 25 words) is saved, and the student clicks **Start stance interview**. Stage 2 receives the confirmed requirements, the story angle, the early stance, and the accepted research leads.
 8. **Interest data is private:** used only to personalize this student's coaching, never shown to other users, and deletable by the student.
+9. **One polite follow-up, asked once.** If an important field is missing after extraction (section 3.3a), the coach asks exactly: “Is there any other context or page you want to add so I fully understand the assignment?” The student can add files, text, or links, or say no. Either way the flow continues; nothing is blocked.
+10. **Decide the story early (INTD600 Phase 2).** At the end of Stage 1, after the coaching questions, the coach offers 3–4 story angles, phrased as questions grounded in the student's own answers. The student picks one or writes their own. The pick goes to Stage 2 as `storyAngle`.
+11. **The owner's INTD600 workflow and coaching principles** (sections 0B and 0C) set the order of work across all six stages. The six stages themselves are unchanged.
+12. **(Nov 20, 2026) Stage 1 ends with DISSECT.** After Pick your story and the early stance, the coach builds a section-by-section **roadmap** from the confirmed rubric/prompt only, and the student confirms it (section 3.4b). It's saved as `section_plans` (migration `0008_section_loop.sql`, defined in `retainwrite-stage-specs.md` section 2A). The story angle stays above the roadmap. The per-section PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE loop runs in Stages 2–4 (stage specs section 2A).
+13. **(Nov 20, 2026) Voice capture is conversational, short, and skippable per question.** Every voice question has a **Skip** button. **Colton decided (Nov 20, 2026):** the voice minimum is **200 words total across the answers given; skipped answers are allowed.** The 2 × 40-word rule is **kept** (compatible: two fuller answers are 80 of the 200 words and can come from any questions). The separate personal-question ≥ 40 requirement is **dropped**, because a required question can't also be skippable; the personal question is still asked and re-offered once near the end if skipped.
+14. **(Nov 20, 2026, Colton) Research leads: 3–5 at a time, about 20 per paper.** Lead sets are 3–5 (never more than 5); “none appeal” offers 3–5 more or asks for someone specific; after 20 AI-researched leads per paper, the coach hands over a ready-to-paste Google search prompt and researches the names the student brings back, in the same 3–5 pattern, still `to_verify` (section 6.4; stage specs 2A.3).
+15. **(Nov 20, 2026, Colton) Section-first loop with skip and browse-ahead.** The roadmap's sections run one at a time through the loop. Later sections can be previewed read-only; a section can be skipped (flagged, with a persistent reminder and a jump-back link). See stage specs section 2A.
+16. **(Nov 20, 2026, Colton t41/t42) Logic checkpoint references only.** Stage 1 adds no logic check. The per-section LOGIC CHECKPOINT runs after each section's CONFIRM in Stage 4 and never blocks (stage specs 2A.4a).
+17. **(Nov 20, 2026, Colton t43 → t44) Paste is allowed everywhere, including voice-capture answers.** t43 removed paste blocks from every intake field except the voice answers. Colton's t44 then removed that exception, so no text input anywhere in intake blocks or watches paste in a way the student can see, and every paste-blocking attribute or handler comes out (section 0A.1). **Consequence:** the Stage 1 voice sample, which is the baseline for the Stage 6 voice/mismatch comparison, may now include pasted text that isn't the student's natural voice. **Mitigation (non-blocking, invisible):** each answer quietly records how much of it was pasted (`paste_ratio`, `pasted_chars`, `typed_chars`). The voice baseline weights typed answers more heavily, and Stage 6 uses its softer short-sample wording when too little of the sample was typed (section 8.1a). Pasted words still count toward the 200-word minimum. While answering, the student never sees a warning, note, prompt, or lower score because of paste, and nothing is ever blocked. **(t45/t46)** The only visible effect is a kind, factual note at the very bottom of the Stage 6 voice comparison (and of a checker report that uses this baseline) when the baseline is more than 60% pasted (section 8.1a).
+
+---
+
+## 0A. Urgent fix — remove the paste gate (ship first)
+
+**Bug:** when a student uploads assignment photos, the live Stage 1 page shows a red message telling them to “paste the prompt text for now.” That is wrong. If the assignment is in the uploaded photos, we read the photos.
+
+Fix, in this order:
+
+1. Delete every client and server validation, state flag, and piece of copy that requires pasted text when files exist (for example `requirePaste`, `pasteRequired`, a `minPasteWords` check, or a `!pasteText` disable condition on the continue button). Pasted text and links are optional inputs only.
+2. Wire the real extraction path (section 4.4): each file is read as soon as `finalize` succeeds. Images and scanned pages go to Mistral OCR when `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision on `MODEL_STRONG` (`grok-4.7`) via `https://api.x.ai/v1`. Typed PDFs/DOCX/TXT are parsed directly. Then requirements extraction runs automatically and the checklist appears (section 3.3).
+3. If extraction fails on a file, show a **per-file** message with **Retry**, **Retake photo** (images), or **Remove**: “We couldn't read {filename} yet. Try again, or retake the photo in brighter light.” Never a paste demand. Other files keep going.
+4. If important fields are still missing, ask the single follow-up question (section 3.3a). Never block.
+
+Acceptance tests (must pass before this ships):
+
+- **(a)** A photos-only upload of a multi-page assignment (no paste, no links) reaches the checklist with the prompt, format, length, rubric, and sections filled from the photos, each citing the right photo/page.
+- **(b)** The string `paste the prompt text` (case-insensitive, any punctuation) appears nowhere in the app: source, UI copy, email templates, or fixtures. Add a CI test that fails if it comes back. The test builds the pattern from parts (so it doesn't match itself) and skips these spec docs if they are checked into the repo.
+- **(c)** A partial extraction (for example, the rubric page wasn't uploaded) shows the checklist and triggers exactly one follow-up question; answering “No, that's everything” continues with the missing fields marked “Not specified.”
+
+## 0A.1 Urgent fix — remove every paste block (ship first, together with 0A)
+
+**Bug (Colton, Nov 20, 2026):** intake text fields have paste disabled, which stops students from pasting assignment text, prior writing, or their own notes.
+
+**Fix (no exceptions, per Colton t44):** remove every paste-blocking attribute and handler from **every** Stage 1 text input. That covers the assignment paste box, the **Any links your professor gave you?** URL field, the follow-up **Add text** box, checklist field edits, roadmap edits, any optional writing-sample or prior-writing field the live build has, **and** the voice-capture answers (get-to-know-you, coaching, personal, fallback, **I'll write my own** story angle, early stance). Specifically delete:
+- `onPaste` / `onDrop` / `onCopy` / `onCut` handlers that call `preventDefault()` or `stopPropagation()`, or that clear the field;
+- `onBeforeInput` / `beforeinput` / `input` handlers that reject `inputType` `insertFromPaste`, `insertFromDrop`, `insertFromPasteAsQuotation` or `insertReplacementText`;
+- `onKeyDown` traps for Ctrl/Cmd+V, Shift+Insert, or the context menu (`onContextMenu` preventDefault);
+- `contenteditable` stand-ins built to swallow paste, invisible overlays, `readOnly` toggled on focus, and `inputmode`/`type` workarounds (e.g. `type="password"`, `autocomplete="off"` tricks) used to stop paste or the iOS paste menu;
+- CSS hacks: `user-select: none`, `-webkit-user-select: none`, `-webkit-touch-callout: none`, or `pointer-events` tricks on inputs and textareas;
+- any “We need your own typing here” note or toast, and any server check that rejects an answer for being pasted.
+
+Plain controlled `<textarea>` / `<input>` elements, standard browser behavior. Paste stays **optional and secondary** to upload, photo library and camera: always available, never a gate.
+
+**Quiet paste measurement (decision 17), kept separate from blocking:** a shared hook `usePasteMeta()` listens to `paste`, `drop` and `beforeinput` (`insertFromPaste` / `insertFromDrop`) **passively**. It never calls `preventDefault`, never shows UI, and only counts characters inserted by paste/drop versus typing (including autocorrect and dictation, which count as typed). It submits `inputMeta: { pastedChars, typedChars, pasteEvents }` with the answer. Analytics: `intake_answer_pasted` (counts only, no text).
+
+**Acceptance tests (must pass before this ships):**
+- **(d)** Pasting into the assignment text box, the URL field, the follow-up Add text box, and every voice-capture answer (interest, coaching, personal, fallback, own story angle, early stance) inserts the text unchanged, on desktop (Cmd/Ctrl+V, context-menu Paste, drag-and-drop) and on mobile (**iOS Safari long-press → Paste**, Android Chrome long-press → Paste), in Playwright plus a manual iOS device check. No warning, note, or toast appears.
+- **(e)** A CI grep over `app/` and `components/` finds **no** `preventDefault` inside any `onPaste`, `onDrop`, `onCopy`, `onCut`, `onBeforeInput`, `onContextMenu`, or paste-related `onKeyDown` handler, no `insertFromPaste` rejection, and no `user-select: none` / `-webkit-touch-callout: none` on form fields, **anywhere in intake**. There is no allow-listed exception.
+- **(f)** A pasted voice answer saves with `paste_ratio ≈ 1`, counts toward the 200-word minimum, and Stage 1 can complete with a fully pasted sample (no block).
+
+## 0B. The owner's INTD600 workflow → the six stages
+
+The owner's proven workflow from a real graduate paper is the order the app follows. Stages stay exactly as they are; each workflow phase lives inside one or two of them.
+
+| INTD600 phase | Stage | What the app does |
+|---|---|---|
+| 1. Capture the real assignment first | **Stage 1** (Screens A–C) | Upload → read immediately (OCR / Grok vision / native text) → short checklist the student confirms → one follow-up if something important is missing. No coaching before this. |
+| 2. Generate story options and pick early | **End of Stage 1** (Screen D2), carried into Stage 2 | After the interest + coaching questions, the coach offers 3–4 story angles as questions grounded in the student's own words; the student picks one or writes their own. Saved as `storyAngle`, handed to Stage 2. |
+| 3. Structured interview for raw material in the student's natural language | **Stage 2** (seeded by Stage 1 answers) | Stage 1 coaching answers plus the Stage 2 stance-interview replies, in the student's own words (paste allowed; the paste ratio is recorded quietly), are the raw material. Probes push for concrete personal detail. The student's own phrases are saved verbatim to a “Your raw material” bank shown in Stages 3 and 5. |
+| 4. Sentence-level outline with flagged citations and short source excerpts | **Stage 3** (sentence plan) **+ Stage 4** (excerpts) | Stage 3: each section gets a sentence plan, one row per planned sentence with a student-written **purpose/point note** (not a finished sentence) and a **citation flag** where a source is needed. Stage 4: each flag is linked to a verified source and a short excerpt (≤ 2 sentences, quoted source text). Unverified leads are dropped. |
+| 5. Student writes every sentence in their own voice, using the outline only as a map | **Stage 5** | One section at a time; the sentence plan and excerpts sit in the side panel as a map. The student types every sentence. No example sentences, no “write this for me.” |
+| 6. Citation integrity with a/b/c suffixes | **Stage 6** (checklist item 4) | Every in-text citation must tie to a specific claim (a flagged sentence), not be piled at the end. Same author + same year in author-date styles (APA, Harvard, Chicago author-date) gets a/b/c suffixes (Smith, 2020a / 2020b) matching the reference list. MLA uses short titles instead. |
+| 7. Final assembly and light quality check | **Stage 6** | Assembled draft (from Stage 5), then the revision checklist: thesis, sections, evidence, length, read-aloud pass, and the honesty check. A light check that keeps the student's own voice, not a polish pass. |
+
+## 0C. Coaching principles (encode in prompts, guard, and copy)
+
+1. **The student owns the sentences.** The AI supplies structure (questions, checklists, sentence-plan slots, citation flags) and short verified source excerpts only. It never writes submission prose: no paragraphs, thesis, topic sentences, example sentences, or rewrites. `lib/ai/guard.ts` enforces this on every model output.
+2. **Personal detail beats generic summary.** Probes ask for a specific person, place, moment, number, or thing the student saw or did. A generic answer (“it's important for businesses”) gets a dig-deeper probe, not a pass. Story angles and section prompts point back to the student's own details.
+3. **Citations are tied to specific claims, not added at the end.** Citation flags are set per sentence in the Stage 3 plan, filled with excerpts in Stage 4, and checked per claim in Stage 6.
+4. **Slight imperfection is fine. Keep the student's natural voice.** Coaching never asks the student to smooth their natural phrasing, add fancier vocabulary, or sound “more academic” unless the rubric explicitly requires a register. Fix errors that change meaning or break the rubric; leave the rest. The reason is authenticity: the paper should sound like the person who wrote it. This is about ownership of voice, never about AI detectors. No detector-evasion framing anywhere.
+5. **Decide the story early.** The story angle is picked at the end of Stage 1, before the stance interview, so every later stage builds on one chosen direction. The student can change it later (logged), but the default is to commit.
+6. **Governing philosophy (Nov 20, 2026).** `retainwrite-coaching-philosophy.md` sits above these principles and wins on philosophy. Its section-by-section loop starts here: DISSECT ends Stage 1 (3.4b); PROBE, SEARCH, SUMMARIZE, CONFIRM, the LOGIC CHECKPOINT (Colton's addition, Nov 20, 2026: mandatory after CONFIRM, never blocking; stage specs 2A.4a) and ADVANCE run per section in Stages 2–4 (stage specs section 2A). Stage 1 itself has no logic checkpoint: the roadmap and story angle are checked when each section reaches it.
 
 ---
 
@@ -32,7 +106,7 @@ The old Stage 1 was four generic blocks in this order: (1) course / prompt / due
 | Block 1 Assignment (typed fields, min 15-word prompt) | Upload first, then a parsed **Assignment card** the student must confirm. Structured requirements live in `assignments.requirements`. `papers.course`, `due_date`, `assignment_prompt`, `required_length`, and `citation_style` are synced from the confirmed card. |
 | Block 2 Background (generic survey) | Brief, assignment-tied background questions folded into coaching (year, major, comfort with the citation style, prior grades/feedback). Not a standalone survey. |
 | Block 3 Topic stance (min 25 words) | An early-take question inside assignment-grounded coaching (still min 25 words). That answer is handed to Stage 2 as `originalThesis`. |
-| Block 4 Raw voice sample (150 words, any topic) | No separate “write about anything” block by default. Voice is sampled from paste-blocked intake answers (250-word floor). A fallback prompt appears only if the sample is still thin. The standalone AI checker keeps its own 150-word, four-question voice check unchanged. |
+| Block 4 Raw voice sample (150 words, any topic) | No separate “write about anything” block by default. Voice is sampled from intake answers (paste allowed; 200-word floor across answers given; typed answers weighted more in the baseline). A fallback prompt appears only if the sample is still thin. The standalone AI checker keeps its own 150-word, four-question voice check unchanged. |
 
 ---
 
@@ -40,12 +114,15 @@ The old Stage 1 was four generic blocks in this order: (1) course / prompt / due
 
 Routes stay under `/app/papers/[paperId]/stage/1`. Shared chrome (left rail, stages 1–6) is unchanged.
 
-1. **Upload** — documents, gallery photos, and/or camera pages first (paste and professor links are secondary).
-2. **Parse** — native text for digital PDFs/DOCX; OCR for images and scanned pages (Mistral, else Grok vision); merge into one ordered corpus; then `MODEL_STRONG` fills the Assignment card.
-3. **Confirm** — student reviews, edits, and confirms every field. This is a hard gate.
-4. **Get to know you** — 3–5 skippable, adaptive questions about interests. May start immediately after confirm and/or be woven into step 5.
-5. **Coaching questions** — one at a time, grounded in the confirmed assignment; leads steered by the interest profile when present; background and the required personal question included.
-6. **Voice readout + gate** — show the voice summary; **Start stance interview** is enabled only when the gate in section 7 is met.
+1. **Upload** — documents, gallery photos, and/or camera pages first (paste and professor links are optional and secondary, never required).
+2. **Read immediately** — each file is extracted as soon as it finishes uploading: native text for typed PDFs/DOCX/TXT; OCR for images and scanned pages (Mistral, else Grok vision); merged into one ordered corpus; then `MODEL_STRONG` extracts the requirements automatically.
+3. **Checklist + confirm** — a short checklist of everything captured (prompt, format, length, rubric, sections/layout, readings and links). The student edits anything and confirms once.
+4. **One follow-up (only if needed)** — if something important is missing: “Is there any other context or page you want to add so I fully understand the assignment?” Add more or say no; either way, continue.
+5. **Get to know you** — 3–5 skippable, adaptive questions about interests. May start immediately after confirm and/or be woven into step 6.
+6. **Coaching questions** — one at a time, grounded in the confirmed assignment; research leads steered by the interest profile when present; background and the required personal question included.
+7. **Pick your story** — 3–4 story angles, as questions built from the student's own answers; the student picks one or writes their own. Then the early stance on that angle (≥ 25 words).
+8. **DISSECT — Your roadmap** — the coach lays out what the paper needs, section by section, from the confirmed rubric/prompt; the student confirms (section 3.4b).
+9. **Voice readout + gate** — show the voice summary; **Start stance interview** is enabled only when the gate in section 7 is met.
 
 The student can leave and resume. Progress is saved after every successful API call.
 
@@ -75,13 +152,15 @@ Once files are chosen, show a **thumbnail strip** (document icon for PDF/DOCX/TX
 
 Uploads go to a private Supabase Storage bucket **`assignment-files`** via **resumable** uploads (TUS / Supabase resumable upload) and **signed URLs**. RLS: owner-only (`${user_id}/...`). No public bucket, no public object URLs. The client never receives a service-role key. If a mobile upload is interrupted, reopen the screen, show incomplete items as “Upload paused,” and let the student resume or retry without losing the other files.
 
-**Secondary, below the hero:** a quieter control **Paste the assignment text**. Opens a textarea (paste allowed here — this is the teacher's text, not a voice sample). Max 20,000 words. Use when the student already has the prompt copied, not as the visual equal of upload.
+**Secondary, below the hero:** a quieter control **Paste the assignment text (optional)**. Opens a textarea (paste allowed, as in every intake field). Max 20,000 words. Use when the student already has the prompt copied, not as the visual equal of upload. **Paste is never required** — not when files exist, not when a file fails, not to continue. No copy anywhere tells the student to paste the prompt.
 
-**Optional, further below, collapsed by default:** **Any links your professor gave you?** A multi-URL field (one URL per line or comma-separated, max 15). Helper: “Optional — syllabi and PDFs often already include these.” We store them as `providedSources` and dedupe with URLs found inside the documents (section 4.5). We may try a public fetch (section 12.7); if it fails, the URL is still kept as a source link. **Links alone are not enough to continue** — the student still needs at least one uploaded file or a paste of the assignment itself.
+**Optional, further below, collapsed by default:** **Any links your professor gave you?** A multi-URL field (one URL per line or comma-separated, max 15). Helper: “Optional — syllabi and PDFs often already include these.” We store them as `providedSources` and dedupe with URLs found inside the documents (section 4.5). We may try a public fetch (section 12.7); if it fails, the URL is still kept as a source link. If links are the only input and nothing usable comes back, the checklist opens in its empty state with the follow-up question (section 3.3a) asking for the pages — never a paste demand.
 
-Short rights line + required checkbox: “I'm uploading this for my own coursework.” Disable **Read my assignment** until it's checked and at least one file is fully uploaded (or a paste is present).
+Short rights line + required checkbox, placed above the three methods: “I'm uploading this for my own coursework.” It must be checked before the first upload starts (`upload-url` requires it).
 
-Primary CTA: **Read my assignment**
+**Extraction starts immediately.** As soon as a file finishes uploading, `finalize` kicks off extraction for that file (section 4.4); the student sees per-file status on the thumbnail (“Reading…”, “Read ✓”, “Couldn't read — Retry / Retake”). When every file is read (or has failed and been skipped), requirements extraction runs and the checklist opens automatically.
+
+Primary CTA (for “I'm done adding pages”): **Read my assignment**. Enabled once the rights box is checked and at least one input exists — a file that is uploaded or still uploading, a paste, or a link. It never requires pasted text. Tapping it while files are still being read just moves to Screen B.
 
 Log `assignment_uploaded` (counts and kinds only, no file bytes).
 
@@ -98,36 +177,66 @@ Full-width progress, not a blank spinner, driven by parse status (polling or Rea
 
 Per-file, show a small status: ready / reading page N / needs a clearer photo / failed. If a page fails the quality check (section 4.4), pause that file with “This photo looks blurry or too dark — retake it?” Actions: **Retake**, **Use it anyway**. Do not silently drop the page.
 
-If every OCR path fails for a file and there is no usable text: “We couldn't read enough text from {filename}. Retake the photo, try a clearer scan, or paste that part.” Log `ocr_failed` (and `ocr_mistral_miss` / `ocr_grok_used` as appropriate). The student can add files, paste, and tap **Read my assignment** again. Do not invent a card from almost-empty text (under 20 usable words and no paste).
+If every OCR path fails for a file: show a per-file message, “We couldn't read {filename} yet. Try again, or retake the photo in brighter light.” Actions: **Retry**, **Retake photo** (images), **Remove**. Log `ocr_failed` (and `ocr_mistral_miss` / `ocr_grok_used` as appropriate) and `extraction_retry_prompted`. **Never ask for a paste.** Other files keep going. If at least one file produced text, continue to the checklist; the follow-up question (3.3a) covers anything missing. If there are fewer than 20 usable words across everything, do not invent requirements: open the checklist in its empty state (“We couldn't read the assignment yet”) with the per-file retry actions and the follow-up question.
+
+Never show “paste the prompt text” or any variant of it, on this screen or anywhere else.
 
 Do not show coaching questions on this screen.
 
-### 3.3 Screen C — Assignment card
+### 3.3 Screen C — Assignment checklist
 
-**H1:** Does this look right?
+**H1:** Here's what we found
 
-**Sub:** We read your prompt. Check every field. Fix anything that's off before we continue — we won't guess for you.
+**Sub:** Check this list. Fix anything that's off, then continue.
 
-Render every field in the schema (section 4), including empty ones. Visual states:
+A **short checklist**, one line per item, in this order (the full schema in section 4 stays the stored shape; this is just how it's shown):
+
+1. **Assignment prompt** — the question or task (`promptQuestion`, else `topic`), shown as a 1–2 line excerpt with **Show full prompt**
+2. **Required format** — citation style (APA, MLA, Chicago, …) plus formatting rules (font, spacing, title page, headings)
+3. **Length** — pages and/or words
+4. **Rubric criteria** — names (with weights when given)
+5. **Required sections or layout** — e.g. abstract, literature review, counterargument, reflection
+6. **Readings and research links** — provided readings and links (`providedSources`), deduped
+7. **Course and due date** — shown only when found
+8. **Other instructions** — collapsed, when present (includes required source counts/types)
+
+Line states:
 
 | State | Treatment |
 |---|---|
-| Extracted, confidence ≥ 0.6 | Normal text + **Looks right** |
-| Low confidence (`< 0.6`) | Amber highlight, label “We're not sure about this one — please check.” |
-| Missing / null | Dashed empty state, “We couldn't find this — add it if you know it.” |
+| Captured, confidence ≥ 0.6 | Check mark + short value + “From {filename}, p. {page}” |
+| Low confidence (`< 0.6`) | Amber, “Please double-check this one.” |
+| Not found | Dashed, “Not found — add it if you know it, or leave it as Not specified.” |
 | Student-edited | Quiet “You edited this” mark |
 
-Each extracted field cites its provenance in quiet type: “From {filename}, p. {page}.” A **View source** control opens a sheet with that filename, page number, the highlighted snippet, and a page thumbnail when the source is an image or a scanned PDF page. If a field was merged from more than one place, list each citation and let View source page through them.
-
-Each field has **Looks right** and **Edit**. Edit opens an inline control (text, select, date, list editor for sources / rubric / formatting / readings). List fields can add/remove rows. Provided readings and links (`providedSources`) show the merged, deduped list, marked as from the document, a PDF link, or a URL the student typed.
+Each captured line cites its provenance in quiet type and has a **View source** control that opens a sheet with that filename, page number, the highlighted snippet, and a page thumbnail when the source is an image or a scanned PDF page. If a value was merged from more than one place, list each citation and let View source page through them. Each line has **Edit** (inline control: text, select, date, or a list editor for rubric / formatting / sections / readings).
 
 Length display rules (section 4.2): if the prompt gives pages and not words, show the page range and the word estimate: “About {min}–{max} words (we count ~275 words per double-spaced page). This is an estimate, not a rule.” If the prompt already gives a word count, show that count and do **not** overwrite it with the estimate. If both are present, show both, with the teacher's word count primary.
 
-**Confirm all after review:** button **Looks right — continue**. It is disabled until (a) every *displayed* field has been marked Looks right or edited-and-saved, and (b) required fields are filled or explicitly set to “Not specified” (section 4.3). Clicking it early scrolls to the first unreviewed or missing required field: “A few fields still need a look.”
+**Confirm:** one button, **Looks right — continue**. It's enabled as soon as the checklist is shown (and, if the follow-up in 3.3a was shown, after the student answered it). Confirming marks every line confirmed; lines still not found are saved as “Not specified.” Nothing here requires pasted text.
+
+If the parser found more than one assignment, show the picker (section 12.3) before the checklist.
 
 If the parser flagged a possible AI restriction (section 12.6), show the note on this screen *before* the continue button. The student must pick **Continue anyway** or **I'll check first**. The latter saves progress and leaves Stage 1 `in_progress`.
 
 Primary CTA writes via `POST .../assignment/confirm`. Log `assignment_confirmed` and any `assignment_field_edited` corrections (parsed value vs. confirmed value).
+
+### 3.3a The single follow-up question
+
+**When:** after extraction, if any *important* field is missing (`value` null) or very low confidence (`< 0.4`). Important fields: assignment prompt (`promptQuestion` or `topic`), required format (`citationStyle`), length, rubric criteria, required sections/layout (`structuralRequirements`). Computed in code (`missingImportant(requirements)`), not by the model.
+
+**Copy (exact):** “Is there any other context or page you want to add so I fully understand the assignment?”
+
+Under it, a quiet line listing what's missing in plain words: “I couldn't find: the rubric, the page length.”
+
+Actions:
+
+- **Add a page or file** (opens the same three upload methods), **Add text** (optional paste box), **Add a link**. New input is read immediately and merged into the corpus; requirements re-extract and the checklist refreshes in place.
+- **No, that's everything** — continue. Missing fields become “Not specified” on confirm.
+
+Ask it **once per assignment** (`assignments.followup_asked_at`). Do not ask again after the refresh, even if something is still missing. Never block, never repeat, and never phrase it as a demand to paste. Log `followup_shown`, then `followup_added` (with counts and kinds) or `followup_declined`.
+
+If the prompt itself is still missing after the follow-up, coaching starts with a first question that asks, in the student's own words, what the assignment is asking them to do (typed, counts toward the voice sample). That's a coaching question, not a gate.
 
 ### 3.4 Screen D — Get to know you, then coaching questions
 
@@ -137,11 +246,13 @@ One question at a time, same conversational panel as later stages. A quiet progr
 
 **Sub:** A few short questions about you — so the research leads we suggest feel like you, not a generic list. Skip anytime.
 
+**Voice capture feels like a conversation.** Questions are short (≤ 25 words), one at a time, in plain language. Every voice-sample question has a quiet **Skip this one** button (logged `intake_question_skipped`); a small progress line shows how close the student is to the voice minimum in friendly terms (“About 3 more short answers and we've got your voice”), never as a word-count demand. If skips leave the minimum unmet, the personal question is re-offered once near the end, then the fallback (section 8.2).
+
 Persistent text button, always available during interest questions: **Skip — just ask about the paper.** Skipping logs `interest_skipped` and jumps to assignment-grounded coaching. An existing profile can be reused (section 5.3).
 
 **H1 (once coaching starts):** Let's talk about this assignment
 
-Interest and coaching questions share the same input. Answers marked `is_voice_sample` (all interest, coaching, personal, and fallback answers) **block paste and drop**: `onPaste` / `onDrop` `preventDefault`, note “We need your own typing here.” Background *selects* (year, citation-style comfort) are not paste-blocked.
+Interest and coaching questions share the same input. Answers marked `is_voice_sample` (all interest, coaching, personal, and fallback answers) **accept paste and drop like every other field** (Colton, Nov 20, 2026, t44; section 0A.1). No `preventDefault`, no note. The input only attaches the passive `usePasteMeta()` hook so `paste_ratio` is recorded quietly (decision 17). The same plain input is used for non-voice text fields; there is no voice-specific input behavior the student can see.
 
 Lead cards (section 5.5 and 6.4), when shown after a “I don't know” or a natural opening:
 
@@ -152,6 +263,55 @@ Each card: name or story in one line; **why it fits the assignment**; **why it f
 If the assignment requires scholarly or peer-reviewed sources, every personal-interest lead includes this line: “This could be a hook or an example. You'll still need scholarly sources to meet the assignment.”
 
 After the student accepts or declines leads, show an optional one-line rating: “How interesting do these options feel?” on a **1–5** scale, skippable (“Skip this”). Log `lead_interest_rated`. This is for SOP / retention, not a gate.
+
+### 3.4a Screen D2 — Pick your story (INTD600 Phase 2)
+
+Shown after the coaching questions (leads, personal question, background) and before the early-stance question.
+
+**H1:** Pick your story
+
+**Sub:** Here are a few directions your paper could take, built from what you told me. Pick one, or write your own. You can change it later.
+
+`MODEL_STRONG` (`reasoning_effort: "low"`) returns **3–4 story angles** (Zod). Each angle:
+
+- is a **question**, not a claim or thesis (≤ 25 words; must end with “?”), e.g. “What changed when you raised prices at the shop, and what does that say about margin?”
+- has a one-line **why it fits** the confirmed assignment (≤ 25 words), naming the requirement it serves
+- quotes a short verbatim phrase from the student's own answers when it builds on one (`fromStudentPhrase`, verified as a substring in code; dropped if it doesn't match)
+- prefers the student's personal details over generic summary (principle 2)
+
+Actions: **Pick this one** on each card, or **I'll write my own** (textarea, paste allowed, ≥ 15 words, `question_kind: "story_angle"`, counts toward the voice sample). Picking or writing is required to continue (it's the student's choice, never AI's). The student's own angle is never rewritten or “improved.”
+
+Then the early-stance question (section 6.1 item 2) asks about the chosen angle, and then DISSECT (3.4b).
+
+### 3.4b Screen D3 — DISSECT: your roadmap (loop step 1)
+
+**H1:** Here's your playbook
+
+**Sub:** This is what your paper needs, section by section, straight from your assignment. We'll take them one at a time.
+
+`MODEL_STRONG` (`reasoning_effort: "low"`) builds the roadmap from the **confirmed** assignment requirements only (never from outside material). Section list, in order:
+
+1. If the rubric/prompt names required sections or a layout (`structuralRequirements`, rubric criteria that read as sections), use those, in that order, with the teacher's names.
+2. Otherwise, use the default structure from the stage specs (Intro + N body sections by target length + Conclusion). A **Counterargument & Rebuttal** section is included only when the assignment requires it or the paper type is argumentative (see section 16, item 5).
+
+Each roadmap section (Zod):
+
+- `title` (the teacher's name for it when given)
+- `needs` — what this section has to do, ≤ 25 words, describing the **requirement** (“Explain how two leaders define margin, in APA”), never draft content
+- `rubricRefs` — the rubric criteria / prompt requirements it serves (required; ids from the confirmed card)
+- `requiredSources` / `requiredStyles` — what the rubric asks for in this section (count, type, named styles/themes/frameworks), if any
+- `targetWords` — computed in **code** from the confirmed length (stage-specs rules), not by the model
+- `storyLink` — one short question tying the section to the chosen story angle (“Where does your shop story fit here?”)
+
+Every section card shows “From {file}, p. {page}” provenance for its requirement. The student can rename, reorder (where the assignment doesn't fix the order), merge or split body sections within the length bounds, or add a section of their own (marked “your addition”). The coach never adds a section without a `rubricRef`.
+
+Primary CTA: **This is my roadmap**. Saves `section_plans` rows (`confirmed_at`), logs `roadmap_confirmed` (counts, edits). Nothing here writes draft text.
+
+Fallback if the model fails: build sections in code from `structuralRequirements` (or the default structure), with `needs` copied verbatim from the matching requirement text and `rubricRefs` from the card. Log `ai_fallback`.
+
+Fallback if the model fails or the guard rejects twice: rule-based angles from templates (“What's one moment from your own experience that shows {topic}?”, “Which of your leads would you most like to dig into, and why?”, “What would someone who disagrees with you about {topic} say?”), filled only with verbatim card fields and student phrases. Log `ai_fallback`.
+
+Log `story_options_shown`, then `story_angle_picked` (`{ angleIndex, source: "ai" | "student" }`) or `story_angle_own`.
 
 ### 3.5 Screen E — Voice readout and gate
 
@@ -165,7 +325,9 @@ Primary CTA: **Start stance interview**
 
 Helper: “Next you'll pressure-test your early take. Your assignment details and the leads you picked come with you.”
 
-Disabled with a specific reason if the gate fails (“A few assignment fields still need a check,” “We still need a little more writing in your own words,” or “Add your early take on this topic first.”). The complete action is `POST .../intake/complete`.
+Helper (updated): “Next you'll pressure-test your early take, then we'll go section by section through your roadmap. Everything you've told us comes with you — you won't have to explain it again.”
+
+Disabled with a specific reason if the gate fails (“Confirm your assignment checklist first,” “We still need a little more writing in your own words,” “Pick a story angle first,” “Add your early take on this topic first,” or “Confirm your roadmap first.”). The complete action is `POST .../intake/complete`.
 
 ---
 
@@ -255,7 +417,9 @@ export type AssignmentRequirements = {
 - If multiple assignments appear in one file or across the corpus, do not pick one silently. Return `parse_meta.candidates` (short labels + evidence + provenance) and show a picker first (section 12.3).
 - `aiPolicy` is set only from explicit wording in the prompt (section 12.6). Default `unspecified`.
 - Pages-to-words conversion is done in **code**, not by the model.
-- Run requirements extraction only after the ordered corpus is built (section 4.4) and `providedSources` are merged (section 4.5).
+- Run requirements extraction only after the ordered corpus is built (section 4.4) and `providedSources` are merged (section 4.5). It runs **automatically** once every file is read (or failed and skipped); no button press and no paste required.
+- After extraction, compute `missingImportant` in code (section 3.3a) and store it in `parse_meta.missingImportant`. If non-empty and the follow-up hasn't been asked, set `parse_status = "needs_input"` and show the checklist with the follow-up question.
+- Structured output: `response_format` `json_schema` (`strict: true`) built from the Zod schema, then Zod-validate; on schema rejection retry with `json_object` + Zod.
 
 ### 4.2 Word estimate
 
@@ -267,13 +431,9 @@ Constant: `WORDS_PER_PAGE_DOUBLE_SPACED = 275` in `lib/config.ts`.
 
 ### 4.3 Confirm rules
 
-The student must mark every displayed field Looks right or edit it. **Required before continue:**
+The student reviews the checklist and taps **Looks right — continue** once. No field is a blocker. On confirm, every field is set `confirmed: true`; any field still missing is saved as **“Not specified”** — a first-class value stored as `source: "student_entered"` with a null or empty value and `confirmed: true`, so we do not pretend we found something. (`citationStyle: "other"` still requires `citationStyleOther` if the student picks it.)
 
-- `topic` or `promptQuestion` (at least one, non-empty).
-- `length`: a value, or explicit “Not specified.”
-- `citationStyle`: a value, or explicit “Not specified.” (`other` requires `citationStyleOther`.)
-
-Course, due date, rubric, formatting, readings, and structure are encouraged but optional. “Not specified” is a first-class value, stored as `source: "student_entered"` with a null or empty value and `confirmed: true`, so we do not pretend we found something.
+Server rules for `confirm`: the follow-up question must have been answered if it was shown; the AI-policy choice must be made if flagged; the multiple-assignment picker must be resolved. Nothing else is required. **Pasted text is never required.**
 
 On confirm, sync to `papers`:
 
@@ -285,6 +445,8 @@ On confirm, sync to `papers`:
 - `citation_style` ← confirmed style
 
 ### 4.4 Extraction, OCR, and the ordered corpus
+
+**Immediate, per-file extraction.** `finalize` enqueues extraction for that file right away (run it after the response with Next.js `after()` / Vercel `waitUntil`, or a queue). Pages within a file run in parallel (concurrency 4). Typed PDFs/DOCX/TXT are parsed directly; **image files and image-only pages always go through OCR/vision**. Status updates stream to the client through parse-status (section 10). A failure on one file never stops the others.
 
 Build one ordered **assignment corpus** from every item on the submission, in the student's thumbnail order (then paste, then fetched link text if any). Each segment is tagged `{ fileId, fileName, page, text, method, quality }`. This corpus is what `MODEL_STRONG` reads for the Assignment card, and what View source jumps into.
 
@@ -301,11 +463,11 @@ For each image file and each scanned PDF page, in this order:
 1. **Quality and orientation check** (client preview + server). Score blur, darkness, and resolution (0–1). Auto-rotate using EXIF orientation and a simple rotation detector (0/90/180/270). If quality is below **0.45**, prompt to retake (“This photo looks blurry or too dark — retake it?”) and still allow **Use it anyway**. Store `quality_score` on the file / page. Then **strip EXIF GPS and other location metadata** before the object is stored (or rewrite the stored image without it). HEIC/HEIF is converted to JPEG at this step.
 2. **Mistral OCR**, if `MISTRAL_OCR_API_KEY` is set. Method: `ocr_mistral`. Use this key only — do not add `MISTRAL_API_KEY`. Timeout 60 s/page.
 3. **Grok vision fallback**, if the Mistral key is missing, the call fails or times out, or Mistral's per-page confidence is below **0.5**. Call `MODEL_STRONG` (`grok-4.7`, `reasoning_effort: "low"`) at `https://api.x.ai/v1` with image inputs (OpenAI-compatible `image_url` or base64 data URL from a short-lived signed URL). Ask only for a **verbatim transcription**, plus `{ rotationDegrees, quality: "good"|"blurry"|"dark"|"partial", handwritten: boolean, confidence }`. Never summarize, never rewrite, never invent text that is not visible. Method: `ocr_grok_vision`. Guard applies. Timeout 60 s/page.
-4. **Still unreadable:** mark the page `failed`, show the recovery copy on Screen B, and log `ocr_failed`. Offer retake or paste. Do not block other files in the same submission.
+4. **Still unreadable:** mark the page `failed`, show the per-file recovery copy on Screen B (Retry / Retake photo / Remove), and log `ocr_failed`. Never ask for a paste. Do not block other files in the same submission.
 
 **Per-page quality gate.** After transcription, if `confidence < 0.5` or the quality label is `blurry` / `dark`, surface the retake prompt for that page even if some text came back. Keep the text as a best-effort draft the student can check on the card.
 
-**Handwritten pages.** Attempt OCR anyway (step 2 then 3). If `handwritten` is true or the text is clearly fragmentary, show: “This looks handwritten — we'll do our best. Please check the card carefully, and paste any part we missed.” Log `ocr_handwritten`.
+**Handwritten pages.** Attempt OCR anyway (step 2 then 3). If `handwritten` is true or the text is clearly fragmentary, show: “This looks handwritten — we'll do our best. Please check the list carefully, and add a clearer photo if we missed anything.” Log `ocr_handwritten`.
 
 Rasterize scanned PDF pages with a server-side renderer (e.g. pdf.js / poppler) at a readable resolution before OCR. Do not send a whole binary PDF to Grok unless the API is documented to accept it; send page images.
 
@@ -335,7 +497,7 @@ After the Assignment card is confirmed, and **before or woven into** the assignm
   3. People, creators, teams, or books they follow or admire (if anything).
   4. A follow-up only when a thread is useful for leads (“You mentioned {verbatim interest}. Anything about it that overlaps with {assignment topic}?”).
 - Decided default: start with **two** interest questions immediately after confirm, then weave any remaining interest questions into coaching when a natural opening appears. Never exceed **5** interest questions, probes included.
-- These answers are `question_kind: "interest"`, `is_voice_sample: true`, paste-blocked, and **count toward the Stage 1 voice minimum**.
+- These answers are `question_kind: "interest"`, `is_voice_sample: true`, paste allowed (paste ratio recorded quietly), and **count toward the Stage 1 voice minimum**.
 
 Microcopy bank (use verbatim or close paraphrases ≤ 35 words; `{slots}` only from confirmed requirements or the student's own earlier words, verified as substrings):
 
@@ -426,8 +588,8 @@ Only after the Assignment card is confirmed. `MODEL_FAST`, one question at a tim
 A typical path is **5–8** questions after interest, **hard cap 12** excluding probes (interest questions have their own cap in 5.1). Always include, unless the student already answered an equivalent in their own words:
 
 1. **Required-source / evidence leads**, when the card has a required source type or count. This is the “3 leaders who speak about margin” slot.
-2. **Early stance** (replaces old Block 3): “What's your early take on {topic or promptQuestion}? Why?” **Min 25 words.** Saved as the Stage 2 `originalThesis` snapshot. Probe once if thin: “What's one reason someone might disagree?”
-3. **Personal / experiential question (required for voice):** “In your own words, why does this topic matter to you? If you've got a personal experience or something you've seen at work or in life, tell me that story.” **Min 40 words.** `question_kind: "personal"`.
+2. **Early stance** (replaces old Block 3), asked right after the story pick (Screen D2): “What's your early take on {chosen story angle}? Why?” **Min 25 words.** Saved as the Stage 2 `originalThesis` snapshot. Probe once if thin: “What's one reason someone might disagree?”
+3. **Personal / experiential question (always asked; skippable; re-offered once near the end if skipped):** “In your own words, why does this topic matter to you? If you've got a personal experience or something you've seen at work or in life, tell me that story.” **Min 40 words.** `question_kind: "personal"`.
 4. **Brief, assignment-tied background** (not a generic survey), woven in, short answers acceptable (min 8 words when free-text; selects allowed):
    - year / school level (may update `profiles.school_level`)
    - major or program, if it helps
@@ -442,7 +604,7 @@ Confirmed card (illustrative): 5–7 page APA paper on the value of margin for b
 
 Good first coaching question: “Do you have any leaders in mind who've talked about margin? Who are you curious to look into?”
 
-If the student says they don't know, offer **2–4** example names, each with a one-line why, as **suggestions to research, not citations**. Example shape (these names are starting points the student may accept or reject; still `to_verify`): “Alex Hormozi — writes about pricing and gross margin for business owners.” Optionally add starter resources: search terms (“gross margin thought leaders small business”), types of sources (“a founder interview plus a business book chapter”), or a link to that person's *own* book or talk **only when the URL is known and will be verified in Stage 4**. Never present an unverified quote. If the student also has an interest profile (say they named a musician they follow), a *second* lead in the same set may try the section 5.5 pattern — a related figure or project that also speaks to margin or business leadership — clearly labeled to verify, with both “fits the assignment” and “fits your interest” lines. If that connection cannot be drawn honestly, don't.
+If the student says they don't know, offer **3–5** example names (never more than 5 at once), each with a one-line why, as **suggestions to research, not citations**. Example shape (these names are starting points the student may accept or reject; still `to_verify`): “Alex Hormozi — writes about pricing and gross margin for business owners.” Optionally add starter resources: search terms (“gross margin thought leaders small business”), types of sources (“a founder interview plus a business book chapter”), or a link to that person's *own* book or talk **only when the URL is known and will be verified in Stage 4**. Never present an unverified quote. If the student also has an interest profile (say they named a musician they follow), a *second* lead in the same set may try the section 5.5 pattern — a related figure or project that also speaks to margin or business leadership — clearly labeled to verify, with both “fits the assignment” and “fits your interest” lines. If that connection cannot be drawn honestly, don't.
 
 The student chooses. Accepted leads go to `research_leads` for Stage 4.
 
@@ -454,13 +616,16 @@ A `decision` is recorded on each `intake_answers` row: `dig_deeper` | `move_on` 
 - **Move on** when the slot is filled with a specific answer, or after **2 probes** (`lib/coaching/thin.ts`), or when the student flags “I'm stuck — flag for help” (save and continue).
 - “I don't know” on a source/lead question is not a failure: offer suggestions or search terms (`suggestions_offered`), then move on once the student has picked, added their own, or declined.
 
-Rule-based fallback if `MODEL_FAST` fails: walk a scripted list derived from the confirmed card (required sources → early stance → personal question → citation-style comfort → one “what do you already know about {topic}?”). Log `ai_fallback`.
+- **Personal detail beats generic summary:** treat an answer as thin for dig-deeper purposes when it is generic (no specific person, place, moment, number, or thing the student saw or did) on a question that invites experience. Probe: “Can you give me one specific moment or example — who was there, what happened?” Max 2 probes, as above.
+
+Rule-based fallback if `MODEL_FAST` fails: walk a scripted list derived from the confirmed card (required sources → personal question → citation-style comfort → one “what do you already know about {topic}?” → story pick with template angles → early stance). Log `ai_fallback`.
 
 ### 6.4 Research leads — rules that always apply
 
 Applies to both generic and interest-steered leads.
 
-- Offer at most **2–4** at a time.
+- Offer **3–5** at a time, never more than 5 (Colton, Nov 20, 2026). If none appeal: **Show me 3–5 more** or **I have someone specific to look into**.
+- **Per-paper cap:** at most `RESEARCH_LEADS_MAX_PER_PAPER = 20` AI-researched leads per paper (Stage 1 and Stage 3 combined; stage specs section 2A.3). At the cap, the coach hands over a ready-to-paste Google search prompt instead (stage specs 2A.3) and invites the student to bring names back. Student-brought names are researched in the same 3–5 card pattern, don't count toward the cap, and are always `to_verify`.
 - Mark every suggested person, story, book, talk, or URL `status: "to_verify"`. Never label it a source, citation, or quote.
 - Never fabricate citations, quotes, page numbers, publication years, or URLs. If the model is not confident a person or work exists and is on-topic, offer **search terms only**, not a name.
 - Suggested items the student accepts or types themselves are handed to **Stage 4** as leads. Stage 4 is responsible for finding real sources. **Stage 4 drops leads it cannot verify** and tells the student that lead was dropped (no silent substitution). Until Stage 4 is built, store the leads and show them in the Stage 4 entry list as “to verify.”
@@ -472,17 +637,21 @@ Applies to both generic and interest-steered leads.
 
 `POST /api/papers/[paperId]/intake/complete` succeeds only when all of the following are true. Server-enforced, not just UI.
 
-1. An `assignments` row exists for the paper, `confirmed_at` is set, and required card fields meet section 4.3.
+1. An `assignments` row exists for the paper and `confirmed_at` is set (section 4.3 — no field is required; pasted text is never required).
 2. The voice-sample minimum in section 8 is met.
-3. An early stance of ≥ 25 words is stored (dedicated answer or an accepted equivalent).
-4. The student clicked **Start stance interview** (this request).
+3. A story angle is chosen (`assignments.story_angle` set, from a pick or the student's own).
+4. An early stance of ≥ 25 words is stored (dedicated answer or an accepted equivalent).
+5. The roadmap is confirmed (`section_plans` rows exist for the paper with `confirmed_at` set; section 3.4b).
+6. The student clicked **Start stance interview** (this request).
 
 Then: compute and upsert `style_profiles` for this paper; maybe upsert `voice_profiles` (section 8.3); mark `stage_progress` stage 1 `complete` and stage 2 `in_progress`; set `papers.current_stage = 2`. Log `stage1_completed`.
 
 Stage 2 receives:
 
 - confirmed `assignment_requirements` (and the synced `papers` columns)
+- `storyAngle` = the chosen angle (`{ text, source: "ai" | "student" }`)
 - `originalThesis` = early stance text
+- the confirmed roadmap (`section_plans`), which drives the per-section loop in Stages 2–4
 - accepted `research_leads` (including interest-steered ones still `to_verify`)
 - `intake_answers` (for cluster classification and slot filling)
 - `style_profiles` for later mismatch / revision coaching
@@ -496,9 +665,30 @@ Do not start Stage 2 questioning in Stage 1. The stance interview is still Stage
 
 ### 8.1 What counts
 
-The Stage 1 voice sample is the concatenation of `intake_answers` where `is_voice_sample = true`, in order, separated by newlines. That includes get-to-know-you answers, assignment-grounded coaching answers, the personal question, and any fallback. It does not include assignment paste, link fetches, or background selects.
+The Stage 1 voice sample is the concatenation of `intake_answers` where `is_voice_sample = true`, in order, separated by newlines. That includes get-to-know-you answers, assignment-grounded coaching answers, the personal question, a student-written story angle, and any fallback. It does not include assignment paste, link fetches, or background selects.
 
-Paste/drop is blocked on those textareas, same note as Stage 2: “We need your own typing here.”
+### 8.1a Paste ratio and baseline weighting (Colton, Nov 20, 2026, t44; never blocks, never warns)
+
+Paste is allowed in voice answers, so the baseline weights answers by how much was typed. Nothing here is shown to the student or changes the flow.
+
+```sql
+-- folded into 0008 (spec-only); if 0008 is already applied, ship as 0009 with the t40/t41 lines
+alter table intake_answers add column if not exists pasted_chars int not null default 0;
+alter table intake_answers add column if not exists typed_chars int not null default 0;
+alter table intake_answers add column if not exists paste_events int not null default 0;
+alter table intake_answers add column if not exists paste_ratio numeric(4,3);  -- pasted / (pasted + typed); null = unknown (old rows, no JS)
+alter table voice_profiles add column if not exists typed_word_share numeric(4,3); -- share of baseline words that were typed
+```
+
+- **Server:** clamp the client's `inputMeta` to the answer length (`pasted_chars ≤ char_length(answer_text)`) and compute `paste_ratio`. Missing meta → `null`, treated as typed. Metadata only, never a gate.
+- **Minimum:** all words count toward the 200-word / 2×40 minimum, pasted or not.
+- **Baseline weighting (`lib/style/voiceBaseline.ts`):** answer weight `w = 1 − 0.8 × paste_ratio` (typed = 1.0, fully pasted = 0.2). `StyleMetrics` for the baseline are word-weighted averages using `w`; vocabulary sets use typed answers first and add mostly-pasted answers (`paste_ratio ≥ 0.5`) only if typed words are under 150. Store `voice_profiles.typed_word_share`.
+- **Typed vs. spoken:** spoken input counts as **typed**. OS keyboard dictation (iOS/Android mic key, macOS/Windows dictation) arrives as ordinary `insertText` / `insertReplacementText`, and any in-app speech-to-text input is recorded as `spokenChars`; both add to `typed_chars`. Only `insertFromPaste`, `insertFromPasteAsQuotation` and `insertFromDrop` count as pasted.
+- **Stage 6 effect:** if typed words in the baseline are under 150, the mismatch check uses the existing short-sample downgrade (softer “might” wording, no strong level; stage specs section 7). The comparison chart still shows, unchanged in look.
+- **Bottom note (Colton, Nov 20, 2026, t45):** `baselinePastedShare = Σ pasted_chars / Σ (pasted_chars + typed_chars)` over the baseline answers (rows with null meta count as typed). If it is **> 0.60** ("mostly or entirely pasted"), the Stage 6 voice comparison shows, at the very bottom below the chart and tips, in plain muted text with no icon or color alarm, the soft note (t46, checker spec 5.9): “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” It never interrupts or replaces the comparison, and it is not shown during intake. With no baseline at all, the existing N/A behavior applies and the note is not shown. Log `voice_paste_note_shown {surface:'stage6', pastedShareBucket}`.
+- **SOP:** `/admin/sop` shows the distribution of `paste_ratio` on voice answers and how often the downgrade applies, so Colton can revisit the policy with data.
+
+Paste and drop are allowed on those textareas, as on every input (section 0A.1). Only the quiet paste ratio is recorded (8.1a).
 
 ### 8.2 Minimums
 
@@ -506,7 +696,7 @@ Constants in `lib/config.ts` (do **not** change `MIN_VOICE_SAMPLE_WORDS = 150`; 
 
 ```ts
 export const MIN_VOICE_SAMPLE_WORDS = 150;           // AI checker voice check only
-export const STAGE1_VOICE_MIN_WORDS = 250;
+export const STAGE1_VOICE_MIN_WORDS = 200;           // Colton, Nov 20, 2026 (was 250)
 export const STAGE1_VOICE_MIN_LONG_ANSWERS = 2;
 export const STAGE1_VOICE_MIN_LONG_ANSWER_WORDS = 40;
 export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
@@ -514,11 +704,12 @@ export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
 
 Stage 1 is met when all are true:
 
-- Sum of voice-sample word counts ≥ `STAGE1_VOICE_MIN_WORDS` (250)
-- At least `STAGE1_VOICE_MIN_LONG_ANSWERS` (2) of those answers have ≥ 40 words
-- The personal question is answered at ≥ 40 words (it may count as one of the two long answers)
+- Sum of voice-sample word counts ≥ `STAGE1_VOICE_MIN_WORDS` (200)
+- At least `STAGE1_VOICE_MIN_LONG_ANSWERS` (2) of those answers have ≥ 40 words (any questions)
 
-If the planned questions finish and the sample is still short, show a **fallback** prompt, still assignment-grounded, paste blocked:
+These are met **across** the answers the student gives. Any question can be skipped, including the personal question (re-offered once near the end); skipping never ends Stage 1 by itself. (Decided by Colton, Nov 20, 2026; see section 16, item 4.)
+
+If the planned questions finish and the sample is still short, show a **fallback** prompt, still assignment-grounded, paste allowed:
 
 > Before we start the stance interview, write a little more in your own words — no editing. Why does this assignment matter to you, or what's a moment when you saw this idea in real life?
 
@@ -536,8 +727,8 @@ If a `voice_profiles` row younger than **180 days** exists when Stage 1 reaches 
 
 Actions: **Keep this baseline** / **Refresh it with this paper.** Coaching questions still happen either way — they are intake, not just a sample.
 
-- **Keep:** If Stage 1 voice answers are ≥ 150 words, the personal question is ≥ 40 words, and at least one answer is ≥ 40 words, skip the long fallback even if the total is under 250. `style_profiles.raw_sample` = Stage 1 answers if they already meet the full 250 / 2×40 rule; otherwise Stage 1 answers plus `voice_profiles.sample_text`. Set `style_profiles.source = "stage1_answers"` or `"stage1_plus_voice_check"`. Leave `voice_profiles` unchanged. Log `voice_check_reused`.
-- **Refresh:** Require the full Stage 1 minimum (250 / 2×40 / personal 40). Upsert `voice_profiles` from this paper's sample (`source = "stage1"`). Log `voice_profile_updated`.
+- **Keep:** If Stage 1 voice answers are ≥ 150 words and at least one answer is ≥ 40 words, skip the long fallback even if the total is under 200. `style_profiles.raw_sample` = Stage 1 answers if they already meet the full 200 / 2×40 rule; otherwise Stage 1 answers plus `voice_profiles.sample_text`. Set `style_profiles.source = "stage1_answers"` or `"stage1_plus_voice_check"`. Leave `voice_profiles` unchanged. Log `voice_check_reused`.
+- **Refresh:** Require the full Stage 1 minimum (200 / 2×40). Upsert `voice_profiles` from this paper's sample (`source = "stage1"`). Log `voice_profile_updated`.
 
 If no profile exists and Stage 1 meets the full minimum, write `voice_profiles` (`source = "stage1"`) so the AI checker can use it later.
 
@@ -636,6 +827,7 @@ create table intake_answers (
   answer_text text not null default '',
   word_count int not null default 0,
   is_voice_sample boolean not null default false,
+  -- added in 0008 (t44; see section 8.1a): pasted_chars int, typed_chars int, paste_events int, paste_ratio numeric(4,3)
   decision text,                    -- dig_deeper | move_on | probe | suggestions_offered | stuck | skipped
   metadata jsonb not null default '{}',
   started_at timestamptz,
@@ -697,6 +889,28 @@ Also: trigger to keep `assignments.updated_at` fresh. New private Storage bucket
 
 `research_leads.status` values `verified` and `dropped` are written in Stage 4, not Stage 1.
 
+**Nov 20, 2026 additions — `supabase/migrations/0006_stage1_extract_first.sql`** (additive, after 0005; if 0005 has never been applied in any environment, these may be folded into it instead):
+
+```sql
+-- 0006_stage1_extract_first.sql
+alter type intake_question_kind add value if not exists 'story_angle';
+
+alter table assignments
+  add column if not exists followup_asked_at timestamptz,
+  add column if not exists followup_response text,          -- added | declined
+  add column if not exists story_options jsonb not null default '[]',
+    -- [{ text, whyFits, fromStudentPhrase?, source: 'ai'|'template' }]
+  add column if not exists story_angle jsonb;              -- { text, source: 'ai'|'student', optionIndex?, pickedAt }
+
+alter table assignment_files
+  add column if not exists extraction_status text not null default 'pending',
+    -- pending | extracting | done | failed
+  add column if not exists extraction_error text,          -- short enum: unreadable | timeout | encrypted | unsupported
+  add column if not exists extraction_attempts int not null default 0;
+```
+
+`parse_meta.missingImportant` (string[] of field paths) is stored in the existing JSON column. RLS is unchanged (owner-only on both tables).
+
 ---
 
 ## 10. API routes
@@ -709,19 +923,23 @@ Creates `assignments` if needed. Body (Zod): `{ filename, mime, byteSize, kind: 
 
 ### `POST /api/papers/[paperId]/assignment/finalize`
 
-Called after a file finishes uploading (or to register paste / links). Body: `{ fileId?, pasteText?, links?: string[] }`. For files: verify the object exists, **MIME-sniff magic bytes** and reject mismatches or non-allowlisted types (executables, HTML, SVG, etc.), convert HEIC/HEIF to JPEG, **strip EXIF GPS**, compute `content_hash`, warn (do not silently drop) if the hash matches a file already on this assignment, set `pages`, `mime`, `byte_size`, `upload_status = "ready"`, `exif_stripped`. For paste: store a `kind='paste'` row. For links: store `kind='link'` rows (normalized URLs). Does **not** have to finish OCR inline; kick off extraction and return quickly.
+Called after a file finishes uploading (or to register paste / links). Body: `{ fileId?, pasteText?, links?: string[] }`. For files: verify the object exists, **MIME-sniff magic bytes** and reject mismatches or non-allowlisted types (executables, HTML, SVG, etc.), convert HEIC/HEIF to JPEG, **strip EXIF GPS**, compute `content_hash`, warn (do not silently drop) if the hash matches a file already on this assignment, set `pages`, `mime`, `byte_size`, `upload_status = "ready"`, `exif_stripped`. For paste: store a `kind='paste'` row. For links: store `kind='link'` rows (normalized URLs). Does **not** have to finish OCR inline: it **immediately** enqueues extraction for that file (section 4.4) and returns quickly. When the last pending file finishes extraction, the server starts requirements extraction (`parse`) automatically. Also accepts `{ fileId, retry: true }` to re-run a failed file (increments `extraction_attempts`).
 
 ### `GET /api/papers/[paperId]/assignment/parse-status`
 
-Returns `{ parseStatus, files: [{ id, filename, sortOrder, uploadStatus, pages, ocrMethod, ocrConfidence, qualityScore, error? }], needsRetake: [{ fileId, page, reason }] }`. The client **polls every 2 s** while status is in progress, and **also** subscribes to Supabase Realtime on the `assignments` and `assignment_files` rows for this paper. Either channel is enough to advance Screen B; polling is the fallback if Realtime is unavailable.
+Returns `{ parseStatus, files: [{ id, filename, sortOrder, uploadStatus, extractionStatus, pages, ocrMethod, ocrConfidence, qualityScore, error? }], needsRetake: [{ fileId, page, reason }], missingImportant: string[], followupPending: boolean }`. `error` is a short enum mapped to the per-file retry/retake copy — never to a paste prompt. The client **polls every 2 s** while status is in progress, and **also** subscribes to Supabase Realtime on the `assignments` and `assignment_files` rows for this paper. Either channel is enough to advance Screen B; polling is the fallback if Realtime is unavailable.
 
 ### `POST /api/papers/[paperId]/assignment/parse`
 
 Starts (or retries) corpus merge + requirements extraction once files are `ready`. Builds the ordered corpus (section 4.4), merges `providedSources` (section 4.5), calls `MODEL_STRONG` with the parse schema, Zod-validates, verifies `rawEvidence` substrings against the corpus, computes word estimates in code, saves `requirements` + `parse_meta` + `raw_text`. If `parse_meta.candidates.length > 1`, return the picker and do not pretend a single card is confirmed. Returns the Assignment card when `parse_status = "ready"` (clients may also wait on parse-status). Optional public fetch of manual/extracted links uses the section 12.7 rules and must not block the card.
 
+### `POST /api/papers/[paperId]/assignment/followup`
+
+Body: `{ response: "added" | "declined", fileIds?: string[], pasteText?: string, links?: string[] }`. Allowed once per assignment (409 if `followup_asked_at` already has a response). `added`: register the new inputs (same rules as `finalize`), re-run extraction and requirements, refresh the checklist. `declined`: record it; missing fields will be saved as “Not specified” on confirm. Never returns an error that asks for a paste.
+
 ### `POST /api/papers/[paperId]/assignment/confirm`
 
-Body: student-edited `AssignmentRequirements` and per-field confirmations (and optional `selectedCandidateId`, `aiPolicyAck`). Rejects if section 4.3 is unmet. Sets `confirmed_at` (and `ai_policy_ack_at` if applicable), syncs `papers` columns. Logs corrections.
+Body: student-edited `AssignmentRequirements` (and optional `selectedCandidateId`, `aiPolicyAck`). Rejects only if section 4.3 is unmet (follow-up unanswered when shown, AI-policy choice missing when flagged, multiple-assignment picker unresolved). Never rejects for missing pasted text or missing fields; missing fields are saved as “Not specified.” Sets `confirmed_at` (and `ai_policy_ack_at` if applicable), syncs `papers` columns. Logs corrections.
 
 ### `POST /api/papers/[paperId]/intake/next-question`
 
@@ -730,6 +948,22 @@ Body: `{ answer?: string, skipInterest?: boolean, skipThisQuestion?: boolean, vo
 On the first call after confirm, starts get-to-know-you unless skipped or a reusable profile was accepted. Subsequent calls persist the previous answer (`intake_answers`, word count, timings, decision), update `interest_profiles` when an interest question is answered, maybe return lead cards, then return `{ question, kind, minWords, suggestions?, done?, needsFallbackVoice? }`.
 
 Guard every model output. Questions ≤ 35 words. Lead why-lines ≤ 40 words. No paper prose, no quotes attributed to leads, no invented URLs presented as verified.
+
+### `POST /api/papers/[paperId]/intake/story-options`
+
+Generates (or returns cached) 3–4 story angles from the confirmed card, accepted leads, and the student's answers (section 3.4a). `MODEL_STRONG`, guard applies (angles must be questions; no thesis, no claims written for the student). Saves `assignments.story_options`. Rule-based template fallback on failure.
+
+### `POST /api/papers/[paperId]/intake/story-pick`
+
+Body: `{ optionIndex?: number, ownText?: string }` (exactly one). `ownText` accepts paste (sent with `inputMeta`), ≥ 15 words, stored as an `intake_answers` row with `question_kind = "story_angle"` and `is_voice_sample = true`. Saves `assignments.story_angle`. A later change is allowed and logged (`story_angle_changed`).
+
+### `POST /api/papers/[paperId]/intake/roadmap`
+
+Builds (or returns) the DISSECT roadmap from the confirmed requirements (section 3.4b). `MODEL_STRONG`, guard applies; every section must carry `rubricRefs` that exist on the confirmed card (reject otherwise). `targetWords` computed in code.
+
+### `POST /api/papers/[paperId]/intake/roadmap/confirm`
+
+Body: the student-edited section list. Writes `section_plans` (`confirmed_at`, `order`, `source: "rubric" | "default" | "student"`). Logs `roadmap_confirmed` and `roadmap_section_edited`.
 
 ### `POST /api/papers/[paperId]/intake/complete`
 
@@ -743,11 +977,25 @@ Add `// SOP: coaching only, never generate submission text` at every call site. 
 
 **Parse (`MODEL_STRONG`, `reasoning_effort: "low"`):**
 
-> You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only the JSON schema. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.
+> You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only the JSON schema. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links. Image pages and photos are just as authoritative as typed text: read everything provided. Never ask the student to paste text.
 
 **Intake questions and leads (`MODEL_FAST`, `reasoning_effort: "none"`):**
 
 > You are a writing coach. Never write, rewrite, or complete sentences or paragraphs for the student. Never produce a thesis, topic sentence, or paper prose. Never fabricate sources, quotes, titles, page numbers, or URLs. Ask one question at a time, grounded in the confirmed assignment. You may ask short get-to-know-you questions so research leads can reflect the student's stated interests. Do not ask about health, religion, politics, or sexuality, and do not infer them; only use such content if the student volunteered it and it is relevant to this assignment. When suggesting people, stories, or resources, they are leads to verify, not citations. Each lead must say why it fits the assignment, and if it was interest-steered, why it also fits that interest, using the student's words. If the assignment requires scholarly sources, say clearly that an interest lead can be a hook or example and still needs scholarly support. If you are not confident a connection or a work exists, offer search terms instead of a name. The student chooses every lead. Decide dig_deeper or move_on using the rules you were given.
+
+**Vision OCR (`MODEL_STRONG`, image inputs):** transcribe verbatim only (section 4.4 step 3).
+
+**Story angles (`MODEL_STRONG`, `reasoning_effort: "low"`):**
+
+> You help a student pick a direction for their own paper. Offer 3 or 4 story angles as questions, never as claims, theses, or sentences the student could submit. Build each one from the student's own answers and specific details (people, moments, numbers they mentioned), quoting their short phrase verbatim when you use it. Prefer personal, specific angles over generic summaries. Each angle must fit the confirmed assignment; say which requirement it serves in one line. Do not invent facts, sources, or quotes.
+
+**All Stage 1 prompts also carry the coaching principles (section 0C):** the student owns every sentence; ask for personal detail over generic summary; citations belong to specific claims; don't push the student to polish away their natural voice (this is about authenticity of their own voice, never about AI detectors); help them decide the story early.
+
+**DISSECT roadmap (`MODEL_STRONG`, `reasoning_effort: "low"`):**
+
+> You turn a confirmed assignment into a section-by-section roadmap. Use only the confirmed requirements you were given; never add content, sections, or sources the assignment didn't ask for. For each section, say what it must do as a requirement, not as draft text, and list the rubric criteria it serves by id. Do not write sentences the student could submit. Keep each description under 25 words.
+
+**Governing philosophy:** every Stage 1 prompt includes the hard limits from `retainwrite-coaching-philosophy.md` section 3 (no student sentences; stay inside the rubric; no decorative citations; no detector promises; no fake clean results; paste never a gate; voice capture short and skippable).
 
 Student data in prompts: send only the fields needed (confirmed card, recent answers, interest tags / short verbatim answers for this user). Never send email or name.
 
@@ -755,13 +1003,13 @@ Student data in prompts: send only the fields needed (confirmed card, recent ans
 
 ## 12. Edge cases
 
-**12.1 No rubric.** The rubric field stays missing. Copy: “No rubric in what you uploaded. You can add grading criteria if you have them, or continue without.” Not required.
+**12.1 No rubric.** The rubric line shows “Not found.” It counts toward the single follow-up question (3.3a); if the student says no, it's saved as “Not specified.” Not required.
 
-**12.2 Vague prompt** (“write a paper about X”). Highlight missing length and citation style. The student fills what they know or marks Not specified. Coaching still starts after confirm, more general but still topic-grounded.
+**12.2 Vague prompt** (“write a paper about X”). Missing length and citation style trigger the single follow-up question. The student adds what they have or says no; those fields become “Not specified.” Coaching still starts after confirm, more general but still topic-grounded.
 
 **12.3 Multiple assignments in one file or across the upload.** Parser returns `parse_meta.candidates`. Picker: “We found more than one assignment in this file. Which one is this paper for?” plus “It's all one assignment.” Then parse (or filter) the selected part. Never silently pick.
 
-**12.4 Image-only or scanned PDF.** Follow the section 4.4 fallback order (Mistral if `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision). Quality issues go through the retake prompt, not a dead end. The student can always paste or add another photo.
+**12.4 Image-only or scanned PDF.** Follow the section 4.4 fallback order (Mistral if `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision). Quality issues go through the retake prompt, not a dead end. The student can always retake or add another photo. A photo-only or scan-only upload is a normal, fully supported path — never a reason to ask for a paste.
 
 **12.5 Non-English materials.** If detected language is not English: “This assignment looks like it's in {language}. Coaching questions and feedback are in English in this version, but you can still upload it and type answers in the assignment's language.” Continue is the student's choice. Parse extracts what it can. Do not block.
 
@@ -773,7 +1021,7 @@ Buttons: **Continue anyway** (sets `ai_policy_ack_at`, logs `ai_policy_continued
 
 **12.7 Link fetch failures.** Public GET only, 8 s timeout, 2 MB cap, follow a small redirect limit, no cookies or student LMS credentials. If the response is a login page or fails, keep the URL as a `providedSources` entry and, if useful, ask the student to upload the document. Never store fetched credentials. A failed fetch must not block the Assignment card.
 
-**12.8 Empty or unreadable mix.** If after all files + paste the usable text is under 20 words, stay on the recovery state. Do not invent a card.
+**12.8 Empty or unreadable mix.** If after all files (and any optional paste or links) the usable text is under 20 words, do not invent requirements. Show the checklist's empty state with per-file **Retry / Retake photo / Remove** and the single follow-up question. Never a paste demand.
 
 **12.9 Blurry or dark photo.** If the quality score is below 0.45, or OCR returns `blurry` / `dark`, prompt to retake and show the score in debug-only logs (not to the student as a raw number unless useful: “This photo looks blurry or too dark”). **Retake** replaces that page in order; **Use it anyway** keeps the best-effort text.
 
@@ -781,13 +1029,13 @@ Buttons: **Continue anyway** (sets `ai_policy_ack_at`, logs `ai_policy_continued
 
 **12.11 Duplicate uploads.** If `content_hash` matches another file on this assignment, warn: “This looks like a file you already added.” Let them keep both or remove one. Do not silently drop it.
 
-**12.12 Password-protected PDFs.** Detect encryption and stop with “This PDF is password-protected. Export an unlocked copy or paste the text — we don't ask for the password.” Do not collect or store the PDF password. Log `pdf_encrypted`.
+**12.12 Password-protected PDFs.** Detect encryption and stop with “This PDF is password-protected. Export an unlocked copy, or take photos of the pages — we don't ask for the password.” Do not collect or store the PDF password. Log `pdf_encrypted`.
 
 **12.13 Handwritten notes.** Best-effort OCR (section 4.4) plus the handwritten check copy. Never guess missing words into a required field with high confidence; leave those fields low-confidence or missing so the student fills them.
 
 **12.14 Unsupported types.** Reject on the picker and again on finalize (magic-byte sniff). Clear message: “That file type isn't supported. Try a PDF, a Word file, a text file, or a photo.”
 
-**12.15 Upload interrupted on mobile.** Resumable uploads (TUS). On return, show paused items with progress and **Resume** / **Retry**. Other finished files stay. Don't start parse until the student taps **Read my assignment** again (or auto-resume parse if they already had, and only the interrupted file remains).
+**12.15 Upload interrupted on mobile.** Resumable uploads (TUS). On return, show paused items with progress and **Resume** / **Retry**. Other finished files stay, and their extraction keeps running. The interrupted file is extracted as soon as its upload completes; requirements extraction waits until it finishes or the student removes it. Never ask for a paste instead.
 
 **12.16 Security.** Treat every upload as untrusted. MIME-sniff magic bytes and reject type mismatches and non-allowlisted types (including executables, HTML, and SVG). Do not trust the client `Content-Type`. Strip EXIF GPS and location metadata from images before they are stored or sent to a model. No public storage URLs — signed URLs only, short TTL. Do not interpolate extracted text into HTML unsanitized (View source is escaped text plus an image thumbnail). Don't run uploaded files as code. A full antivirus engine is not required on Vercel; the allowlist, sniffing, and private bucket are the v1 control. Log `upload_rejected` with reason enum only.
 
@@ -799,7 +1047,7 @@ Write `session_events` with `stage = 1`. Never put full assignment text, interes
 
 Events:
 
-`assignment_uploaded`, `assignment_file_finalized`, `assignment_file_deleted`, `assignment_parse_started`, `assignment_parsed`, `assignment_field_edited`, `assignment_confirmed`, `ocr_mistral_used`, `ocr_grok_used`, `ocr_failed`, `ocr_handwritten`, `upload_rejected`, `pdf_encrypted`, `retake_prompted`, `ai_policy_notice_shown`, `ai_policy_continued`, `interest_started`, `interest_skipped`, `interest_question_shown`, `interest_answered`, `interest_profile_updated`, `interest_profile_deleted`, `interest_profile_reused`, `intake_question_shown`, `intake_answered`, `intake_dig_deeper`, `intake_move_on`, `suggestions_offered`, `lead_accepted`, `lead_rejected`, `lead_student_added`, `lead_interest_rated`, `voice_shortfall`, `voice_fallback_shown`, `voice_sample_computed`, `voice_check_reused`, `voice_profile_updated`, `stage1_completed`, `ai_fallback`.
+`roadmap_generated`, `roadmap_confirmed`, `roadmap_section_edited`, `intake_question_skipped`, `personal_reoffered`, `assignment_uploaded`, `assignment_file_finalized`, `extraction_started`, `extraction_done`, `extraction_retry_prompted`, `followup_shown`, `followup_added`, `followup_declined`, `story_options_shown`, `story_angle_picked`, `story_angle_own`, `story_angle_changed`, `assignment_file_deleted`, `assignment_parse_started`, `assignment_parsed`, `assignment_field_edited`, `assignment_confirmed`, `ocr_mistral_used`, `ocr_grok_used`, `ocr_failed`, `ocr_handwritten`, `upload_rejected`, `pdf_encrypted`, `retake_prompted`, `ai_policy_notice_shown`, `ai_policy_continued`, `interest_started`, `interest_skipped`, `interest_question_shown`, `interest_answered`, `interest_profile_updated`, `interest_profile_deleted`, `interest_profile_reused`, `intake_question_shown`, `intake_answered`, `intake_dig_deeper`, `intake_move_on`, `suggestions_offered`, `lead_accepted`, `lead_rejected`, `lead_student_added`, `lead_interest_rated`, `voice_shortfall`, `voice_fallback_shown`, `voice_sample_computed`, `voice_check_reused`, `voice_profile_updated`, `stage1_completed`, `ai_fallback`.
 
 `detail` should include, as relevant:
 
@@ -816,7 +1064,9 @@ Events:
 - Stage 1 completion rate with vs. without an interest profile used
 - Later: paper / Stage 5–6 completion joined to whether an interest-steered lead was accepted
 - Distribution of self-reported lead interest (1–5)
-- Drop-off by Stage 1 screen (upload, parse, confirm, interest, coaching, gate)
+- Drop-off by Stage 1 screen (upload, parse, checklist, follow-up, interest, coaching, story pick, gate)
+- Follow-up rate (how often something important is missing) and which fields, to improve extraction
+- Photo-only uploads that reach the checklist without any paste (should be ~100%)
 
 Stage 4 should log `lead_verified` and `lead_dropped` with `steered_by` so SOP can see which personalized leads survive verification. Add those event names when Stage 4 is implemented; they are reserved now.
 
@@ -830,7 +1080,7 @@ Vitest, at minimum:
 
 - Page-to-word estimate (275, ranges, never overwrites an explicit word count)
 - Confirm gate (required fields, “Not specified,” unreviewed fields fail)
-- Voice-minimum calculator (250 / 2×40 / personal 40, and the keep-baseline exception)
+- Voice-minimum calculator (200 / 2×40 across answers given, skipped answers allowed, and the keep-baseline exception)
 - `rawEvidence` and lead-name evidence must be substrings when claimed as extracted
 - Interest tag rules: no inferred sensitive tags; volunteered sensitive content is not promoted to standing tags
 - Leads default to `to_verify`; interest-steered leads require both why-lines; scholarly-required assignments attach the hook-or-example note
@@ -844,7 +1094,15 @@ Vitest, at minimum:
 - Corpus merge respects `sort_order`; URL dedupe of document + pdf_annotation + manual links
 - Quality threshold prompts a retake below 0.45
 - OCR fallback: Mistral used when the key is set; Grok vision is used when the key is missing or Mistral fails; a double failure marks the page failed without inventing text
-- Password-protected PDF is rejected without asking for the password
+- Password-protected PDF is rejected without asking for the password (copy suggests photos, not paste)
+- **No paste gate:** photos-only multi-page fixture reaches the checklist with no paste and no links (section 0A test a)
+- Roadmap: every section has `rubricRefs` on the confirmed card; `targetWords` from code; gate fails without a confirmed roadmap; fallback builds sections from `structuralRequirements`
+- Skip: every voice question can be skipped; the 200 / 2×40 minimum is computed across answers given; a skipped personal question is re-offered once; no personal-question requirement in the gate
+- **Banned string:** repo-wide test fails if `paste the prompt text` appears anywhere in app code, copy, or fixtures (case-insensitive; pattern built from parts; spec docs excluded) (section 0A test b)
+- **Single follow-up:** partial extraction shows the follow-up exactly once; `declined` → confirm succeeds with “Not specified” fields; a second follow-up call returns 409 (section 0A test c)
+- `missingImportant` computed in code for prompt, format, length, rubric, sections
+- Per-file extraction failure returns a retry/retake error enum and doesn't stop other files
+- Story angles: guard rejects non-question / thesis-like angles; `fromStudentPhrase` must be a verbatim substring; own-angle ≥ 15 words; gate fails without a story angle
 
 ---
 
@@ -853,21 +1111,27 @@ Vitest, at minimum:
 - [ ] Stage 1 starts on the upload screen, with file upload as the primary CTA (PDF/document, gallery photos, and camera). No coaching question appears before the Assignment card is confirmed.
 - [ ] The three input methods work as specified: document picker (PDF/DOCX/TXT), gallery (JPG/PNG/HEIC→JPEG/WEBP), and camera (mobile `capture=environment`; desktop getUserMedia with file-picker fallback, crop/rotate, “add another page”).
 - [ ] Multiple files per submission (cap 15 / 25 MB / 100 MB), desktop drag-and-drop, thumbnails with reorder/remove, per-file progress and retry, and resumable uploads to the private `assignment-files` bucket (owner-only RLS, signed URLs only).
-- [ ] Paste is available as a secondary option. “Any links your professor gave you?” is optional, collapsed, and not enough on its own to continue.
+- [ ] **Paste is never a gate.** Paste and “Any links your professor gave you?” are optional, secondary inputs. A photos-only upload reaches the checklist with no paste. The string “paste the prompt text” appears nowhere in the codebase. A failed file shows a per-file retry/retake message, never a paste demand.
+- [ ] Each file is read immediately after upload (native text, Mistral OCR, or Grok vision), and requirements extraction runs automatically when the files are read.
+- [ ] If an important field is missing, the single follow-up question appears exactly once with the exact copy; the student can add more or say no and continue.
 - [ ] Digital PDFs/DOCX use native text; images and scanned pages use Mistral OCR when `MISTRAL_OCR_API_KEY` is set, otherwise Grok vision; per-page quality checks can prompt a retake. All files merge into one ordered corpus with file and page provenance.
 - [ ] URLs inside documents (including PDF link annotations) are extracted into provided sources and deduped with the manual URL field.
 - [ ] The Assignment card shows paper type, topic/question, length (with a ~275 words/page estimate when only pages are given), citation style, formatting rules, required sources, provided readings and links, structural requirements, due date, and rubric criteria with weights. Each extracted field cites file and page and offers **View source**. Low-confidence and missing fields are highlighted.
-- [ ] Every field has a confidence state. The student must confirm or edit every field. Confirm-all cannot skip unreviewed or missing required fields. Nothing is used downstream that the student did not confirm.
+- [ ] The checklist shows prompt, format, length, rubric, sections/layout, and readings/links (plus course/due date when found), each with a confidence state and file + page provenance. The student confirms once; missing fields become “Not specified,” not blockers. Nothing is used downstream that the student did not confirm.
+- [ ] After coaching, the student picks one of 3–4 story angles (questions built from their own answers) or writes their own before the early stance; Stage 2 receives `storyAngle`.
+- [ ] The INTD600 phase-to-stage mapping (section 0B) and coaching principles (section 0C) are reflected in prompts, guard rules, and copy; nothing uses detector-evasion framing.
 - [ ] **Golden path: a 3-photo phone capture of a printed syllabus produces a correct Assignment card** (topic, length, due date, citation style, and visible requirements match the pages, with provenance pointing at the right photo/page).
 - [ ] **Golden path: one PDF + two screenshots + one professor URL merge correctly** into a single card; the URL appears in provided sources (and is deduped if the PDF also contains it); no field is missing solely because it lived in a screenshot rather than the PDF.
 - [ ] After confirm, a 3–5 question get-to-know-you conversation can run (and can be skipped). Answers are stored on `interest_profiles` as tags plus the student's own words.
-- [ ] Coaching questions are generated from the confirmed requirements, one at a time, adaptive. The margin-paper pattern asks about leaders and, on “I don't know,” offers 2–4 example names with a one-line why, as leads to verify.
+- [ ] Coaching questions are generated from the confirmed requirements, one at a time, adaptive. The margin-paper pattern asks about leaders and, on “I don't know,” offers 3–5 example names with a one-line why, as leads to verify.
 - [ ] Interest-steered leads, when shown, each explain the assignment fit and the interest fit. They never appear as citations or quotes. When scholarly sources are required, the hook-or-example note is visible and a scholarly-shaped lead is also offered.
 - [ ] The student picks every lead. Accepted leads are stored `to_verify` for Stage 4. The product does not present unverified quotes or fabricated citations. No celebrity–organization pairing is hard-coded as fact.
-- [ ] Get-to-know-you and coaching answers are paste-blocked and count toward the voice sample. The 250-word / 2×40 / personal-40 minimum is enforced, with a fallback prompt if short.
+- [ ] Get-to-know-you and coaching answers accept paste (no warning; `paste_ratio` recorded quietly) and count toward the voice sample. The 200-word / 2×40 minimum (across answers given; any question skippable) is enforced, with a fallback prompt if short.
 - [ ] `StyleMetrics` and `voice_profiles` are reused, not forked. A recent checker baseline can be kept or refreshed. Completing Stage 1 writes `style_profiles` for the paper.
 - [ ] Background questions are brief and assignment-tied, not a generic survey.
-- [ ] **Start stance interview** is disabled until the card is confirmed, the voice minimum is met, and an early stance (≥ 25 words) exists. Stage 2 then receives requirements, early ideas, and leads. The six-stage structure is unchanged.
+- [ ] Stage 1 ends with DISSECT: a roadmap built only from the confirmed rubric/prompt, each section tied to rubric criteria, confirmed by the student and saved as `section_plans`.
+- [ ] Every voice question has a Skip button; the voice minimum is met across answers, not per question.
+- [ ] **Start stance interview** is disabled until the checklist is confirmed, the voice minimum is met, a story angle is chosen, an early stance (≥ 25 words) exists, and the roadmap is confirmed. Stage 2 then receives requirements, the story angle, early ideas, and leads. The six-stage structure is unchanged.
 - [ ] Edge cases in section 12 behave as specified (no rubric, vague prompt, multiple assignments, image-only, non-English, teacher forbids AI, failed link fetch, blurry/dark retake, rotation, duplicates, password-protected PDFs, handwriting, unsupported types, interrupted mobile upload). Assignment files are private, EXIF GPS-stripped, retained for the life of the paper plus 90 days, and deletable by the student.
 - [ ] Interest data is only used to personalize this student's coaching, is hidden from other users and from admin text views, and can be deleted by the student.
 - [ ] Session events support SOP review of dig-deeper vs. move-on, time per step, fields corrected after parse, personalized vs. generic lead pickup, completion, and optional 1–5 lead-interest ratings — without storing interest prose in `detail`.
@@ -883,5 +1147,20 @@ None of these should block the build. Defaults above are in force if unset.
 1. Interest-profile reuse window: **180 days**, same as the voice baseline. Confirm later if a longer window is wanted.
 2. Where Stage 4 surfaces dropped leads: **default:** a short note on the Stage 4 source list, “We couldn't verify this lead, so we dropped it,” with a chance to replace it. Implement with Stage 4.
 3. Whether `/admin/sop` should ever show interest *tag frequency* (no raw answers). **Default: no** in v1; pickup-rate aggregates only.
+4. **Voice minimum — DECIDED by Colton (Nov 20, 2026):** 200 words total across the answers given; skipped answers allowed. We kept the 2 × 40-word rule (compatible) and dropped the separate personal-question requirement (incompatible with skipping). See decision 13.
+5. **(Decision for Colton, Nov 20, 2026) Counterargument section vs. "stay inside the rubric."** The stage specs always add a Counterargument & Rebuttal outline section. **Default (in force, still unconfirmed by Colton as of Nov 20, 2026): include it only when the assignment requires it or the paper type is argumentative**; the Stage 2 counterargument moves still run for every paper because they test the student's own claim. Option: always include it (previous behavior).
 
 No other blockers. Build Stage 1 with the defaults in this doc.
+
+---
+
+## Changelog
+
+- **Nov 20, 2026 (t46)** — The Stage 6 voice-baseline note (8.1a, decision 17) now uses Colton's softer style: “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” t45's wording is retired. Intake behavior is unchanged.
+- **Nov 20, 2026 (t43/t44)** — Added urgent fix 0A.1, shipped with the paste-gate fix: remove every paste-blocking attribute and handler from every intake input, **including voice-capture answers** (Colton t44 replaced t43's voice-answer exception). Added acceptance tests (d)–(f), including iOS long-press paste and a CI grep with no exceptions. Decision 17 notes that the Stage 6 voice comparison may now include pasted text, and adds the quiet `paste_ratio` mitigation (section 8.1a; columns folded into 0008). Changed the locked rules, decision 6, sections 3.x, 5.x, 8 and the acceptance criteria from "paste-blocked" to "paste allowed."
+- **Nov 20, 2026 (t41/t42)** — Loop-step references now include Colton's LOGIC CHECKPOINT (after CONFIRM, before ADVANCE, non-blocking). Added decision 16. No change to Stage 1 behavior.
+- **Nov 20, 2026 (t40)** — Applied Colton's answers. Voice minimum is now 200 words across the answers given, skipped answers allowed; 2 × 40 kept, personal-question requirement dropped (decision 13, constants, gate, keep/refresh rules, tests, acceptance). Research leads are 3–5 per set with a 20-per-paper cap and a Google search-prompt handoff (decision 14, section 6.4). Section-first loop with skip/browse-ahead noted (decision 15). Counterargument default marked unconfirmed by Colton.
+
+- **Nov 20, 2026 (t39)** — Folded in `retainwrite-coaching-philosophy.md` as the governing doc. Stage 1 now ends with DISSECT: a student-confirmed section roadmap (`section_plans`, migration `0008_section_loop.sql`) built only from the confirmed rubric/prompt (3.4b), added to the gate, API, prompts, events, tests, and acceptance criteria. Voice questions are skippable one by one while the unchanged minimum is met across answers. Decisions 12–13 added; open decisions 4 (voice minimum) and 5 (counterargument section) flagged for Colton.
+
+- **Nov 20, 2026** — Read-the-upload-first rewrite. Removed the paste gate (urgent fix, section 0A): uploads are extracted immediately (Mistral OCR / Grok vision / native text), failures get per-file retry/retake, and paste/links are optional only. The field-by-field hard gate became a short confirm checklist with “Not specified” for anything missing, plus one polite follow-up question (3.3a). Added Pick your story (3.4a) before the early stance, the INTD600 phase-to-stage mapping (0B), and coaching principles (0C). Additive migration `0006_stage1_extract_first.sql`. Decisions 1, 2, and 7 revised; 9–11 added.

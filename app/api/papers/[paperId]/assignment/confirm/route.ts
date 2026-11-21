@@ -39,7 +39,8 @@ export async function POST(request: Request, ctx: Ctx) {
     );
   }
 
-  const policy = body.requirements.aiPolicy.value;
+  const requirements = gate.requirements;
+  const policy = requirements.aiPolicy.value;
   if (
     (policy === "forbidden" || policy === "restricted") &&
     !body.aiPolicyAck
@@ -55,16 +56,16 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const paperPatch = {
     title:
-      body.requirements.topic.value ||
-      body.requirements.promptQuestion.value ||
+      requirements.topic.value ||
+      requirements.promptQuestion.value ||
       null,
-    course: body.requirements.course.value,
-    due_date: body.requirements.dueDate.value,
-    required_length: formatLengthLabel(body.requirements.length.value),
+    course: requirements.course.value,
+    due_date: requirements.dueDate.value,
+    required_length: formatLengthLabel(requirements.length.value),
     citation_style:
-      body.requirements.citationStyle.value === "other"
-        ? body.requirements.citationStyleOther ?? "other"
-        : body.requirements.citationStyle.value,
+      requirements.citationStyle.value === "other"
+        ? requirements.citationStyleOther ?? "other"
+        : requirements.citationStyle.value,
   };
 
   await logSessionEvent({
@@ -103,7 +104,7 @@ export async function POST(request: Request, ctx: Ctx) {
       {
         paper_id: paperId,
         user_id: user.id,
-        requirements: body.requirements,
+        requirements,
         confirmed_at: now,
         ai_policy_ack_at: body.aiPolicyAck ? now : null,
         field_confirmations: {},
