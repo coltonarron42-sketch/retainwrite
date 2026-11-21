@@ -62,12 +62,12 @@ export const MISMATCH_THRESHOLDS = {
 
 /**
  * Drafting feature flags. Code constants, not env vars.
- * Stay false until the acceptance tests pass; the last Drafting commit turns them on.
+ * On for production so QA can walk Drafting. Set a switch to false to fall back.
  */
 export const FEATURES = {
-  draftingMuscle: false,
-  interactionLayer: false,
-  hiddenDraft: false,
+  draftingMuscle: true,
+  interactionLayer: true,
+  hiddenDraft: true,
 } as const;
 
 /** Full-paper answer key. `structure` is only an outage fallback. */

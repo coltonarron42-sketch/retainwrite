@@ -725,7 +725,7 @@ export function CoachingLoop({
           }}
         />
       ) : null}
-      {stage === 5 && !locks ? (
+      {stage === 5 && !FEATURES.draftingMuscle && !locks ? (
         <Button type="button" className="mt-4" onClick={continueProductStage}>
           Continue
         </Button>

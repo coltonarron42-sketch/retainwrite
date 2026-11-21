@@ -8,10 +8,10 @@ import {
 } from "@/lib/config";
 
 describe("drafting flags", () => {
-  it("ships the three switches off until acceptance tests pass", () => {
-    expect(FEATURES.draftingMuscle).toBe(false);
-    expect(FEATURES.interactionLayer).toBe(false);
-    expect(FEATURES.hiddenDraft).toBe(false);
+  it("turns the Drafting switches on after the acceptance tests pass", () => {
+    expect(FEATURES.draftingMuscle).toBe(true);
+    expect(FEATURES.interactionLayer).toBe(true);
+    expect(FEATURES.hiddenDraft).toBe(true);
     expect(HIDDEN_DRAFT_MODE).toBe("prose");
     expect(SKELETON_PEEKS).toBe(false);
   });
