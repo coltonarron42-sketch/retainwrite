@@ -1,4 +1,7 @@
-import { MISMATCH_THRESHOLDS } from "@/lib/config";
+import {
+  MISMATCH_THRESHOLDS,
+  VOICE_SHORT_SAMPLE_NATURAL_WORDS,
+} from "@/lib/config";
 import { contentWords, type StyleMetrics } from "./metrics";
 
 export type MismatchTell = {
@@ -23,6 +26,7 @@ export function evaluateMismatch(
   sample: StyleMetrics,
   allowList: string[] = [],
   draftText = "",
+  options?: { naturalWords?: number },
 ): MismatchResult {
   const t = MISMATCH_THRESHOLDS;
   if (draft.wordCount < t.minWords) {
@@ -84,9 +88,18 @@ export function evaluateMismatch(
     });
   }
 
-  const strongCount = tells.filter((x) => x.level === "strong").length;
-  const tellCount = tells.length;
+  const naturalWords = options?.naturalWords;
+  const shortSample =
+    naturalWords != null && naturalWords < VOICE_SHORT_SAMPLE_NATURAL_WORDS;
+  const leveled = shortSample
+    ? tells.map((tell) =>
+        tell.level === "strong" ? { ...tell, level: "tell" as const } : tell,
+      )
+    : tells;
+
+  const strongCount = leveled.filter((x) => x.level === "strong").length;
+  const tellCount = leveled.length;
   const triggered = strongCount >= 1 || tellCount >= 2;
 
-  return { triggered, tells, examples };
+  return { triggered, tells: leveled, examples };
 }

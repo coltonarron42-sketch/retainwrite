@@ -13,6 +13,12 @@ export function SiteHeader() {
         </Link>
         <nav className="flex items-center gap-2 md:gap-3">
           <Link
+            href="/ai-checker"
+            className="hidden text-sm font-medium text-rw-ink/70 hover:text-rw-ink sm:inline"
+          >
+            AI checker
+          </Link>
+          <Link
             href="/pricing"
             className="hidden text-sm font-medium text-rw-ink/70 hover:text-rw-ink sm:inline"
           >

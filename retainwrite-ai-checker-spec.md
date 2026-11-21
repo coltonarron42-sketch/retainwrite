@@ -237,28 +237,54 @@ Every tell carries a verbatim `quote` plus `start` / `end` character offsets int
 
 Never show replacement text, alternate sentences, "try this" suggestions, or a rewritten version. Quotes are capped at 2 sentences / 300 characters each, max 3 per signal.
 
-### 5.9 Voice-baseline paste note (Colton, Nov 20, 2026, t45; softer wording t46)
+### 5.9 Voice-baseline note (Colton, Nov 20, 2026, t45; softer wording t46; hybrid threshold t51)
 
 **What:** when the voice baseline used for the comparison signals came from text that was mostly or entirely **pasted** (not typed or spoken), show one kind, factual note at the **very bottom of the report**, below every score and the highlighted draft, above only the disclaimer/footer. It never interrupts, replaces or recolors the main score or headline. No warning icon or amber color: plain body text, with a small ℹ︎ info icon at most. It's not in the preview's top area.
 
-**Wording (t46, one consistent soft style on every surface):**
+**Wording (t46 soft style; t51 adds short and low variants; t47's `VOICE_NOTE_ANSWERS_ALL` is retired):**
 
-| Baseline used | Exact text (`lib/copy/voiceNotes.ts`) |
-|---|---|
-| The writing-sample box (public standalone checker) | `VOICE_NOTE_SAMPLE`: “Your writing sample was pasted in, which is totally fine. A typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
-| Voice answers: a `voice_profiles` row (signed-in checker), any in-app voice check, and the Stage 6 comparison (Stage 1 answers) | `VOICE_NOTE_ANSWERS`: “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+| Key (`lib/copy/voiceNotes.ts`) | When | Exact text |
+|---|---|---|
+| `VOICE_NOTE_ANSWERS` (t46, kept) | Answers; lighter read, paste cause (`enough` or `thin` tier with `pastedShare > 0.60`) | “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_ANSWERS_SHORT` (t51, new) | Answers; lighter read, short cause (`thin` tier, `pastedShare ≤ 0.60`) | “We only had a little of your typed or spoken voice to go on, which is totally fine. More typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_ANSWERS_LOW` (t51; replaces t47's `VOICE_NOTE_ANSWERS_ALL`) | Answers; `low` tier | “Most of your voice came in pasted, or there wasn't much of it, which is totally fine. We couldn't reliably read your voice from it, so treat the voice comparison with lower confidence.” |
+| `VOICE_NOTE_SAMPLE` (t46, kept) | Public writing sample; lighter read, paste cause | “Your writing sample was pasted in, which is totally fine. A typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_SAMPLE_SHORT` (t51, new) | Public writing sample; lighter read, short cause | “Your writing sample was on the short side, which is totally fine. A longer typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_SAMPLE_LOW` (t51, new) | Public writing sample; `low` tier | “Most of your sample came in pasted, or it was short, which is totally fine. We couldn't reliably read your voice from it, so treat the voice comparison with lower confidence.” |
 
-Colton's t45 wording (“Voice was not reliably determined…”) is retired everywhere in favor of this softer style (t46). The note never says “unreliable,” “less confidence,” “pasted instead of,” or anything that implies wrongdoing.
+Colton's t45 wording (“Voice was not reliably determined…”) stays retired. The notes never say “unreliable,” “less confidence,” “pasted instead of,” or anything that implies wrongdoing. **Colton-approved exception (t47 → t51):** the two `…_LOW` notes say “couldn't reliably read” and “lower confidence”, as he asked for the low-voice case; they're the only notes allowed to.
 
 **Which baseline it looks at (scoped by surface):**
 
 | Surface | Baseline whose paste share is checked |
 |---|---|
 | Standalone `/ai-checker` with the optional writing sample | The writing-sample box (`sampleInputMeta` sent with the request; nothing stored) |
-| Standalone `/ai-checker`, signed in, no sample, using `voice_profiles` | The profile's answers: pasted share = `1 − voice_profiles.typed_word_share` (from the checker voice check or Stage 1) |
-| Any in-app voice check, and the Stage 6 voice comparison | The Stage 1 coaching answers that form the baseline (`intake_answers.pasted_chars` / `typed_chars`) |
+| Standalone `/ai-checker`, signed in, no sample, using `voice_profiles` | The profile's answers: pasted share = `1 − voice_profiles.typed_word_share`; `naturalWords` = `voice_profiles.natural_words` (t51) |
+| Any in-app voice check, and the Stage 6 voice comparison | The paper's counted answers (t51): Stage 1 voice answers plus Stage 2–4 conversational answers (`papers.natural_voice_words`, `papers.voice_pasted_share`; stage specs 2B.10) |
 
-**Threshold ("mostly pasted"):** `pastedShare = pastedChars / (pastedChars + typedChars)` over the baseline actually used. The note shows when **`pastedShare > 0.60`** (strictly greater). Constant: `VOICE_PASTED_SHARE_NOTE = 0.60` in `lib/config.ts`.
+**Threshold:** ~~`pastedShare > 0.60` alone (t45); ≥ 0.95 all-pasted (t47)~~ superseded by the hybrid rule below (t51).
+
+**Hybrid voice-note rule (Colton, Nov 20, 2026, t51; replaces the paste-percentage-only rule). All numbers are [PROVISIONAL] for Colton to tune.**
+
+Principle: if there's enough natural voice to form a reliable baseline, show no note, whatever the paste %. If very little natural voice was captured, show a note even at a moderate paste %.
+
+- **`naturalWords`** = typed + dictated/spoken words in the counted text. **Pasted words are excluded** (they count 0 here). Per answer: `round(wordCount × (1 − paste_ratio))`; missing meta counts as all natural. The 0.2 paste weight still applies to the baseline *metrics* (`w = 1 − 0.8 × paste_ratio`); it doesn't add to `naturalWords`.
+- **Counted text, in app ("across the whole paper"):** Stage 1 voice answers plus every Stage 2–4 conversational answer: Stage 2 move replies and refined thesis, TEACH **Something else**, MIRROR, PROBE ideas, memory answers, highlight-reel follow-ups, and logic-checkpoint revise/new-angle/reframe answers. **Not counted:** Stage 3 outline notes and sentence-plan fragments, brought-back names, assignment paste and links, and Stage 5–6 draft text (that's what gets compared). The Stage 6 baseline metrics use the same counted answers, typed-weighted (t51; before, Stage 1 answers only).
+- **`pastedShare`** = pasted chars / (pasted + typed chars) over the same counted text.
+
+| Tier | `naturalWords` [PROVISIONAL] | Note |
+|---|---|---|
+| `plenty` | ≥ 600 | **No note**, at any paste % |
+| `enough` | 200–599 | Lighter-read note **only if `pastedShare > 0.60`**; otherwise none |
+| `thin` | 80–199 | Lighter-read note **regardless of paste %** |
+| `low` | < 80 | Stronger note **regardless of paste %** |
+
+- **Which lighter-read wording:** if `pastedShare > 0.60`, the paste wording (`VOICE_NOTE_ANSWERS` / `VOICE_NOTE_SAMPLE`); otherwise the short wording (`…_SHORT`), so the note never says "mostly pasted" when it wasn't.
+- At most one note, at the very bottom (placement and style unchanged). **No baseline at all → no note** (N/A unchanged). Never during intake or any writing step.
+- Constants (`lib/config.ts`): `VOICE_NATURAL_WORDS_PLENTY = 600`, `VOICE_NATURAL_WORDS_ENOUGH = 200`, `VOICE_NATURAL_WORDS_LOW = 80` [PROVISIONAL], plus `VOICE_PASTED_SHARE_NOTE = 0.60` (kept; now only used in the `enough` tier). `VOICE_ALL_PASTED_SHARE` and `VOICE_NOTE_ANSWERS_ALL` (t47) are retired. One pure function, `voiceNoteFor({ naturalWords, pastedShare, hasBaseline, surface: 'answers' | 'sample' }) → { tier, note }`, in `lib/style/voiceBaseline.ts`, is used on every surface.
+- The short-sample downgrade (no strong mismatch levels when fewer than 150 natural words) is unchanged and uses the same `naturalWords`.
+
+**Public writing sample (same logic on the sample):** `naturalWords` = the sample's typed + spoken words (from `sampleInputMeta`), `pastedShare` over the sample. The sample's 150-word minimum means a fully typed 150–199-word sample lands in `thin` and gets `VOICE_NOTE_SAMPLE_SHORT`; a fully pasted sample of any length lands in `low` (`VOICE_NOTE_SAMPLE_LOW`).
 
 **Typed vs. spoken vs. pasted:** `typedChars` includes keyboard input, autocorrect/predictive text, OS dictation (it arrives as `insertText` / `insertReplacementText`) and any in-app speech-to-text (`spokenChars`, added to typed). Only `insertFromPaste`, `insertFromPasteAsQuotation` and `insertFromDrop` count as pasted. Missing meta (no JS, older rows) counts as typed, so it never triggers the note.
 
@@ -268,7 +294,7 @@ Colton's t45 wording (“Voice was not reliably determined…”) is retired eve
 
 **Where it appears:** the on-page full report (bottom), the emailed HTML report and PDF (bottom, before the disclaimer), and the saved `/report/[token]` view. In the locked preview it appears only once the full report is unlocked, since the comparison signals aren't in the preview. Never in a modal, toast or banner.
 
-**Response field:** `voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, lowConfidence: boolean, note: string | null }`, where `note` is `VOICE_NOTE_SAMPLE` (source `sample`), `VOICE_NOTE_ANSWERS` (source `voice_profile`), or null.
+**Response field:** `voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, lowConfidence: boolean, note: string | null }`, where `note` is one of the six strings above for its source, or null. **t51 adds** `naturalWords: number | null` and `tier: "plenty" | "enough" | "thin" | "low" | null`.
 
 **Aggregate (no text):** `ai_checker_runs.baseline_pasted_bucket text` (`none | 0-20 | 20-60 | 60-90 | 90-100`), added in 0007's alter block (if 0007 is already applied, ship it in the next free migration). Event `checker_voice_paste_note_shown { surface, bucket }`.
 
@@ -287,7 +313,7 @@ Colton's t45 wording (“Voice was not reliably determined…”) is retired eve
 - [ ] Reduced-motion is respected; layout works at 320px width; report is keyboard-navigable.
 - [ ] The overall block is titled "Signal strength"; a clean draft's headline is "Your draft reads fine" with no mid-band number.
 - [ ] Highlighted spans match verbatim quotes and carry icon + marker, not color alone.
-- [ ] (t45/t46) The voice-baseline paste note (5.9) shows the exact soft text for its source (`VOICE_NOTE_SAMPLE` / `VOICE_NOTE_ANSWERS`) at the very bottom of the full report, email and PDF only when the baseline used has pasted share > 0.60; never above or inside the score area, never in a modal.
+- [ ] (t45/t46, rule revised t51) The voice-baseline note (5.9) shows the exact soft text for its source and tier at the very bottom of the full report, email and PDF only when the hybrid rule calls for one (natural words + paste share); never above or inside the score area, never in a modal.
 - [ ] Each band states what to do: Keep = keep it; Worth a look / Fix first = the coaching question.
 
 ---
@@ -371,7 +397,7 @@ Starting thresholds, in the same spirit as the Stage 6 mismatch table in `retain
 
 - **Definition:** Whether the draft's vocabulary and complexity match the student's own sample. Marketing: "Do the words match how you usually write?"
 - **Measured:** Reuse `lib/style/metrics.ts` and the mismatch table in the stage specs (section 7): unseen content words (≥ 8 letters, not in the allow-list) at **> 12%** (tell) and **> 20%** (strong); sentence-length jump **+60% / +100%**; reading grade **+4.0 / +6.0**; formality **+0.35 / +0.50**. Allow-list: sample vocabulary, plus any assignment text the student pasted (none, on this standalone tool, unless they later start a paper). Direction: only upward jumps. If the sample is under 200 words, a "strong" sentence-length jump is treated as a tell, same as mismatch.
-- **Baseline source, in order:** (1) the optional writing sample on the submit box (≥ 150 words; processed in memory, not stored); (2) the signed-in student's `voice_profiles` row. If both exist, the sample wins for this run, **except (t45)** when the sample is mostly pasted (pasted share > 0.60) and the profile is reliable (pasted share ≤ 0.60); then the profile is used. Comparison metrics are typed-weighted the same way as Stage 1 (spec 8.1a), and the bottom note in 5.9 applies when the baseline actually used is mostly pasted.
+- **Baseline source, in order:** (1) the optional writing sample on the submit box (≥ 150 words; processed in memory, not stored); (2) the signed-in student's `voice_profiles` row. If both exist, the sample wins for this run, **except (t45, revised t51)** when the profile has the better voice-note tier under the hybrid rule (no note beats a lighter note, which beats the stronger note); then the profile is used. On a tie, the sample wins. Comparison metrics are typed-weighted the same way as Stage 1 (spec 8.1a), and the bottom note in 5.9 follows the hybrid rule for the baseline actually used.
 - **Without a sample or baseline:** status = `needs_voice`, shown as **N/A**. **Do not score, do not treat as high, do not invent a comparison**, and remove its weight from the overall (renormalize, section 8). Card copy: "N/A — add a sample of your own writing to score this one." 
 - **With a baseline:** Keep if no tell; Worth a look if one tell and no strong; Fix first if one strong or two or more tells (same trigger rule as mismatch).
 - **Coaching question:** "Which of these words would you use if you were explaining this to a classmate?"
@@ -533,7 +559,7 @@ Structured output: `response_format: { type: "json_schema", json_schema: { name:
   runId: string,               // ai_checker_runs id (aggregate row)
   partial: boolean,
   weightsUsed: Record<string, number>, // after renormalization
-  voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, lowConfidence: boolean, note: string | null }, // t45, section 5.9
+  voiceBaseline: { source: "sample" | "voice_profile" | "none", pastedShare: number | null, typedWords: number | null, naturalWords: number | null, tier: "plenty" | "enough" | "thin" | "low" | null, lowConfidence: boolean, note: string | null }, // t45, section 5.9; naturalWords + tier t51
   disclaimer: string
 }
 ```
@@ -747,7 +773,7 @@ Update FAQPage JSON-LD to match the shipped questions exactly (including 6 and 7
 - [ ] Paste of < 120 words or > 4,000 words is rejected with a clear message and no model call.
 - [ ] A clean fixture draft returns **Your draft reads fine** / Reads like you; a stock-phrase-heavy fixture returns the high band; a mixed fixture can land in the middle. Unit tests lock this.
 - [ ] Each tell quotes verbatim student text and a coaching question; no rewritten sentence appears in the UI or the model output (guard tests).
-- [ ] (t45/t46) Paste note tests: the retired t45 sentence and the words “not reliably” / “less confidence” appear nowhere in app copy (CI grep); a fully pasted writing sample (pastedShare 1.0) → `VOICE_NOTE_SAMPLE` appears at the bottom of the full report, email and PDF, and the headline/ring are unchanged; a typed sample → no note; exactly 0.60 → no note, 0.61 → note; a dictated sample (`insertText` / `spokenChars`) → counts as typed, no note; no sample and no profile → vocabulary N/A, **no note**; signed-in, no sample, profile with `typed_word_share` 0.2 → note; a mostly pasted sample plus a reliable profile → the profile is used, no note; `sampleInputMeta` larger than the sample is clamped; the preview never shows the note.
+- [ ] (t45/t46) Paste note tests: the retired t45 sentence and the words “not reliably” / “less confidence” appear nowhere in app copy (CI grep); a fully pasted writing sample (pastedShare 1.0) → `VOICE_NOTE_SAMPLE` appears at the bottom of the full report, email and PDF, and the headline/ring are unchanged; a typed sample → no note; exactly 0.60 → no note, 0.61 → note; a dictated sample (`insertText` / `spokenChars`) → counts as typed, no note; no sample and no profile → vocabulary N/A, **no note**; signed-in, no sample, profile with `typed_word_share` 0.2 → note; a mostly pasted sample plus a reliable profile → the profile is used, no note; `sampleInputMeta` larger than the sample is clamped; the preview never shows the note. (t47) Signed-in, no sample, profile `typed_word_share` 0.03 → `VOICE_NOTE_ANSWERS_ALL` (exact text); 0.06 → `VOICE_NOTE_ANSWERS`; a fully pasted public sample still → `VOICE_NOTE_SAMPLE`; the retired-wording grep still passes (the all-pasted string contains neither “not reliably” nor “less confidence”). **(t51, supersedes the t45–t47 threshold cases above)** Sample: 150 typed words → `VOICE_NOTE_SAMPLE_SHORT`; 650 typed → none; 650 fully pasted → `VOICE_NOTE_SAMPLE_LOW`; 300 words at 0.70 pasted (90 natural) → `VOICE_NOTE_SAMPLE`; 500 words at 0.50 (250 natural) → none; dictated words count as natural. Profile: `natural_words` 1,260 at 0.70 pasted (the 58-page case) → none; 143 at 0.45 → `VOICE_NOTE_ANSWERS_SHORT`; 74 → `VOICE_NOTE_ANSWERS_LOW`. A sample in `low` plus a profile in `plenty` → the profile is used, no note. `VOICE_NOTE_ANSWERS_ALL` appears nowhere in app code.
 - [ ] Vocabulary signal is `needs_voice` (shown N/A, weight renormalized) until a writing sample is pasted or a voice profile exists; after the voice check, comparison signals use the baseline.
 - [ ] Voice check: four questions, 150-word sample (paste allowed, paste ratio recorded), free account created, `voice_profiles` written, funnel into the free first paper.
 - [ ] Preview vs. full report and email gate behave as in section 5.3; 13–17 cannot opt into marketing; CAN-SPAM footer and unsubscribe work on marketing mail.
@@ -814,6 +840,8 @@ No other blockers. Build v1.0 with the defaults.
 
 ## Changelog
 
+- **Nov 20, 2026 (t51)** — Per Colton: 5.9 now uses a hybrid threshold (natural typed/spoken words plus paste share; tiers 600 / 200 / 80, [PROVISIONAL]) on every surface, including the public writing sample. New `…_SHORT` and `…_LOW` strings; `VOICE_NOTE_ANSWERS_ALL` and `VOICE_ALL_PASTED_SHARE` retired. Profile-vs-sample choice is now by tier. The response gains `naturalWords` and `tier`. Tests updated.
+- **Nov 20, 2026 (t47)** — Per Colton's Stage 2 brainstorm (voice capture): added the all-pasted variant `VOICE_NOTE_ANSWERS_ALL` for voice-answer baselines with pasted share ≥ 0.95 (`VOICE_ALL_PASTED_SHARE`), in the same soft style, stating lower confidence. `VOICE_NOTE_SAMPLE`, the > 0.60 threshold, placement and the no-baseline rule are unchanged. Tests added.
 - **Nov 20, 2026 (t46)** — Softened the 5.9 voice-baseline note per Colton. One consistent kind style: `VOICE_NOTE_SAMPLE` for the public checker's writing sample and `VOICE_NOTE_ANSWERS` for voice answers (profile, in-app checks, Stage 6). t45's “Voice was not reliably determined…” sentence is retired. Placement, the > 60% threshold, the no-baseline behavior and the weighting are unchanged. No icon alarm; tests and a retired-wording grep added.
 - **Nov 20, 2026 (t45)** — Added the voice-baseline paste note (section 5.9): one factual line at the very bottom of the full report, email and PDF when the baseline actually used is more than 60% pasted. It's scoped per surface (standalone sample, voice profile, Stage 1 answers for in-app and Stage 6 checks). Dictation and speech count as typed, missing data counts as typed, and with no baseline the N/A behavior is kept with no note. It's combined with typed-weighted baseline metrics, and a mostly pasted sample now falls back to a reliable voice profile. Added `sampleInputMeta`, the `voiceBaseline` response field, `baseline_pasted_bucket`, an event and tests. Also per Colton t44: the voice check and sample box allow paste (open question 7 resolved), and the stale "250-word" Stage 1 reference is fixed to 200.
 - **Nov 20, 2026 (t40)** — One cross-reference updated: Stage 1's paper-intake voice minimum is now 200 words (Colton). The checker's own 150-word voice check is unchanged.
