@@ -17,7 +17,7 @@ import { CONCLUSION_PROMPTS, PARAGRAPH_SHAPES, ROUGH_INTRO_COPY, WRITE_FOR_ME_DE
 import { buildFramework, type FrameworkParagraph } from "@/lib/drafting/framework";
 import { buildLedger, type LedgerInput } from "@/lib/drafting/ledger";
 import { shapeReadback, type ReadbackFlag } from "@/lib/drafting/readback";
-import { nextDraftScreen, type DraftScreen } from "@/lib/drafting/screen";
+import { draftBeatFromProgress, nextDraftScreen, type DraftScreen } from "@/lib/drafting/screen";
 import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
@@ -43,6 +43,7 @@ type Props = {
     chosenLead: string | null;
     teachAspect: string | null;
   }[];
+  savedBeat?: unknown;
 };
 
 type Saved = Record<string, string[]>;
@@ -60,6 +61,7 @@ export function DraftingStage({
   thesis,
   lessonConcept,
   sections,
+  savedBeat = null,
   persist = true,
 }: Props & { persist?: boolean }) {
   const router = useRouter();
@@ -122,7 +124,15 @@ export function DraftingStage({
         .catch(() => undefined);
     }
     const raw = window.localStorage.getItem(storageKey(paperId));
-    if (!raw) return;
+    if (!raw) {
+      const beat = draftBeatFromProgress(savedBeat);
+      if (!beat) return;
+      const found = plan.findIndex((row) => row.key === beat.sectionKey || row.sectionKey === beat.sectionKey);
+      if (found >= 0) setIndex(found);
+      setStep(beat.step);
+      setScreen(beat.screen);
+      return;
+    }
     try {
       const parsed = JSON.parse(raw) as {
         index?: number;
@@ -139,7 +149,7 @@ export function DraftingStage({
     } catch {
       /* resume at the opener */
     }
-  }, [paperId]);
+  }, [paperId, plan, savedBeat]);
 
   useEffect(() => {
     window.localStorage.setItem(

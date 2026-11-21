@@ -121,6 +121,7 @@ export function StageShell({
             confirmedTopic={initialRequirements?.topic.value ?? null}
             confirmedPrompt={initialRequirements?.promptQuestion.value ?? null}
             storyAnswer={storyAnswer}
+            savedBeat={paper.stage_progress.find((row) => row.stage === 5)?.data ?? null}
             persist={!demoMode}
             stageProgress={paper.stage_progress.map((row) => ({
               stage: row.stage,

@@ -125,6 +125,7 @@ type Props = {
   confirmedTopic?: string | null;
   confirmedPrompt?: string | null;
   storyAnswer?: string | null;
+  savedBeat?: unknown;
   persist?: boolean;
   stageProgress?: StageProgressRow[];
   onStageProgress?: (
@@ -200,6 +201,7 @@ export function CoachingLoop({
   confirmedTopic = null,
   confirmedPrompt = null,
   storyAnswer = null,
+  savedBeat = null,
   persist = true,
   stageProgress = [],
   onStageProgress,
@@ -987,6 +989,7 @@ export function CoachingLoop({
             }).mainPoint
           }
           lessonConcept={lesson.concepts[0]?.term ?? null}
+          savedBeat={savedBeat}
           sections={session.sections.map((item) => ({
             key: item.key,
             title: item.title,

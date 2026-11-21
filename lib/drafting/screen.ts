@@ -32,3 +32,23 @@ export type ResumeBeat = {
 export function resumeBeat(input: ResumeBeat): ResumeBeat {
   return input;
 }
+
+const DRAFT_STEPS = new Set(["opener", "read", "draft", "tighten"]);
+const DRAFT_SCREENS = new Set<DraftScreen>(["zoomed_in", "milestone", "review_all", "jump_edit", "payoff"]);
+
+/** A reload without this browser's storage still reopens the saved Drafting beat. */
+export function draftBeatFromProgress(data: unknown): {
+  sectionKey: string;
+  step: "opener" | "read" | "draft" | "tighten";
+  screen: DraftScreen;
+} | null {
+  if (!data || typeof data !== "object") return null;
+  const record = data as { screen?: unknown; resumeBeat?: { sectionKey?: unknown; step?: unknown } };
+  const sectionKey = record.resumeBeat?.sectionKey;
+  const step = record.resumeBeat?.step;
+  const screen = record.screen;
+  if (typeof sectionKey !== "string" || !sectionKey) return null;
+  if (typeof step !== "string" || !DRAFT_STEPS.has(step)) return null;
+  if (typeof screen !== "string" || !DRAFT_SCREENS.has(screen as DraftScreen)) return null;
+  return { sectionKey, step: step as "opener" | "read" | "draft" | "tighten", screen: screen as DraftScreen };
+}

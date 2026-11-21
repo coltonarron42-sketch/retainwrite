@@ -5,7 +5,7 @@ import { CONNECTORS, connectorWordCount } from "@/lib/coaching/connectors";
 import { assertNoHiddenDraftLeak } from "@/lib/drafting/leak";
 import { hiddenSignalsFromIdeas } from "@/lib/drafting/hiddenSignals";
 import { shapeReadback } from "@/lib/drafting/readback";
-import { nextDraftScreen } from "@/lib/drafting/screen";
+import { draftBeatFromProgress, nextDraftScreen } from "@/lib/drafting/screen";
 import { buildSkeleton, skeletonHasOnlyStudentText } from "@/lib/skeleton/build";
 import { variantForGenre, variantFromPromptType } from "@/lib/drafting/variants";
 
@@ -63,6 +63,13 @@ describe("drafting coach limits", () => {
     expect(nextDraftScreen("review_all", "jump")).toBe("jump_edit");
     expect(nextDraftScreen("jump_edit", "back")).toBe("zoomed_in");
     expect(nextDraftScreen("zoomed_in", "conclusion_saved")).toBe("payoff");
+    expect(
+      draftBeatFromProgress({
+        screen: "milestone",
+        resumeBeat: { sectionKey: "body", step: "draft" },
+      }),
+    ).toEqual({ sectionKey: "body", step: "draft", screen: "milestone" });
+    expect(draftBeatFromProgress({ screen: "nope" })).toBeNull();
   });
 
   it("builds a skeleton from the student's own rows and blocks a hidden-draft leak", () => {
