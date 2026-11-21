@@ -48,7 +48,7 @@ import {
   type VoiceAnswer,
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
-import { resumeQuestionIndex } from "@/lib/stage1/intake-resume";
+import { resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
@@ -166,6 +166,9 @@ export function AssignmentIntake({
     if (initialRequirements) {
       setRequirements(initialRequirements);
       setRawText(initialRawText);
+      if (initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed) {
+        setChecklistConfirmed(true);
+      }
       setScreen((current) => (current === "upload" ? "card" : current));
     }
   }, [paperId, accountPaper, initialRequirements, initialRawText]);
@@ -176,9 +179,10 @@ export function AssignmentIntake({
     let cancelled = false;
     void fetch(`/api/papers/${paperId}/intake/answers`)
       .then(async (res) => (res.ok ? res.json() : null))
-      .then((data: { answers?: IntakeAnswer[] } | null) => {
-        if (cancelled || !data?.answers?.length) return;
-        setAnswers(data.answers);
+      .then((data: { answers?: IntakeAnswer[]; storyAngle?: { text: string; source: "ai" | "student" } | null } | null) => {
+        if (cancelled || !data) return;
+        if (data.answers?.length) setAnswers(data.answers);
+        if (data.storyAngle?.text) setStoryAngle(data.storyAngle);
       })
       .catch(() => undefined);
     return () => {
@@ -225,25 +229,41 @@ export function AssignmentIntake({
   }, [requirements, skippedInterest, needFallback]);
 
   useEffect(() => {
-    if (demoMode || resumedIntake.current || answers.length === 0 || coachingPlan.length === 0) return;
+    if (demoMode || resumedIntake.current || (answers.length === 0 && !storyAngle) || coachingPlan.length === 0) return;
     resumedIntake.current = true;
-    const next = resumeQuestionIndex(
+    const resume = resumeIntake(
       coachingPlan.map((question) => question.id),
       answers.map((answer) => answer.questionId),
     );
-    if (next >= coachingPlan.length) return;
-    setQIndex(next);
-    setScreen("coaching");
-  }, [demoMode, answers, coachingPlan]);
+    if (resume.skipInterest) setSkippedInterest(true);
+    if (resume.screen === "gate") {
+      setScreen("gate");
+      return;
+    }
+    if (resume.screen === "coaching") {
+      setQIndex(resume.index);
+      setScreen("coaching");
+    }
+  }, [demoMode, answers, coachingPlan, storyAngle]);
 
   const voiceEval = useMemo(() => {
-    const voiceAnswers: VoiceAnswer[] = answers.map((a) => ({
-      text: a.answerText,
-      isVoiceSample: a.isVoiceSample,
-      kind: a.kind,
-    }));
+    const voiceAnswers: VoiceAnswer[] = answers
+      .filter((a) => a.isVoiceSample)
+      .map((a) => ({
+        text: a.answerText,
+        isVoiceSample: true,
+        kind: a.kind,
+        pasteRatio: a.pasteRatio,
+      }));
+    if (
+      storyAngle?.source === "student" &&
+      storyAngle.text.trim() &&
+      !voiceAnswers.some((answer) => answer.text === storyAngle.text)
+    ) {
+      voiceAnswers.push({ text: storyAngle.text, isVoiceSample: true, kind: "story_angle" });
+    }
     return evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-  }, [answers]);
+  }, [answers, storyAngle]);
 
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
@@ -1695,14 +1715,29 @@ export function AssignmentIntake({
           <Button
             type="button"
             variant="secondary"
-            disabled={
-              !cardGate.ok || !storyAngle || !voiceEval.ok || !stanceOk
-            }
+            disabled={stanceStartBlockers({
+              checklistConfirmed: cardGate.ok,
+              hasStory: Boolean(storyAngle),
+              voiceOk: voiceEval.ok,
+              voiceReason: voiceEval.reasons[0],
+              stanceOk,
+            }).length > 0}
             onClick={() => void completeStage1()}
           >
             Start stance interview
           </Button>
         </div>
+        {stanceStartBlockers({
+          checklistConfirmed: cardGate.ok,
+          hasStory: Boolean(storyAngle),
+          voiceOk: voiceEval.ok,
+          voiceReason: voiceEval.reasons[0],
+          stanceOk,
+        }).map((reason) => (
+          <p key={reason} className="mt-3 text-sm text-rw-ink/70" role="status">
+            {reason}
+          </p>
+        ))}
       </div>
     );
   }

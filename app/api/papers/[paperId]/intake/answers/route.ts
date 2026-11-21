@@ -30,12 +30,20 @@ export async function GET(_request: Request, ctx: Ctx) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ answers: [] });
 
-  const { data, error } = await supabase
-    .from("intake_answers")
-    .select("question_id, question_text, question_kind, answer_text, is_voice_sample, paste_ratio")
-    .eq("paper_id", paperId)
-    .eq("user_id", user.id)
-    .order("sequence", { ascending: true });
+  const [{ data, error }, assignment] = await Promise.all([
+    supabase
+      .from("intake_answers")
+      .select("question_id, question_text, question_kind, answer_text, is_voice_sample, paste_ratio")
+      .eq("paper_id", paperId)
+      .eq("user_id", user.id)
+      .order("sequence", { ascending: true }),
+    supabase
+      .from("assignments")
+      .select("story_angle")
+      .eq("paper_id", paperId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
 
   if (error) {
     console.error("[intake/answers] load failed", { code: error.code, message: error.message });
@@ -53,5 +61,11 @@ export async function GET(_request: Request, ctx: Ctx) {
       pasteRatio: row.paste_ratio ?? undefined,
     }));
 
-  return NextResponse.json({ answers });
+  const story = assignment.data?.story_angle as { text?: string; source?: string } | null;
+  const storyAngle =
+    story && typeof story.text === "string" && story.text.trim()
+      ? { text: story.text.trim(), source: story.source === "student" ? "student" : "ai" }
+      : null;
+
+  return NextResponse.json({ answers, storyAngle });
 }
