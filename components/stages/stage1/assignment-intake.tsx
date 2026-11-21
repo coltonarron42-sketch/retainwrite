@@ -155,6 +155,7 @@ export function AssignmentIntake({
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [startingStance, setStartingStance] = useState(false);
   const [storyAngles, setStoryAngles] = useState<StoryAngle[]>([]);
   const [storyAngle, setStoryAngle] = useState<{
     text: string;
@@ -845,7 +846,7 @@ export function AssignmentIntake({
   }
 
   async function completeStage1() {
-    if (!requirements || !paper) return;
+    if (!requirements || !paper || startingStance) return;
     if (!cardGate.ok) {
       setError("Confirm the assignment card first.");
       return;
@@ -859,6 +860,7 @@ export function AssignmentIntake({
       setError("Save an early stance of at least 25 words.");
       return;
     }
+    setStartingStance(true);
 
     try {
       const res = await fetch(`/api/papers/${paperId}/intake/complete`, {
@@ -875,6 +877,7 @@ export function AssignmentIntake({
       if (!res.ok) {
         const data = (await res.json()) as { error?: string; reasons?: string[] };
         setError(data.reasons?.[0] ?? data.error ?? "Could not finish Stage 1.");
+        setStartingStance(false);
         return;
       }
     } catch {
@@ -1564,6 +1567,20 @@ export function AssignmentIntake({
           </p>
         ) : null}
         <div className="mt-6 space-y-3">
+          {q?.kind === "background" ? (
+            <div className="flex flex-wrap gap-2">
+              {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
+                <Button
+                  key={choice}
+                  type="button"
+                  variant={draftAnswer === choice ? "secondary" : "outline"}
+                  onClick={() => setDraftAnswer(choice)}
+                >
+                  {choice}
+                </Button>
+              ))}
+            </div>
+          ) : null}
           <Textarea
             rows={q?.kind === "background" ? 3 : 8}
             value={draftAnswer}
@@ -1789,7 +1806,9 @@ export function AssignmentIntake({
           <Button
             type="button"
             variant="secondary"
-            disabled={stanceStartBlockers({
+            disabled={
+              startingStance ||
+              stanceStartBlockers({
               checklistConfirmed: cardGate.ok,
               hasStory: Boolean(storyAngle),
               voiceOk: voiceEval.ok,
@@ -1798,7 +1817,7 @@ export function AssignmentIntake({
             }).length > 0}
             onClick={() => void completeStage1()}
           >
-            Start stance interview
+            {startingStance ? "Starting the stance interview…" : "Start stance interview"}
           </Button>
         </div>
         {stanceStartBlockers({
