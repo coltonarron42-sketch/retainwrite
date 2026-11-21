@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { mutateCookie } from "@/lib/supabase/server-cookies";
 import {
   createDemoSession,
   DEMO_SESSION_COOKIE,
@@ -31,5 +32,7 @@ export async function setDemoSession(input?: {
 
 export async function clearDemoSession(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.delete(DEMO_SESSION_COOKIE);
+  mutateCookie(() => {
+    cookieStore.delete(DEMO_SESSION_COOKIE);
+  });
 }

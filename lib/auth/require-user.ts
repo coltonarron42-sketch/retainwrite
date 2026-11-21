@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { clearDemoSession, getDemoSession } from "@/lib/demo/session-server";
+import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,7 +16,8 @@ export async function requireUser(nextPath = "/app") {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) {
-      await clearDemoSession();
+      // Do not delete cookies here. This runs in a Server Component.
+      // proxy.ts clears a leftover demo cookie while refreshing the session.
       return { kind: "user" as const, session: user };
     }
   }

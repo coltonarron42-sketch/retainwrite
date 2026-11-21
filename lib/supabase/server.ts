@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { assertServerEnv, getPublicEnv, hasSupabaseConfig } from "@/lib/env";
+import { setAllServerCookies } from "@/lib/supabase/server-cookies";
 
 export async function createClient() {
   if (!hasSupabaseConfig()) {
@@ -19,13 +20,10 @@ export async function createClient() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options),
-            );
-          } catch {
-            // Called from a Server Component; middleware will refresh sessions.
-          }
+          setAllServerCookies(
+            ({ name, value, options }) => cookieStore.set(name, value, options),
+            cookiesToSet,
+          );
         },
       },
     },
