@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coachingSubject, exampleLeadBatch, leadCopyIsTemplate } from "@/lib/coaching/exampleLeads";
+import { coachingSubject, exampleLeadBatch, leadCopyIsTemplate, visibleSourceLead } from "@/lib/coaching/exampleLeads";
 
 describe("exampleLeadBatch", () => {
   it("names this assignment instead of generic template slots", () => {
@@ -37,6 +37,8 @@ describe("exampleLeadBatch", () => {
         concept: "the assigned concept",
       }),
     ).toBe("your topic");
+    expect(visibleSourceLead("Research on SOC 101 Argumentative Essay")).toBeNull();
+    expect(visibleSourceLead("A study of teen sleep and social media")).toMatch(/teen sleep/);
     expect(batch.candidates).toEqual([]);
   });
 });

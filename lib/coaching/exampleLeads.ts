@@ -28,6 +28,17 @@ export function coachingSubject(input: {
   return confirmed?.slice(0, 140) || "your topic";
 }
 
+/** Course-title leads are not something a student can look up. */
+export function visibleSourceLead(lead: string | null | undefined): string | null {
+  const text = lead?.trim() ?? "";
+  if (!text) return null;
+  if (/^research on\b/i.test(text) && /\b(soc\s+\d+|argumentative essay|the assigned concept|your topic)\b/i.test(text)) {
+    return null;
+  }
+  if (/^(soc\s+\d+|the assigned concept|your topic)\b/i.test(text)) return null;
+  return text;
+}
+
 export function topicLabel(concept: string | null, assignmentText: string): string | null {
   const cleaned = concept?.trim() ?? "";
   if (cleaned && cleaned.toLowerCase() !== "the concept") return cleaned.slice(0, 80);

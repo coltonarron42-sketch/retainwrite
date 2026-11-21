@@ -10,7 +10,7 @@ import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
 import { TeachCardView } from "@/components/coaching/teach-card";
 import { VoiceNote } from "@/components/coaching/voice-note";
 import { VoiceNudge } from "@/components/coaching/voice-nudge";
-import { coachingSubject, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
+import { coachingSubject, exampleLeadBatch, visibleSourceLead } from "@/lib/coaching/exampleLeads";
 import {
   assembleLeadBatch,
   buildGoogleSearchPrompt,
@@ -1123,8 +1123,8 @@ function ProductNotes({
               <p key={note}>Your note: {note}</p>
             ))
           )}
-          {showLeads && item.chosenLead ? (
-            <p className="mt-2">To verify: {item.chosenLead}</p>
+          {showLeads && visibleSourceLead(item.chosenLead) ? (
+            <p className="mt-2">To verify: {visibleSourceLead(item.chosenLead)}</p>
           ) : null}
         </article>
       ))}
