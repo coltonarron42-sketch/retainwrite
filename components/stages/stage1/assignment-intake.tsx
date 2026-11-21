@@ -276,7 +276,8 @@ export function AssignmentIntake({
   function openChecklist(next: AssignmentRequirements, corpus: string) {
     setRawText(corpus);
     setRequirements(next);
-    if (!followupAsked && missingImportant(next)) {
+    const noPrompt = !next.topic.value?.trim() && !next.promptQuestion.value?.trim();
+    if (!followupAsked && missingImportant(next) && !noPrompt) {
       setScreen("followup");
       return;
     }

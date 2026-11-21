@@ -84,6 +84,39 @@ function parseModelJson(text: string): unknown {
   return JSON.parse(trimmed);
 }
 
+function fieldEmpty(field: { value?: unknown } | undefined): boolean {
+  const value = field?.value;
+  if (value == null) return true;
+  if (typeof value === "string") return !value.trim();
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
+}
+
+/** Keep model values, and fill blanks from the rule read of the same text. */
+export function fillEmptyRequirements(
+  primary: AssignmentRequirements,
+  extra: AssignmentRequirements,
+): AssignmentRequirements {
+  const next = { ...primary };
+  const keys = [
+    "course",
+    "paperType",
+    "topic",
+    "promptQuestion",
+    "length",
+    "citationStyle",
+    "requiredSources",
+    "dueDate",
+  ] as const;
+  for (const key of keys) {
+    if (fieldEmpty(next[key]) && !fieldEmpty(extra[key])) {
+      Object.assign(next, { [key]: extra[key] });
+    }
+  }
+  return next;
+}
+
 function acceptModelJson(text: string, corpus: string): AssignmentRequirements | null {
   let json: unknown;
   try {
@@ -148,8 +181,12 @@ export async function parseAssignmentCorpus(
     if (first.ok) {
       const accepted = acceptModelJson(first.text, rawText);
       if (accepted) {
+        const filled = fillEmptyRequirements(
+          accepted,
+          scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
+        );
         return {
-          requirements: accepted,
+          requirements: filled,
           rawText,
           parseMeta: { model: first.model, fallback: false, candidates: [], usableWords: words },
           needsInput: false,
@@ -171,8 +208,12 @@ export async function parseAssignmentCorpus(
     if (retry?.ok) {
       const accepted = acceptModelJson(retry.text, rawText);
       if (accepted) {
+        const filled = fillEmptyRequirements(
+          accepted,
+          scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
+        );
         return {
-          requirements: accepted,
+          requirements: filled,
           rawText,
           parseMeta: { model: retry.model, fallback: false, candidates: [], usableWords: words },
           needsInput: false,
@@ -190,7 +231,11 @@ export async function parseAssignmentCorpus(
     rawText,
   );
   if (live && !requirementsHaveFacts(fallback)) {
+    console.info("[assignment/parse] live read failed", { reason: modelReason, facts: 0 });
     return liveFailure(rawText, words, modelReason);
+  }
+  if (live) {
+    console.info("[assignment/parse] used rule fallback", { reason: modelReason });
   }
   return {
     requirements: fallback,

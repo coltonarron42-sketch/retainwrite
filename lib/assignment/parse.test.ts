@@ -54,7 +54,7 @@ describe("assignment parse recovery", () => {
     expect(calls).toBe(2);
     expect(result.needsConfirmation).toBe(false);
     expect(result.parseMeta.fallback).toBe(true);
-    expect(result.requirements.topic.value).toBeNull();
+    expect(result.requirements.topic.value).toMatch(/social media/i);
     expect(result.requirements.dueDate.value).toBeNull();
     expect(result.requirements.course.value).toMatch(/SOC/i);
     expect(result.requirements.citationStyle.value).toBe("MLA 9");

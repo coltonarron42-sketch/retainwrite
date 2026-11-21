@@ -13,10 +13,22 @@ describe("parseAssignmentFallback topic and due date", () => {
     expect(req.dueDate.value).toBeTruthy();
   });
 
-  it("does not fabricate topic or due date when guesses are off", () => {
+  it("does not invent a due date, and still reads the written topic", () => {
     const req = parseAssignmentFallback(SAMPLE, { allowTopicAndDueDateGuess: false });
-    expect(req.topic.value).toBeNull();
+    expect(req.topic.value).toMatch(/social media/i);
     expect(req.dueDate.value).toBeNull();
     expect(req.course.value).toMatch(/SOC/i);
+  });
+
+  it("reads length, type, and sources from an argumentative assignment", () => {
+    const req = parseAssignmentFallback(
+      `SOC 101\nArgumentative Essay\nWrite a 5-7 page argumentative essay about how social media affects teen mental health.\nUse at least 4 scholarly sources.\nMLA format.`,
+      { allowTopicAndDueDateGuess: false },
+    );
+    expect(req.topic.value).toMatch(/social media/i);
+    expect(req.paperType.value).toMatch(/argumentative/i);
+    expect(req.length.value?.pagesMin).toBe(5);
+    expect(req.requiredSources.value?.countMin).toBe(4);
+    expect(req.dueDate.value).toBeNull();
   });
 });

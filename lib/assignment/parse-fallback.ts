@@ -30,9 +30,9 @@ export function parseAssignmentFallback(
 
   // Length: pages or words
   const pageRange = text.match(
-    /(\d+)\s*[–-]\s*(\d+)\s*pages?\b/i,
+    /(\d+)\s*[–-]\s*(\d+)\s*(?:pages?|pp\.?)\b/i,
   );
-  const pageSingle = text.match(/\b(\d+)\s*pages?\b/i);
+  const pageSingle = text.match(/\b(\d+)\s*(?:pages?|pp\.?)\b/i);
   const wordRange = text.match(
     /(\d{3,5})\s*[–-]\s*(\d{3,5})\s*words?\b/i,
   );
@@ -111,14 +111,31 @@ export function parseAssignmentFallback(
   // Paper type
   if (/\bresearch paper\b/i.test(text)) {
     req.paperType = extractedField("research paper", 0.8, "research paper");
+  } else if (/\bargumentative essay\b/i.test(text)) {
+    req.paperType = extractedField("argumentative essay", 0.85, "argumentative essay");
   } else if (/\bliterature review\b/i.test(text)) {
     req.paperType = extractedField("literature review", 0.8, "literature review");
-  } else if (/\bessay\b/i.test(text)) {
-    req.paperType = extractedField("essay", 0.7, "essay");
+  } else if (/\b(essay|analysis|reflection)\b/i.test(text)) {
+    const kind = text.match(/\b(essay|analysis|reflection)\b/i)?.[1] ?? "essay";
+    req.paperType = extractedField(kind.toLowerCase(), 0.7, kind);
   }
 
-  // Topic guesses (first line / "write about") are not used in production.
-  if (allowGuesses) {
+  const asked = text.match(
+    /\b(?:write(?:\s+a(?:n)?)?(?:\s+\d+[–-]?\d*\s*page)?\s+(?:paper|essay|analysis)?\s*)?(?:about|on|analyz(?:e|ing)|discuss|argue(?:\s+that)?)\s+(.{12,160}?)(?:[.!?\n]|$)/i,
+  );
+  if (asked?.[1]) {
+    req.topic = extractedField(asked[1].trim().slice(0, 180), 0.7, asked[0].slice(0, 120));
+  }
+  const question = text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .find((line) => line.endsWith("?") && line.split(/\s+/).length >= 6);
+  if (question) {
+    req.promptQuestion = extractedField(question.slice(0, 400), 0.7, question.slice(0, 120));
+  }
+
+  // First-line topic guesses and due dates are not used in production.
+  if (allowGuesses && !req.topic.value) {
     const writeAbout = text.match(
       /\b(?:write(?:\s+a(?:n)?)?\s+(?:paper|essay)?\s+)?(?:about|on|analyz(?:e|ing)|discuss|argue)\s+(.{20,140}?)(?:[.!?\n]|$)/i,
     );
@@ -137,7 +154,7 @@ export function parseAssignmentFallback(
 
   // Required sources
   const sources = text.match(
-    /\b(\d+)\s+(?:scholarly\s+)?(?:sources|references|citations|leaders)\b/i,
+    /\b(?:at least\s+)?(\d+)\s+(?:scholarly\s+)?(?:sources|references|citations|leaders)\b/i,
   );
   if (sources) {
     req.requiredSources = extractedField(
