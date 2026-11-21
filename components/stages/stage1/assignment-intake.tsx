@@ -157,6 +157,9 @@ export function AssignmentIntake({
   const [leads, setLeads] = useState<ResearchLeadDraft[]>([]);
   const [qIndex, setQIndex] = useState(0);
   const [draftAnswer, setDraftAnswer] = useState("");
+  // Continue awaits the answer save (~1s, longer on a cold start). Show that and
+  // ignore repeat clicks so the button never looks dead or double-submits.
+  const [submitting, setSubmitting] = useState(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1754,6 +1757,7 @@ export function AssignmentIntake({
             <Button
               type="button"
               variant="ghost"
+              disabled={submitting}
               onClick={() => submitAnswer({ skip: true })}
             >
               Skip this one
@@ -1762,11 +1766,16 @@ export function AssignmentIntake({
           <Button
             type="button"
             variant="secondary"
-            onClick={() =>
-              void (stanceMode ? submitStanceAnswer() : submitAnswer())
-            }
+            disabled={submitting}
+            onClick={() => {
+              if (submitting) return;
+              setSubmitting(true);
+              void (stanceMode ? submitStanceAnswer() : submitAnswer()).finally(() =>
+                setSubmitting(false),
+              );
+            }}
           >
-            Continue
+            {submitting ? "Saving…" : "Continue"}
           </Button>
         </div>
         <p className="mt-4 text-xs text-rw-ink/45">

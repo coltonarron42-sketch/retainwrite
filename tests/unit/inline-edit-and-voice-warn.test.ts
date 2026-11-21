@@ -42,3 +42,11 @@ describe("stage 1 follow-ups", () => {
     expect(save).toContain("if (baseline.current.text === input.text) return;");
   });
 });
+
+describe("intake Continue feedback", () => {
+  it("disables Continue and shows Saving… while the answer save is in flight", () => {
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(intake).toContain('{submitting ? "Saving…" : "Continue"}');
+    expect(intake).toContain("if (submitting) return;");
+  });
+});
