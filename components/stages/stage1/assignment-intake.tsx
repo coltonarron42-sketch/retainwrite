@@ -222,7 +222,7 @@ export function AssignmentIntake({
     plan.push({
       id: "coaching_take",
       kind: "coaching",
-      text: `In your own words, what is ${topic} asking you to figure out?`,
+      text: `In your own words, what do you think this assignment is asking you to figure out about ${topic}?`,
     });
     plan.push({
       id: "personal_1",
