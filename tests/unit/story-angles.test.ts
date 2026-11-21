@@ -33,5 +33,19 @@ describe("story angles", () => {
     );
     expect(mentions).toHaveLength(1);
   });
+
+  it("does not cut a phrase mid-word or keep a junk topic", () => {
+    const phrase = cleanInterestPhrase(
+      "I watch a few YouTube videos about homework every single night after practice",
+    );
+    expect(phrase?.endsWith("You")).toBe(false);
+    expect(phrase?.includes("…")).toBe(false);
+    const angles = buildStoryAngleFallback({
+      topic: "paper??",
+      studentPhrases: [],
+    });
+    expect(angles.find((angle) => angle.id === "disagree")?.question).not.toMatch(/paper\?\?/);
+    expect(angles.find((angle) => angle.id === "disagree")?.question).toMatch(/this assignment/);
+  });
 });
 

@@ -12,19 +12,35 @@ export type StoryAngle = {
 
 const FILLER = /^(?:idk|i don't know|i dont know|not sure|whatever|n\/a|na|none|nothing)\b[\s,:-]*/i;
 
+/** Cut on a word boundary so a card does not end mid-word. */
+export function clipPhrase(raw: string, max = 72): string {
+  const text = raw.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text.replace(/[?!.,]+$/g, "").trim();
+  const cut = text.slice(0, max);
+  const boundary = cut.lastIndexOf(" ");
+  return (boundary > 12 ? cut.slice(0, boundary) : cut).replace(/[?!.,]+$/g, "").trim();
+}
+
 /** Drop filler so a casual phrase is not glued onto the assignment topic. */
 export function cleanInterestPhrase(raw: string): string | null {
   const cleaned = raw.replace(FILLER, "").replace(/^["“”']+|["“”']+$/g, "").trim();
   if (cleaned.length < 3) return null;
   if (/^idk\b/i.test(cleaned)) return null;
-  return cleaned.slice(0, 40);
+  const clipped = clipPhrase(cleaned, 72);
+  return clipped.length >= 3 ? clipped : null;
+}
+
+export function usableStoryTopic(topic: string): string {
+  const cleaned = clipPhrase(topic.replace(/\?+/g, " "), 80);
+  if (!cleaned || /^(paper|essay|assignment|this assignment)$/i.test(cleaned)) return "this assignment";
+  return cleaned;
 }
 
 export function buildStoryAngleFallback(input: {
   topic: string;
   studentPhrases: string[];
 }): StoryAngle[] {
-  const topic = (input.topic || "this assignment").trim().slice(0, 80);
+  const topic = usableStoryTopic(input.topic || "this assignment");
   const phrase = input.studentPhrases
     .map((item) => cleanInterestPhrase(item))
     .find((item): item is string => Boolean(item));
