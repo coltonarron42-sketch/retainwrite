@@ -34,11 +34,8 @@ export function SignupForm({ nextPath = "/app" }: Props) {
           {signUpState.notice}
         </p>
         <p className="text-sm text-rw-ink/70">
-          After you confirm, sign in to start your first paper.
+          Open the email and click the link. You will land in RetainWrite already signed in.
         </p>
-        <Link href="/login" className="inline-block font-semibold text-rw-teal">
-          Go to log in
-        </Link>
       </div>
     );
   }

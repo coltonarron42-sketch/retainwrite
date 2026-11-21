@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { CheckoutOptions } from "@/components/billing/checkout-options";
 import {
   createDemoPaper,
@@ -20,6 +21,7 @@ export function NewPaperFlow({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (started.current) return;
@@ -77,12 +79,31 @@ export function NewPaperFlow({
       setReady(true);
     }
     })();
-  }, [mode]);
+  }, [mode, attempt]);
 
   if (error) {
     return (
       <div className="mx-auto max-w-xl px-5 py-16">
-        <p className="text-red-700">{error}</p>
+        <p className="text-red-700" role="alert">
+          {error}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            className="rounded-md bg-rw-teal px-4 py-2 text-sm font-semibold text-white"
+            onClick={() => {
+              started.current = false;
+              setError(null);
+              setReady(false);
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </button>
+          <Link href="/app" className="rounded-md border border-rw-ink/20 px-4 py-2 text-sm font-semibold">
+            Back to your papers
+          </Link>
+        </div>
       </div>
     );
   }

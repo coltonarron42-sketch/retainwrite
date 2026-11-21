@@ -11,5 +11,10 @@ describe("signup confirmation screen", () => {
     expect(form.slice(noticeAt, demoAt)).toContain("return (");
     const actions = readFileSync("app/auth/actions.ts", "utf8");
     expect(actions).not.toContain("continue in demo mode to explore now");
+    expect(form).toContain("already signed in");
+    expect(form).not.toContain("After you confirm, sign in");
+    const start = readFileSync("components/app/new-paper-flow.tsx", "utf8");
+    expect(start).toContain("Try again");
+    expect(start).toContain("Back to your papers");
   });
 });
