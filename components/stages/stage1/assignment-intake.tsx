@@ -546,7 +546,7 @@ export function AssignmentIntake({
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
     const phrases = nextAnswers
       .filter((a) => a.isVoiceSample && a.answerText.trim())
-      .map((a) => a.answerText.trim().slice(0, 80));
+      .map((a) => a.answerText.trim());
     const topic =
       requirements?.topic.value ||
       requirements?.promptQuestion.value ||

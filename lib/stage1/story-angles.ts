@@ -12,6 +12,29 @@ export type StoryAngle = {
 
 const FILLER = /^(?:idk|i don't know|i dont know|not sure|whatever|n\/a|na|none|nothing)\b[\s,:-]*/i;
 
+const DANGLING =
+  /^(with|and|or|but|the|a|an|to|of|for|in|on|at|from|about|because|that|which|when|if)$/i;
+
+/** Keep a whole clause. Drop a fragment that ends on a preposition or an ellipsis. */
+export function clipToClause(raw: string, max = 72): string | null {
+  const text = raw.replace(/…+/g, " ").replace(/\s+/g, " ").replace(/\?+/g, "").trim();
+  if (!text || /^(paper|essay|assignment)$/i.test(text)) return null;
+  const sentence = text.split(/(?<=[.!])\s+/)[0] ?? text;
+  let clause = (sentence.split(/[,;:]/)[0] ?? sentence).replace(/[.!?]+$/g, "").trim();
+  if (clause.length > max) {
+    const cut = clause.slice(0, max);
+    const boundary = cut.lastIndexOf(" ");
+    clause = (boundary > 12 ? cut.slice(0, boundary) : cut).trim();
+  }
+  const words = clause.split(/\s+/).filter(Boolean);
+  while (words.length > 2 && DANGLING.test(words[words.length - 1] ?? "")) words.pop();
+  const clipped = words.join(" ").trim();
+  if (!clipped || clipped.length < 3) return null;
+  if (/^(paper|essay|assignment)$/i.test(clipped)) return null;
+  if (DANGLING.test(clipped.split(/\s+/).at(-1) ?? "")) return null;
+  return clipped;
+}
+
 /** Cut on a word boundary so a card does not end mid-word. */
 export function clipPhrase(raw: string, max = 72): string {
   const text = raw.replace(/\s+/g, " ").trim();
@@ -26,8 +49,7 @@ export function cleanInterestPhrase(raw: string): string | null {
   const cleaned = raw.replace(FILLER, "").replace(/^["“”']+|["“”']+$/g, "").trim();
   if (cleaned.length < 3) return null;
   if (/^idk\b/i.test(cleaned)) return null;
-  const clipped = clipPhrase(cleaned, 72);
-  return clipped.length >= 3 ? clipped : null;
+  return clipToClause(cleaned, 72);
 }
 
 export function usableStoryTopic(topic: string): string {

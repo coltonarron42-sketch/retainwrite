@@ -47,5 +47,21 @@ describe("story angles", () => {
     expect(angles.find((angle) => angle.id === "disagree")?.question).not.toMatch(/paper\?\?/);
     expect(angles.find((angle) => angle.id === "disagree")?.question).toMatch(/this assignment/);
   });
+
+  it("ends a story card on a clause and drops paper??", () => {
+    const phrase = cleanInterestPhrase(
+      "…scroll TikTok with my friends after class when I cannot sleep",
+    );
+    expect(phrase).not.toMatch(/…/);
+    expect(phrase).not.toMatch(/\bwith$/i);
+    expect(phrase).toMatch(/TikTok/);
+    const angles = buildStoryAngleFallback({
+      topic: "paper??",
+      studentPhrases: ["…scroll TikTok with my friends after class"],
+    });
+    const blob = JSON.stringify(angles);
+    expect(blob).not.toMatch(/paper\?\?/);
+    expect(blob).not.toMatch(/TikTok with\./);
+  });
 });
 
