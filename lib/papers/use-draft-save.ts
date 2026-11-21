@@ -16,6 +16,9 @@ export function useDraftSave(input: {
   const [status, setStatus] = useState<SaveStatusValue>("idle");
   const skipMount = useRef(true);
 
+  const latest = useRef(input);
+  latest.current = input;
+
   useEffect(() => {
     if (!input.enabled) return;
     if (skipMount.current) {
@@ -32,6 +35,28 @@ export function useDraftSave(input: {
     }, DRAFT_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [input.enabled, input.fieldKey, input.paperId, input.text]);
+
+  useEffect(() => {
+    function flush() {
+      const current = latest.current;
+      if (!current.enabled || !current.text.trim()) return;
+      setStatus("saving");
+      void persistField(current.paperId, {
+        fieldKey: current.fieldKey,
+        text: current.text,
+        submitted: false,
+      }).then((ok) => setStatus(ok ? "saved" : "idle"));
+    }
+    function onHide() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, []);
 
   return status;
 }

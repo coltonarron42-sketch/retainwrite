@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   answersAfterSkippingInterest,
+  intakeScreenAfterLoad,
   resumeIntake,
   resumeQuestionIndex,
   stanceStartBlockers,
@@ -40,6 +41,20 @@ describe("intake resume", () => {
         stanceOk: true,
       }),
     ).toEqual([]);
+  });
+
+  it("reopens the current question after refresh instead of the checklist", () => {
+    expect(
+      intakeScreenAfterLoad({
+        resumeScreen: "coaching",
+        resumeQuestionId: "coaching_take",
+        hasAnswers: false,
+      }),
+    ).toBe("coaching");
+    expect(intakeScreenAfterLoad({ resumeScreen: null, hasAnswers: false })).toBe("card");
+    expect(
+      intakeScreenAfterLoad({ resumeScreen: "gate", resumeQuestionId: "stance_early", hasAnswers: true }),
+    ).toBe("gate");
   });
 
   it("keeps interest answers when get-to-know-you is skipped", () => {

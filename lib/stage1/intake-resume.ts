@@ -32,6 +32,24 @@ export function resumeIntake(planIds: string[], answeredIds: string[]): IntakeRe
   };
 }
 
+/** A refresh should reopen the question in progress, not the assignment checklist. */
+export function intakeScreenAfterLoad(input: {
+  resumeScreen?: string | null;
+  resumeQuestionId?: string | null;
+  hasAnswers: boolean;
+}): "card" | "coaching" | "gate" | "story" {
+  if (input.resumeScreen === "gate" || input.resumeQuestionId === "stance_early") return "gate";
+  if (input.resumeScreen === "story") return "story";
+  if (
+    input.resumeScreen === "coaching" ||
+    Boolean(input.resumeQuestionId) ||
+    input.hasAnswers
+  ) {
+    return "coaching";
+  }
+  return "card";
+}
+
 /** Skip get-to-know-you must not throw away answers already counted in the voice sample. */
 export function answersAfterSkippingInterest<T extends { kind: string }>(answers: T[]): T[] {
   return answers;

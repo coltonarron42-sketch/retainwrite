@@ -52,7 +52,12 @@ import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
-import { answersAfterSkippingInterest, resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
+import {
+  answersAfterSkippingInterest,
+  intakeScreenAfterLoad,
+  resumeIntake,
+  stanceStartBlockers,
+} from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
@@ -132,6 +137,7 @@ export function AssignmentIntake({
 }: Props) {
   const router = useRouter();
   const resumedIntake = useRef(false);
+  const pendingQuestion = useRef<string | null>(null);
   const pasteMeta = usePasteMeta();
   const [paper, setPaper] = useState<DemoPaper | null>(null);
   const [screen, setScreen] = useState<Screen>("upload");
@@ -197,10 +203,31 @@ export function AssignmentIntake({
         }
         if (data.answers?.length) setAnswers(data.answers);
         if (data.storyAngle?.text) setStoryAngle(data.storyAngle);
-        if (data.resume?.screen === "gate" || data.resume?.questionId === "stance_early") {
+        const nextScreen = intakeScreenAfterLoad({
+          resumeScreen: data.resume?.screen,
+          resumeQuestionId: data.resume?.questionId,
+          hasAnswers: Boolean(data.answers?.length),
+        });
+        if (nextScreen === "gate") {
           setChecklistConfirmed(true);
           setScreen("gate");
           resumedIntake.current = true;
+        } else if (nextScreen === "story") {
+          setScreen("story");
+          resumedIntake.current = true;
+        } else if (nextScreen === "coaching") {
+          setScreen("coaching");
+        }
+        const questionId = data.resume?.questionId ?? null;
+        pendingQuestion.current = questionId;
+        if (questionId && nextScreen === "coaching") {
+          void fetch(`/api/papers/${paperId}/autosave`)
+            .then(async (res) => (res.ok ? res.json() : null))
+            .then((saved: { drafts?: { fieldKey: string; text: string }[] } | null) => {
+              const draft = saved?.drafts?.find((row) => row.fieldKey === `stage1:${questionId}`);
+              if (draft?.text) setDraftAnswer(draft.text);
+            })
+            .catch(() => undefined);
         }
         setResumeReady(true);
       })
@@ -249,7 +276,8 @@ export function AssignmentIntake({
   }, [requirements, skippedInterest, needFallback]);
 
   useEffect(() => {
-    if (demoMode || resumedIntake.current || (answers.length === 0 && !storyAngle) || coachingPlan.length === 0) return;
+    if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
+    if (answers.length === 0 && !storyAngle && !pendingQuestion.current) return;
     resumedIntake.current = true;
     const resume = resumeIntake(
       coachingPlan.map((question) => question.id),
@@ -260,8 +288,8 @@ export function AssignmentIntake({
       setScreen("gate");
       return;
     }
-    if (resume.screen === "coaching") {
-      const asked = new URLSearchParams(window.location.search).get("question");
+    if (resume.screen === "coaching" || pendingQuestion.current) {
+      const asked = pendingQuestion.current || new URLSearchParams(window.location.search).get("question");
       const askedIndex = asked ? coachingPlan.findIndex((question) => question.id === asked) : -1;
       setQIndex(askedIndex >= 0 ? askedIndex : resume.index);
       setScreen("coaching");
