@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { formatAuthError } from "@/lib/auth/messages";
-import { getEmailConfirmRedirectTo } from "@/lib/auth/site-url";
+import { getAuthSiteUrl, getEmailConfirmRedirectTo } from "@/lib/auth/site-url";
 import { clearDemoSession, setDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -101,6 +101,15 @@ export async function signUpAction(
     return { error: formatAuthError(error.message) };
   }
 
+  // Supabase answers a repeat signup for an existing email with a fake user
+  // (no identities) and sends no email. Say so instead of "check your email".
+  if (data.user && (data.user.identities?.length ?? 0) === 0) {
+    return {
+      error:
+        "An account with this email already exists, so no new email was sent. Log in, or reset your password.",
+    };
+  }
+
   // Email confirmation required: no session until the user verifies.
   if (!data.session) {
     return {
@@ -111,4 +120,44 @@ export async function signUpAction(
 
   await clearDemoSession();
   redirect(next);
+}
+
+export async function requestPasswordResetAction(
+  _prev: AuthActionState,
+  formData: FormData,
+): Promise<AuthActionState> {
+  const email = readEmail(formData);
+  if (!email) return { error: "Enter your email." };
+  if (!hasSupabaseConfig()) return { error: "Password reset is unavailable right now." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${getAuthSiteUrl()}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+  });
+  if (error) return { error: formatAuthError(error.message) };
+  return {
+    notice:
+      "If that email has an account, a reset link is on its way. Open it in this same browser.",
+  };
+}
+
+export async function updatePasswordAction(
+  _prev: AuthActionState,
+  formData: FormData,
+): Promise<AuthActionState> {
+  const password = readPassword(formData);
+  if (password.length < 6) return { error: "Password must be at least 6 characters." };
+  if (!hasSupabaseConfig()) return { error: "Password reset is unavailable right now." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "That reset link has expired. Request a new one from Forgot password." };
+  }
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: formatAuthError(error.message) };
+  await clearDemoSession();
+  redirect("/app");
 }

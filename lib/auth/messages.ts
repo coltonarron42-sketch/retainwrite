@@ -11,11 +11,19 @@ export function formatAuthError(message: string): string {
   }
 
   if (lower.includes("invalid login credentials")) {
-    return "Incorrect email or password.";
+    return "Incorrect email or password. Use Forgot password to set a new one.";
   }
 
   if (lower.includes("user already registered")) {
     return "An account with that email already exists. Try logging in.";
+  }
+
+  if (lower.includes("rate limit") || lower.includes("security purposes")) {
+    return "Too many emails requested. Wait a minute and try again.";
+  }
+
+  if (lower.includes("should be different from the old password")) {
+    return "Pick a password different from your old one.";
   }
 
   if (lower.includes("password should be at least")) {
