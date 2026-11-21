@@ -6,7 +6,7 @@ import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
 import { CoachingLoop } from "@/components/stages/loop/coaching-loop";
 import { StageRail } from "@/components/stages/stage-rail";
 import { assertStageUnlocked, type StageProgressRow } from "@/lib/stages/assert";
-import { getDemoPaper, type DemoPaper } from "@/lib/demo/store";
+import { getDemoPaper, upsertDemoPaper, type DemoPaper } from "@/lib/demo/store";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
@@ -94,6 +94,25 @@ export function StageShell({ paperId, stage }: Props) {
             paperId={paperId}
             stage={stage}
             assignmentPrompt={paper.assignment_prompt}
+            stageProgress={paper.stage_progress.map((row) => ({
+              stage: row.stage,
+              status: row.status,
+            }))}
+            onStageProgress={(progress: StageProgressRow[], currentStage: number) => {
+              setPaper((prev) => {
+                if (!prev) return prev;
+                const next: DemoPaper = {
+                  ...prev,
+                  current_stage: currentStage,
+                  stage_progress: prev.stage_progress.map((row) => {
+                    const updated = progress.find((item) => item.stage === row.stage);
+                    return updated ? { ...row, status: updated.status } : row;
+                  }),
+                };
+                upsertDemoPaper(next);
+                return next;
+              });
+            }}
           />
         )}
       </div>

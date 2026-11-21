@@ -42,6 +42,12 @@ import {
 } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
+import {
+  advanceProductStage,
+  progressAfterLogicContinue,
+  sectionContinueTarget,
+} from "@/lib/stages/advance";
+import type { StageProgressRow } from "@/lib/stages/assert";
 import { defaultTeachCard, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
 import {
   checklistItem5Resolved,
@@ -97,6 +103,8 @@ type Props = {
   paperId: string;
   stage: number;
   assignmentPrompt: string | null;
+  stageProgress?: StageProgressRow[];
+  onStageProgress?: (progress: StageProgressRow[], currentStage: number) => void;
 };
 
 function storageKey(paperId: string) {
@@ -200,7 +208,13 @@ function leadIdeas(concept: string): { candidates: LeadCandidate[]; wildcard: Le
   };
 }
 
-export function CoachingLoop({ paperId, stage, assignmentPrompt }: Props) {
+export function CoachingLoop({
+  paperId,
+  stage,
+  assignmentPrompt,
+  stageProgress = [],
+  onStageProgress,
+}: Props) {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [idea, setIdea] = useState("");
@@ -269,6 +283,49 @@ export function CoachingLoop({ paperId, stage, assignmentPrompt }: Props) {
     const current = raw ? (JSON.parse(raw) as Session) : session;
     if (!current) return;
     commit({ ...current, events: [...current.events, event] });
+  }
+
+  function persistAndGo(progress: StageProgressRow[], nextStage: number) {
+    onStageProgress?.(progress, nextStage);
+    if (nextStage !== stage) {
+      router.push(`/app/papers/${paperId}/stage/${nextStage}`);
+    }
+  }
+
+  function continueAfterLogic(choice: "pass" | "keep" | "continued") {
+    if (!session || !section) return;
+    const sections = session.sections.map((item, index) =>
+      index === active
+        ? {
+            ...item,
+            status: "confirmed" as const,
+            loopStep: "confirmed" as const,
+            continued: choice === "continued",
+          }
+        : item,
+    );
+    const target = sectionContinueTarget(sections, active);
+    const result = progressAfterLogicContinue(
+      stageProgress,
+      target.kind === "section" ? "section" : "outline",
+    );
+    const nextIndex = target.kind === "section" ? target.index : active;
+    commit({
+      ...session,
+      sections,
+      activeIndex: nextIndex,
+      events: [
+        ...session.events,
+        choice === "continued" ? "logic_strong_continued" : "section_confirmed",
+      ],
+    });
+    if (target.kind === "section") setActive(nextIndex);
+    persistAndGo(result.progress, result.nextStage);
+  }
+
+  function continueProductStage() {
+    const result = advanceProductStage(stageProgress, stage);
+    persistAndGo(result.progress, result.nextStage);
   }
 
   const card =
@@ -576,19 +633,24 @@ export function CoachingLoop({ paperId, stage, assignmentPrompt }: Props) {
               assignmentQuote={section.logic.result.citedTerm?.quote}
               questions={section.logic.result.alternativeAngles.map((angle) => angle.question)}
               onChoice={(choice) => {
-                if (choice === "continued" || choice === "keep") {
-                  updateSection(section.key, {
-                    status: "confirmed",
-                    loopStep: "confirmed",
-                    continued: choice === "continued",
-                  });
-                  log(choice === "continued" ? "logic_strong_continued" : "section_confirmed");
+                if (choice === "continued") {
+                  continueAfterLogic("continued");
+                  return;
+                }
+                if (choice === "keep") return;
+                if (choice === "tweak") {
+                  updateSection(section.key, { loopStep: "probe" });
+                  log("logic_opener_tweak");
+                  router.push(`/app/papers/${paperId}/stage/2`);
+                  return;
+                }
+                if (choice === "adjust" || choice === "revise" || choice === "reframe" || choice === "new_angle") {
+                  updateSection(section.key, { loopStep: "probe", logicRevealed: false });
+                  log("logic_check_revise");
+                  router.push(`/app/papers/${paperId}/stage/2`);
                 }
               }}
-              onContinue={() => {
-                const next = session.sections.findIndex((item, index) => index > active && item.status !== "confirmed");
-                if (next >= 0) setActive(next);
-              }}
+              onContinue={() => continueAfterLogic("pass")}
             />
           ) : null}
 
@@ -608,6 +670,27 @@ export function CoachingLoop({ paperId, stage, assignmentPrompt }: Props) {
         </div>
       ) : null}
 
+      {stage === 3 && session.sections.every((item) => item.status === "confirmed") ? (
+        <ProductNotes
+          title="Outline"
+          intro="These are your notes from Stance. Shape the outline in your own words."
+          sections={session.sections}
+          onContinue={continueProductStage}
+        />
+      ) : null}
+
+      {stage === 4 &&
+      session.sections.every((item) => item.status === "confirmed") &&
+      section?.loopStep !== "logic_check" ? (
+        <ProductNotes
+          title="Sources"
+          intro="Directions to verify yourself. The app does not write the citations or the sentences."
+          sections={session.sections}
+          showLeads
+          onContinue={continueProductStage}
+        />
+      ) : null}
+
       {stage === 5 ? (
         <StageFive
           locked={locks}
@@ -621,6 +704,11 @@ export function CoachingLoop({ paperId, stage, assignmentPrompt }: Props) {
             }
           }}
         />
+      ) : null}
+      {stage === 5 && !locks ? (
+        <Button type="button" className="mt-4" onClick={continueProductStage}>
+          Continue
+        </Button>
       ) : null}
 
       {stage === 6 ? (
@@ -747,6 +835,42 @@ function ConfirmPanel({
         Yes, lock it in
       </Button>
     </div>
+  );
+}
+
+function ProductNotes({
+  title,
+  intro,
+  sections,
+  showLeads = false,
+  onContinue,
+}: {
+  title: string;
+  intro: string;
+  sections: RuntimeSection[];
+  showLeads?: boolean;
+  onContinue: () => void;
+}) {
+  return (
+    <section className="mt-8 space-y-3">
+      <h2 className="font-display text-2xl text-rw-ink">{title}</h2>
+      <p className="text-sm text-rw-ink/70">{intro}</p>
+      {sections.map((item) => (
+        <article key={item.key} className="rounded-xl bg-white p-4 text-sm">
+          <h3 className="font-medium">{item.title}</h3>
+          <p className="text-rw-ink/70">{item.needs}</p>
+          {item.ideas.map((note) => (
+            <p key={note}>Your note: {note}</p>
+          ))}
+          {showLeads && item.chosenLead ? (
+            <p className="mt-2">To verify: {item.chosenLead}</p>
+          ) : null}
+        </article>
+      ))}
+      <Button type="button" onClick={onContinue}>
+        Continue
+      </Button>
+    </section>
   );
 }
 

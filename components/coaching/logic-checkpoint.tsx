@@ -48,7 +48,14 @@ export function LogicCheckpoint({
   }
 
   if (phase === "pass") {
-    return <p className="text-sm text-rw-teal">{LOGIC_PASS}</p>;
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-rw-teal">{LOGIC_PASS}</p>
+        <Button type="button" onClick={onContinue}>
+          Continue
+        </Button>
+      </div>
+    );
   }
 
   if (phase === "moderate") {
@@ -63,7 +70,13 @@ export function LogicCheckpoint({
         </ul>
         <p className="mt-3 text-sm font-medium">{LOGIC_WRITER}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button type="button" onClick={() => onChoice("keep")}>
+          <Button
+            type="button"
+            onClick={() => {
+              onChoice("keep");
+              onContinue();
+            }}
+          >
             Keep my angle
           </Button>
           <Button type="button" variant="outline" onClick={() => onChoice("adjust")}>
@@ -105,13 +118,7 @@ export function LogicCheckpoint({
         <Button type="button" variant="outline" onClick={() => onChoice("reframe")}>
           Reframe it
         </Button>
-        <Button
-          type="button"
-          onClick={() => {
-            onChoice("continued");
-            onContinue();
-          }}
-        >
+        <Button type="button" onClick={() => onChoice("continued")}>
           {LOGIC_CONTINUE}
         </Button>
       </div>
