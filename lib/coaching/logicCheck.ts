@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { isVerbatimSubstring } from "@/lib/coaching/lesson";
+import { isThinAnswer } from "@/lib/coaching/thin";
 
 export const LOGIC_OPENER = "I want to do a logic check. Do you feel good about this?";
 export const LOGIC_YES = "Yes, check it";
@@ -234,6 +235,27 @@ export function logicCheckFromNotes(input: {
       logicFailure: null,
       alternativeAngles: [
         { question: "Which part of the assignment makes you most sure?", rubricRef: input.rubricRef },
+      ],
+      reframeAvailable: false,
+    };
+  }
+  if (isThinAnswer(notes, 12).thin) {
+    const quote = input.assignmentText.trim().slice(0, 80) || "this assignment";
+    return {
+      tier: "moderate",
+      basis: "weak_support",
+      confidence: 0.74,
+      reason: "This note is too thin to call solid. Add a concrete claim in your own words.",
+      citedTerm: { rubricRef: input.rubricRef, quote },
+      studentClaimRef: notes.trim()
+        ? { ideaId: "claim", quote: notes.slice(0, 160) }
+        : null,
+      logicFailure: null,
+      alternativeAngles: [
+        {
+          question: "What is one specific point you want this section to make?",
+          rubricRef: input.rubricRef,
+        },
       ],
       reframeAvailable: false,
     };

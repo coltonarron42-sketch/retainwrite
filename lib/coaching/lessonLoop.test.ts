@@ -268,6 +268,27 @@ describe("highlight reel and leads", () => {
 });
 
 describe("memory path and logic checkpoint", () => {
+  it("does not call a thin or empty note solid", () => {
+    const assignment = "Explain how social media affects teen mental health.";
+    for (const notes of ["idk", "yes", "Social media is bad."]) {
+      const raw = logicCheckFromNotes({
+        notes,
+        assignmentText: assignment,
+        rubricRef: "lesson_concept",
+        mode: "lesson",
+      });
+      const finalized = finalizeLogicCheck(raw, {
+        assignmentText: assignment,
+        studentNotes: notes,
+        mode: "lesson",
+        rubricRequiresCounterargument: false,
+        validRubricRefs: ["lesson_concept"],
+      });
+      expect(finalized.result.tier).not.toBe("pass");
+      expect(finalized.blocks).toBe(false);
+    }
+  });
+
   it("mirrors verbatim feeling words and builds a student-only memory card", () => {
     expect(mirrorQuestion(["magical"], SUMMER_PROMPT)).toBe(
       "Your prompt says “magical.” What does magical mean to you?",
