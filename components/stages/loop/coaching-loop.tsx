@@ -64,7 +64,7 @@ import {
   voiceNoteForStage,
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
-import { keptIdeas } from "@/lib/coaching/thin";
+import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
 type RuntimeSection = {
@@ -456,8 +456,9 @@ export function CoachingLoop({
               onPaste={paste.onPaste}
               onDrop={paste.onDrop}
               onSave={() => {
-                if (keptIdeas([idea]).length === 0) {
-                  setThinNote("That note is too thin to keep. Say a little more in your own words.");
+                const mirrorProbe = probeForThinNote(idea);
+                if (mirrorProbe) {
+                  setThinNote(mirrorProbe);
                   return;
                 }
                 setThinNote(null);
@@ -512,8 +513,9 @@ export function CoachingLoop({
                   type="button"
                   onClick={() => {
                     if (!idea.trim()) return;
-                    if (keptIdeas([idea]).length === 0) {
-                      setThinNote("That note is too thin to keep. Say a little more in your own words.");
+                    const probe = probeForThinNote(idea);
+                    if (probe) {
+                      setThinNote(probe);
                       return;
                     }
                     setThinNote(null);

@@ -37,13 +37,19 @@ export function isThinAnswer(
   return { thin: false };
 }
 
-/** Drop stock phrases and one- or two-word notes. A real sentence stays whole. */
+const FILLER_START = /^(?:idk|i don't know|i dont know|not sure|whatever)\b/i;
+
+/** A thin note gets a question, not a rejection and not a saved answer. */
+export function probeForThinNote(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (FILLER_START.test(trimmed) || isThinAnswer(trimmed, 1).reason === "stock" || wordCount(trimmed) < 3) {
+    return "What is one specific point you want this section to make?";
+  }
+  return null;
+}
+
+/** Drop stock phrases, one-word notes, and "idk ..." so they are not the official note. */
 export function keptIdeas(ideas: string[]): string[] {
-  return ideas
-    .map((idea) => idea.trim())
-    .filter((idea) => {
-      if (!idea) return false;
-      if (isThinAnswer(idea, 1).reason === "stock") return false;
-      return wordCount(idea) >= 3;
-    });
+  return ideas.map((idea) => idea.trim()).filter((idea) => idea && !probeForThinNote(idea));
 }

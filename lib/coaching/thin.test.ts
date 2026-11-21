@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isThinAnswer, keptIdeas } from "./thin";
+import { isThinAnswer, keptIdeas, probeForThinNote } from "./thin";
 
 describe("isThinAnswer", () => {
   it("flags short answers", () => {
@@ -17,5 +17,10 @@ describe("isThinAnswer", () => {
     expect(keptIdeas(["idk", "Listening mattered because the coach stayed."])).toEqual([
       "Listening mattered because the coach stayed.",
     ]);
+    expect(keptIdeas(["idk what I want to say yet…", "Social media can change how teens sleep at night."])).toEqual([
+      "Social media can change how teens sleep at night.",
+    ]);
+    expect(probeForThinNote("idk")).toMatch(/\?$/);
+    expect(probeForThinNote("Social media can change how teens sleep at night.")).toBeNull();
   });
 });
