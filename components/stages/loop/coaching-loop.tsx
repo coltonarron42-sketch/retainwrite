@@ -64,6 +64,7 @@ import {
   voiceNoteForStage,
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
+import { keptIdeas } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
 type RuntimeSection = {
@@ -180,6 +181,7 @@ export function CoachingLoop({
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [idea, setIdea] = useState("");
+  const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const paste = usePasteMeta();
 
@@ -345,7 +347,7 @@ export function CoachingLoop({
       ? exampleLeadBatch({
           concept: section.concept,
           assignmentText: session.assignmentText,
-          studentIdea: section.ideas.join(" "),
+          studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
         })
       : null;
@@ -454,13 +456,18 @@ export function CoachingLoop({
               onPaste={paste.onPaste}
               onDrop={paste.onDrop}
               onSave={() => {
+                if (keptIdeas([idea]).length === 0) {
+                  setThinNote("That note is too thin to keep. Say a little more in your own words.");
+                  return;
+                }
+                setThinNote(null);
                 const safety = safetyNoteFor(idea);
                 const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
                 updateSection(
                   section.key,
                   {
                     teachStatus: "mirrored",
-                    ideas: [...section.ideas, idea],
+                    ideas: [...keptIdeas(section.ideas), idea],
                     loopStep: "probe",
                   },
                   {
@@ -499,11 +506,17 @@ export function CoachingLoop({
                 onDrop={paste.onDrop}
                 placeholder="Your idea, in your words"
               />
+              {thinNote ? <p className="text-sm text-red-700">{thinNote}</p> : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   onClick={() => {
                     if (!idea.trim()) return;
+                    if (keptIdeas([idea]).length === 0) {
+                      setThinNote("That note is too thin to keep. Say a little more in your own words.");
+                      return;
+                    }
+                    setThinNote(null);
                     const reel =
                       section.mode === "lesson" && section.concept
                         ? highlightReelFor({ answer: idea, concept: section.concept })
@@ -513,7 +526,7 @@ export function CoachingLoop({
                     updateSection(
                       section.key,
                       {
-                        ideas: [...section.ideas, idea],
+                        ideas: [...keptIdeas(section.ideas), idea],
                         chosenLead: seeded?.name ?? section.chosenLead,
                         loopStep: section.searchStatus === "not_needed" ? "summarize" : "search",
                       },
@@ -640,7 +653,7 @@ export function CoachingLoop({
                   loopStep: "logic_check",
                   logic,
                   logicRevealed: false,
-                  ideas: notes ? [notes] : section.ideas,
+                  ideas: keptIdeas(notes ? [notes] : section.ideas),
                 });
                 log("logic_opener_shown");
               }}
@@ -887,7 +900,7 @@ function ConfirmPanel({
   memory: boolean;
   onConfirm: (notes: string) => void;
 }) {
-  const notes = section.ideas.join(" ");
+  const notes = keptIdeas(section.ideas).join(" ");
   return (
     <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
       <p className="text-sm text-rw-ink/80">
@@ -924,7 +937,7 @@ function ProductNotes({
         <article key={item.key} className="rounded-xl bg-white p-4 text-sm">
           <h3 className="font-medium">{item.title}</h3>
           <p className="text-rw-ink/70">{item.needs}</p>
-          {item.ideas.map((note) => (
+          {keptIdeas(item.ideas).map((note) => (
             <p key={note}>Your note: {note}</p>
           ))}
           {showLeads && item.chosenLead ? (

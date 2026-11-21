@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isThinAnswer } from "./thin";
+import { isThinAnswer, keptIdeas } from "./thin";
 
 describe("isThinAnswer", () => {
   it("flags short answers", () => {
@@ -14,5 +14,8 @@ describe("isThinAnswer", () => {
     const text =
       "I think climate policy fails when it ignores local jobs and community buy-in over time.";
     expect(isThinAnswer(text, 10).thin).toBe(false);
+    expect(keptIdeas(["idk", "Listening mattered because the coach stayed."])).toEqual([
+      "Listening mattered because the coach stayed.",
+    ]);
   });
 });

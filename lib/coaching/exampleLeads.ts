@@ -1,6 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
+import { keptIdeas } from "@/lib/coaching/thin";
 
 const GENERIC_TITLES = [
   "a source your field usually cites",
@@ -30,7 +31,7 @@ export function exampleLeadBatch(input: {
   wildcard: LeadCandidate | null;
 } {
   const topic = topicLabel(input.concept, input.assignmentText);
-  const idea = input.studentIdea.trim();
+  const idea = keptIdeas([input.studentIdea])[0] ?? "";
   const subject = topic || (idea.split(/\s+/).length >= 4 ? idea.slice(0, 80) : "");
   if (!subject) {
     return { personalized: false, candidates: [], wildcard: null };

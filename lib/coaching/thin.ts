@@ -36,3 +36,14 @@ export function isThinAnswer(
   }
   return { thin: false };
 }
+
+/** Drop stock phrases and one- or two-word notes. A real sentence stays whole. */
+export function keptIdeas(ideas: string[]): string[] {
+  return ideas
+    .map((idea) => idea.trim())
+    .filter((idea) => {
+      if (!idea) return false;
+      if (isThinAnswer(idea, 1).reason === "stock") return false;
+      return wordCount(idea) >= 3;
+    });
+}
