@@ -65,7 +65,13 @@ export function stanceStartBlockers(input: {
   const reasons: string[] = [];
   if (!input.checklistConfirmed) reasons.push("Confirm the assignment card first.");
   if (!input.hasStory) reasons.push("Pick a story angle first.");
-  if (!input.voiceOk) reasons.push(input.voiceReason ?? "The voice sample is still short.");
+  // Voice length is a warning, never a hard stop (PLAN.md): see voiceShortNote.
   if (!input.stanceOk) reasons.push("Save an early stance of at least 25 words.");
   return reasons;
+}
+
+/** Gentle note when the voice sample is short. The student can still continue. */
+export function voiceShortNote(input: { voiceOk: boolean }): string | null {
+  if (input.voiceOk) return null;
+  return "Your answers are on the short side, so the coach has less of your voice to match. You can keep going now, or reopen an earlier answer and add a few sentences.";
 }

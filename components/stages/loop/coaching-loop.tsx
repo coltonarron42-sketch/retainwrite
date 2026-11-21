@@ -1188,16 +1188,31 @@ function OutlineDraft({
   enabled: boolean;
   onChange: (text: string) => void;
 }) {
+  // Keep the raw text the student typed. The parent stores a trimmed, filtered
+  // note, and feeding that back on every keystroke ate spaces ("later.EDIT").
+  const [text, setText] = useState(value);
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (value.trim() && value.trim() !== text.trim()) setText(value);
+  }
   const status = useDraftSave({
     paperId,
     fieldKey: `outline:${sectionKey}`,
-    text: value,
+    text,
     enabled,
     resume: draftPointer({ stage: 3, sectionKey }),
   });
   return (
     <>
-      <Textarea className="mt-2" value={value} onChange={(event) => onChange(event.target.value)} />
+      <Textarea
+        className="mt-2"
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value);
+          onChange(event.target.value);
+        }}
+      />
       <SaveStatus status={status} />
     </>
   );

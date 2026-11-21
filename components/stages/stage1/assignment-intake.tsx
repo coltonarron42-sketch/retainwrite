@@ -58,6 +58,7 @@ import {
   intakeScreenAfterLoad,
   resumeIntake,
   stanceStartBlockers,
+  voiceShortNote,
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
@@ -649,10 +650,13 @@ export function AssignmentIntake({
       q.kind === "personal" ||
       q.kind === "fallback_voice";
 
+    const existing = answers.find((a) => a.questionId === q.id);
     const nextAnswers = [
       ...answers.filter((a) => a.questionId !== q.id),
       ...(opts?.skip
-        ? []
+        ? existing
+          ? [existing]
+          : []
         : [
             {
               questionId: q.id,
@@ -729,7 +733,17 @@ export function AssignmentIntake({
     }
 
     if (qIndex + 1 < coachingPlan.length) {
+      const nextQuestion = coachingPlan[qIndex + 1];
+      setDraftAnswer(
+        nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "",
+      );
       setQIndex(qIndex + 1);
+      return;
+    }
+
+    // Revisiting answers after the early take: go back to the checklist.
+    if (storyAngle && nextAnswers.some((a) => a.questionId === "stance_early")) {
+      setScreen("gate");
       return;
     }
 
@@ -752,8 +766,23 @@ export function AssignmentIntake({
     finishCoaching(nextAnswers);
   }
 
+  function savedAnswerText(questionId: string): string {
+    return answers.find((answer) => answer.questionId === questionId)?.answerText ?? "";
+  }
+
+  /** Reopen an earlier question with the student's saved answer in the box. */
+  function openQuestion(index: number) {
+    const target = coachingPlan[index];
+    if (!target) return;
+    setError(null);
+    pasteMeta.reset();
+    setDraftAnswer(savedAnswerText(target.id));
+    setQIndex(index);
+    setScreen("coaching");
+  }
+
   function goToStanceOnStory() {
-    setDraftAnswer("");
+    setDraftAnswer(savedAnswerText("stance_early"));
     setError(null);
     pasteMeta.reset();
     setScreen("coaching");
@@ -908,11 +937,6 @@ export function AssignmentIntake({
     if (!requirements || !paper || startingStance) return;
     if (!cardGate.ok) {
       setError("Confirm the assignment card first.");
-      return;
-    }
-    if (!voiceEval.ok) {
-      setError(voiceEval.reasons[0] ?? "Voice sample is still short.");
-      setScreen("coaching");
       return;
     }
     if (!stanceOk) {
@@ -1340,17 +1364,13 @@ export function AssignmentIntake({
               attention={fieldNeedsAttention(requirements[key])}
               confirmed={requirements[key].confirmed}
             >
-              <Textarea
-                rows={2}
+              <ListTextarea
                 value={(requirements[key].value ?? []).join("\n")}
-                onChange={(e) =>
+                onChange={(raw) =>
                   updateField(
                     key,
                     markFieldConfirmed(requirements[key], {
-                      value: e.target.value
-                        .split("\n")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
+                      value: splitListLines(raw),
                     }),
                   )
                 }
@@ -1411,21 +1431,16 @@ export function AssignmentIntake({
             attention={fieldNeedsAttention(requirements.providedReadings)}
             confirmed={requirements.providedReadings.confirmed}
           >
-            <Textarea
-              rows={2}
+            <ListTextarea
               value={(requirements.providedReadings.value ?? [])
                 .map((r) => r.title || r.url || "")
                 .filter(Boolean)
                 .join("\n")}
-              onChange={(e) =>
+              onChange={(raw) =>
                 updateField(
                   "providedReadings",
                   markFieldConfirmed(requirements.providedReadings, {
-                    value: e.target.value
-                      .split("\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
-                      .map((title) => ({ title })),
+                    value: splitListLines(raw).map((title) => ({ title })),
                   }),
                 )
               }
@@ -1451,20 +1466,15 @@ export function AssignmentIntake({
             attention={fieldNeedsAttention(requirements.rubricCriteria)}
             confirmed={requirements.rubricCriteria.confirmed}
           >
-            <Textarea
-              rows={2}
+            <ListTextarea
               value={(requirements.rubricCriteria.value ?? [])
                 .map((c) => c.name)
                 .join("\n")}
-              onChange={(e) =>
+              onChange={(raw) =>
                 updateField(
                   "rubricCriteria",
                   markFieldConfirmed(requirements.rubricCriteria, {
-                    value: e.target.value
-                      .split("\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
-                      .map((name) => ({ name })),
+                    value: splitListLines(raw).map((name) => ({ name })),
                   }),
                 )
               }
@@ -1605,7 +1615,7 @@ export function AssignmentIntake({
       ? {
           id: "stance_early",
           kind: "coaching" as const,
-          text: `What's your early take on: ${storyAngle?.text || requirements.topic.value || "this assignment"}? (at least 25 words)`,
+          text: `What's your early take on: ${earlyTakeSubject(storyAngle?.text || requirements.topic.value || "this assignment")}? (at least 25 words)`,
         }
       : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
@@ -1714,6 +1724,11 @@ export function AssignmentIntake({
         ) : null}
 
         <div className="mt-6 flex flex-wrap gap-3">
+          {!stanceMode && qIndex > 0 ? (
+            <Button type="button" variant="ghost" onClick={() => openQuestion(qIndex - 1)}>
+              Previous question
+            </Button>
+          ) : null}
           {isInterest ? (
             <Button type="button" variant="ghost" onClick={skipInterest}>
               Skip get-to-know-you
@@ -1829,11 +1844,11 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-xl">
         <h1 className="font-display text-3xl text-rw-ink">Ready for stance?</h1>
         <p className="mt-2 text-sm text-rw-ink/65">
-          Stage 1 finishes when the assignment card is confirmed, your voice
-          sample meets the minimum, and you have an early take.
+          Stage 1 finishes when the assignment card is confirmed, you have
+          picked a story, and you have an early take.
         </p>
 
-        {metrics && readyVoiceLine(voiceEval.totalWords) ? (
+        {metrics && voiceEval.ok && readyVoiceLine(voiceEval.totalWords) ? (
           <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
             <p>{readyVoiceLine(voiceEval.totalWords)}</p>
           </div>
@@ -1843,9 +1858,9 @@ export function AssignmentIntake({
           <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
           <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
           <li>
-            {voiceEval.ok ? "✓" : "○"} Voice minimum (
-            {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words,{" "}
-            {voiceEval.longAnswerCount} long answers)
+            {voiceEval.ok ? "✓" : "·"} Voice sample (
+            {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
+            {voiceEval.ok ? "" : ", optional: more helps the coach match your voice"})
           </li>
           <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
         </ul>
@@ -1857,7 +1872,17 @@ export function AssignmentIntake({
         ) : null}
 
         <div className="mt-8 flex flex-wrap gap-3">
-          <Button type="button" variant="outline" onClick={() => setScreen("coaching")}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              // Reopen the first voice answer, prefilled, so the student can extend it.
+              const first = coachingPlan.findIndex(
+                (question) => question.kind !== "background" && question.kind !== "interest",
+              );
+              openQuestion(first >= 0 ? first : 0);
+            }}
+          >
             Back to questions
           </Button>
           <Button
@@ -1888,11 +1913,21 @@ export function AssignmentIntake({
             {reason}
           </p>
         ))}
+        {voiceShortNote({ voiceOk: voiceEval.ok }) ? (
+          <p className="mt-3 text-sm text-rw-ink/70" role="note">
+            {voiceShortNote({ voiceOk: voiceEval.ok })}
+          </p>
+        ) : null}
       </div>
     );
   }
 
   return null;
+}
+
+/** "…this paper?" + "?" should read as one question mark. */
+function earlyTakeSubject(text: string): string {
+  return text.trim().replace(/[\s?.!]+$/, "");
 }
 
 function CardField({
@@ -1962,4 +1997,36 @@ function sourceAction(
     "";
   if (!excerpt) return undefined;
   return () => setViewSource({ label, excerpt });
+}
+
+/** One list item per line. Trim only when parsing, never in the box itself. */
+function splitListLines(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A list textarea that keeps exactly what the student typed (spaces, blank
+ * new lines) and hands the raw text up. It only takes the parent's value when
+ * that value means something different from the box, e.g. "Not specified".
+ */
+function ListTextarea({ value, onChange }: { value: string; onChange: (raw: string) => void }) {
+  const [text, setText] = useState(value);
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (splitListLines(text).join("\n") !== splitListLines(value).join("\n")) setText(value);
+  }
+  return (
+    <Textarea
+      rows={2}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(e.target.value);
+      }}
+    />
+  );
 }

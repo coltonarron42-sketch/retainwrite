@@ -73,12 +73,8 @@ export async function POST(request: Request, ctx: Ctx) {
     answers: voiceAnswers,
     keepBaseline: body.keepBaseline,
   });
-  if (!voice.ok) {
-    return NextResponse.json(
-      { error: "Voice minimum not met", reasons: voice.reasons, voice },
-      { status: 400 },
-    );
-  }
+  // A short voice sample is a warning, not a hard stop (PLAN.md). It is
+  // logged below so coaching can lean on fewer voice cues.
 
   const stance = body.answers.find((a) => a.questionId === "stance_early");
   if (!stance || wordCount(stance.answerText) < 25) {
@@ -107,6 +103,7 @@ export async function POST(request: Request, ctx: Ctx) {
     event: "stage1_complete",
     detail: {
       voiceWords: voice.totalWords,
+      voiceShort: !voice.ok,
       leadCount: body.leads?.length ?? 0,
       useInterestProfile: body.useInterestProfile ?? true,
     },
