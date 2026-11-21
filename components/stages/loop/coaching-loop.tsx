@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,6 +67,7 @@ import {
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
+import { refreshStoredLogic, replaceClaim, revisionPrefill } from "@/lib/coaching/logicRevision";
 import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
@@ -193,6 +194,7 @@ export function CoachingLoop({
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [idea, setIdea] = useState("");
+  const replacingClaim = useRef(false);
   const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const noteStatus = useDraftSave({
@@ -233,6 +235,15 @@ export function CoachingLoop({
         parsed.assignmentText = incoming;
         parsed.extraction = extraction;
       }
+      parsed.sections = parsed.sections.map((section) => {
+        if (section.loopStep !== "logic_check" || section.ideas.length === 0) return section;
+        const refreshed = refreshStoredLogic(section, {
+          assignmentText: parsed.assignmentText,
+          rubricRef: section.rubricRef,
+          mode: section.mode,
+        });
+        return { ...section, ideas: refreshed.ideas, logic: refreshed.logic };
+      });
       setSession(parsed);
       setActive(parsed.activeIndex ?? 0);
       return;
@@ -603,7 +614,10 @@ export function CoachingLoop({
                       return;
                     }
                     setThinNote(null);
-                    const nextIdeas = [...keptIdeas(section.ideas), idea];
+                    const nextIdeas = replacingClaim.current
+                      ? replaceClaim(section.ideas, idea)
+                      : [...keptIdeas(section.ideas), idea];
+                    replacingClaim.current = false;
                     const nextSession: Session = {
                       ...session,
                       sections: session.sections.map((item) =>
@@ -750,7 +764,7 @@ export function CoachingLoop({
                   loopStep: "logic_check",
                   logic,
                   logicRevealed: false,
-                  ideas: keptIdeas(notes ? [notes] : section.ideas),
+                  ideas: notes.trim() ? [notes.trim()] : [],
                 });
                 log("logic_opener_shown");
               }}
@@ -784,6 +798,7 @@ export function CoachingLoop({
             <LogicCheckpoint
               phase={section.logic.result.tier}
               reason={section.logic.result.reason}
+              claimQuote={section.logic.result.studentClaimRef?.quote}
               assignmentQuote={section.logic.result.citedTerm?.quote}
               questions={section.logic.result.alternativeAngles.map((angle) => angle.question)}
               onChoice={(choice) => {
@@ -799,9 +814,10 @@ export function CoachingLoop({
                   return;
                 }
                 if (choice === "adjust" || choice === "revise" || choice === "reframe" || choice === "new_angle") {
-                  updateSection(section.key, { loopStep: "probe", logicRevealed: false });
+                  replacingClaim.current = true;
+                  setIdea(revisionPrefill(section.ideas));
+                  updateSection(section.key, { loopStep: "probe", logicRevealed: false, logic: null });
                   log("logic_check_revise");
-                  router.push(`/app/papers/${paperId}/stage/2`);
                 }
               }}
               onContinue={() => continueAfterLogic("pass")}
@@ -1035,7 +1051,7 @@ function ConfirmPanel({
   memory: boolean;
   onConfirm: (notes: string) => void;
 }) {
-  const notes = keptIdeas(section.ideas).join(" ");
+  const notes = keptIdeas(section.ideas).at(-1) ?? "";
   return (
     <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
       <p className="text-sm text-rw-ink/80">

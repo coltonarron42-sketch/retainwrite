@@ -63,6 +63,15 @@ export type FinalizedLogic = {
 
 const COUNTER = /counter-?argument|rebuttal/i;
 
+/** Quote the student's claim on a word boundary. Never cut a word like "healt". */
+export function quoteOnWordBoundary(text: string, max = 160): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const boundary = cut.lastIndexOf(" ");
+  return (boundary > 24 ? cut.slice(0, boundary) : cut).trim();
+}
+
 export function suggestsCounterargument(result: LogicCheckResult): boolean {
   if (COUNTER.test(result.reason)) return true;
   return result.alternativeAngles.some((angle) => COUNTER.test(angle.question));
@@ -210,7 +219,7 @@ export function logicCheckFromNotes(input: {
       citedTerm: { rubricRef: input.rubricRef, quote },
       studentClaimRef: {
         ideaId: "claim",
-        quote: notes.slice(0, 160),
+        quote: quoteOnWordBoundary(notes, 160),
       },
       logicFailure: null,
       alternativeAngles: [
@@ -232,7 +241,7 @@ export function logicCheckFromNotes(input: {
       confidence: 0.72,
       reason: "A reasonable reader could see this another way.",
       citedTerm: { rubricRef: input.rubricRef, quote: input.assignmentText.slice(0, 80) },
-      studentClaimRef: { ideaId: "claim", quote: notes.slice(0, 160) },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
       alternativeAngles: [
         { question: "Which part of the assignment makes you most sure?", rubricRef: input.rubricRef },
@@ -254,7 +263,7 @@ export function logicCheckFromNotes(input: {
             ? "A claim about everyone needs more than a single pattern."
             : "One example cannot carry the whole claim.",
       citedTerm: { rubricRef: input.rubricRef, quote: input.assignmentText.trim().slice(0, 80) || "this assignment" },
-      studentClaimRef: { ideaId: "claim", quote: notes.slice(0, 160) },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: "One example does not prove a claim about everyone.",
       alternativeAngles: [
         {
@@ -278,7 +287,7 @@ export function logicCheckFromNotes(input: {
         : "This doesn't yet speak to what the assignment asks.",
       citedTerm: { rubricRef: input.rubricRef, quote },
       studentClaimRef: notes.trim()
-        ? { ideaId: "claim", quote: notes.slice(0, 160) }
+        ? { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) }
         : null,
       logicFailure: null,
       alternativeAngles: [

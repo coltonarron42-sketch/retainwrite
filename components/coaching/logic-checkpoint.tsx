@@ -17,6 +17,7 @@ import {
 type Props = {
   phase: "opener" | "pass" | "moderate" | "strong";
   reason?: string;
+  claimQuote?: string;
   assignmentQuote?: string;
   questions?: string[];
   onContinue: () => void;
@@ -26,6 +27,7 @@ type Props = {
 export function LogicCheckpoint({
   phase,
   reason,
+  claimQuote,
   assignmentQuote,
   questions = [],
   onContinue,
@@ -100,6 +102,7 @@ export function LogicCheckpoint({
       <h3 className="mt-2 font-display text-xl text-rw-ink">{LOGIC_STRONG_HEADLINE}</h3>
       <p className="mt-2 text-sm text-rw-ink/80">{LOGIC_STRONG_DETAIL}</p>
       {reason ? <p className="mt-2 text-sm text-rw-ink/80">{reason}</p> : null}
+      {claimQuote ? <p className="mt-2 text-sm text-rw-ink/80">Your claim: “{claimQuote}”</p> : null}
       {assignmentQuote ? (
         <p className="mt-2 text-sm text-rw-ink/80">Your assignment asks: “{assignmentQuote}”</p>
       ) : null}
