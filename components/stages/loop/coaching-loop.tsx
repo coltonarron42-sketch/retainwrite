@@ -222,6 +222,13 @@ export function CoachingLoop({
     resume: draftPointer({ stage: 2, sectionKey: session?.sections[active]?.key ?? null }),
   });
   const paste = usePasteMeta();
+  // The shell passes a fresh stageProgress array on every render. Read it from
+  // a ref so a parent re-render does not reload the saved session over the
+  // student's live progress (it reset Stance to the first section's leads).
+  const stageProgressRef = useRef(stageProgress);
+  useEffect(() => {
+    stageProgressRef.current = stageProgress;
+  }, [stageProgress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,7 +263,7 @@ export function CoachingLoop({
       });
       const healed = healStuckOutlineSession({
         currentStage: stage,
-        progress: stageProgress,
+        progress: stageProgressRef.current,
         sections: base.sections,
         resume,
       });
@@ -293,7 +300,7 @@ export function CoachingLoop({
     return () => {
       cancelled = true;
     };
-  }, [paperId, assignmentPrompt, persist, stage, stageProgress]);
+  }, [paperId, assignmentPrompt, persist, stage]);
 
   useEffect(() => {
     if (!session) return;
@@ -421,13 +428,17 @@ export function CoachingLoop({
       ],
     });
     if (target.kind === "section") setActive(nextIndex);
-    if (persist && target.kind === "outline") {
+    if (persist) {
+      // Save on every confirm so a reload resumes at the next section.
       const savedSession = { ...session, sections, activeIndex: nextIndex };
       await persistField(paperId, {
         fieldKey: "loop_session",
         text: JSON.stringify(savedSession),
         submitted: true,
-        resume: { stage: 3, screen: "outline" },
+        resume:
+          target.kind === "outline"
+            ? { stage: 3, screen: "outline" }
+            : { stage: 2, sectionKey: sections[nextIndex]?.key ?? null, screen: "stance" },
         session: savedSession,
       });
     }

@@ -16,3 +16,14 @@ describe("signup with an existing email", () => {
     expect(loop).toContain('continueAfterLogic("keep")');
   });
 });
+
+describe("stance loop does not reload over live progress", () => {
+  it("keeps stageProgress out of the session-load effect and saves on every confirm", () => {
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    expect(loop).toContain("}, [paperId, assignmentPrompt, persist, stage]);");
+    expect(loop).toContain("progress: stageProgressRef.current");
+    const confirm = loop.slice(loop.indexOf("async function continueAfterLogic"), loop.indexOf("function continueProductStage"));
+    expect(confirm).toContain("if (persist) {");
+    expect(confirm).toContain('screen: "stance"');
+  });
+});
