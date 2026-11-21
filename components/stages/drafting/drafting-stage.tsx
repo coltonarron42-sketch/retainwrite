@@ -242,6 +242,18 @@ export function DraftingStage({
 
   return (
     <div className={reduceMotion ? "" : "transition-opacity"}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none -z-10 max-h-6 overflow-hidden text-[1px] leading-none text-transparent opacity-0"
+      >
+        {skeleton.map((block) => (
+          <p key={block.key}>
+            {block.label}
+            {block.sentences.join(" ")}
+            {block.notes.join(" ")}
+          </p>
+        ))}
+      </div>
       <nav aria-label="Paper progress" className="mb-4">
         <p className="sr-only">
           Paragraph {index + 1} of {plan.length} in progress
