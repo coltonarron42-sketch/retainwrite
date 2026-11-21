@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,6 +85,7 @@ export function DraftingStage({
   const [jumpBack, setJumpBack] = useState<number | null>(null);
   const [decline, setDecline] = useState(false);
   const [serverFlags, setServerFlags] = useState<ReadbackFlag[]>([]);
+  const milestoneHeading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -127,6 +128,19 @@ export function DraftingStage({
       }),
     });
   }, [paperId, index, step, choice, saved, screen, plan]);
+
+  useEffect(() => {
+    if (screen !== "review_all") return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setScreen("milestone");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen === "milestone") milestoneHeading.current?.focus();
+  }, [screen]);
 
   const current = plan[index];
   const sentences = current ? saved[current.key] ?? [] : [];
@@ -242,16 +256,11 @@ export function DraftingStage({
 
   return (
     <div className={reduceMotion ? "" : "transition-opacity"}>
-      <div
-        aria-hidden="true"
-        className="pointer-events-none -z-10 max-h-6 overflow-hidden text-[1px] leading-none text-transparent opacity-0"
-      >
+      <div aria-hidden="true" className="pointer-events-none mb-2 flex gap-2 overflow-hidden text-[10px] leading-none text-rw-ink/15">
         {skeleton.map((block) => (
-          <p key={block.key}>
+          <span key={block.key} className="min-w-0 flex-1 truncate">
             {block.label}
-            {block.sentences.join(" ")}
-            {block.notes.join(" ")}
-          </p>
+          </span>
         ))}
       </div>
       <nav aria-label="Paper progress" className="mb-4">
@@ -394,8 +403,15 @@ export function DraftingStage({
 
       {screen === "milestone" ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-rw-ink/40 p-4" role="dialog" aria-modal="true" aria-label={`${current.title} is done`}>
-          <div className="max-w-md rounded-xl bg-white p-5">
-            <h2 className="font-display text-2xl">{current.title} is done.</h2>
+          <div aria-hidden="true" className="pointer-events-none absolute inset-8 space-y-3 text-sm text-white/25">
+            {skeleton.map((block) => (
+              <p key={block.key}>{block.label}</p>
+            ))}
+          </div>
+          <div className="relative max-w-md rounded-xl bg-white p-5">
+            <h2 ref={milestoneHeading} tabIndex={-1} className="font-display text-2xl outline-none">
+              {current.title} is done.
+            </h2>
             <p className="sr-only">{current.title} is done. Here is your paper so far.</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button type="button" onClick={openNext}>
