@@ -9,6 +9,7 @@ import {
   type DemoPaper,
   type DemoProfile,
 } from "@/lib/demo/store";
+import { continueHref } from "@/lib/papers/resume";
 
 type Props = {
   mode?: "live" | "demo";
@@ -77,7 +78,7 @@ export function Dashboard({
               </p>
             </div>
             <Button asChild variant="outline" size="sm">
-              <Link href={`/app/papers/${paper.id}/stage/${paper.current_stage}`}>
+              <Link href={continueHref(paper)}>
                 Continue
               </Link>
             </Button>

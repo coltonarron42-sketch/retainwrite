@@ -205,6 +205,26 @@ export function CoachingLoop({
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey(paperId));
+    if (!saved && persist) {
+      void fetch(`/api/papers/${paperId}/autosave`)
+        .then(async (res) => (res.ok ? res.json() : null))
+        .then((data: { session?: Session; resume?: { sectionKey?: string } } | null) => {
+          if (data?.session && data.session.sections) {
+            setSession(data.session);
+            const key = data.resume?.sectionKey;
+            const index = key ? data.session.sections.findIndex((item) => item.key === key) : 0;
+            setActive(index >= 0 ? index : 0);
+            return;
+          }
+          const text = assignmentPrompt?.trim() || "";
+          setSession(text ? freshSession(text) : null);
+        })
+        .catch(() => {
+          const text = assignmentPrompt?.trim() || "";
+          setSession(text ? freshSession(text) : null);
+        });
+      return;
+    }
     if (saved) {
       const parsed = JSON.parse(saved) as Session;
       const incoming = assignmentPrompt?.trim() || "";
@@ -219,7 +239,7 @@ export function CoachingLoop({
     }
     const text = assignmentPrompt?.trim() || "";
     setSession(text ? freshSession(text) : null);
-  }, [paperId, assignmentPrompt]);
+  }, [paperId, assignmentPrompt, persist]);
 
   useEffect(() => {
     if (!session) return;

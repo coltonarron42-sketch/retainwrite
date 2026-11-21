@@ -1,4 +1,5 @@
 import { assignmentRequirementsSchema, type AssignmentRequirements } from "@/lib/assignment/schema";
+import type { ResumePointer } from "@/lib/papers/resume";
 import type { DemoPaper } from "@/lib/demo/store";
 import { initialStageProgress } from "@/lib/stages/assert";
 import { createClient } from "@/lib/supabase/server";
@@ -8,7 +9,7 @@ export async function listAccountPapers(userId: string): Promise<DemoPaper[]> {
   const { data } = await supabase
     .from("papers")
     .select(
-      "id, title, course, due_date, assignment_prompt, required_length, citation_style, is_free_paper, funded_by, audio_unlocked, current_stage",
+      "id, title, course, due_date, assignment_prompt, required_length, citation_style, is_free_paper, funded_by, audio_unlocked, current_stage, resume",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -25,6 +26,7 @@ export async function listAccountPapers(userId: string): Promise<DemoPaper[]> {
     funded_by: row.funded_by,
     audio_unlocked: row.audio_unlocked,
     current_stage: row.current_stage,
+    resume: (row.resume as ResumePointer | null) ?? null,
     stage_progress: initialStageProgress().map((stage) => ({
       ...stage,
       status:

@@ -1,3 +1,4 @@
+import type { ResumePointer } from "@/lib/papers/resume";
 import { initialStageProgress } from "@/lib/stages/assert";
 import type { StyleMetrics } from "@/lib/style/metrics";
 
@@ -20,6 +21,7 @@ export type DemoPaper = {
   funded_by: "single" | "pack3" | "audio" | null;
   audio_unlocked: boolean;
   current_stage: number;
+  resume?: ResumePointer | null;
   stage_progress: {
     stage: number;
     status: "locked" | "in_progress" | "complete";

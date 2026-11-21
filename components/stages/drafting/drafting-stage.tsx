@@ -101,6 +101,24 @@ export function DraftingStage({
 
   useEffect(() => {
     setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (persist) {
+      void fetch(`/api/papers/${paperId}/autosave`)
+        .then(async (res) => (res.ok ? res.json() : null))
+        .then((data: { drafts?: { fieldKey: string; text: string }[] } | null) => {
+          const drafts = data?.drafts ?? [];
+          if (!drafts.length) return;
+          setSaved((prev) => {
+            const next = { ...prev };
+            for (const row of drafts) {
+              if (!row.fieldKey.startsWith("draft:") || row.fieldKey.endsWith(":wip")) continue;
+              const key = row.fieldKey.slice("draft:".length);
+              if (!next[key]?.length && row.text.trim()) next[key] = row.text.split("\n").filter(Boolean);
+            }
+            return next;
+          });
+        })
+        .catch(() => undefined);
+    }
     const raw = window.localStorage.getItem(storageKey(paperId));
     if (!raw) return;
     try {

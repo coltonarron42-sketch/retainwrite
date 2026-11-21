@@ -244,7 +244,9 @@ export function AssignmentIntake({
       return;
     }
     if (resume.screen === "coaching") {
-      setQIndex(resume.index);
+      const asked = new URLSearchParams(window.location.search).get("question");
+      const askedIndex = asked ? coachingPlan.findIndex((question) => question.id === asked) : -1;
+      setQIndex(askedIndex >= 0 ? askedIndex : resume.index);
       setScreen("coaching");
     }
   }, [demoMode, answers, coachingPlan, storyAngle]);
