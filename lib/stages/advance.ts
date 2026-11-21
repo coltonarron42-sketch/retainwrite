@@ -59,6 +59,49 @@ export function productStageBounce(input: {
   return settled ? "stay" : "stance";
 }
 
+type HealSection = { status: string; loopStep?: string };
+
+/**
+ * Papers that reached Outline still have a Stance-era loop_session and resume.
+ * Repair that in the read path. Do not move a student behind current_stage.
+ */
+export function healStuckOutlineSession<T extends HealSection>(input: {
+  currentStage: number;
+  progress: { stage: number; status: string }[];
+  sections: T[];
+  resume?: { stage?: number; screen?: string | null } | null;
+}): {
+  healed: boolean;
+  sections: T[];
+  resume: { stage: number; screen: "outline" | "sources" | "draft" } | null;
+} {
+  const outlineUnlocked =
+    input.currentStage >= 3 ||
+    input.progress.some((row) => row.stage === 2 && row.status === "complete");
+  if (!outlineUnlocked || input.sections.length === 0) {
+    return { healed: false, sections: input.sections, resume: null };
+  }
+  const stage = Math.max(input.currentStage, 3);
+  const staleSection = input.sections.some(
+    (section) => section.status !== "confirmed" && section.status !== "skipped",
+  );
+  const resumeBehind =
+    !input.resume ||
+    (input.resume.stage ?? 0) < stage ||
+    input.resume.screen === "stance";
+  if (!staleSection && !resumeBehind) {
+    return { healed: false, sections: input.sections, resume: null };
+  }
+  const screen = stage >= 5 ? "draft" : stage === 4 ? "sources" : "outline";
+  return {
+    healed: true,
+    sections: input.sections.map((section) =>
+      section.status === "skipped" ? section : { ...section, status: "confirmed", loopStep: "confirmed" },
+    ),
+    resume: { stage, screen },
+  };
+}
+
 /** Pass, Keep my angle, and Continue anyway all advance. Nothing blocks. */
 export function progressAfterLogicContinue(
   progress: StageProgressRow[],

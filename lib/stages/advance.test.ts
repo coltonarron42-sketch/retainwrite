@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import { initialStageProgress } from "@/lib/stages/assert";
 import {
   advanceFromStage2ThroughEnd,
   advanceProductStage,
+  healStuckOutlineSession,
   productStageBounce,
   progressAfterLogicContinue,
   sectionContinueTarget,
@@ -107,5 +109,32 @@ describe("logic-check continue from stage 2", () => {
         sections: [{ status: "open" }, { status: "open" }, { status: "confirmed" }],
       }),
     ).toBe("stance");
+  });
+
+  it("repairs a paper stuck on the Conclusion save after Outline unlocked", () => {
+    const healed = healStuckOutlineSession({
+      currentStage: 3,
+      progress: [
+        { stage: 2, status: "complete" },
+        { stage: 3, status: "in_progress" },
+      ],
+      sections: [
+        { status: "confirmed", loopStep: "confirmed" },
+        { status: "open", loopStep: "search" },
+        { status: "open", loopStep: "search" },
+      ],
+      resume: { stage: 2, screen: "stance" },
+    });
+    expect(healed.healed).toBe(true);
+    expect(healed.sections.every((section) => section.status === "confirmed")).toBe(true);
+    expect(healed.sections[2]?.loopStep).toBe("confirmed");
+    expect(healed.resume).toEqual({ stage: 3, screen: "outline" });
+    expect(healed.resume && healed.resume.stage >= 3).toBe(true);
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const confirm = loop.slice(loop.indexOf("async function continueAfterLogic"), loop.indexOf("function continueProductStage"));
+    expect(confirm.indexOf("await persistField")).toBeGreaterThan(-1);
+    expect(confirm.indexOf("await persistField")).toBeLessThan(confirm.indexOf("persistAndGo"));
+    expect(confirm).toContain('screen: "outline"');
+    expect(loop).toContain("healStuckOutlineSession");
   });
 });

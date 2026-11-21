@@ -54,6 +54,7 @@ import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
 import { FEATURES, STAGE_LABELS } from "@/lib/config";
 import {
   advanceProductStage,
+  healStuckOutlineSession,
   productStageBounce,
   progressAfterLogicContinue,
   sectionContinueTarget,
@@ -225,6 +226,7 @@ export function CoachingLoop({
       base: Session | null,
       drafts: { fieldKey: string; text: string }[],
       sectionKey?: string | null,
+      resume?: { stage?: number; screen?: string | null } | null,
     ) => {
       if (cancelled) return;
       if (!base?.sections) {
@@ -247,6 +249,24 @@ export function CoachingLoop({
         });
         return { ...section, ideas: refreshed.ideas, logic: refreshed.logic };
       });
+      const healed = healStuckOutlineSession({
+        currentStage: stage,
+        progress: stageProgress,
+        sections: base.sections,
+        resume,
+      });
+      if (healed.healed && healed.resume) {
+        base.sections = healed.sections;
+        if (persist) {
+          void persistField(paperId, {
+            fieldKey: "loop_session",
+            text: JSON.stringify(base),
+            submitted: true,
+            resume: healed.resume,
+            session: base,
+          });
+        }
+      }
       for (const section of base.sections) {
         outlineDrafts.current[section.key] = keptIdeas(section.ideas).join("\n");
       }
@@ -260,15 +280,15 @@ export function CoachingLoop({
     }
     void fetch(`/api/papers/${paperId}/autosave`)
       .then(async (res) => (res.ok ? res.json() : null))
-      .then((data: { session?: Session; drafts?: { fieldKey: string; text: string }[]; resume?: { sectionKey?: string } } | null) => {
+      .then((data: { session?: Session; drafts?: { fieldKey: string; text: string }[]; resume?: { stage?: number; screen?: string | null; sectionKey?: string } } | null) => {
         const remote = data?.session?.sections ? data.session : null;
-        finish(remote ?? saved, data?.drafts ?? [], data?.resume?.sectionKey);
+        finish(remote ?? saved, data?.drafts ?? [], data?.resume?.sectionKey, data?.resume);
       })
       .catch(() => finish(saved, []));
     return () => {
       cancelled = true;
     };
-  }, [paperId, assignmentPrompt, persist]);
+  }, [paperId, assignmentPrompt, persist, stage, stageProgress]);
 
   useEffect(() => {
     if (!session) return;
