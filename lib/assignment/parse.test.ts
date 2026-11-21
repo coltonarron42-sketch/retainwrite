@@ -128,6 +128,22 @@ ${"detail ".repeat(12)}`;
     expect(result.requirements.topic.value).toMatch(/social media/i);
   });
 
+  it("asks the model once and records the elapsed time without the assignment text", () => {
+    const parse = readFileSync("lib/assignment/parse.ts", "utf8");
+    const route = readFileSync("app/api/papers/[paperId]/assignment/parse/route.ts", "utf8");
+    const grok = readFileSync("lib/ai/grok.ts", "utf8");
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(parse.match(/await ask\(/g)).toHaveLength(1);
+    expect(grok).toContain("controller.abort()");
+    expect(grok).toContain("Promise.race");
+    expect(route).toContain("[assignment/parse] timing");
+    const log = route.slice(route.indexOf("[assignment/parse] timing"), route.indexOf("[assignment/parse] timing") + 240);
+    expect(log).toContain("ms:");
+    expect(log).not.toMatch(/corpus|rawText/);
+    expect(intake).toContain("void fetch(`/api/papers/${paperId}/assignment/finalize`");
+    expect(intake).not.toContain("await fetch(`/api/papers/${paperId}/assignment/finalize`");
+  });
+
   it("does not make a second model call when the first response is not an object", async () => {
     let calls = 0;
     const result = await parseAssignmentCorpus(SAMPLE, {

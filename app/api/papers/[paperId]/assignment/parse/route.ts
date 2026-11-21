@@ -73,7 +73,14 @@ export async function POST(request: Request, ctx: Ctx) {
         return NextResponse.json({ error: ensured.error }, { status: ensured.status });
       }
 
+      const started = Date.now();
       const parsed = await parseAssignmentCorpus(corpus, { mode: "live" });
+      console.info("[assignment/parse] timing", {
+        ms: Date.now() - started,
+        model: parsed.parseMeta.model,
+        fallback: parsed.parseMeta.fallback,
+        reason: parsed.parseMeta.reason ?? null,
+      });
       if (parsed.needsConfirmation) {
         console.error("[assignment/parse] live read failed", {
           paperId,
@@ -143,7 +150,14 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const started = Date.now();
   const parsed = await parseAssignmentCorpus(corpus, { mode: "demo" });
+  console.info("[assignment/parse] timing", {
+    ms: Date.now() - started,
+    model: parsed.parseMeta.model,
+    fallback: parsed.parseMeta.fallback,
+    reason: parsed.parseMeta.reason ?? null,
+  });
   await logSessionEvent({
     paperId,
     stage: 1,

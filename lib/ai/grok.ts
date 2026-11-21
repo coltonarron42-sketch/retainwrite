@@ -54,6 +54,7 @@ export async function grokChatJson(opts: GrokChatOpts): Promise<
     opts.reasoningEffort ??
     (opts.model === MODEL_STRONG ? "low" : "none");
 
+  const started = Date.now();
   try {
     const controller = new AbortController();
     const timer = setTimeout(
@@ -98,10 +99,13 @@ export async function grokChatJson(opts: GrokChatOpts): Promise<
     const guard = assertCoachingOnly(text);
     if (!guard.ok) return { ok: false, reason: guard.reason };
 
+    console.info("[grok] read finished", { ms: Date.now() - started, model: opts.model, timeout: false });
     return { ok: true, text, model: opts.model };
   } catch (err) {
     const message = err instanceof Error ? err.message : "grok_error";
-    return { ok: false, reason: message };
+    const timedOut = /abort|timeout/i.test(message);
+    console.info("[grok] read finished", { ms: Date.now() - started, model: opts.model, timeout: timedOut });
+    return { ok: false, reason: timedOut ? "timeout" : "request_failed" };
   }
 }
 
