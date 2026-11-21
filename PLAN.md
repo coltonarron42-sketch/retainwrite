@@ -16,9 +16,9 @@ Help students write better papers by coaching them through a structured process 
 - Visual design and copy must feel calm, clear, and student-friendly (not generic SaaS).
 
 ## 3. Pages & Primary Job of Each
-- **Homepage** — Explain the six-stage coaching path and the “we never write for you” promise. Clear “Start free paper” CTA.
+- **Homepage** — Explain the six-stage coaching path and the "we never write for you" promise. Clear "Start free paper" CTA.
 - **Pricing** — $0 first paper (no card), $9 single, $15 for 3, optional $1.99 audio. Emphasize no subscription.
-- **Auth (Sign up / Log in)** — Simple email + password. Clear “Continue in demo” path that warns progress may be lost.
+- **Auth (Sign up / Log in)** — Simple email + password. Clear "Continue in demo" path that warns progress may be lost.
 - **Papers Dashboard** — List of papers with resume point for each.
 - **Stage 1 – Intake** — Upload assignment (photos, PDFs, text). System extracts prompt, format, rubric, sections. Student confirms. Then short personalization + voice sample questions.
 - **Stage 2 – Stance / Research Loop** — Section-by-section: summarize what the section needs → probe what the student already knows or wants to explore → offer 3–5 research leads (one wildcard) → student confirms ideas. Logic checkpoint after each section.
@@ -26,7 +26,7 @@ Help students write better papers by coaching them through a structured process 
 - **Stage 4 – Sources** — Review and select the research leads. Build references as they go.
 - **Stage 5 – Drafting** — Student writes every sentence from their outline. Coach offers example transition language and light cleanup flags only.
 - **Stage 6 – Revise** — Citation audit, flow, voice check, export to Word/PDF.
-- **AI Checker** (`/ai-checker`) — Standalone tool. Student pastes text, gets signal-strength scores (not “AI likelihood”). Free preview + email unlock for full report.
+- **AI Checker** (`/ai-checker`) — Standalone tool. Student pastes text, gets signal-strength scores (not "AI likelihood"). Free preview + email unlock for full report.
 - **Blog** — Later. Not in first build.
 - **Admin** — Passcode creation for free unlimited access (testing and Angie).
 
@@ -56,7 +56,7 @@ Land → Start free paper → Sign up or demo → Upload assignment → Confirm 
 - Treat Design System and locked page copy as final unless there is clear user or conversion data.
 
 ### RetainWrite QA
-- Test against this PRD and the Design System, not just “does it crash.”
+- Test against this PRD and the Design System, not just "does it crash."
 - Only open issues on pages that have been declared visually complete.
 - Prioritize issues that break one-frame-at-a-time or student-owns-the-sentences above all others.
 
@@ -65,6 +65,68 @@ Land → Start free paper → Sign up or demo → Upload assignment → Confirm 
 2. You + Strategist lock Design System and core copy.
 3. Coding bot builds one page or major feature at a time against this file.
 4. QA is called only after a page is visually and functionally complete.
+
+## 8. Design System — Editorial-Warm
+
+**Direction:** Warm, minimal, scholastic. Think a quiet library or a well-kept notebook — calm, confident, never shouting. Inspired by Apple's restraint and Notion's warmth. Not dark-neon, not flat corporate, not busy.
+
+### 8.1 Color Palette
+- **Background (page):** `#FAF7F2` — warm off-white, like aged paper. Never pure white.
+- **Background (cards/panels):** `#FFFFFF` — pure white, used only for elevated surfaces sitting on the warm page.
+- **Text (primary):** `#1C2B2D` — deep ink, near-black with a slight green cast. High contrast, easy to read for long sessions.
+- **Text (secondary):** `#5C6B6E` — muted slate for supporting labels, captions, helper text.
+- **Text (tertiary/disabled):** `#9AA5A8` — light gray for placeholders and inactive states.
+- **Accent (primary):** `#C4785A` — muted terracotta. Used ONLY for primary buttons, active states, and key highlights. One accent, used sparingly.
+- **Accent (secondary):** `#7A9E7E` — soft sage. Used for success states, progress indicators, positive feedback moments.
+- **Accent (warning):** `#D4A017` — warm amber. Used for logic-check warnings and the anonymous-user progress-loss banner.
+- **Accent (error):** `#C0392B` — restrained red. Used only for true errors and the red-alert logic checkpoint.
+- **Border/divider:** `#E8E2DA` — soft warm gray. 1px, low contrast.
+
+### 8.2 Typography
+- **Headlines:** `Fraunces` (Google Fonts, serif, variable weight 400–700). Scholastic, literary, warm. Use for page titles, stage names, and section headers.
+- **Body:** `Source Sans 3` (Google Fonts, sans-serif). Humanist, highly legible at small sizes. Use for all body text, questions, and coaching prompts.
+- **Mono/code:** `JetBrains Mono` — only for technical strings, code, or raw pasted content.
+- **Scale:** 16px base. Headlines: 32px (h1), 24px (h2), 20px (h3). Body: 16px. Small/caption: 13px. Line height 1.6 for body, 1.2 for headlines.
+- **Max content width:** 680px for reading text. Wider layouts (dashboards, cards) may use up to 1100px with a centered column.
+
+### 8.3 Spacing
+- Base unit: 8px. All spacing is multiples of 8.
+- Page padding: 48px vertical, 24px horizontal (mobile), 64px horizontal (desktop).
+- Section gaps: 64px between major sections on a page.
+- Card padding: 32px.
+- Element gaps within a card: 16px.
+- Generous margins everywhere. If it feels cramped, double the space.
+
+### 8.4 Layout & Components
+- **One frame per screen.** A single question, prompt, or content block dominates. No competing elements.
+- **Ghost skeleton:** A faint, non-interactive outline of the full paper floats in the background (low opacity, ~8%) during Drafting and later stages. Clicking it opens a review overlay; it never blocks the active frame.
+- **Milestone pop-up:** When a stage section completes, a brief overlay shows the growing paper outline with clickable section chips. "Ready for [next stage]?" with a Review option and a Continue option.
+- **Buttons:** Primary — terracotta background (`#C4785A`), white text, 8px border radius, soft shadow (`0 2px 8px rgba(196,120,90,0.25)`), 48px min height for touch. Secondary — white background, terracotta text and 1px border, same radius. Ghost — no border, terracotta text, underline on hover.
+- **Inputs:** White background, 1px warm-gray border, 8px radius, 16px padding, 48px min height. Focus ring: 2px terracotta, offset 2px.
+- **Cards:** White background, 1px warm-gray border (or no border with soft shadow `0 1px 4px rgba(28,43,45,0.06)`), 12px radius.
+- **Progress indicator:** Thin sage bar or simple step counter. Never a busy multi-colored stepper.
+- **Logic-check states:** No flag = quiet sage checkmark. Light feedback = amber note. Strong pushback = amber banner with the claim restated. Red alert = terracotta banner, continue-anyway is a secondary button, never hidden.
+- **Anonymous banner:** Amber background, warm amber text, appears at top of demo sessions: "Progress won't be saved. Create a free account to save and resume anytime."
+
+### 8.5 Copy Rules
+- Short sentences. Plain words. Lead with benefit before feature.
+- Headlines state the outcome, not the mechanism. "Your paper, your words, every step" not "AI-powered writing assistance platform."
+- One idea per sentence. No jargon. No exclamation points in body copy.
+- Button text is a verb + object: "Start free paper," "Upload assignment," "Confirm section."
+- Coaching prompts are warm and specific, never clinical. "What pulled you to servant leadership?" not "Please elaborate on your choice."
+- Error messages name the problem and the next step. Never blame the user.
+
+### 8.6 Motion
+- Minimal. 150–200ms transitions on hover and focus only.
+- No autoplay, no parallax, no decorative animation that delays content.
+- Page transitions: simple fade, 200ms.
+- Skeleton loaders use the warm-gray shimmer, never spinners alone.
+
+### 8.7 Accessibility
+- WCAG 2.1 AA minimum. Text contrast 4.5:1 against backgrounds.
+- All interactive elements keyboard-navigable with visible focus rings.
+- Respect `prefers-reduced-motion`.
+- Form labels always visible, never placeholder-only.
 
 ---
 Last updated: 2026-11-21
