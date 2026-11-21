@@ -238,6 +238,14 @@ export function CoachingLoop({
     window.localStorage.setItem(storageKey(paperId), JSON.stringify(session));
   }, [paperId, session]);
 
+  useEffect(() => {
+    if (!session) return;
+    const stanceDone = session.sections.every((item) => item.status === "confirmed");
+    if (!stanceDone && (stage === 3 || stage === 4)) {
+      router.replace(`/app/papers/${paperId}/stage/2`);
+    }
+  }, [paperId, router, session, stage]);
+
   const section = session?.sections[active];
   const totals = useMemo(
     () => summarizeCountedAnswers(session?.answers ?? []),
@@ -261,6 +269,7 @@ export function CoachingLoop({
   }
 
   const lesson = session.extraction.lesson;
+  const inStance = stage === 2;
   const locks = stage5Locked(session.sections);
   const skipped = session.sections.filter((item) => item.status === "skipped");
 
@@ -408,7 +417,7 @@ export function CoachingLoop({
       {section ? (
         <div className="mt-6 space-y-4">
           <p className="text-sm text-rw-ink/70">{section.needs}</p>
-          {stage === 2 && section.mode === "lesson" && section.loopStep === "teach" && card ? (
+          {inStance && section.mode === "lesson" && section.loopStep === "teach" && card ? (
             <TeachCardView
               card={card}
               onAspect={(aspect) => {
@@ -426,7 +435,7 @@ export function CoachingLoop({
             />
           ) : null}
 
-          {stage === 2 && section.mode === "memory" && section.loopStep === "teach" ? (
+          {inStance && section.mode === "memory" && section.loopStep === "teach" ? (
             <MemoryMirror
               question={mirrorQuestion(lesson.emotionalTerms, session.assignmentText)}
               value={idea}
@@ -467,7 +476,7 @@ export function CoachingLoop({
             />
           ) : null}
 
-          {stage === 2 && section.loopStep === "probe" ? (
+          {inStance && section.loopStep === "probe" ? (
             <div className="space-y-3">
               <p className="font-medium text-rw-ink">
                 {section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER}
@@ -515,9 +524,6 @@ export function CoachingLoop({
                     );
                     paste.reset();
                     setIdea("");
-                    router.push(
-                      `/app/papers/${paperId}/stage/${section.searchStatus === "not_needed" ? 4 : 3}`,
-                    );
                   }}
                 >
                   Save this idea
@@ -558,7 +564,7 @@ export function CoachingLoop({
             </div>
           ) : null}
 
-          {stage === 3 && section.loopStep === "search" && batch ? (
+          {inStance && section.loopStep === "search" && batch ? (
             <LeadBatchView
               ranked={batch.ranked}
               wildcard={batch.wildcard}
@@ -575,12 +581,11 @@ export function CoachingLoop({
               onPick={(lead: PreparedLead) => {
                 updateSection(section.key, { chosenLead: lead.name, loopStep: "summarize" });
                 log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
-                router.push(`/app/papers/${paperId}/stage/4`);
               }}
             />
           ) : null}
 
-          {stage === 4 && (section.loopStep === "summarize" || section.loopStep === "confirm") ? (
+          {inStance && (section.loopStep === "summarize" || section.loopStep === "confirm") ? (
             <ConfirmPanel
               section={section}
               memory={section.mode === "memory"}
@@ -609,7 +614,7 @@ export function CoachingLoop({
             />
           ) : null}
 
-          {stage === 4 && section.loopStep === "logic_check" && section.logic && !section.logicRevealed ? (
+          {inStance && section.loopStep === "logic_check" && section.logic && !section.logicRevealed ? (
             <LogicCheckpoint
               phase="opener"
               onChoice={(choice) => {
@@ -626,7 +631,7 @@ export function CoachingLoop({
             />
           ) : null}
 
-          {stage === 4 && section.loopStep === "logic_check" && section.logic && section.logicRevealed ? (
+          {inStance && section.loopStep === "logic_check" && section.logic && section.logicRevealed ? (
             <LogicCheckpoint
               phase={section.logic.result.tier}
               reason={section.logic.result.reason}
@@ -654,7 +659,7 @@ export function CoachingLoop({
             />
           ) : null}
 
-          {(stage === 2 || stage === 3 || stage === 4) && section.status !== "confirmed" ? (
+          {inStance && section.status !== "confirmed" ? (
             <Button
               type="button"
               variant="ghost"
