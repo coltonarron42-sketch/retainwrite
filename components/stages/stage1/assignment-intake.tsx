@@ -151,6 +151,7 @@ export function AssignmentIntake({
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [storyAngles, setStoryAngles] = useState<StoryAngle[]>([]);
   const [storyAngle, setStoryAngle] = useState<{
     text: string;
@@ -443,7 +444,7 @@ export function AssignmentIntake({
   }
 
   async function confirmCard(opts?: { aiPolicyAck?: boolean }) {
-    if (!requirements) return;
+    if (!requirements || confirming) return;
     const gate = assertAssignmentConfirmGate(requirements);
     if (!gate.ok) {
       setError(gate.reasons[0] ?? "Fix the citation style description first.");
@@ -453,7 +454,6 @@ export function AssignmentIntake({
       return;
     }
     const confirmed = gate.requirements;
-    setRequirements(confirmed);
     setError(null);
 
     if (
@@ -467,6 +467,7 @@ export function AssignmentIntake({
 
     const ack = Boolean(opts?.aiPolicyAck || aiPolicyAck);
     if (ack) setAiPolicyAck(true);
+    setConfirming(true);
 
     try {
       const res = await fetch(`/api/papers/${paperId}/assignment/confirm`, {
@@ -481,16 +482,19 @@ export function AssignmentIntake({
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!demoMode) {
           setError(data.error ?? "We couldn't save this assignment. Please try again.");
+          setConfirming(false);
           return;
         }
       }
     } catch {
       if (!demoMode) {
         setError("We couldn't save this assignment. Please try again.");
+        setConfirming(false);
         return;
       }
     }
 
+    setRequirements(confirmed);
     const nextPaper: DemoPaper = {
       ...paper!,
       title:
@@ -1443,9 +1447,10 @@ export function AssignmentIntake({
           <Button
             type="button"
             variant="secondary"
+            disabled={confirming}
             onClick={() => void confirmCard()}
           >
-            Looks right — continue
+            {confirming ? "Saving the checklist…" : "Looks right — continue"}
           </Button>
         </div>
 

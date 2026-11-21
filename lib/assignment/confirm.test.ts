@@ -48,4 +48,13 @@ describe("assignment confirm gate", () => {
     const edit = source.indexOf('if (key === "topic" || key === "promptQuestion")');
     expect(source.slice(edit, edit + 280)).toContain("setError(null)");
   });
+
+  it("saves the checklist before marking fields confirmed", () => {
+    const source = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    const fn = source.slice(source.indexOf("async function confirmCard"), source.indexOf("function skipInterest"));
+    expect(fn.indexOf("await fetch")).toBeGreaterThan(0);
+    expect(fn.indexOf("await fetch")).toBeLessThan(fn.indexOf("setRequirements(confirmed)"));
+    expect(fn.indexOf("setRequirements(confirmed)")).toBeLessThan(fn.indexOf('setScreen("coaching")'));
+    expect(source).toContain("Saving the checklist…");
+  });
 });
