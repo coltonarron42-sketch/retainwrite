@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   assertAssignmentConfirmGate,
@@ -38,5 +39,13 @@ describe("assignment confirm gate", () => {
     req = confirmAllFields(req);
     expect(req.topic.value).toBe("Margin pricing");
     expect(req.topic.confirmed).toBe(true);
+  });
+
+  it("clears the confirm error once a topic is typed", () => {
+    const source = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(source).toContain('id="confirm-error"');
+    expect(source).toContain("scrollIntoView");
+    const edit = source.indexOf('if (key === "topic" || key === "promptQuestion")');
+    expect(source.slice(edit, edit + 280)).toContain("setError(null)");
   });
 });

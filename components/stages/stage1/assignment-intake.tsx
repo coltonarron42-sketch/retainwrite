@@ -447,6 +447,10 @@ export function AssignmentIntake({
     next: AssignmentRequirements[K],
   ) {
     setRequirements((prev) => (prev ? { ...prev, [key]: next } : prev));
+    if (key === "topic" || key === "promptQuestion") {
+      const value = (next as { value?: string | null }).value;
+      if (typeof value === "string" && value.trim()) setError(null);
+    }
   }
 
   async function confirmCard(opts?: { aiPolicyAck?: boolean }) {
@@ -454,6 +458,9 @@ export function AssignmentIntake({
     const gate = assertAssignmentConfirmGate(requirements);
     if (!gate.ok) {
       setError(gate.reasons[0] ?? "Fix the citation style description first.");
+      window.setTimeout(() => {
+        document.getElementById("confirm-error")?.scrollIntoView({ block: "center" });
+      }, 0);
       return;
     }
     const confirmed = gate.requirements;
@@ -1030,7 +1037,7 @@ export function AssignmentIntake({
           before we continue — we won&apos;t guess for you.
         </p>
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p id="confirm-error" className="mt-4 text-sm text-red-700" role="alert">
             {error}
           </p>
         ) : null}
