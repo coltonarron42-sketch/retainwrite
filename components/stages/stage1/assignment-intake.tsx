@@ -21,7 +21,6 @@ import {
 } from "@/lib/assignment/ai-policy-notice";
 import { extractTextFromFile } from "@/lib/assignment/local-extract";
 import { canStartAssignmentParse } from "@/lib/assignment/can-start-parse";
-import { missingImportant } from "@/lib/assignment/missing-important";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
@@ -297,11 +296,6 @@ export function AssignmentIntake({
   function openChecklist(next: AssignmentRequirements, corpus: string) {
     setRawText(corpus);
     setRequirements(next);
-    const noPrompt = !next.topic.value?.trim() && !next.promptQuestion.value?.trim();
-    if (!followupAsked && missingImportant(next) && !noPrompt) {
-      setScreen("followup");
-      return;
-    }
     setScreen("card");
   }
 
@@ -352,13 +346,8 @@ export function AssignmentIntake({
     setParseStatus(
       stagedFiles.some((f) => f.method === "ocr_pending" || f.pending)
         ? "Reading your photos…"
-        : "Extracting the text…",
+        : "Reading the assignment…",
     );
-    await new Promise((r) => setTimeout(r, 700));
-    setParseStatus("Looking for length, citation style, and sources…");
-    await new Promise((r) => setTimeout(r, 700));
-    setParseStatus("Pulling out the rubric and structure…");
-    await new Promise((r) => setTimeout(r, 500));
 
     try {
       await fetch(`/api/papers/${paperId}/assignment/finalize`, {
@@ -1434,8 +1423,8 @@ export function AssignmentIntake({
               <option value="forbidden">Forbidden</option>
             </select>
             <FieldActions
-              onLooksRight={() =>
-                updateField("aiPolicy", markFieldConfirmed(requirements.aiPolicy))
+              onNotSpecified={() =>
+                updateField("aiPolicy", markNotSpecified(requirements.aiPolicy))
               }
             />
           </CardField>
@@ -1842,19 +1831,15 @@ function CardField({
 }
 
 function FieldActions({
-  onLooksRight,
   onNotSpecified,
   onViewSource,
 }: {
-  onLooksRight: () => void;
+  onLooksRight?: () => void;
   onNotSpecified?: () => void;
   onViewSource?: () => void;
 }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={onLooksRight}>
-        Looks right
-      </Button>
       {onNotSpecified ? (
         <Button type="button" size="sm" variant="ghost" onClick={onNotSpecified}>
           Not specified

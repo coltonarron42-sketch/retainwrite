@@ -17,7 +17,20 @@ import { grokChatJson, hasGrokKey, MODEL_STRONG } from "@/lib/ai/grok";
 
 const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only the JSON schema. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
 
-const PARSE_RETRY = `Return one JSON object and nothing else. schemaVersion must be "1.0". Every field is an object with value, confidence (number from 0 to 1), source ("extracted" or "missing"), and confirmed (false). citationStyle.value is "APA 7", "MLA 9", "Chicago 17 Notes", "Chicago 17 Author-Date", "Harvard", "IEEE", "AMA", "other", or null. aiPolicy.value is "unspecified", "allowed", "restricted", or "forbidden". Use null when a detail is absent.`;
+const PARSE_RETRY = `Return one JSON object and nothing else. schemaVersion must be "1.0". Every field is an object with value, confidence (number from 0 to 1), source ("extracted" or "missing"), and confirmed (false). citationStyle.value is "APA 7", "MLA 9", "Chicago 17 Notes", "Chicago 17 Author-Date", "Harvard", "IEEE", "AMA", "other", or null. aiPolicy.value is "unspecified", "allowed", "restricted", or "forbidden". Use null when a detail is absent. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question.`;
+
+/** One model read, then the rule parser. Two 30s calls were blowing past 15s. */
+export const PARSE_TIMEOUT_MS = 12_000;
+
+/** Length and format instructions are not a topic or a prompt question. */
+export function isFormatOrLengthLine(value: string | null | undefined): boolean {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text) return false;
+  if (/^\(?\d{3,5}\s*words?\)?/i.test(text)) return true;
+  const hits = text.match(/\b(words?|pages?|double|spaced|mla|apa|chicago|format|spacing|font|margin)\b/gi) ?? [];
+  if (hits.length < 2) return false;
+  return !/\b(how|why|should|affect|social|health|argue|explain|discuss)\b/i.test(text);
+}
 
 export type ModelReader = (input: { system: string; user: string }) => Promise<
   | { ok: true; text: string; model: string }
@@ -117,6 +130,28 @@ export function fillEmptyRequirements(
   return next;
 }
 
+/** Drop a format line stored as the topic, then fill the real prompt from the rules. */
+export function sanitizeParsedRequirements(
+  primary: AssignmentRequirements,
+  extra: AssignmentRequirements,
+): AssignmentRequirements {
+  const next = { ...primary };
+  if (typeof next.topic.value === "string" && isFormatOrLengthLine(next.topic.value)) {
+    next.topic = emptyRequirements().topic;
+  }
+  if (
+    typeof next.promptQuestion.value === "string" &&
+    isFormatOrLengthLine(next.promptQuestion.value)
+  ) {
+    next.promptQuestion = emptyRequirements().promptQuestion;
+  }
+  const filled = fillEmptyRequirements(next, extra);
+  if (typeof filled.topic.value === "string" && isFormatOrLengthLine(filled.topic.value)) {
+    filled.topic = emptyRequirements().topic;
+  }
+  return filled;
+}
+
 function acceptModelJson(text: string, corpus: string): AssignmentRequirements | null {
   let json: unknown;
   try {
@@ -144,7 +179,7 @@ const defaultModel: ModelReader = ({ system, user }) =>
       name: "assignment_requirements",
       schema: { type: "object", additionalProperties: true },
     },
-    timeoutMs: 30_000,
+    timeoutMs: PARSE_TIMEOUT_MS,
   });
 
 export async function parseAssignmentCorpus(
@@ -181,7 +216,7 @@ export async function parseAssignmentCorpus(
     if (first.ok) {
       const accepted = acceptModelJson(first.text, rawText);
       if (accepted) {
-        const filled = fillEmptyRequirements(
+        const filled = sanitizeParsedRequirements(
           accepted,
           scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
         );
@@ -199,7 +234,7 @@ export async function parseAssignmentCorpus(
     }
 
     const retry =
-      first.ok || modelReason === "schema"
+      modelReason === "schema"
         ? await ask({
             system: `${PARSE_SYSTEM}\n${PARSE_RETRY}`,
             user: rawText.slice(0, 80_000),
@@ -208,7 +243,7 @@ export async function parseAssignmentCorpus(
     if (retry?.ok) {
       const accepted = acceptModelJson(retry.text, rawText);
       if (accepted) {
-        const filled = fillEmptyRequirements(
+        const filled = sanitizeParsedRequirements(
           accepted,
           scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
         );
@@ -226,9 +261,9 @@ export async function parseAssignmentCorpus(
     }
   }
 
-  const fallback = scrubEvidence(
-    parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess }),
-    rawText,
+  const fallback = sanitizeParsedRequirements(
+    scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess }), rawText),
+    scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
   );
   if (live && !requirementsHaveFacts(fallback)) {
     console.info("[assignment/parse] live read failed", { reason: modelReason, facts: 0 });

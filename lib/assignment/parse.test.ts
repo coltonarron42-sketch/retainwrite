@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { coerceRequirements, schemaIssueLog } from "@/lib/assignment/coerce";
-import { parseAssignmentCorpus } from "@/lib/assignment/parse";
+import { PARSE_TIMEOUT_MS, parseAssignmentCorpus } from "@/lib/assignment/parse";
 import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
 
 const SAMPLE = `SOC 101
@@ -75,6 +76,57 @@ describe("assignment parse recovery", () => {
     expect(result.requirements.topic.value).toBeNull();
     expect(result.requirements.dueDate.value).toBeNull();
     expect(result.parseMeta.reason).toBe("timeout");
+  });
+
+  it("rejects a length line as the topic and keeps the real prompt", async () => {
+    const corpus = `SOC 101
+Argumentative Essay
+Write a paper on (1250 words), double spaced, MLA format.
+How does social media affect teen mental health?
+Use at least 4 scholarly sources.
+${"detail ".repeat(12)}`;
+    const result = await parseAssignmentCorpus(corpus, {
+      mode: "live",
+      askModel: async () => ({
+        ok: true,
+        text: JSON.stringify({
+          topic: "1250 words), double spaced, MLA format",
+          promptQuestion: "",
+          citationStyle: "MLA",
+          length: "1250 words",
+          course: "SOC 101",
+          paperType: "argumentative essay",
+        }),
+        model: "test",
+      }),
+    });
+    expect(result.requirements.topic.value ?? "").not.toMatch(/1250 words/i);
+    expect(result.requirements.topic.value ?? "").not.toMatch(/double spaced/i);
+    expect(result.requirements.promptQuestion.value).toMatch(/social media affect teen mental health/i);
+    expect(result.requirements.length.value?.wordsMin).toBe(1250);
+    expect(result.requirements.citationStyle.value).toBe("MLA 9");
+    expect(PARSE_TIMEOUT_MS).toBeLessThanOrEqual(12_000);
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(intake).not.toContain("setTimeout(r, 700)");
+    expect(intake).not.toContain('setScreen("followup")');
+    expect(intake).toContain("Looks right — continue");
+    expect(intake.match(/Looks right/g)).toHaveLength(1);
+  });
+
+  it("falls back after one timed-out read instead of a second 30s call", async () => {
+    let calls = 0;
+    const started = Date.now();
+    const result = await parseAssignmentCorpus(SAMPLE, {
+      mode: "live",
+      askModel: async () => {
+        calls += 1;
+        return { ok: false, reason: "timeout" };
+      },
+    });
+    expect(calls).toBe(1);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(result.parseMeta.reason).toBe("timeout");
+    expect(result.requirements.topic.value).toMatch(/social media/i);
   });
 
   it("keeps a second model response when the first one is not an object", async () => {

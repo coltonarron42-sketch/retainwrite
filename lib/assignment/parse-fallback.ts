@@ -18,6 +18,13 @@ import { dropInvalidEvidence } from "@/lib/assignment/evidence";
  * Rule-based assignment parse used when Grok is unavailable.
  * // SOP: coaching only, never generate submission text
  */
+function isFormatTopic(value: string): boolean {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (/^\(?\d{3,5}\s*words?\)?/i.test(text)) return true;
+  const hits = text.match(/\b(words?|pages?|double|spaced|mla|apa|chicago|format|spacing|font|margin)\b/gi) ?? [];
+  return hits.length >= 2 && !/\b(how|why|should|affect|social|health|argue|explain|discuss)\b/i.test(text);
+}
+
 export function parseAssignmentFallback(
   rawText: string,
   options?: { allowTopicAndDueDateGuess?: boolean },
@@ -123,13 +130,13 @@ export function parseAssignmentFallback(
   const asked = text.match(
     /\b(?:write(?:\s+a(?:n)?)?(?:\s+\d+[–-]?\d*\s*page)?\s+(?:paper|essay|analysis)?\s*)?(?:about|on|analyz(?:e|ing)|discuss|argue(?:\s+that)?)\s+(.{12,160}?)(?:[.!?\n]|$)/i,
   );
-  if (asked?.[1]) {
+  if (asked?.[1] && !isFormatTopic(asked[1])) {
     req.topic = extractedField(asked[1].trim().slice(0, 180), 0.7, asked[0].slice(0, 120));
   }
   const question = text
     .split(/\n/)
-    .map((line) => line.trim())
-    .find((line) => line.endsWith("?") && line.split(/\s+/).length >= 6);
+    .map((line) => line.trim().replace(/^(?:question|prompt)\s*:\s*/i, ""))
+    .find((line) => line.endsWith("?") && line.split(/\s+/).length >= 6 && !isFormatTopic(line));
   if (question) {
     req.promptQuestion = extractedField(question.slice(0, 400), 0.7, question.slice(0, 120));
   }
