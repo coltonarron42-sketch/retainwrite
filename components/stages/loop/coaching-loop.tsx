@@ -887,7 +887,7 @@ function StageFive({
   if (locked) {
     return (
       <div className="mt-8 rounded-xl bg-white p-4">
-        <h2 className="font-display text-2xl">Draft locked</h2>
+        <h2 className="font-display text-2xl">Drafting locked</h2>
         <p className="mt-2 text-sm text-rw-ink/75">
           Finish or skip every section before the draft opens. Skipped sections still need to be finished.
         </p>

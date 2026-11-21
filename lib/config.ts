@@ -81,7 +81,7 @@ export const STAGE_LABELS = [
   "Stance",
   "Outline",
   "Sources",
-  "Draft",
+  "Drafting",
   "Revise",
 ] as const;
 

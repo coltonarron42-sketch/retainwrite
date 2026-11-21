@@ -5,7 +5,7 @@ const STAGES = [
   { n: "02", title: "Stance", copy: "Face counterarguments in your own words." },
   { n: "03", title: "Outline", copy: "Build structure with claims and evidence notes." },
   { n: "04", title: "Sources", copy: "Turn readings into study beats you can reuse." },
-  { n: "05", title: "Draft", copy: "Write section by section — you type every sentence." },
+  { n: "05", title: "Drafting", copy: "Write section by section — you type every sentence." },
   { n: "06", title: "Revise", copy: "Checklist coaching that keeps your voice intact." },
 ];
 
