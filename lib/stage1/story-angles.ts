@@ -52,7 +52,20 @@ export function cleanInterestPhrase(raw: string): string | null {
   return clipToClause(cleaned, 72);
 }
 
+/** Only a finished sentence is safe to put after "You mentioned". */
+export function mentionablePhrase(raw: string): string | null {
+  const text = raw.replace(/…+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text || /paper\?\?/i.test(text)) return null;
+  const sentence = text.match(/^(.{8,90}?)[.!?](?:\s|$)/);
+  if (!sentence) return null;
+  const phrase = sentence[1].trim();
+  if (!phrase || /^(paper|essay|assignment)$/i.test(phrase)) return null;
+  if (DANGLING.test(phrase.split(/\s+/).at(-1) ?? "")) return null;
+  return phrase;
+}
+
 export function usableStoryTopic(topic: string): string {
+  if (/paper\?\?/i.test(topic)) return "this assignment";
   const cleaned = clipPhrase(topic.replace(/\?+/g, " "), 80);
   if (!cleaned || /^(paper|essay|assignment|this assignment)$/i.test(cleaned)) return "this assignment";
   return cleaned;
@@ -64,7 +77,7 @@ export function buildStoryAngleFallback(input: {
 }): StoryAngle[] {
   const topic = usableStoryTopic(input.topic || "this assignment");
   const phrase = input.studentPhrases
-    .map((item) => cleanInterestPhrase(item))
+    .map((item) => mentionablePhrase(item))
     .find((item): item is string => Boolean(item));
 
   const angles: StoryAngle[] = [

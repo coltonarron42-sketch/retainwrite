@@ -3,6 +3,7 @@ import {
   assertStoryAngleQuestion,
   buildStoryAngleFallback,
   cleanInterestPhrase,
+  mentionablePhrase,
 } from "@/lib/stage1/story-angles";
 
 describe("story angles", () => {
@@ -25,13 +26,9 @@ describe("story angles", () => {
       studentPhrases: ["idk music"],
     });
     const personal = angles.find((angle) => angle.id === "change");
-    expect(personal?.question).toMatch(/you mentioned music/i);
+    expect(personal?.question).not.toMatch(/you mentioned/i);
     expect(personal?.question).not.toMatch(/idk/i);
-    expect(personal?.question).not.toMatch(/Social media and teen mental health/);
-    const mentions = angles.filter((angle) =>
-      angle.question.includes("Social media and teen mental health"),
-    );
-    expect(mentions).toHaveLength(1);
+    expect(personal?.question).not.toMatch(/idk music/i);
   });
 
   it("does not cut a phrase mid-word or keep a junk topic", () => {
@@ -62,6 +59,24 @@ describe("story angles", () => {
     const blob = JSON.stringify(angles);
     expect(blob).not.toMatch(/paper\?\?/);
     expect(blob).not.toMatch(/TikTok with\./);
+  });
+
+  it("does not say You mentioned for a cut-off follow phrase, and hides paper??", () => {
+    expect(
+      mentionablePhrase(
+        "I mostly follow a few channels about homework every night and then I scroll until I fall asleep at my desk after practice",
+      ),
+    ).toBeNull();
+    const angles = buildStoryAngleFallback({
+      topic: "paper??",
+      studentPhrases: [
+        "I mostly follow a few channels about homework every night and then I scroll until I fall asleep at my desk after practice",
+      ],
+    });
+    const blob = JSON.stringify(angles);
+    expect(blob).not.toMatch(/paper\?\?/);
+    expect(blob).not.toMatch(/You mentioned I mostly follow/);
+    expect(mentionablePhrase("I mostly follow the team chat.")).toBe("I mostly follow the team chat");
   });
 });
 
