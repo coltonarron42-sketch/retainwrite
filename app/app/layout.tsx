@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DemoLossBanner } from "@/components/app/demo-loss-banner";
 import { requireUser } from "@/lib/auth/require-user";
 
 export default async function AppLayout({
@@ -6,10 +7,11 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await requireUser("/app");
+  const access = await requireUser("/app");
 
   return (
     <div className="min-h-screen bg-rw-paper">
+      {access.kind !== "user" ? <DemoLossBanner /> : null}
       <header className="border-b border-rw-ink/10 bg-white/50">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 md:px-8">
           <Link href="/app" className="font-display text-xl text-rw-ink">
