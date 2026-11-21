@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { finalizeLogicCheck, logicCheckFromNotes } from "@/lib/coaching/logicCheck";
+import { assignmentAlertQuote, finalizeLogicCheck, logicCheckFromNotes } from "@/lib/coaching/logicCheck";
 import {
   quoteOnWordBoundary,
   refreshStoredLogic,
@@ -37,6 +37,23 @@ describe("logic revision from the QA claim", () => {
       mode: "lesson",
     });
     expect(check.studentClaimRef?.quote.endsWith("healt")).toBe(false);
+    const raw = claimCutMidWord();
+    expect(raw.slice(0, 80).endsWith("healt") || raw.slice(0, 160).endsWith("healt")).toBe(true);
+    expect(
+      assignmentAlertQuote({
+        confirmedPrompt: "How does social media affect teen mental health?",
+        raw,
+      }),
+    ).toBe("How does social media affect teen mental health?");
+    const flagged = logicCheckFromNotes({
+      notes: OLD_CLAIM,
+      assignmentText: raw,
+      confirmedPrompt: "How does social media affect teen mental health?",
+      rubricRef: "prompt",
+      mode: "lesson",
+    });
+    expect(flagged.citedTerm?.quote).toBe("How does social media affect teen mental health?");
+    expect(flagged.citedTerm?.quote.endsWith("healt")).toBe(false);
   });
 
   it("prefills revise, reframe, and a new angle with the current claim", () => {

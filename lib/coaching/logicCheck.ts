@@ -199,12 +199,34 @@ export function stage4Complete(
 }
 
 /** Deterministic coach for known classroom cases and offline checks. */
+/** The alert quotes the confirmed prompt or topic, on a word boundary, never a raw-paste fragment. */
+export function assignmentAlertQuote(input: {
+  confirmedPrompt?: string | null;
+  confirmedTopic?: string | null;
+  raw?: string | null;
+}): string {
+  const formatLine = /^\(?\d{3,5}\s*words?\b/i;
+  const preferred = [input.confirmedPrompt, input.confirmedTopic]
+    .map((value) => value?.replace(/\s+/g, " ").trim() ?? "")
+    .find((value) => value && !formatLine.test(value));
+  const source = preferred || input.raw?.replace(/\s+/g, " ").trim() || "this assignment";
+  const sentence = source.split(/(?<=[.!?])\s+/)[0] ?? source;
+  return quoteOnWordBoundary(sentence, 140);
+}
+
 export function logicCheckFromNotes(input: {
   notes: string;
   assignmentText: string;
   rubricRef: string;
   mode: "lesson" | "memory";
+  confirmedPrompt?: string | null;
+  confirmedTopic?: string | null;
 }): LogicCheckResult {
+  const assignmentQuote = assignmentAlertQuote({
+    confirmedPrompt: input.confirmedPrompt,
+    confirmedTopic: input.confirmedTopic,
+    raw: input.assignmentText,
+  });
   const notes = input.notes;
   const cautious = /cautionary|warning|critically|without ethics/i.test(notes);
   const hitlerMoral = /hitler/i.test(notes) && /objectively moral|moral leader/i.test(notes);
@@ -240,7 +262,7 @@ export function logicCheckFromNotes(input: {
       basis: "debatable_interpretation",
       confidence: 0.72,
       reason: "A reasonable reader could see this another way.",
-      citedTerm: { rubricRef: input.rubricRef, quote: input.assignmentText.slice(0, 80) },
+      citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
       alternativeAngles: [
@@ -262,7 +284,7 @@ export function logicCheckFromNotes(input: {
           : overgeneral
             ? "A claim about everyone needs more than a single pattern."
             : "One example cannot carry the whole claim.",
-      citedTerm: { rubricRef: input.rubricRef, quote: input.assignmentText.trim().slice(0, 80) || "this assignment" },
+      citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: "One example does not prove a claim about everyone.",
       alternativeAngles: [
@@ -277,7 +299,7 @@ export function logicCheckFromNotes(input: {
   const thin = isThinAnswer(notes, 12).thin;
   const addressed = notesAddressAssignment(notes, input.assignmentText);
   if (thin || !addressed) {
-    const quote = input.assignmentText.trim().slice(0, 80) || "this assignment";
+    const quote = assignmentQuote;
     return {
       tier: "moderate",
       basis: "weak_support",

@@ -752,6 +752,8 @@ export function CoachingLoop({
                   assignmentText: session.assignmentText,
                   rubricRef: section.rubricRef,
                   mode: section.mode,
+                  confirmedPrompt,
+                  confirmedTopic,
                 });
                 const logic = finalizeLogicCheck(raw, {
                   assignmentText: session.assignmentText,
