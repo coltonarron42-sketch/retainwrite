@@ -304,6 +304,24 @@ describe("memory path and logic checkpoint", () => {
       mode: "lesson",
     });
     expect(onPrompt.tier).toBe("pass");
+
+    const overclaim = "Social media causes all teen depression because my friend was sad after Instagram";
+    const flagged = logicCheckFromNotes({
+      notes: overclaim,
+      assignmentText: assignment,
+      rubricRef: "lesson_concept",
+      mode: "lesson",
+    });
+    const finalized = finalizeLogicCheck(flagged, {
+      assignmentText: assignment,
+      studentNotes: overclaim,
+      mode: "lesson",
+      rubricRequiresCounterargument: false,
+      validRubricRefs: ["lesson_concept"],
+    });
+    expect(finalized.result.tier).toBe("strong");
+    expect(finalized.result.reason.toLowerCase()).toMatch(/everyone|one person/);
+    expect(finalized.blocks).toBe(false);
   });
 
   it("mirrors verbatim feeling words and builds a student-only memory card", () => {

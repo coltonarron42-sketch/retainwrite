@@ -240,6 +240,31 @@ export function logicCheckFromNotes(input: {
       reframeAvailable: false,
     };
   }
+  const overgeneral = /\b(all|every|always|everyone|never)\b/i.test(notes);
+  const anecdotal = /\b(my friend|my mom|my dad|someone i know|i know someone)\b/i.test(notes);
+  if (overgeneral || anecdotal) {
+    return {
+      tier: "strong",
+      basis: "defies_logic",
+      confidence: 0.9,
+      reason:
+        overgeneral && anecdotal
+          ? "One person's story cannot show that this happens to everyone."
+          : overgeneral
+            ? "A claim about everyone needs more than a single pattern."
+            : "One example cannot carry the whole claim.",
+      citedTerm: { rubricRef: input.rubricRef, quote: input.assignmentText.trim().slice(0, 80) || "this assignment" },
+      studentClaimRef: { ideaId: "claim", quote: notes.slice(0, 160) },
+      logicFailure: "One example does not prove a claim about everyone.",
+      alternativeAngles: [
+        {
+          question: "What would count as evidence beyond one person's experience?",
+          rubricRef: input.rubricRef,
+        },
+      ],
+      reframeAvailable: true,
+    };
+  }
   const thin = isThinAnswer(notes, 12).thin;
   const addressed = notesAddressAssignment(notes, input.assignmentText);
   if (thin || !addressed) {
