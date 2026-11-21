@@ -24,6 +24,7 @@ import { canStartAssignmentParse } from "@/lib/assignment/can-start-parse";
 import { missingImportant } from "@/lib/assignment/missing-important";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
+import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
 import {
   emptyRequirements,
@@ -85,6 +86,9 @@ type StoryAngle = {
 type Props = {
   paperId: string;
   demoMode?: boolean;
+  accountPaper?: DemoPaper | null;
+  initialRequirements?: AssignmentRequirements | null;
+  initialRawText?: string;
 };
 
 const CITATION_OPTIONS: Array<CitationStyle | ""> = [
@@ -114,7 +118,13 @@ function fieldNeedsAttention(field: Field<unknown>) {
   return field.confidence < 0.6 || field.source === "missing";
 }
 
-export function AssignmentIntake({ paperId, demoMode = true }: Props) {
+export function AssignmentIntake({
+  paperId,
+  demoMode = false,
+  accountPaper = null,
+  initialRequirements = null,
+  initialRawText = "",
+}: Props) {
   const router = useRouter();
   const pasteMeta = usePasteMeta();
   const [paper, setPaper] = useState<DemoPaper | null>(null);
@@ -150,8 +160,13 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   } | null>(null);
 
   useEffect(() => {
-    setPaper(getDemoPaper(paperId) ?? null);
-  }, [paperId]);
+    setPaper(accountPaper ?? getDemoPaper(paperId) ?? null);
+    if (initialRequirements) {
+      setRequirements(initialRequirements);
+      setRawText(initialRawText);
+      setScreen("card");
+    }
+  }, [paperId, accountPaper, initialRequirements, initialRawText]);
 
   const coachingPlan = useMemo(() => {
     if (!requirements) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
@@ -312,15 +327,41 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           requirements?: AssignmentRequirements;
           rawText?: string;
           parseStatus?: string;
+          needsConfirmation?: boolean;
+          message?: string;
+          error?: string;
+          saved?: boolean;
         };
-        if (res.ok && data.requirements) {
+        if (data.needsConfirmation) {
+          setError(data.message ?? UNREADABLE_ASSIGNMENT);
+          openChecklist(data.requirements ?? emptyRequirements(), data.rawText ?? combined);
+          return;
+        }
+        if (data.requirements) {
+          if (data.error || data.saved === false) {
+            setError(data.error ?? "We read the assignment but couldn't store it. Please try again.");
+          }
           openChecklist(data.requirements, data.rawText ?? combined);
           return;
         }
+        if (!demoMode) {
+          setError(data.error ?? UNREADABLE_ASSIGNMENT);
+          openChecklist(emptyRequirements(), combined);
+          return;
+        }
       } catch {
-        /* local fallback */
+        if (!demoMode) {
+          setError(UNREADABLE_ASSIGNMENT);
+          openChecklist(emptyRequirements(), combined);
+          return;
+        }
       }
-      openChecklist(parseAssignmentFallback(combined), combined);
+      openChecklist(
+        parseAssignmentFallback(combined, {
+          allowTopicAndDueDateGuess: process.env.NODE_ENV !== "production",
+        }),
+        combined,
+      );
       return;
     }
 
@@ -360,7 +401,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     if (ack) setAiPolicyAck(true);
 
     try {
-      await fetch(`/api/papers/${paperId}/assignment/confirm`, {
+      const res = await fetch(`/api/papers/${paperId}/assignment/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -368,8 +409,18 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           aiPolicyAck: ack || undefined,
         }),
       });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!demoMode) {
+          setError(data.error ?? "We couldn't save this assignment. Please try again.");
+          return;
+        }
+      }
     } catch {
-      /* demo local continue */
+      if (!demoMode) {
+        setError("We couldn't save this assignment. Please try again.");
+        return;
+      }
     }
 
     const nextPaper: DemoPaper = {

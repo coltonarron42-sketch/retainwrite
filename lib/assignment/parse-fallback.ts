@@ -18,7 +18,10 @@ import { dropInvalidEvidence } from "@/lib/assignment/evidence";
  * Rule-based assignment parse used when Grok is unavailable.
  * // SOP: coaching only, never generate submission text
  */
-export function parseAssignmentFallback(rawText: string): AssignmentRequirements {
+export function parseAssignmentFallback(
+  rawText: string,
+  options?: { allowTopicAndDueDateGuess?: boolean },
+): AssignmentRequirements {
   const text = rawText.trim();
   const req = emptyRequirements();
   if (!text) return req;
@@ -85,10 +88,14 @@ export function parseAssignmentFallback(rawText: string): AssignmentRequirements
     }
   }
 
-  // Due date
-  const due = text.match(
-    /\b(?:due|deadline)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i,
-  );
+  const allowGuesses = options?.allowTopicAndDueDateGuess !== false;
+
+  // Due date — only when guesses are allowed. Production must not invent one.
+  const due = allowGuesses
+    ? text.match(
+        /\b(?:due|deadline)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i,
+      )
+    : null;
   if (due) {
     req.dueDate = extractedField(due[1], 0.7, due[0]);
   }
@@ -110,16 +117,21 @@ export function parseAssignmentFallback(rawText: string): AssignmentRequirements
     req.paperType = extractedField("essay", 0.7, "essay");
   }
 
-  // Topic: first substantial sentence or "Write about X"
-  const writeAbout = text.match(
-    /\b(?:write(?:\s+a(?:n)?)?\s+(?:paper|essay)?\s+)?(?:about|on|analyz(?:e|ing)|discuss|argue)\s+(.{20,140}?)(?:[.!?\n]|$)/i,
-  );
-  if (writeAbout) {
-    req.topic = extractedField(writeAbout[1].trim(), 0.65, writeAbout[0].slice(0, 80));
-  } else {
-    const firstLine = text.split(/\n/).map((l) => l.trim()).find((l) => l.length > 20);
-    if (firstLine) {
-      req.topic = extractedField(firstLine.slice(0, 160), 0.4, firstLine.slice(0, 80));
+  // Topic guesses (first line / "write about") are not used in production.
+  if (allowGuesses) {
+    const writeAbout = text.match(
+      /\b(?:write(?:\s+a(?:n)?)?\s+(?:paper|essay)?\s+)?(?:about|on|analyz(?:e|ing)|discuss|argue)\s+(.{20,140}?)(?:[.!?\n]|$)/i,
+    );
+    if (writeAbout) {
+      req.topic = extractedField(writeAbout[1].trim(), 0.65, writeAbout[0].slice(0, 80));
+    } else {
+      const firstLine = text
+        .split(/\n/)
+        .map((line) => line.trim())
+        .find((line) => line.length > 20);
+      if (firstLine) {
+        req.topic = extractedField(firstLine.slice(0, 160), 0.4, firstLine.slice(0, 80));
+      }
     }
   }
 

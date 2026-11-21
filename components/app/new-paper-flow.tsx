@@ -9,7 +9,13 @@ import {
   type DemoProfile,
 } from "@/lib/demo/store";
 
-export function NewPaperFlow({ stripeConfigured }: { stripeConfigured: boolean }) {
+export function NewPaperFlow({
+  stripeConfigured,
+  mode = "demo",
+}: {
+  stripeConfigured: boolean;
+  mode?: "live" | "demo";
+}) {
   const [profile, setProfile] = useState<DemoProfile | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,9 +25,29 @@ export function NewPaperFlow({ stripeConfigured }: { stripeConfigured: boolean }
     if (started.current) return;
     started.current = true;
 
+    void (async () => {
     try {
       const p = getDemoProfile();
       setProfile(p);
+
+      if (mode === "live") {
+        const res = await fetch("/api/papers", { method: "POST" });
+        const data = (await res.json().catch(() => ({}))) as {
+          id?: string;
+          error?: string;
+        };
+        if (res.status === 402) {
+          setReady(true);
+          return;
+        }
+        if (!res.ok || !data.id) {
+          setError(data.error ?? "Could not start the paper.");
+          setReady(true);
+          return;
+        }
+        window.location.assign(`/app/papers/${data.id}/stage/1`);
+        return;
+      }
 
       if (!p.free_paper_used) {
         p.free_paper_used = true;
@@ -50,7 +76,8 @@ export function NewPaperFlow({ stripeConfigured }: { stripeConfigured: boolean }
       setError(err instanceof Error ? err.message : "Could not start paper");
       setReady(true);
     }
-  }, []);
+    })();
+  }, [mode]);
 
   if (error) {
     return (
@@ -71,7 +98,7 @@ export function NewPaperFlow({ stripeConfigured }: { stripeConfigured: boolean }
   return (
     <div className="px-5 py-12 md:px-8">
       <CheckoutOptions
-        demoMode
+        demoMode={mode !== "live"}
         stripeConfigured={stripeConfigured}
         cancelPath="/app/papers/new"
       />

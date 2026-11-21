@@ -8,6 +8,7 @@ import { applyPageWordEstimates } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import {
   assignmentRequirementsSchema,
+  emptyRequirements,
   type AssignmentRequirements,
 } from "@/lib/assignment/schema";
 import { usableWordCount } from "@/lib/assignment/corpus";
@@ -23,9 +24,34 @@ export type ParseResult = {
     fallback: boolean;
     candidates: unknown[];
     usableWords: number;
+    reason?: string;
   };
   needsInput: boolean;
+  /** Live read failed. Requirements are empty — do not treat them as extracted facts. */
+  needsConfirmation: boolean;
 };
+
+function liveFailure(rawText: string, words: number, reason: string): ParseResult {
+  return {
+    requirements: emptyRequirements(),
+    rawText,
+    parseMeta: {
+      model: "none",
+      fallback: false,
+      candidates: [],
+      usableWords: words,
+      reason,
+    },
+    needsInput: true,
+    needsConfirmation: true,
+  };
+}
+
+function publicGrokReason(reason: string): string {
+  if (reason === "missing_key") return "missing_key";
+  if (/abort|timeout/i.test(reason)) return "timeout";
+  return "request_failed";
+}
 
 function scrubEvidence(req: AssignmentRequirements, corpus: string): AssignmentRequirements {
   const next = { ...req };
@@ -45,13 +71,19 @@ function scrubEvidence(req: AssignmentRequirements, corpus: string): AssignmentR
   return next;
 }
 
-export async function parseAssignmentCorpus(corpus: string): Promise<ParseResult> {
+export async function parseAssignmentCorpus(
+  corpus: string,
+  options?: { mode?: "live" | "demo" },
+): Promise<ParseResult> {
+  const mode = options?.mode ?? "demo";
   const rawText = corpus.trim();
   const words = usableWordCount(rawText);
+  const allowTopicAndDueDateGuess = process.env.NODE_ENV !== "production";
 
   if (words < 20) {
+    if (mode === "live") return liveFailure(rawText, words, "too_short");
     return {
-      requirements: parseAssignmentFallback(""),
+      requirements: parseAssignmentFallback("", { allowTopicAndDueDateGuess }),
       rawText,
       parseMeta: {
         model: "none",
@@ -60,6 +92,7 @@ export async function parseAssignmentCorpus(corpus: string): Promise<ParseResult
         usableWords: words,
       },
       needsInput: true,
+      needsConfirmation: false,
     };
   }
 
@@ -95,15 +128,24 @@ export async function parseAssignmentCorpus(corpus: string): Promise<ParseResult
               usableWords: words,
             },
             needsInput: false,
+            needsConfirmation: false,
           };
         }
+        if (mode === "live") return liveFailure(rawText, words, "schema");
       } catch {
-        /* fall through */
+        if (mode === "live") return liveFailure(rawText, words, "invalid_json");
       }
+    } else if (mode === "live") {
+      return liveFailure(rawText, words, publicGrokReason(result.reason));
     }
+  } else if (mode === "live") {
+    return liveFailure(rawText, words, "missing_key");
   }
 
-  const fallback = scrubEvidence(parseAssignmentFallback(rawText), rawText);
+  const fallback = scrubEvidence(
+    parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess }),
+    rawText,
+  );
   return {
     requirements: fallback,
     rawText,
@@ -114,5 +156,6 @@ export async function parseAssignmentCorpus(corpus: string): Promise<ParseResult
       usableWords: words,
     },
     needsInput: false,
+    needsConfirmation: false,
   };
 }

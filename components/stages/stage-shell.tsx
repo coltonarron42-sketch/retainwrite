@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
 import { CoachingLoop } from "@/components/stages/loop/coaching-loop";
 import { StageRail } from "@/components/stages/stage-rail";
@@ -13,6 +14,10 @@ import Link from "next/link";
 type Props = {
   paperId: string;
   stage: number;
+  demoMode?: boolean;
+  initialPaper?: DemoPaper | null;
+  initialRequirements?: AssignmentRequirements | null;
+  initialRawText?: string;
 };
 
 function loopStageAccess(progress: StageProgressRow[], stage: number) {
@@ -26,13 +31,24 @@ function loopStageAccess(progress: StageProgressRow[], stage: number) {
   return assertStageUnlocked(progress, stage);
 }
 
-export function StageShell({ paperId, stage }: Props) {
+export function StageShell({
+  paperId,
+  stage,
+  demoMode = false,
+  initialPaper = null,
+  initialRequirements = null,
+  initialRawText = "",
+}: Props) {
   const router = useRouter();
   const [paper, setPaper] = useState<DemoPaper | null | undefined>(undefined);
 
   useEffect(() => {
-    setPaper(getDemoPaper(paperId) ?? null);
-  }, [paperId]);
+    if (initialPaper) {
+      setPaper(initialPaper);
+      return;
+    }
+    setPaper(demoMode ? (getDemoPaper(paperId) ?? null) : null);
+  }, [paperId, demoMode, initialPaper]);
 
   const statuses = useMemo(() => {
     const map: Record<number, "locked" | "in_progress" | "complete"> = {};
@@ -88,7 +104,13 @@ export function StageShell({ paperId, stage }: Props) {
       <StageRail paperId={paperId} current={stage} statuses={statuses} />
       <div className="flex-1 px-5 py-10 md:px-10">
         {stage === 1 ? (
-          <AssignmentIntake paperId={paperId} demoMode />
+          <AssignmentIntake
+            paperId={paperId}
+            demoMode={demoMode}
+            accountPaper={demoMode ? null : paper}
+            initialRequirements={initialRequirements}
+            initialRawText={initialRawText}
+          />
         ) : (
           <CoachingLoop
             paperId={paperId}
@@ -110,6 +132,19 @@ export function StageShell({ paperId, stage }: Props) {
                   }),
                 };
                 upsertDemoPaper(next);
+                if (!demoMode) {
+                  void fetch(`/api/papers/${paperId}/progress`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      currentStage,
+                      progress: next.stage_progress.map((row) => ({
+                        stage: row.stage,
+                        status: row.status,
+                      })),
+                    }),
+                  });
+                }
                 return next;
               });
             }}

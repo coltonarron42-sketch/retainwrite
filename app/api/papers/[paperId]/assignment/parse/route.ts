@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { mergeCorpus, type CorpusSegment } from "@/lib/assignment/corpus";
 import { parseAssignmentCorpus } from "@/lib/assignment/parse";
-import { getDemoSession } from "@/lib/demo/session-server";
+import { resolveReaderMode } from "@/lib/auth/reader-mode";
+import { clearDemoSession, getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
+import { UNREADABLE_ASSIGNMENT, ensureUserPaper } from "@/lib/papers/account";
 import { logSessionEvent } from "@/lib/session-events";
 import { createClient } from "@/lib/supabase/server";
 
@@ -55,8 +57,93 @@ export async function POST(request: Request, ctx: Ctx) {
     );
   }
 
-  const parsed = await parseAssignmentCorpus(corpus);
+  const demo = await getDemoSession();
+  let authenticated = false;
+  if (hasSupabaseConfig()) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    authenticated = Boolean(user);
+    if (user) await clearDemoSession();
 
+    if (resolveReaderMode({ authenticated, demoSession: Boolean(demo) }) === "live" && user) {
+      const ensured = await ensureUserPaper(supabase, user.id, paperId);
+      if (!ensured.ok) {
+        return NextResponse.json({ error: ensured.error }, { status: ensured.status });
+      }
+
+      const parsed = await parseAssignmentCorpus(corpus, { mode: "live" });
+      if (parsed.needsConfirmation) {
+        console.error("[assignment/parse] live read failed", {
+          paperId,
+          reason: parsed.parseMeta.reason ?? "unreadable",
+        });
+      }
+
+      await logSessionEvent({
+        paperId,
+        stage: 1,
+        event: parsed.needsConfirmation ? "assignment_parse_needs_input" : "assignment_parsed",
+        detail: {
+          fallback: false,
+          usableWords: parsed.parseMeta.usableWords,
+          model: parsed.parseMeta.model,
+          reason: parsed.parseMeta.reason ?? null,
+        },
+      });
+
+      if (parsed.needsConfirmation) {
+        return NextResponse.json({
+          parseStatus: "needs_confirmation",
+          requirements: parsed.requirements,
+          rawText: parsed.rawText,
+          parseMeta: parsed.parseMeta,
+          needsConfirmation: true,
+          message: UNREADABLE_ASSIGNMENT,
+          saved: false,
+        });
+      }
+
+      const { error } = await supabase.from("assignments").upsert(
+        {
+          paper_id: paperId,
+          user_id: user.id,
+          raw_text: parsed.rawText,
+          requirements: parsed.requirements,
+          parse_meta: parsed.parseMeta,
+          parse_status: "ready",
+        },
+        { onConflict: "paper_id" },
+      );
+
+      if (error) {
+        console.error("[assignment/parse] save failed", { paperId, code: error.code });
+        return NextResponse.json({
+          parseStatus: "ready",
+          requirements: parsed.requirements,
+          rawText: parsed.rawText,
+          parseMeta: parsed.parseMeta,
+          saved: false,
+          error: "We read the assignment but couldn't store it. Please try again.",
+        });
+      }
+
+      return NextResponse.json({
+        parseStatus: "ready",
+        requirements: parsed.requirements,
+        rawText: parsed.rawText,
+        parseMeta: parsed.parseMeta,
+        saved: true,
+      });
+    }
+  }
+
+  if (resolveReaderMode({ authenticated, demoSession: Boolean(demo) }) !== "demo" && hasSupabaseConfig()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const parsed = await parseAssignmentCorpus(corpus, { mode: "demo" });
   await logSessionEvent({
     paperId,
     stage: 1,
@@ -68,49 +155,11 @@ export async function POST(request: Request, ctx: Ctx) {
     },
   });
 
-  const demo = await getDemoSession();
-  if (demo || !hasSupabaseConfig()) {
-    return NextResponse.json({
-      parseStatus: parsed.needsInput ? "needs_input" : "ready",
-      requirements: parsed.requirements,
-      rawText: parsed.rawText,
-      parseMeta: parsed.parseMeta,
-      demo: Boolean(demo) || !hasSupabaseConfig(),
-    });
-  }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: assignment, error } = await supabase
-    .from("assignments")
-    .upsert(
-      {
-        paper_id: paperId,
-        user_id: user.id,
-        raw_text: parsed.rawText,
-        requirements: parsed.requirements,
-        parse_meta: parsed.parseMeta,
-        parse_status: parsed.needsInput ? "needs_input" : "ready",
-      },
-      { onConflict: "paper_id" },
-    )
-    .select("id, parse_status")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
   return NextResponse.json({
-    parseStatus: assignment.parse_status,
+    parseStatus: parsed.needsInput ? "needs_input" : "ready",
     requirements: parsed.requirements,
     rawText: parsed.rawText,
     parseMeta: parsed.parseMeta,
+    demo: true,
   });
 }

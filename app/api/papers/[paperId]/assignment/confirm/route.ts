@@ -3,8 +3,11 @@ import { z } from "zod";
 import { assertAssignmentConfirmGate } from "@/lib/assignment/confirm";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
-import { getDemoSession } from "@/lib/demo/session-server";
+import { resolveReaderMode } from "@/lib/auth/reader-mode";
+import { clearDemoSession, getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
+import { ensureUserPaper } from "@/lib/papers/account";
+import { coerceDueDate } from "@/lib/papers/funding";
 import { logSessionEvent } from "@/lib/session-events";
 import { createClient } from "@/lib/supabase/server";
 
@@ -60,7 +63,7 @@ export async function POST(request: Request, ctx: Ctx) {
       requirements.promptQuestion.value ||
       null,
     course: requirements.course.value,
-    due_date: requirements.dueDate.value,
+    due_date: coerceDueDate(requirements.dueDate.value),
     required_length: formatLengthLabel(requirements.length.value),
     citation_style:
       requirements.citationStyle.value === "other"
@@ -79,65 +82,80 @@ export async function POST(request: Request, ctx: Ctx) {
   });
 
   const demo = await getDemoSession();
-  if (demo || !hasSupabaseConfig()) {
-    return NextResponse.json({
-      ok: true,
-      demo: true,
-      paperPatch,
-      confirmedAt: new Date().toISOString(),
-      aiPolicyAckAt: body.aiPolicyAck ? new Date().toISOString() : null,
-    });
+  let authenticated = false;
+  if (hasSupabaseConfig()) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    authenticated = Boolean(user);
+    if (user) await clearDemoSession();
+
+    if (resolveReaderMode({ authenticated, demoSession: Boolean(demo) }) === "live" && user) {
+      const ensured = await ensureUserPaper(supabase, user.id, paperId);
+      if (!ensured.ok) {
+        return NextResponse.json({ error: ensured.error }, { status: ensured.status });
+      }
+
+      const now = new Date().toISOString();
+      const { error: assignmentError } = await supabase.from("assignments").upsert(
+        {
+          paper_id: paperId,
+          user_id: user.id,
+          requirements,
+          confirmed_at: now,
+          ai_policy_ack_at: body.aiPolicyAck ? now : null,
+          field_confirmations: {},
+        },
+        { onConflict: "paper_id" },
+      );
+
+      if (assignmentError) {
+        console.error("[assignment/confirm] save failed", {
+          paperId,
+          code: assignmentError.code,
+        });
+        return NextResponse.json(
+          { error: "We couldn't save this assignment. Please try again." },
+          { status: 500 },
+        );
+      }
+
+      const { data: paper } = await supabase
+        .from("papers")
+        .select("title")
+        .eq("id", paperId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      await supabase
+        .from("papers")
+        .update({
+          ...paperPatch,
+          title: paper?.title || paperPatch.title,
+          updated_at: now,
+        })
+        .eq("id", paperId)
+        .eq("user_id", user.id);
+
+      return NextResponse.json({
+        ok: true,
+        paperPatch,
+        confirmedAt: now,
+        aiPolicyAckAt: body.aiPolicyAck ? now : null,
+      });
+    }
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  if (resolveReaderMode({ authenticated, demoSession: Boolean(demo) }) !== "demo" && hasSupabaseConfig()) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = new Date().toISOString();
-  const { error: assignmentError } = await supabase
-    .from("assignments")
-    .upsert(
-      {
-        paper_id: paperId,
-        user_id: user.id,
-        requirements,
-        confirmed_at: now,
-        ai_policy_ack_at: body.aiPolicyAck ? now : null,
-        field_confirmations: {},
-      },
-      { onConflict: "paper_id" },
-    );
-
-  if (assignmentError) {
-    return NextResponse.json({ error: assignmentError.message }, { status: 500 });
-  }
-
-  // Only fill empty title
-  const { data: paper } = await supabase
-    .from("papers")
-    .select("title")
-    .eq("id", paperId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  await supabase
-    .from("papers")
-    .update({
-      ...paperPatch,
-      title: paper?.title || paperPatch.title,
-      updated_at: now,
-    })
-    .eq("id", paperId)
-    .eq("user_id", user.id);
-
   return NextResponse.json({
     ok: true,
+    demo: true,
     paperPatch,
-    confirmedAt: now,
-    aiPolicyAckAt: body.aiPolicyAck ? now : null,
+    confirmedAt: new Date().toISOString(),
+    aiPolicyAckAt: body.aiPolicyAck ? new Date().toISOString() : null,
   });
 }

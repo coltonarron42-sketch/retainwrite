@@ -10,14 +10,27 @@ import {
   type DemoProfile,
 } from "@/lib/demo/store";
 
-export function Dashboard() {
+type Props = {
+  mode?: "live" | "demo";
+  papers?: DemoPaper[];
+  credits?: number;
+  freePaperAvailable?: boolean;
+};
+
+export function Dashboard({
+  mode = "demo",
+  papers: accountPapers,
+  credits = 0,
+  freePaperAvailable = false,
+}: Props) {
   const [profile, setProfile] = useState<DemoProfile | null>(null);
-  const [papers, setPapers] = useState<DemoPaper[]>([]);
+  const [papers, setPapers] = useState<DemoPaper[]>(accountPapers ?? []);
 
   useEffect(() => {
+    if (mode === "live") return;
     setProfile(getDemoProfile());
     setPapers(listDemoPapers());
-  }, []);
+  }, [mode]);
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-12 md:px-8">
@@ -25,10 +38,14 @@ export function Dashboard() {
         <div>
           <h1 className="font-display text-4xl text-rw-ink">Your papers</h1>
           <p className="mt-2 text-sm text-rw-ink/60">
-            Credits: {profile?.paper_credits ?? 0}
-            {profile && !profile.free_paper_used
-              ? " · first paper still free"
-              : ""}
+            Credits: {mode === "live" ? credits : (profile?.paper_credits ?? 0)}
+            {mode === "live"
+              ? freePaperAvailable
+                ? " · first paper still free"
+                : ""
+              : profile && !profile.free_paper_used
+                ? " · first paper still free"
+                : ""}
           </p>
         </div>
         <Button asChild variant="secondary">

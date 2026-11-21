@@ -31,6 +31,12 @@ export function CheckoutOptions({
     setError(null);
     setLoadingKind(kind);
 
+    if (!demoMode && !stripeConfigured) {
+      setError("Payments aren't available yet.");
+      setLoadingKind(null);
+      return;
+    }
+
     if (demoMode || !stripeConfigured) {
       try {
         const profile = getDemoProfile();
