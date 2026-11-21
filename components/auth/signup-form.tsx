@@ -27,6 +27,22 @@ export function SignupForm({ nextPath = "/app" }: Props) {
   const notice = signUpState.notice ?? demoState.notice;
   const pending = signUpPending || demoPending;
 
+  if (signUpState.notice) {
+    return (
+      <div className="mt-8 space-y-4">
+        <p className="text-sm text-rw-teal" role="status">
+          {signUpState.notice}
+        </p>
+        <p className="text-sm text-rw-ink/70">
+          After you confirm, sign in to start your first paper.
+        </p>
+        <Link href="/login" className="inline-block font-semibold text-rw-teal">
+          Go to log in
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-8 space-y-6">
       <form action={signUp} className="space-y-4">

@@ -105,7 +105,7 @@ export async function signUpAction(
   if (!data.session) {
     return {
       notice:
-        "Check your email for a confirmation link from RetainWrite. Open it in Safari or Chrome (not only the mail app’s preview). Or continue in demo mode to explore now.",
+        "Check your email for a confirmation link from RetainWrite. Open it in Safari or Chrome, not only the mail app’s preview.",
     };
   }
 
