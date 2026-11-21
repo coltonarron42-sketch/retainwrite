@@ -1330,17 +1330,33 @@ export function AssignmentIntake({
               attention={fieldNeedsAttention(requirements[key])}
               confirmed={requirements[key].confirmed}
             >
-              <Input
-                value={(requirements[key].value as string | null) ?? ""}
-                onChange={(e) =>
-                  updateField(
-                    key,
-                    markFieldConfirmed(requirements[key], {
-                      value: e.target.value || null,
-                    }),
-                  )
-                }
-              />
+              {key === "otherInstructions" ? (
+                // Multi-line so Enter keeps a line break between instructions.
+                <Textarea
+                  rows={3}
+                  value={(requirements[key].value as string | null) ?? ""}
+                  onChange={(e) =>
+                    updateField(
+                      key,
+                      markFieldConfirmed(requirements[key], {
+                        value: e.target.value || null,
+                      }),
+                    )
+                  }
+                />
+              ) : (
+                <Input
+                  value={(requirements[key].value as string | null) ?? ""}
+                  onChange={(e) =>
+                    updateField(
+                      key,
+                      markFieldConfirmed(requirements[key], {
+                        value: e.target.value || null,
+                      }),
+                    )
+                  }
+                />
+              )}
               <FieldActions
                 onLooksRight={() =>
                   updateField(key, markFieldConfirmed(requirements[key]))
@@ -1839,6 +1855,9 @@ export function AssignmentIntake({
       .map((a) => a.answerText)
       .join("\n");
     const metrics = sample ? computeStyleMetrics(sample) : null;
+    // The student sees words against the 200-word target, so that is what the
+    // check mark and the "short side" note follow.
+    const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
 
     return (
       <div className="mx-auto max-w-xl">
@@ -1848,7 +1867,7 @@ export function AssignmentIntake({
           picked a story, and you have an early take.
         </p>
 
-        {metrics && voiceEval.ok && readyVoiceLine(voiceEval.totalWords) ? (
+        {metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? (
           <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
             <p>{readyVoiceLine(voiceEval.totalWords)}</p>
           </div>
@@ -1858,9 +1877,9 @@ export function AssignmentIntake({
           <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
           <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
           <li>
-            {voiceEval.ok ? "✓" : "·"} Voice sample (
+            {voiceWordsMet ? "✓" : "·"} Voice sample (
             {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
-            {voiceEval.ok ? "" : ", optional: more helps the coach match your voice"})
+            {voiceWordsMet ? "" : ", optional: more helps the coach match your voice"})
           </li>
           <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
         </ul>
@@ -1913,9 +1932,9 @@ export function AssignmentIntake({
             {reason}
           </p>
         ))}
-        {voiceShortNote({ voiceOk: voiceEval.ok }) ? (
+        {voiceShortNote({ voiceOk: voiceWordsMet }) ? (
           <p className="mt-3 text-sm text-rw-ink/70" role="note">
-            {voiceShortNote({ voiceOk: voiceEval.ok })}
+            {voiceShortNote({ voiceOk: voiceWordsMet })}
           </p>
         ) : null}
       </div>

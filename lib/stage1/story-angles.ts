@@ -52,7 +52,7 @@ export function cleanInterestPhrase(raw: string): string | null {
   return clipToClause(cleaned, 72);
 }
 
-/** Only a finished sentence is safe to put after "You mentioned". */
+/** Only a finished sentence is safe to quote back as "You wrote, “…”". */
 export function mentionablePhrase(raw: string): string | null {
   const text = raw.replace(/…+/g, " ").replace(/\s+/g, " ").trim();
   if (!text || /paper\?\?/i.test(text)) return null;
@@ -100,7 +100,7 @@ export function buildStoryAngleFallback(input: {
     {
       id: "change",
       question: phrase
-        ? `You mentioned ${phrase}. Is there a moment there that speaks to this assignment?`
+        ? `You wrote, “${phrase}.” Is there a moment there that speaks to this assignment?`
         : `What changed when you tried something related to ${topic}?`,
       whyFits: phrase
         ? "Uses something you already mentioned, without turning it into the whole prompt."

@@ -15,17 +15,22 @@ export function useDraftSave(input: {
   resume?: ResumePointer;
 }): SaveStatusValue {
   const [status, setStatus] = useState<SaveStatusValue>("idle");
-  const skipMount = useRef(true);
+  // Text already known for this field (loaded, prefilled, or saved). Moving
+  // between questions changes the field and the text together, so that is a
+  // new baseline, not an edit; only real changes against it are saved.
+  const baseline = useRef({ fieldKey: input.fieldKey, text: input.text });
 
   const latest = useRef(input);
   latest.current = input;
 
   useEffect(() => {
     if (!input.enabled) return;
-    if (skipMount.current) {
-      skipMount.current = false;
+    if (baseline.current.fieldKey !== input.fieldKey) {
+      baseline.current = { fieldKey: input.fieldKey, text: input.text };
+      setStatus("idle");
       return;
     }
+    if (baseline.current.text === input.text) return;
     setStatus("saving");
     const timer = window.setTimeout(() => {
       const current = latest.current;
@@ -34,7 +39,10 @@ export function useDraftSave(input: {
         text: current.text,
         submitted: false,
         resume: current.resume,
-      }).then((ok) => setStatus(ok ? "saved" : "idle"));
+      }).then((ok) => {
+        if (ok) baseline.current = { fieldKey: current.fieldKey, text: current.text };
+        setStatus(ok ? "saved" : "idle");
+      });
     }, DRAFT_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [input.enabled, input.fieldKey, input.paperId, input.text]);
