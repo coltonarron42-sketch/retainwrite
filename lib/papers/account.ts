@@ -4,7 +4,7 @@ import type { createClient } from "@/lib/supabase/server";
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 export const UNREADABLE_ASSIGNMENT =
-  "We couldn't read this. Please confirm the details.";
+  "We couldn't read that. Paste or retype the key details.";
 
 /**
  * Insert a paper for this user when it does not exist yet.

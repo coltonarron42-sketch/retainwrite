@@ -922,6 +922,11 @@ export function AssignmentIntake({
           We read your prompt. Check every field. Fix anything that&apos;s off
           before we continue — we won&apos;t guess for you.
         </p>
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
 
         <div className="mt-8 space-y-6">
           <CardField

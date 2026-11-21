@@ -1,0 +1,95 @@
+import { describe, expect, it, vi } from "vitest";
+import { coerceRequirements, schemaIssueLog } from "@/lib/assignment/coerce";
+import { parseAssignmentCorpus } from "@/lib/assignment/parse";
+import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
+
+const SAMPLE = `SOC 101
+Write about how social media affects teen mental health in detail.
+Due: May 2, 2026
+5 pages, MLA format.
+${"detail ".repeat(20)}`;
+
+describe("assignment parse recovery", () => {
+  it("coerces loose model JSON and logs issue codes without the payload", () => {
+    const coerced = coerceRequirements({
+      requirements: {
+        topic: "how social media affects teens",
+        citationStyle: "APA",
+        length: "5 pages",
+        aiPolicy: { value: "not allowed", confidence: "80" },
+      },
+    });
+    const parsed = assignmentRequirementsSchema.parse(coerced);
+    expect(parsed.schemaVersion).toBe("1.0");
+    expect(parsed.topic.value).toContain("social media");
+    expect(parsed.citationStyle.value).toBe("APA 7");
+    expect(parsed.length.value?.pagesMin).toBe(5);
+    expect(parsed.aiPolicy.value).toBe("forbidden");
+    expect(parsed.aiPolicy.confidence).toBe(0.8);
+
+    const invalid = assignmentRequirementsSchema.safeParse({
+      schemaVersion: "nope",
+      topic: "my secret essay about shuttle buses",
+    });
+    expect(invalid.success).toBe(false);
+    if (invalid.success) return;
+    const issues = schemaIssueLog(invalid.error);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(JSON.stringify(issues)).not.toContain("shuttle");
+    expect(JSON.stringify(issues)).not.toContain("secret");
+    expect(issues.every((issue) => issue.path.length < 80 && !issue.code.includes(" "))).toBe(true);
+  });
+
+  it("retries once, then uses the rule parser without inventing topic or due date", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let calls = 0;
+    const result = await parseAssignmentCorpus(SAMPLE, {
+      mode: "live",
+      askModel: async ({ system }) => {
+        calls += 1;
+        if (calls === 2) expect(system).toContain("schemaVersion must be");
+        return { ok: true, text: "[]", model: "test" };
+      },
+    });
+    expect(calls).toBe(2);
+    expect(result.needsConfirmation).toBe(false);
+    expect(result.parseMeta.fallback).toBe(true);
+    expect(result.requirements.topic.value).toBeNull();
+    expect(result.requirements.dueDate.value).toBeNull();
+    expect(result.requirements.course.value).toMatch(/SOC/i);
+    expect(result.requirements.citationStyle.value).toBe("MLA 9");
+    const logged = error.mock.calls.map((call) => JSON.stringify(call));
+    expect(logged.join("\n")).not.toContain("social media");
+    expect(logged.join("\n")).toContain("schema mismatch");
+    error.mockRestore();
+  });
+
+  it("asks the student to retype when the model and the rules both find nothing", async () => {
+    const bland =
+      "Please complete the attached work for class this week and bring questions to the seminar session tomorrow morning with extra notes.";
+    const result = await parseAssignmentCorpus(bland, {
+      mode: "live",
+      askModel: async () => ({ ok: false, reason: "timeout" }),
+    });
+    expect(result.needsConfirmation).toBe(true);
+    expect(result.requirements.topic.value).toBeNull();
+    expect(result.requirements.dueDate.value).toBeNull();
+    expect(result.parseMeta.reason).toBe("timeout");
+  });
+
+  it("keeps a second model response when the first one is not an object", async () => {
+    let calls = 0;
+    const result = await parseAssignmentCorpus(SAMPLE, {
+      mode: "live",
+      askModel: async () => {
+        calls += 1;
+        if (calls === 1) return { ok: true, text: "[]", model: "test" };
+        return { ok: true, text: JSON.stringify({ topic: "listening in the clinic" }), model: "test" };
+      },
+    });
+    expect(calls).toBe(2);
+    expect(result.parseMeta.fallback).toBe(false);
+    expect(result.requirements.topic.value).toContain("listening");
+    expect(result.needsConfirmation).toBe(false);
+  });
+});
