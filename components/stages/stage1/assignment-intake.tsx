@@ -48,6 +48,7 @@ import {
   type VoiceAnswer,
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
+import { persistField } from "@/lib/papers/persist";
 import { resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
@@ -533,7 +534,7 @@ export function AssignmentIntake({
     setScreen("story");
   }
 
-  function submitAnswer(opts?: { skip?: boolean }) {
+  async function submitAnswer(opts?: { skip?: boolean }) {
     const q = coachingPlan[qIndex];
     if (!q) return;
     const text = opts?.skip ? "" : draftAnswer.trim();
@@ -567,6 +568,18 @@ export function AssignmentIntake({
             },
           ]),
     ];
+    if (!demoMode && text) {
+      const saved = await persistField(paperId, {
+        fieldKey: `stage1:${q.id}`,
+        text,
+        submitted: true,
+        resume: { stage: 1, questionId: q.id, screen: "coaching" },
+      });
+      if (!saved) {
+        setError("Couldn't save that answer. It is still in the box.");
+        return;
+      }
+    }
     setAnswers(nextAnswers);
     setDraftAnswer("");
     setError(null);
@@ -694,11 +707,23 @@ export function AssignmentIntake({
     goToStanceOnStory();
   }
 
-  function submitStanceAnswer() {
+  async function submitStanceAnswer() {
     const text = draftAnswer.trim();
     if (wordCount(text) < 25) {
       setError("Your early take needs at least 25 words.");
       return;
+    }
+    if (!demoMode) {
+      const saved = await persistField(paperId, {
+        fieldKey: "stage1:stance_early",
+        text,
+        submitted: true,
+        resume: { stage: 1, questionId: "stance_early", screen: "coaching" },
+      });
+      if (!saved) {
+        setError("Couldn't save that answer. It is still in the box.");
+        return;
+      }
     }
     const angleText = storyAngle?.text || "this assignment";
     const nextAnswers: IntakeAnswer[] = [
@@ -1579,7 +1604,7 @@ export function AssignmentIntake({
             type="button"
             variant="secondary"
             onClick={() =>
-              stanceMode ? submitStanceAnswer() : submitAnswer()
+              void (stanceMode ? submitStanceAnswer() : submitAnswer())
             }
           >
             Continue

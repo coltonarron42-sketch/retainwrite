@@ -21,6 +21,7 @@ import { nextDraftScreen, type DraftScreen } from "@/lib/drafting/screen";
 import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
+import { persistField } from "@/lib/papers/persist";
 import { buildSkeleton } from "@/lib/skeleton/build";
 import { wordCount } from "@/lib/utils";
 
@@ -56,7 +57,8 @@ export function DraftingStage({
   thesis,
   lessonConcept,
   sections,
-}: Props) {
+  persist = true,
+}: Props & { persist?: boolean }) {
   const router = useRouter();
   const ledger = useMemo(
     () =>
@@ -228,13 +230,26 @@ export function DraftingStage({
       setError(data.error ?? "Finish the earlier section first.");
       return;
     }
-    setSaved((prev) => ({ ...prev, [current.key]: commitSentence(prev[current.key] ?? [], draft.trim()) }));
+    const nextSentences = commitSentence(saved[current.key] ?? [], draft.trim());
+    if (persist) {
+      const savedOk = await persistField(paperId, {
+        fieldKey: `draft:${current.key}`,
+        text: nextSentences.join("\n"),
+        submitted: true,
+        resume: { stage: 5, sectionKey: current.key, screen: "draft" },
+      });
+      if (!savedOk) {
+        setError("Couldn't save this sentence. It is still in the box.");
+        return;
+      }
+    }
+    setSaved((prev) => ({ ...prev, [current.key]: nextSentences }));
     setDraft("");
     setError(null);
     setDecline(false);
   }
 
-  function finishParagraph() {
+  async function finishParagraph() {
     const words = wordCount((saved[current.key] ?? []).join(" "));
     if (words < current.minWords) {
       setError(`Write at least ${current.minWords} words in your own words before this part is done.`);
@@ -246,6 +261,18 @@ export function DraftingStage({
       return;
     }
     const last = index >= plan.length - 1;
+    if (persist) {
+      const savedOk = await persistField(paperId, {
+        fieldKey: `draft:${current.key}`,
+        text: (saved[current.key] ?? []).join("\n"),
+        submitted: true,
+        resume: { stage: 5, sectionKey: current.key, screen: last ? "payoff" : "milestone" },
+      });
+      if (!savedOk) {
+        setError("Couldn't save this section. It is still here.");
+        return;
+      }
+    }
     setScreen(nextDraftScreen("zoomed_in", last ? "conclusion_saved" : "section_saved"));
     requestHiddenDraftMilestone(paperId, {
       trigger: "draft_section_done",
@@ -419,7 +446,7 @@ export function DraftingStage({
                 <Button type="button" onClick={() => void saveSentence()} disabled={!draft.trim()}>
                   Add sentence
                 </Button>
-                <Button type="button" variant="outline" onClick={finishParagraph}>
+                <Button type="button" variant="outline" onClick={() => void finishParagraph()}>
                   {current.kind === "intro" ? "Check my intro" : "This paragraph is done"}
                 </Button>
               </div>

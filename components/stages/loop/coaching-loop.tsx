@@ -64,6 +64,7 @@ import {
   voiceNoteForStage,
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
+import { persistField } from "@/lib/papers/persist";
 import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
@@ -109,6 +110,7 @@ type Props = {
   assignmentPrompt: string | null;
   confirmedTopic?: string | null;
   confirmedPrompt?: string | null;
+  persist?: boolean;
   stageProgress?: StageProgressRow[];
   onStageProgress?: (
     progress: StageProgressRow[],
@@ -182,6 +184,7 @@ export function CoachingLoop({
   assignmentPrompt,
   confirmedTopic = null,
   confirmedPrompt = null,
+  persist = true,
   stageProgress = [],
   onStageProgress,
 }: Props) {
@@ -275,6 +278,19 @@ export function CoachingLoop({
     const current = raw ? (JSON.parse(raw) as Session) : session;
     if (!current) return;
     commit({ ...current, events: [...current.events, event] });
+  }
+
+  async function saveLoop(next: Session, fieldKey: string, text: string, resume: { stage: number; sectionKey?: string }) {
+    if (!persist) return true;
+    const ok = await persistField(paperId, {
+      fieldKey,
+      text,
+      submitted: true,
+      resume: { ...resume, screen: "stance" },
+      session: next,
+    });
+    if (!ok) setThinNote("Couldn't save. Your note is still here.");
+    return ok;
   }
 
   async function persistAndGo(progress: StageProgressRow[], nextStage: number) {
@@ -484,19 +500,28 @@ export function CoachingLoop({
               onPaste={paste.onPaste}
               onDrop={paste.onDrop}
               onSave={() => {
+                void (async () => {
                 const mirrorProbe = probeForThinNote(idea);
                 if (mirrorProbe) {
                   setThinNote(mirrorProbe);
                   return;
                 }
                 setThinNote(null);
+                const nextIdeas = [...keptIdeas(section.ideas), idea];
+                const nextSession: Session = {
+                  ...session,
+                  sections: session.sections.map((item) =>
+                    item.key === section.key ? { ...item, ideas: nextIdeas, loopStep: "probe" as const } : item,
+                  ),
+                };
+                if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
                 const safety = safetyNoteFor(idea);
                 const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
                 updateSection(
                   section.key,
                   {
                     teachStatus: "mirrored",
-                    ideas: [...keptIdeas(section.ideas), idea],
+                    ideas: nextIdeas,
                     loopStep: "probe",
                   },
                   {
@@ -516,6 +541,7 @@ export function CoachingLoop({
                 );
                 paste.reset();
                 setIdea("");
+                })();
               }}
             />
           ) : null}
@@ -540,6 +566,7 @@ export function CoachingLoop({
                 <Button
                   type="button"
                   onClick={() => {
+                    void (async () => {
                     if (!idea.trim()) return;
                     const probe = probeForThinNote(idea);
                     if (probe) {
@@ -547,6 +574,16 @@ export function CoachingLoop({
                       return;
                     }
                     setThinNote(null);
+                    const nextIdeas = [...keptIdeas(section.ideas), idea];
+                    const nextSession: Session = {
+                      ...session,
+                      sections: session.sections.map((item) =>
+                        item.key === section.key
+                          ? { ...item, ideas: nextIdeas, loopStep: section.searchStatus === "not_needed" ? "summarize" : "search" }
+                          : item,
+                      ),
+                    };
+                    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
                     const reel =
                       section.mode === "lesson" && section.concept
                         ? highlightReelFor({ answer: idea, concept: section.concept })
@@ -556,7 +593,7 @@ export function CoachingLoop({
                     updateSection(
                       section.key,
                       {
-                        ideas: [...keptIdeas(section.ideas), idea],
+                        ideas: nextIdeas,
                         chosenLead: seeded?.name ?? section.chosenLead,
                         loopStep: section.searchStatus === "not_needed" ? "summarize" : "search",
                       },
@@ -575,6 +612,7 @@ export function CoachingLoop({
                     );
                     paste.reset();
                     setIdea("");
+                    })();
                   }}
                 >
                   Save this idea
@@ -764,7 +802,26 @@ export function CoachingLoop({
           sections={session.sections}
           editable
           onEdit={(key, text) => updateSection(key, { ideas: text.trim() ? [text.trim()] : [] })}
-          onContinue={continueProductStage}
+          onContinue={() => {
+            void (async () => {
+              if (persist) {
+                for (const item of session.sections) {
+                  const ok = await persistField(paperId, {
+                    fieldKey: `outline:${item.key}`,
+                    text: keptIdeas(item.ideas).join("\n"),
+                    submitted: true,
+                    resume: { stage: 3, sectionKey: item.key, screen: "outline" },
+                    session,
+                  });
+                  if (!ok) {
+                    setThinNote("Couldn't save the outline.");
+                    return;
+                  }
+                }
+              }
+              await continueProductStage();
+            })();
+          }}
         />
       ) : null}
 
@@ -787,6 +844,7 @@ export function CoachingLoop({
 
       {stage === 5 && FEATURES.draftingMuscle && !locks ? (
         <DraftingStage
+          persist={persist}
           paperId={paperId}
           promptType={session.extraction.promptType}
           storyAngle={lesson.statement}

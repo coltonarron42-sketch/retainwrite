@@ -118,6 +118,7 @@ export function StageShell({
             assignmentPrompt={paper.assignment_prompt}
             confirmedTopic={initialRequirements?.topic.value ?? null}
             confirmedPrompt={initialRequirements?.promptQuestion.value ?? null}
+            persist={!demoMode}
             stageProgress={paper.stage_progress.map((row) => ({
               stage: row.stage,
               status: row.status,
