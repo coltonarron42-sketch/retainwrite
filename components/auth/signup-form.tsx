@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { signUpAction, startDemoSessionAction, type AuthActionState } from "@/app/auth/actions";
+import { signUpAction, type AuthActionState } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,14 +18,9 @@ export function SignupForm({ nextPath = "/app" }: Props) {
     signUpAction,
     initialState,
   );
-  const [demoState, startDemo, demoPending] = useActionState(
-    startDemoSessionAction,
-    initialState,
-  );
-
-  const error = signUpState.error ?? demoState.error;
-  const notice = signUpState.notice ?? demoState.notice;
-  const pending = signUpPending || demoPending;
+  const error = signUpState.error;
+  const notice = signUpState.notice;
+  const pending = signUpPending;
 
   if (signUpState.notice) {
     return (
@@ -90,27 +85,6 @@ export function SignupForm({ nextPath = "/app" }: Props) {
         <Button type="submit" className="w-full" variant="secondary" disabled={pending}>
           {signUpPending ? "Creating account…" : "Create account"}
         </Button>
-      </form>
-
-      <div className="relative text-center text-xs uppercase tracking-wide text-rw-ink/40">
-        <span className="bg-rw-paper px-2">or</span>
-        <div className="absolute inset-x-0 top-1/2 -z-10 border-t border-rw-ink/10" />
-      </div>
-
-      <form action={startDemo}>
-        <input type="hidden" name="next" value={nextPath} />
-        <input type="hidden" name="email" value="demo@retainwrite.com" />
-        <Button
-          type="submit"
-          className="w-full"
-          variant="outline"
-          disabled={pending}
-        >
-          {demoPending ? "Opening demo…" : "Continue in demo mode"}
-        </Button>
-        <p className="mt-2 text-center text-xs text-rw-ink/50">
-          Explore the first-paper intake without creating an account.
-        </p>
       </form>
 
       <p className="text-sm text-rw-ink/60">
