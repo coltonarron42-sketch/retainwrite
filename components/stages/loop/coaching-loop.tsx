@@ -74,6 +74,7 @@ import {
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
 import { applyOutlineDrafts } from "@/lib/papers/outline";
+import { draftPointer } from "@/lib/papers/draft-resume";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
@@ -215,6 +216,7 @@ export function CoachingLoop({
     fieldKey: `stance:${session?.sections[active]?.key ?? "note"}:draft`,
     text: idea,
     enabled: persist && stage === 2 && Boolean(session),
+    resume: draftPointer({ stage: 2, sectionKey: session?.sections[active]?.key ?? null }),
   });
   const paste = usePasteMeta();
 
@@ -1158,6 +1160,7 @@ function OutlineDraft({
     fieldKey: `outline:${sectionKey}`,
     text: value,
     enabled,
+    resume: draftPointer({ stage: 3, sectionKey }),
   });
   return (
     <>

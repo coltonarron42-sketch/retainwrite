@@ -50,6 +50,7 @@ import {
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
+import { draftPointer, restoreDraftText } from "@/lib/papers/draft-resume";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
 import {
@@ -224,8 +225,8 @@ export function AssignmentIntake({
           void fetch(`/api/papers/${paperId}/autosave`)
             .then(async (res) => (res.ok ? res.json() : null))
             .then((saved: { drafts?: { fieldKey: string; text: string }[] } | null) => {
-              const draft = saved?.drafts?.find((row) => row.fieldKey === `stage1:${questionId}`);
-              if (draft?.text) setDraftAnswer(draft.text);
+              const text = restoreDraftText(saved?.drafts ?? [], questionId);
+              if (text) setDraftAnswer(text);
             })
             .catch(() => undefined);
         }
@@ -296,11 +297,13 @@ export function AssignmentIntake({
     }
   }, [demoMode, answers, coachingPlan, storyAngle]);
 
+  const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
     paperId,
-    fieldKey: `stage1:${coachingPlan[qIndex]?.id ?? "draft"}`,
+    fieldKey: `stage1:${draftQuestionId}`,
     text: draftAnswer,
     enabled: !demoMode && screen === "coaching",
+    resume: draftPointer({ stage: 1, questionId: draftQuestionId }),
   });
 
   const voiceEval = useMemo(() => {
@@ -1625,7 +1628,8 @@ export function AssignmentIntake({
             {wordCount(draftAnswer)} words
             {q?.kind && q.kind !== "background"
               ? " · counts toward your voice sample after you continue"
-              : ""}
+              : ""}{" "}
+            <SaveStatus status={draftStatus} />
           </p>
         </div>
 

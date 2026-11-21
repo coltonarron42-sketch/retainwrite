@@ -22,6 +22,7 @@ import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { persistField } from "@/lib/papers/persist";
+import { draftPointer } from "@/lib/papers/draft-resume";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
 import { buildSkeleton } from "@/lib/skeleton/build";
@@ -86,6 +87,7 @@ export function DraftingStage({
     fieldKey: `draft:${plan[index]?.key ?? "section"}:wip`,
     text: draft,
     enabled: persist,
+    resume: draftPointer({ stage: 5, sectionKey: plan[index]?.key ?? null }),
   });
   const [saved, setSaved] = useState<Saved>({});
   const [screen, setScreen] = useState<DraftScreen>("zoomed_in");

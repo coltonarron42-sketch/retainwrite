@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { persistField } from "@/lib/papers/persist";
-import { DRAFT_SAVE_DELAY_MS } from "@/lib/papers/resume";
+import { DRAFT_SAVE_DELAY_MS, type ResumePointer } from "@/lib/papers/resume";
 
 export type SaveStatusValue = "idle" | "saving" | "saved";
 
@@ -12,6 +12,7 @@ export function useDraftSave(input: {
   fieldKey: string;
   text: string;
   enabled: boolean;
+  resume?: ResumePointer;
 }): SaveStatusValue {
   const [status, setStatus] = useState<SaveStatusValue>("idle");
   const skipMount = useRef(true);
@@ -25,12 +26,14 @@ export function useDraftSave(input: {
       skipMount.current = false;
       return;
     }
+    setStatus("saving");
     const timer = window.setTimeout(() => {
-      setStatus("saving");
-      void persistField(input.paperId, {
-        fieldKey: input.fieldKey,
-        text: input.text,
+      const current = latest.current;
+      void persistField(current.paperId, {
+        fieldKey: current.fieldKey,
+        text: current.text,
         submitted: false,
+        resume: current.resume,
       }).then((ok) => setStatus(ok ? "saved" : "idle"));
     }, DRAFT_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
@@ -45,6 +48,7 @@ export function useDraftSave(input: {
         fieldKey: current.fieldKey,
         text: current.text,
         submitted: false,
+        resume: current.resume,
       }).then((ok) => setStatus(ok ? "saved" : "idle"));
     }
     function onHide() {

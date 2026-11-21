@@ -16,6 +16,7 @@ export async function persistField(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+      keepalive: true,
     });
     return res.ok;
   } catch {
