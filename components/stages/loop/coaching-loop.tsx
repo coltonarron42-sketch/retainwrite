@@ -878,7 +878,10 @@ export function CoachingLoop({
                   continueAfterLogic("continued");
                   return;
                 }
-                if (choice === "keep") return;
+                if (choice === "keep") {
+                  void continueAfterLogic("keep");
+                  return;
+                }
                 if (choice === "tweak") {
                   updateSection(section.key, { loopStep: "probe" });
                   log("logic_opener_tweak");
@@ -923,22 +926,26 @@ export function CoachingLoop({
           persist={persist}
           onEdit={(key, text) => {
             outlineDrafts.current[key] = text;
-            updateSection(key, { ideas: text.trim() ? [text.trim()] : [] });
+            // A cleared box is not a decision to delete the Stance notes.
+            if (text.trim()) updateSection(key, { ideas: [text.trim()] });
           }}
           onContinue={() => {
             void (async () => {
               const sections = session.sections.map((item) => {
-                const text = outlineDrafts.current[item.key];
-                if (text == null) return item;
-                return { ...item, ideas: text.trim() ? [text.trim()] : [] };
+                const text = outlineDrafts.current[item.key]?.trim();
+                // Blank or untouched drafts keep the student's kept Stance ideas.
+                if (!text || text === keptIdeas(item.ideas).join("\n")) return item;
+                return { ...item, ideas: [text] };
               });
               const nextSession = { ...session, sections };
               commit(nextSession);
               if (persist) {
                 for (const item of sections) {
+                  const outlineText = keptIdeas(item.ideas).join("\n");
+                  if (!outlineText.trim()) continue;
                   const ok = await persistField(paperId, {
                     fieldKey: `outline:${item.key}`,
-                    text: keptIdeas(item.ideas).join("\n"),
+                    text: outlineText,
                     submitted: true,
                     resume: { stage: 3, sectionKey: item.key, screen: "outline" },
                     session: nextSession,

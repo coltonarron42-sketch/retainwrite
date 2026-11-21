@@ -20,4 +20,19 @@ describe("outline drafts", () => {
     expect(sections.find((section) => section.key === "body")?.ideas[0]).toMatch(/late-night scrolling/);
     expect(sections.find((section) => section.key === "conclusion")?.ideas).toEqual(["Close it"]);
   });
+
+  it("does not wipe Stance notes when a saved outline draft is blank", () => {
+    const sections = applyOutlineDrafts(
+      [
+        { key: "intro", ideas: ["Schools should rethink phone rules at night."] },
+        { key: "body", ideas: ["Late-night scrolling cuts sleep."] },
+      ],
+      [
+        { fieldKey: "outline:intro", text: "" },
+        { fieldKey: "outline:body", text: "   " },
+      ],
+    );
+    expect(sections[0].ideas).toEqual(["Schools should rethink phone rules at night."]);
+    expect(sections[1].ideas).toEqual(["Late-night scrolling cuts sleep."]);
+  });
 });
