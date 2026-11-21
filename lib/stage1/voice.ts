@@ -10,6 +10,7 @@ export type VoiceAnswer = {
   text: string;
   isVoiceSample: boolean;
   kind?: string;
+  pasteRatio?: number;
 };
 
 export type VoiceMinimumInput = {
@@ -35,6 +36,25 @@ export function collectVoiceSampleText(answers: VoiceAnswer[]): string {
     .join("\n");
 }
 
+/**
+ * Weighted sample for baseline metrics: typed answers count more than pasted.
+ * Invisible to the student; never blocks.
+ */
+export function collectWeightedVoiceSample(answers: VoiceAnswer[]): string {
+  const parts: string[] = [];
+  for (const a of answers.filter((x) => x.isVoiceSample && x.text.trim())) {
+    const ratio = a.pasteRatio ?? 0;
+    if (ratio > 0.6) {
+      // keep once (pasted-heavy)
+      parts.push(a.text.trim());
+    } else {
+      // typed-heavy: include twice so metrics lean on natural typing
+      parts.push(a.text.trim(), a.text.trim());
+    }
+  }
+  return parts.join("\n");
+}
+
 export function evaluateStage1VoiceMinimum(
   input: VoiceMinimumInput,
 ): VoiceMinimumResult {
@@ -51,16 +71,11 @@ export function evaluateStage1VoiceMinimum(
   const reasons: string[] = [];
 
   if (input.keepBaseline) {
-    // Spec 8.3 keep exception: ≥150 total, personal ≥40, at least one ≥40
+    // Spec 8.3 keep exception: ≥150 total, at least one ≥40 (personal no longer required)
     const ok =
-      totalWords >= MIN_VOICE_SAMPLE_WORDS &&
-      personalWords >= STAGE1_VOICE_MIN_LONG_ANSWER_WORDS &&
-      longAnswerCount >= 1;
+      totalWords >= MIN_VOICE_SAMPLE_WORDS && longAnswerCount >= 1;
     if (totalWords < MIN_VOICE_SAMPLE_WORDS) {
       reasons.push(`Need at least ${MIN_VOICE_SAMPLE_WORDS} words with kept baseline`);
-    }
-    if (personalWords < STAGE1_VOICE_MIN_LONG_ANSWER_WORDS) {
-      reasons.push("Personal answer needs at least 40 words");
     }
     if (longAnswerCount < 1) {
       reasons.push("Need at least one answer of 40+ words");
@@ -85,9 +100,7 @@ export function evaluateStage1VoiceMinimum(
       `Need at least ${STAGE1_VOICE_MIN_LONG_ANSWERS} answers of ${STAGE1_VOICE_MIN_LONG_ANSWER_WORDS}+ words`,
     );
   }
-  if (personalWords < STAGE1_VOICE_MIN_LONG_ANSWER_WORDS) {
-    reasons.push("Personal question needs at least 40 words");
-  }
+  // Personal ≥40 dropped (Nov 20, 2026) — question is skippable
 
   const ok = reasons.length === 0;
   return {

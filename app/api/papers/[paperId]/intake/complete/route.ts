@@ -29,6 +29,12 @@ const bodySchema = z.object({
   leads: z.array(z.record(z.string(), z.unknown())).optional(),
   keepBaseline: z.boolean().optional(),
   useInterestProfile: z.boolean().optional(),
+  storyAngle: z
+    .object({
+      text: z.string().min(1),
+      source: z.enum(["ai", "student"]),
+    })
+    .optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -56,6 +62,7 @@ export async function POST(request: Request, ctx: Ctx) {
       { status: 400 },
     );
   }
+  const requirements = cardGate.requirements;
 
   const voiceAnswers: VoiceAnswer[] = body.answers.map((a) => ({
     text: a.answerText,
@@ -77,6 +84,13 @@ export async function POST(request: Request, ctx: Ctx) {
   if (!stance || wordCount(stance.answerText) < 25) {
     return NextResponse.json(
       { error: "Early stance needs at least 25 words" },
+      { status: 400 },
+    );
+  }
+
+  if (!body.storyAngle?.text?.trim()) {
+    return NextResponse.json(
+      { error: "Pick a story angle before finishing Stage 1" },
       { status: 400 },
     );
   }
@@ -159,6 +173,7 @@ export async function POST(request: Request, ctx: Ctx) {
         data: {
           useInterestProfile: body.useInterestProfile ?? true,
           originalThesis: stance.answerText,
+          storyAngle: body.storyAngle,
         },
       },
       {
@@ -166,7 +181,10 @@ export async function POST(request: Request, ctx: Ctx) {
         user_id: user.id,
         stage: 2,
         status: "in_progress",
-        data: {},
+        data: {
+          storyAngle: body.storyAngle,
+          originalThesis: stance.answerText,
+        },
       },
     ]);
 

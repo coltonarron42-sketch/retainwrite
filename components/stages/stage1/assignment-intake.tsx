@@ -41,10 +41,12 @@ import {
 } from "@/lib/demo/store";
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { createLead, type ResearchLeadDraft } from "@/lib/stage1/leads";
+import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
 import {
   evaluateStage1VoiceMinimum,
   type VoiceAnswer,
 } from "@/lib/stage1/voice";
+import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
@@ -55,14 +57,29 @@ type Screen =
   | "followup"
   | "ai_policy"
   | "coaching"
+  | "story"
   | "gate";
 
 type IntakeAnswer = {
   questionId: string;
   questionText: string;
-  kind: "interest" | "coaching" | "personal" | "fallback_voice" | "background";
+  kind:
+    | "interest"
+    | "coaching"
+    | "personal"
+    | "fallback_voice"
+    | "background"
+    | "story_angle";
   answerText: string;
   isVoiceSample: boolean;
+  pasteRatio?: number;
+};
+
+type StoryAngle = {
+  id: string;
+  question: string;
+  whyFits: string;
+  fromStudentPhrase?: string;
 };
 
 type Props = {
@@ -93,30 +110,13 @@ const INTEREST_Qs = [
   },
 ];
 
-function PasteBlockedTextarea(props: React.ComponentProps<typeof Textarea>) {
-  return (
-    <Textarea
-      {...props}
-      onPaste={(e) => {
-        e.preventDefault();
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-      }}
-      placeholder={
-        props.placeholder ??
-        "Type in your own words — paste is blocked here."
-      }
-    />
-  );
-}
-
 function fieldNeedsAttention(field: Field<unknown>) {
   return field.confidence < 0.6 || field.source === "missing";
 }
 
 export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   const router = useRouter();
+  const pasteMeta = usePasteMeta();
   const [paper, setPaper] = useState<DemoPaper | null>(null);
   const [screen, setScreen] = useState<Screen>("upload");
   const [paste, setPaste] = useState("");
@@ -136,6 +136,14 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
+  const [checklistConfirmed, setChecklistConfirmed] = useState(false);
+  const [storyAngles, setStoryAngles] = useState<StoryAngle[]>([]);
+  const [storyAngle, setStoryAngle] = useState<{
+    text: string;
+    source: "ai" | "student";
+  } | null>(null);
+  const [ownStory, setOwnStory] = useState("");
+  const [writingOwnStory, setWritingOwnStory] = useState(false);
   const [viewSource, setViewSource] = useState<{
     label: string;
     excerpt: string;
@@ -168,15 +176,11 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       text: `In your own words, what is ${topic} asking you to figure out?`,
     });
     plan.push({
-      id: "stance_early",
-      kind: "coaching",
-      text: `What's your early take on ${topic}? (at least 25 words — this becomes your starting stance)`,
-    });
-    plan.push({
       id: "personal_1",
       kind: "personal",
       text: `When have you seen an idea like ${topic} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
+    // Early stance is asked after Pick your story (3.4a → stance on the angle).
     if (needFallback) {
       plan.push({
         id: "fallback_voice",
@@ -198,9 +202,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
 
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
-  const cardGate = requirements
-    ? assertAssignmentConfirmGate(requirements)
-    : { ok: false as const, reasons: ["No card"] };
+  const cardGate = { ok: checklistConfirmed };
 
   if (!paper) {
     return <p className="text-rw-ink/55">Loading paper…</p>;
@@ -338,14 +340,16 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     if (!requirements) return;
     const gate = assertAssignmentConfirmGate(requirements);
     if (!gate.ok) {
-      setError(gate.reasons[0] ?? "Confirm every field first.");
+      setError(gate.reasons[0] ?? "Fix the citation style description first.");
       return;
     }
+    const confirmed = gate.requirements;
+    setRequirements(confirmed);
     setError(null);
 
     if (
       !opts?.aiPolicyAck &&
-      needsAiPolicyAck(requirements, rawText) &&
+      needsAiPolicyAck(confirmed, rawText) &&
       !aiPolicyAck
     ) {
       setScreen("ai_policy");
@@ -360,7 +364,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requirements,
+          requirements: confirmed,
           aiPolicyAck: ack || undefined,
         }),
       });
@@ -372,23 +376,25 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       ...paper!,
       title:
         paper!.title ||
-        requirements.topic.value ||
-        requirements.promptQuestion.value ||
+        confirmed.topic.value ||
+        confirmed.promptQuestion.value ||
         null,
-      course: requirements.course.value,
-      due_date: requirements.dueDate.value,
+      course: confirmed.course.value,
+      due_date: confirmed.dueDate.value,
       assignment_prompt: rawText,
-      required_length: formatLengthLabel(requirements.length.value),
+      required_length: formatLengthLabel(confirmed.length.value),
       citation_style:
-        requirements.citationStyle.value === "other"
-          ? requirements.citationStyleOther ?? "other"
-          : requirements.citationStyle.value,
+        confirmed.citationStyle.value === "other"
+          ? confirmed.citationStyleOther ?? "other"
+          : confirmed.citationStyle.value,
     };
     upsertDemoPaper(nextPaper);
     setPaper(nextPaper);
+    setChecklistConfirmed(true);
     setScreen("coaching");
     setQIndex(0);
     setDraftAnswer("");
+    pasteMeta.reset();
   }
 
   function skipInterest() {
@@ -398,20 +404,43 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     setDraftAnswer("");
   }
 
-  function submitAnswer() {
+  function finishCoaching(nextAnswers: IntakeAnswer[]) {
+    const phrases = nextAnswers
+      .filter((a) => a.isVoiceSample && a.answerText.trim())
+      .map((a) => a.answerText.trim().slice(0, 80));
+    const topic =
+      requirements?.topic.value ||
+      requirements?.promptQuestion.value ||
+      "this assignment";
+    const angles =
+      storyAngles.length > 0
+        ? storyAngles
+        : buildStoryAngleFallback({ topic, studentPhrases: phrases });
+    setStoryAngles(angles);
+    void fetch(`/api/papers/${paperId}/intake/story-options`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, studentPhrases: phrases }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { angles?: StoryAngle[] };
+        if (data.angles?.length) setStoryAngles(data.angles);
+      })
+      .catch(() => undefined);
+    setScreen("story");
+  }
+
+  function submitAnswer(opts?: { skip?: boolean }) {
     const q = coachingPlan[qIndex];
     if (!q) return;
-    const text = draftAnswer.trim();
-    if (!text && q.kind !== "background") {
-      setError("Type an answer to continue.");
+    const text = opts?.skip ? "" : draftAnswer.trim();
+    if (!opts?.skip && !text && q.kind !== "background") {
+      setError("Type an answer to continue, or skip this one.");
       return;
     }
-    if (q.id === "stance_early" && wordCount(text) < 25) {
+    if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setError("Your early take needs at least 25 words.");
-      return;
-    }
-    if (q.kind === "personal" && wordCount(text) < 40) {
-      setError("The personal question needs at least 40 words.");
       return;
     }
 
@@ -423,33 +452,45 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
 
     const nextAnswers = [
       ...answers.filter((a) => a.questionId !== q.id),
-      {
-        questionId: q.id,
-        questionText: q.text,
-        kind: q.kind,
-        answerText: text,
-        isVoiceSample: isVoice,
-      },
+      ...(opts?.skip
+        ? []
+        : [
+            {
+              questionId: q.id,
+              questionText: q.text,
+              kind: q.kind,
+              answerText: text,
+              isVoiceSample: isVoice,
+              pasteRatio: pasteMeta.meta.pasteRatio,
+            },
+          ]),
     ];
     setAnswers(nextAnswers);
     setDraftAnswer("");
     setError(null);
+    pasteMeta.reset();
 
     void fetch(`/api/papers/${paperId}/intake/next-question`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        answer: text,
+        answer: text || undefined,
+        skipThisQuestion: opts?.skip || undefined,
         questionId: q.id,
         questionText: q.text,
         questionKind: q.kind,
         sequence: qIndex,
         skipInterest: skippedInterest || undefined,
+        inputMeta: {
+          pastedChars: pasteMeta.meta.pastedChars,
+          typedChars: pasteMeta.meta.typedChars,
+          pasteEvents: pasteMeta.meta.pasteEvents,
+        },
       }),
     }).catch(() => undefined);
 
     // Offer leads after early take
-    if (q.id === "stance_early" && requirements) {
+    if (q.id === "stance_early" && requirements && text) {
       const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
       const tags = extractInterestTags(
         nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText),
@@ -485,6 +526,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       text: a.answerText,
       isVoiceSample: a.isVoiceSample,
       kind: a.kind,
+      pasteRatio: a.pasteRatio,
     }));
     const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
     if (
@@ -493,7 +535,128 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       !needFallback
     ) {
       setNeedFallback(true);
-      setQIndex(coachingPlan.length); // next render appends fallback at end
+      setQIndex(coachingPlan.length);
+      return;
+    }
+    finishCoaching(nextAnswers);
+  }
+
+  function goToStanceOnStory() {
+    setDraftAnswer("");
+    setError(null);
+    pasteMeta.reset();
+    setScreen("coaching");
+    // Stance is appended temporarily via a high qIndex sentinel handled below
+    setQIndex(-1); // signals stance-only mode
+  }
+
+  async function pickStory(angle: StoryAngle) {
+    const picked = { text: angle.question, source: "ai" as const };
+    setStoryAngle(picked);
+    await fetch(`/api/papers/${paperId}/intake/story-pick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: angle.question,
+        source: "ai",
+        angleId: angle.id,
+      }),
+    }).catch(() => undefined);
+    goToStanceOnStory();
+  }
+
+  async function submitOwnStory() {
+    const text = ownStory.trim();
+    if (wordCount(text) < 15) {
+      setError("Write at least 15 words for your own angle.");
+      return;
+    }
+    setStoryAngle({ text, source: "student" });
+    setAnswers((prev) => [
+      ...prev.filter((a) => a.questionId !== "story_own"),
+      {
+        questionId: "story_own",
+        questionText: "I'll write my own story angle",
+        kind: "story_angle",
+        answerText: text,
+        isVoiceSample: true,
+        pasteRatio: pasteMeta.meta.pasteRatio,
+      },
+    ]);
+    await fetch(`/api/papers/${paperId}/intake/story-pick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, source: "student" }),
+    }).catch(() => undefined);
+    pasteMeta.reset();
+    goToStanceOnStory();
+  }
+
+  function submitStanceAnswer() {
+    const text = draftAnswer.trim();
+    if (wordCount(text) < 25) {
+      setError("Your early take needs at least 25 words.");
+      return;
+    }
+    const angleText = storyAngle?.text || "this assignment";
+    const nextAnswers: IntakeAnswer[] = [
+      ...answers.filter((a) => a.questionId !== "stance_early"),
+      {
+        questionId: "stance_early",
+        questionText: `What's your early take on: ${angleText}`,
+        kind: "coaching",
+        answerText: text,
+        isVoiceSample: true,
+        pasteRatio: pasteMeta.meta.pasteRatio,
+      },
+    ];
+    setAnswers(nextAnswers);
+    setDraftAnswer("");
+    pasteMeta.reset();
+    setError(null);
+
+    if (requirements && leads.length === 0) {
+      const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
+      const tags = extractInterestTags(
+        nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText),
+      );
+      const suggested = [
+        createLead({
+          name: "A practitioner voice in this topic",
+          whyAssignment:
+            "Someone who has written or spoken about the same question your prompt asks.",
+          scholarlyRequired: scholarly,
+        }),
+      ];
+      if (tags[0]) {
+        suggested.push(
+          createLead({
+            name: `A ${tags[0]}-adjacent example`,
+            whyAssignment: "Connects to the assignment's required angle.",
+            whyInterest: `Touches on your interest in ${tags[0]}.`,
+            steeredBy: "both",
+            scholarlyRequired: scholarly,
+          }),
+        );
+      }
+      setLeads(suggested);
+    }
+
+    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
+      text: a.answerText,
+      isVoiceSample: a.isVoiceSample,
+      kind: a.kind,
+      pasteRatio: a.pasteRatio,
+    }));
+    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
+    if (
+      evalResult.needsFallback &&
+      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
+      !needFallback
+    ) {
+      setNeedFallback(true);
+      setQIndex(coachingPlan.length);
+      setScreen("coaching");
       return;
     }
     setScreen("gate");
@@ -532,6 +695,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           answers,
           leads,
           useInterestProfile: !skippedInterest,
+          storyAngle: storyAngle ?? undefined,
         }),
       });
       if (!res.ok) {
@@ -541,6 +705,12 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       }
     } catch {
       /* fall through to local demo complete */
+    }
+
+    if (!storyAngle) {
+      setError("Pick a story angle before continuing.");
+      setScreen("story");
+      return;
     }
 
     const sample = answers
@@ -1185,13 +1355,24 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   }
 
   if (screen === "coaching" && requirements) {
-    const q = coachingPlan[qIndex];
+    const stanceMode = qIndex < 0;
+    const q = stanceMode
+      ? {
+          id: "stance_early",
+          kind: "coaching" as const,
+          text: `What's your early take on: ${storyAngle?.text || requirements.topic.value || "this assignment"}? (at least 25 words)`,
+        }
+      : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
 
     return (
       <div className="mx-auto max-w-xl">
         <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
-          {isInterest ? "Get to know you" : "Assignment coaching"}
+          {stanceMode
+            ? "Your early stance"
+            : isInterest
+              ? "Get to know you"
+              : "Assignment coaching"}
         </p>
         <h1 className="mt-2 font-display text-3xl text-rw-ink">
           {q?.text ?? "Loading…"}
@@ -1203,20 +1384,22 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           </p>
         ) : null}
         <div className="mt-6 space-y-3">
-          {q?.kind === "background" ? (
-            <Textarea
-              rows={3}
-              value={draftAnswer}
-              onChange={(e) => setDraftAnswer(e.target.value)}
-              placeholder="A short answer is fine."
-            />
-          ) : (
-            <PasteBlockedTextarea
-              rows={8}
-              value={draftAnswer}
-              onChange={(e) => setDraftAnswer(e.target.value)}
-            />
-          )}
+          <Textarea
+            rows={q?.kind === "background" ? 3 : 8}
+            value={draftAnswer}
+            onPaste={pasteMeta.onPaste}
+            onDrop={pasteMeta.onDrop}
+            onBeforeInput={pasteMeta.onBeforeInput}
+            onChange={(e) => {
+              pasteMeta.onChange(draftAnswer, e.target.value);
+              setDraftAnswer(e.target.value);
+            }}
+            placeholder={
+              q?.kind === "background"
+                ? "A short answer is fine."
+                : "Write in your own words — paste is fine too."
+            }
+          />
           <p className="text-xs text-rw-ink/45">
             {wordCount(draftAnswer)} words
             {q?.kind && q.kind !== "background"
@@ -1276,13 +1459,101 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
               Skip get-to-know-you
             </Button>
           ) : null}
-          <Button type="button" variant="secondary" onClick={submitAnswer}>
+          {!stanceMode && q?.kind !== "background" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => submitAnswer({ skip: true })}
+            >
+              Skip this one
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() =>
+              stanceMode ? submitStanceAnswer() : submitAnswer()
+            }
+          >
             Continue
           </Button>
         </div>
         <p className="mt-4 text-xs text-rw-ink/45">
           Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words
         </p>
+      </div>
+    );
+  }
+
+  if (screen === "story" && requirements) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+          Pick your story
+        </p>
+        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+          Pick your story
+        </h1>
+        <p className="mt-2 text-sm text-rw-ink/65">
+          Here are a few directions your paper could take, built from what you
+          told me. Pick one, or write your own. You can change it later.
+        </p>
+        <div className="mt-6 space-y-4">
+          {storyAngles.map((angle) => (
+            <div
+              key={angle.id}
+              className="border-b border-rw-ink/10 py-4"
+            >
+              <p className="font-medium text-rw-ink">{angle.question}</p>
+              <p className="mt-1 text-sm text-rw-ink/60">{angle.whyFits}</p>
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3"
+                variant="outline"
+                onClick={() => void pickStory(angle)}
+              >
+                Pick this one
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-8">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setWritingOwnStory((v) => !v)}
+          >
+            I&apos;ll write my own
+          </Button>
+          {writingOwnStory ? (
+            <div className="mt-3 space-y-3">
+              <Textarea
+                rows={5}
+                value={ownStory}
+                onPaste={pasteMeta.onPaste}
+                onDrop={pasteMeta.onDrop}
+                onChange={(e) => {
+                  pasteMeta.onChange(ownStory, e.target.value);
+                  setOwnStory(e.target.value);
+                }}
+                placeholder="Write your own story angle as a question (≥ 15 words)."
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void submitOwnStory()}
+              >
+                Use my angle
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -1318,7 +1589,8 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
         ) : null}
 
         <ul className="mt-6 space-y-2 text-sm">
-          <li>{cardGate.ok ? "✓" : "○"} Assignment card confirmed</li>
+          <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
+          <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
           <li>
             {voiceEval.ok ? "✓" : "○"} Voice minimum (
             {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words,{" "}
@@ -1340,7 +1612,9 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           <Button
             type="button"
             variant="secondary"
-            disabled={!cardGate.ok || !voiceEval.ok || !stanceOk}
+            disabled={
+              !cardGate.ok || !storyAngle || !voiceEval.ok || !stanceOk
+            }
             onClick={() => void completeStage1()}
           >
             Start stance interview
