@@ -20,6 +20,12 @@ export function assertAssignmentConfirmGate(
 ): ConfirmGateResult {
   const reasons: string[] = [];
 
+  const topic = requirements.topic.value?.trim() ?? "";
+  const prompt = requirements.promptQuestion.value?.trim() ?? "";
+  if (!topic && !prompt) {
+    reasons.push("Paste or type the topic or the prompt question before continuing.");
+  }
+
   if (
     requirements.citationStyle.value === "other" &&
     !requirements.citationStyleOther?.trim()

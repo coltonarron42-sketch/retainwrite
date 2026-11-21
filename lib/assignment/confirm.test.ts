@@ -9,13 +9,20 @@ import {
 } from "@/lib/assignment/schema";
 
 describe("assignment confirm gate", () => {
-  it("confirms missing fields as Not specified in one pass", () => {
-    const gate = assertAssignmentConfirmGate(emptyRequirements());
+  it("rejects an empty topic and prompt, then confirms the other fields", () => {
+    const blocked = assertAssignmentConfirmGate(emptyRequirements());
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) return;
+    expect(blocked.reasons[0]).toMatch(/topic or the prompt/i);
+
+    const req = emptyRequirements();
+    req.topic = extractedField("How social media affects teens", 0.8);
+    const gate = assertAssignmentConfirmGate(req);
     expect(gate.ok).toBe(true);
     if (!gate.ok) return;
-    expect(gate.requirements.topic.confirmed).toBe(true);
-    expect(gate.requirements.topic.source).toBe("student_entered");
+    expect(gate.requirements.topic.value).toMatch(/social media/i);
     expect(gate.requirements.length.confirmed).toBe(true);
+    expect(gate.requirements.length.source).toBe("student_entered");
   });
 
   it("rejects citationStyle other without a description", () => {
