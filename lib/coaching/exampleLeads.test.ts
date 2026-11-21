@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exampleLeadBatch, leadCopyIsTemplate } from "@/lib/coaching/exampleLeads";
+import { coachingSubject, exampleLeadBatch, leadCopyIsTemplate } from "@/lib/coaching/exampleLeads";
 
 describe("exampleLeadBatch", () => {
   it("names this assignment instead of generic template slots", () => {
@@ -24,6 +24,19 @@ describe("exampleLeadBatch", () => {
       rubricRef: "lesson_concept",
     });
     expect(batch.personalized).toBe(false);
+    expect(
+      coachingSubject({
+        confirmedTopic: "how social media affects teen mental health",
+        assignmentText: "SOC 101 Argumentative Essay",
+        concept: "the assigned concept",
+      }),
+    ).toMatch(/social media/i);
+    expect(
+      coachingSubject({
+        assignmentText: "SOC 101 Argumentative Essay",
+        concept: "the assigned concept",
+      }),
+    ).toBe("your topic");
     expect(batch.candidates).toEqual([]);
   });
 });

@@ -94,10 +94,10 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
             "A few visible qualities",
             "A moment where it shows up",
           ],
-    showsUpAs: [
-      "Choices that put people ahead of status",
-      "Habits other people can point to",
-    ],
+    showsUpAs:
+      concept.toLowerCase() === "servant leadership"
+        ? ["Choices that put people ahead of status", "Habits other people can point to"]
+        : ["A moment from the assignment", "A choice you can point to"],
     debate: null,
     ask: askForConcept(concept),
   };

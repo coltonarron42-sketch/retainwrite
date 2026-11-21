@@ -10,7 +10,7 @@ import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
 import { TeachCardView } from "@/components/coaching/teach-card";
 import { VoiceNote } from "@/components/coaching/voice-note";
 import { VoiceNudge } from "@/components/coaching/voice-nudge";
-import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
+import { coachingSubject, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import {
   assembleLeadBatch,
   buildGoogleSearchPrompt,
@@ -107,6 +107,8 @@ type Props = {
   paperId: string;
   stage: number;
   assignmentPrompt: string | null;
+  confirmedTopic?: string | null;
+  confirmedPrompt?: string | null;
   stageProgress?: StageProgressRow[];
   onStageProgress?: (
     progress: StageProgressRow[],
@@ -178,6 +180,8 @@ export function CoachingLoop({
   paperId,
   stage,
   assignmentPrompt,
+  confirmedTopic = null,
+  confirmedPrompt = null,
   stageProgress = [],
   onStageProgress,
 }: Props) {
@@ -242,6 +246,12 @@ export function CoachingLoop({
   }
 
   const lesson = session.extraction.lesson;
+  const subject = coachingSubject({
+    confirmedTopic,
+    confirmedPrompt,
+    concept: lesson.concepts[0]?.term,
+    assignmentText: session.assignmentText,
+  });
   const inStance = stage === 2;
   const locks = stage5Locked(session.sections);
   const skipped = session.sections.filter((item) => item.status === "skipped");
@@ -343,14 +353,14 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? defaultTeachCard(section.concept, section.rubricRef)
+      ? defaultTeachCard((subject === "your topic" ? section.concept : subject).slice(0, 60), section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =
     section && section.mode === "lesson"
       ? exampleLeadBatch({
-          concept: section.concept,
-          assignmentText: session.assignmentText,
+          concept: subject === "your topic" ? section.concept : subject,
+          assignmentText: subject === "your topic" ? session.assignmentText : subject,
           studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
         })
@@ -386,7 +396,9 @@ export function CoachingLoop({
       <p className="mt-2 text-sm text-rw-ink/70">
         {session.extraction.promptType === "personal_experience"
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
-          : `This assignment teaches ${lesson.concepts[0]?.term ?? "the concept in your prompt"}.`}
+          : subject === "your topic"
+            ? "The assignment topic is still missing. Add it on the checklist before this lesson."
+            : `This assignment teaches ${subject}.`}
       </p>
         </>
       ) : (

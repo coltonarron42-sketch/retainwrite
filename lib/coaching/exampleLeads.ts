@@ -10,6 +10,24 @@ const GENERIC_TITLES = [
   "a school jazz band director",
 ];
 
+/** Prefer the confirmed topic or prompt over a file title or a placeholder. */
+export function coachingSubject(input: {
+  confirmedTopic?: string | null;
+  confirmedPrompt?: string | null;
+  concept?: string | null;
+  assignmentText?: string | null;
+}): string {
+  const confirmed = input.confirmedTopic?.trim() || input.confirmedPrompt?.trim();
+  if (confirmed && !/^(soc\s+\d+|the assigned concept|the concept)$/i.test(confirmed)) {
+    return confirmed.slice(0, 140);
+  }
+  const concept = input.concept?.trim() ?? "";
+  if (concept && !/^(the assigned concept|the concept)$/i.test(concept)) return concept.slice(0, 140);
+  const fromText = topicLabel(null, input.assignmentText ?? "");
+  if (fromText && !/^soc\s+\d+/i.test(fromText)) return fromText;
+  return confirmed?.slice(0, 140) || "your topic";
+}
+
 export function topicLabel(concept: string | null, assignmentText: string): string | null {
   const cleaned = concept?.trim() ?? "";
   if (cleaned && cleaned.toLowerCase() !== "the concept") return cleaned.slice(0, 80);
