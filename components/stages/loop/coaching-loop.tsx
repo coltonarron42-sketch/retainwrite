@@ -42,6 +42,8 @@ import {
 } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
+import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
+import { FEATURES } from "@/lib/config";
 import {
   advanceProductStage,
   progressAfterLogicContinue,
@@ -690,7 +692,26 @@ export function CoachingLoop({
         />
       ) : null}
 
-      {stage === 5 ? (
+      {stage === 5 && FEATURES.draftingMuscle ? (
+        <DraftingStage
+          paperId={paperId}
+          promptType={session.extraction.promptType}
+          storyAngle={lesson.statement}
+          thesis={session.answers.map((answer) => answer.text).slice(-1)[0] ?? ""}
+          lessonConcept={lesson.concepts[0]?.term ?? null}
+          sections={session.sections.map((item) => ({
+            key: item.key,
+            title: item.title,
+            kind: item.kind,
+            mode: item.mode,
+            ideas: item.ideas,
+            chosenLead: item.chosenLead,
+            teachAspect: item.teachAspect,
+          }))}
+        />
+      ) : null}
+
+      {stage === 5 && !FEATURES.draftingMuscle ? (
         <StageFive
           locked={locks}
           skipped={skipped.map((item) => item.title)}
@@ -713,6 +734,14 @@ export function CoachingLoop({
       {stage === 6 ? (
         <section className="mt-8 space-y-4">
           <h2 className="font-display text-2xl text-rw-ink">Revise</h2>
+          {FEATURES.draftingMuscle ? (
+            <div className="rounded-xl bg-white p-4 text-sm">
+              <p className="font-medium">Look again at your introduction.</p>
+              <p className="mt-2">Does your intro promise what your body paragraphs deliver?</p>
+              <p>Is your main point in the intro still the point you ended on?</p>
+              <p>Is there a term your intro uses that your body defines differently?</p>
+            </div>
+          ) : null}
           <Textarea
             value={session.draft}
             onChange={(event) => setSession({ ...session, draft: event.target.value })}

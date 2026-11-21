@@ -15,6 +15,7 @@ const bodySchema = z.object({
       }),
     )
     .max(6),
+  data: z.record(z.string(), z.unknown()).optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -56,6 +57,7 @@ export async function POST(request: Request, ctx: Ctx) {
         stage: row.stage,
         status: row.status,
         completed_at: row.status === "complete" ? now : null,
+        ...(row.stage === 5 && body.data ? { data: body.data } : {}),
       })),
       { onConflict: "paper_id,stage" },
     );
