@@ -120,7 +120,8 @@ export function StageShell({
               stage: row.stage,
               status: row.status,
             }))}
-            onStageProgress={(progress: StageProgressRow[], currentStage: number) => {
+            onStageProgress={async (progress: StageProgressRow[], currentStage: number) => {
+              let payload: { stage: number; status: StageProgressRow["status"] }[] = [];
               setPaper((prev) => {
                 if (!prev) return prev;
                 const next: DemoPaper = {
@@ -132,21 +133,19 @@ export function StageShell({
                   }),
                 };
                 upsertDemoPaper(next);
-                if (!demoMode) {
-                  void fetch(`/api/papers/${paperId}/progress`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      currentStage,
-                      progress: next.stage_progress.map((row) => ({
-                        stage: row.stage,
-                        status: row.status,
-                      })),
-                    }),
-                  });
-                }
+                payload = next.stage_progress.map((row) => ({
+                  stage: row.stage,
+                  status: row.status,
+                }));
                 return next;
               });
+              if (demoMode) return true;
+              const res = await fetch(`/api/papers/${paperId}/progress`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ currentStage, progress: payload }),
+              });
+              return res.ok;
             }}
           />
         )}

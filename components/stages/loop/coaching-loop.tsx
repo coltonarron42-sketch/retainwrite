@@ -108,7 +108,10 @@ type Props = {
   stage: number;
   assignmentPrompt: string | null;
   stageProgress?: StageProgressRow[];
-  onStageProgress?: (progress: StageProgressRow[], currentStage: number) => void;
+  onStageProgress?: (
+    progress: StageProgressRow[],
+    currentStage: number,
+  ) => void | boolean | Promise<void | boolean>;
 };
 
 function storageKey(paperId: string) {
@@ -264,8 +267,9 @@ export function CoachingLoop({
     commit({ ...current, events: [...current.events, event] });
   }
 
-  function persistAndGo(progress: StageProgressRow[], nextStage: number) {
-    onStageProgress?.(progress, nextStage);
+  async function persistAndGo(progress: StageProgressRow[], nextStage: number) {
+    const saved = await onStageProgress?.(progress, nextStage);
+    if (saved === false) return;
     if (nextStage !== stage) {
       router.push(`/app/papers/${paperId}/stage/${nextStage}`);
     }
