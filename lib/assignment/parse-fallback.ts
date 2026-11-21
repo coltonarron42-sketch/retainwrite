@@ -97,12 +97,10 @@ export function parseAssignmentFallback(
 
   const allowGuesses = options?.allowTopicAndDueDateGuess !== false;
 
-  // Due date — only when guesses are allowed. Production must not invent one.
-  const due = allowGuesses
-    ? text.match(
-        /\b(?:due|deadline)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i,
-      )
-    : null;
+  // An explicit due line is extracted. A missing date is never invented.
+  const due = text.match(
+    /\b(?:due|deadline)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i,
+  );
   if (due) {
     req.dueDate = extractedField(due[1], 0.7, due[0]);
   }

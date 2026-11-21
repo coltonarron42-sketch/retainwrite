@@ -392,8 +392,7 @@ export function AssignmentIntake({
         : "Reading the assignment…",
     );
 
-    try {
-      await fetch(`/api/papers/${paperId}/assignment/finalize`, {
+    void fetch(`/api/papers/${paperId}/assignment/finalize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -406,10 +405,7 @@ export function AssignmentIntake({
               ? "paste"
               : "manual",
         }),
-      });
-    } catch {
-      /* parse continues */
-    }
+      }).catch(() => undefined);
 
     const combined = [
       ...fileTexts,

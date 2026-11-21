@@ -15,9 +15,7 @@ import {
 import { usableWordCount } from "@/lib/assignment/corpus";
 import { grokChatJson, hasGrokKey, MODEL_STRONG } from "@/lib/ai/grok";
 
-const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only the JSON schema. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. If more than one assignment appears, list candidates; do not pick one. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
-
-const PARSE_RETRY = `Return one JSON object and nothing else. schemaVersion must be "1.0". Every field is an object with value, confidence (number from 0 to 1), source ("extracted" or "missing"), and confirmed (false). citationStyle.value is "APA 7", "MLA 9", "Chicago 17 Notes", "Chicago 17 Author-Date", "Harvard", "IEEE", "AMA", "other", or null. aiPolicy.value is "unspecified", "allowed", "restricted", or "forbidden". Use null when a detail is absent. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question.`;
+const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only one JSON object. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
 
 /** One model read, then the rule parser. Two 30s calls were blowing past 15s. */
 export const PARSE_TIMEOUT_MS = 12_000;
@@ -231,33 +229,6 @@ export async function parseAssignmentCorpus(
       modelReason = "schema";
     } else {
       modelReason = publicGrokReason(first.reason);
-    }
-
-    const retry =
-      modelReason === "schema"
-        ? await ask({
-            system: `${PARSE_SYSTEM}\n${PARSE_RETRY}`,
-            user: rawText.slice(0, 80_000),
-          })
-        : null;
-    if (retry?.ok) {
-      const accepted = acceptModelJson(retry.text, rawText);
-      if (accepted) {
-        const filled = sanitizeParsedRequirements(
-          accepted,
-          scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
-        );
-        return {
-          requirements: filled,
-          rawText,
-          parseMeta: { model: retry.model, fallback: false, candidates: [], usableWords: words },
-          needsInput: false,
-          needsConfirmation: false,
-        };
-      }
-      modelReason = "schema";
-    } else if (retry && !retry.ok) {
-      modelReason = publicGrokReason(retry.reason);
     }
   }
 

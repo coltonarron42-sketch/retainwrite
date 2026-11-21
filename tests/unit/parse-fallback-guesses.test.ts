@@ -13,11 +13,16 @@ describe("parseAssignmentFallback topic and due date", () => {
     expect(req.dueDate.value).toBeTruthy();
   });
 
-  it("does not invent a due date, and still reads the written topic", () => {
+  it("reads an explicit due date and does not invent one when the text has none", () => {
     const req = parseAssignmentFallback(SAMPLE, { allowTopicAndDueDateGuess: false });
     expect(req.topic.value).toMatch(/social media/i);
-    expect(req.dueDate.value).toBeNull();
+    expect(req.dueDate.value).toMatch(/May 2, 2026/);
     expect(req.course.value).toMatch(/SOC/i);
+    const undated = parseAssignmentFallback(
+      "Write about how social media affects teen mental health in a short essay for class.",
+      { allowTopicAndDueDateGuess: false },
+    );
+    expect(undated.dueDate.value).toBeNull();
   });
 
   it("reads length, type, and sources from an argumentative assignment", () => {

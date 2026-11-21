@@ -41,22 +41,21 @@ describe("assignment parse recovery", () => {
     expect(issues.every((issue) => issue.path.length < 80 && !issue.code.includes(" "))).toBe(true);
   });
 
-  it("retries once, then uses the rule parser without inventing topic or due date", async () => {
+  it("uses one model read, then the rule parser, and keeps an explicit due date", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let calls = 0;
     const result = await parseAssignmentCorpus(SAMPLE, {
       mode: "live",
-      askModel: async ({ system }) => {
+      askModel: async () => {
         calls += 1;
-        if (calls === 2) expect(system).toContain("schemaVersion must be");
         return { ok: true, text: "[]", model: "test" };
       },
     });
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     expect(result.needsConfirmation).toBe(false);
     expect(result.parseMeta.fallback).toBe(true);
     expect(result.requirements.topic.value).toMatch(/social media/i);
-    expect(result.requirements.dueDate.value).toBeNull();
+    expect(result.requirements.dueDate.value).toMatch(/May 2, 2026/);
     expect(result.requirements.course.value).toMatch(/SOC/i);
     expect(result.requirements.citationStyle.value).toBe("MLA 9");
     const logged = error.mock.calls.map((call) => JSON.stringify(call));
@@ -129,19 +128,18 @@ ${"detail ".repeat(12)}`;
     expect(result.requirements.topic.value).toMatch(/social media/i);
   });
 
-  it("keeps a second model response when the first one is not an object", async () => {
+  it("does not make a second model call when the first response is not an object", async () => {
     let calls = 0;
     const result = await parseAssignmentCorpus(SAMPLE, {
       mode: "live",
       askModel: async () => {
         calls += 1;
-        if (calls === 1) return { ok: true, text: "[]", model: "test" };
-        return { ok: true, text: JSON.stringify({ topic: "listening in the clinic" }), model: "test" };
+        return { ok: true, text: "[]", model: "test" };
       },
     });
-    expect(calls).toBe(2);
-    expect(result.parseMeta.fallback).toBe(false);
-    expect(result.requirements.topic.value).toContain("listening");
+    expect(calls).toBe(1);
+    expect(result.parseMeta.fallback).toBe(true);
+    expect(result.requirements.topic.value).toMatch(/social media/i);
     expect(result.needsConfirmation).toBe(false);
   });
 });

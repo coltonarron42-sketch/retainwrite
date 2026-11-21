@@ -62,30 +62,36 @@ export async function grokChatJson(opts: GrokChatOpts): Promise<
     );
 
     // // SOP: coaching only, never generate submission text
-    const response = await grok.chat.completions.create(
-      {
-        model: opts.model,
-        messages: [
-          { role: "system", content: opts.system },
-          { role: "user", content: opts.user },
-        ],
-        response_format: opts.jsonSchema
-          ? {
-              type: "json_schema",
-              json_schema: {
-                name: opts.jsonSchema.name,
-                strict: true,
-                schema: opts.jsonSchema.schema,
-              },
-            }
-          : { type: "json_object" },
-      },
-      {
-        signal: controller.signal,
-        // xAI-specific reasoning effort
-        headers: { "X-Reasoning-Effort": effort },
-      },
-    );
+    const response = await Promise.race([
+      grok.chat.completions.create(
+        {
+          model: opts.model,
+          messages: [
+            { role: "system", content: opts.system },
+            { role: "user", content: opts.user },
+          ],
+          response_format: opts.jsonSchema
+            ? {
+                type: "json_schema",
+                json_schema: {
+                  name: opts.jsonSchema.name,
+                  strict: true,
+                  schema: opts.jsonSchema.schema,
+                },
+              }
+            : { type: "json_object" },
+        },
+        {
+          signal: controller.signal,
+          timeout: opts.timeoutMs ?? (opts.model === MODEL_STRONG ? 30_000 : 8_000),
+          // xAI-specific reasoning effort
+          headers: { "X-Reasoning-Effort": effort },
+        },
+      ),
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => reject(new Error("timeout")), { once: true });
+      }),
+    ]);
     clearTimeout(timer);
 
     const text = response.choices[0]?.message?.content?.trim() ?? "";
