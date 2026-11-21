@@ -204,3 +204,9 @@ revoke all on function public.purge_hidden_drafts() from public;
 revoke all on function public.purge_hidden_drafts() from anon;
 revoke all on function public.purge_hidden_drafts() from authenticated;
 grant execute on function public.purge_hidden_drafts() to service_role;
+
+-- Table grants for the service role. private stays out of the exposed API schemas.
+revoke all on schema private from anon, authenticated;
+revoke all on table private.hidden_drafts from anon, authenticated;
+grant usage on schema private to service_role;
+grant select, insert, update, delete on private.hidden_drafts to service_role;

@@ -171,7 +171,7 @@ describe("hidden draft plan", () => {
   });
 
   it("keeps the service-role migration off the exposed API and deletes expired rows", () => {
-    const sql = readFileSync("supabase/migrations/0013_hidden_draft_rpc.sql", "utf8");
+    const sql = readFileSync("supabase/migrations/0014_hidden_draft_rpc.sql", "utf8");
     expect(sql).toMatch(/security definer/i);
     expect(sql).toMatch(/revoke all on function public\.upsert_hidden_draft/);
     expect(sql).toMatch(/from anon/);
@@ -181,7 +181,10 @@ describe("hidden draft plan", () => {
     expect(sql).toMatch(/interval '30 days'/);
     expect(sql).toMatch(/interval '90 days'/);
     expect(sql).toMatch(/stays out of Supabase exposed API schemas/);
-    expect(sql).not.toMatch(/grant usage on schema private/i);
+    expect(sql).toMatch(/grant usage on schema private to service_role/);
+    expect(sql).toMatch(/grant select, insert, update, delete on private\.hidden_drafts to service_role/);
+    expect(sql).not.toMatch(/grant usage on schema private to (anon|authenticated)/);
+    expect(sql).not.toMatch(/on private\.hidden_drafts to (anon|authenticated)/);
     expect(sql).not.toMatch(/pgrst/i);
     const signalsFn = sql.slice(sql.indexOf("function public.get_hidden_draft_signals"), sql.indexOf("function public.load_hidden_draft_guard"));
     expect(signalsFn).not.toMatch(/'canary'|row\.text/);
