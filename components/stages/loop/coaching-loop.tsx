@@ -54,6 +54,7 @@ import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
 import { FEATURES, STAGE_LABELS } from "@/lib/config";
 import {
   advanceProductStage,
+  productStageBounce,
   progressAfterLogicContinue,
   sectionContinueTarget,
 } from "@/lib/stages/advance";
@@ -276,11 +277,15 @@ export function CoachingLoop({
 
   useEffect(() => {
     if (!session) return;
-    const stanceDone = session.sections.every((item) => item.status === "confirmed");
-    if (!stanceDone && (stage === 3 || stage === 4)) {
+    const bounce = productStageBounce({
+      stage,
+      progress: stageProgress,
+      sections: session.sections,
+    });
+    if (bounce === "stance") {
       router.replace(`/app/papers/${paperId}/stage/2`);
     }
-  }, [paperId, router, session, stage]);
+  }, [paperId, router, session, stage, stageProgress]);
 
   const section = session?.sections[active];
   const totals = useMemo(
@@ -357,7 +362,7 @@ export function CoachingLoop({
     }
   }
 
-  function continueAfterLogic(choice: "pass" | "keep" | "continued") {
+  async function continueAfterLogic(choice: "pass" | "keep" | "continued") {
     if (!session || !section) return;
     const sections = session.sections.map((item, index) =>
       index === active
@@ -385,6 +390,16 @@ export function CoachingLoop({
       ],
     });
     if (target.kind === "section") setActive(nextIndex);
+    if (persist && target.kind === "outline") {
+      const savedSession = { ...session, sections, activeIndex: nextIndex };
+      await persistField(paperId, {
+        fieldKey: "loop_session",
+        text: JSON.stringify(savedSession),
+        submitted: true,
+        resume: { stage: 3, screen: "outline" },
+        session: savedSession,
+      });
+    }
     persistAndGo(result.progress, result.nextStage);
     if (stage >= 2 && stage <= 4) {
       requestHiddenDraftMilestone(paperId, {
@@ -861,7 +876,8 @@ export function CoachingLoop({
         </div>
       ) : null}
 
-      {stage === 3 && session.sections.every((item) => item.status === "confirmed") ? (
+      {stage === 3 &&
+      productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <ProductNotes
           title="Outline"
           intro="These are your notes from Stance. Edit them in your own words."
@@ -904,7 +920,7 @@ export function CoachingLoop({
       ) : null}
 
       {stage === 4 &&
-      session.sections.every((item) => item.status === "confirmed") &&
+      productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" &&
       section?.loopStep !== "logic_check" ? (
         <ProductNotes
           title="Sources"

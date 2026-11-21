@@ -32,6 +32,13 @@ describe("resume link", () => {
         resume: { stage: 2, sectionKey: "body", questionId: "probe", screen: "stance" },
       }),
     ).toBe("/app/papers/paper-1/stage/2?section=body&question=probe&screen=stance");
+    expect(
+      continueHref({
+        id: "paper-1",
+        current_stage: 3,
+        resume: { stage: 2, sectionKey: "conclusion", screen: "stance" },
+      }),
+    ).toBe("/app/papers/paper-1/stage/3");
     expect(DRAFT_SAVE_DELAY_MS).toBe(2000);
   });
 });

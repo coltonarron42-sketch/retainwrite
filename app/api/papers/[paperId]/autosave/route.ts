@@ -122,9 +122,20 @@ export async function POST(request: Request, ctx: Ctx) {
     }
   }
   if (body.resume) {
+    const { data: existing } = await auth.supabase
+      .from("papers")
+      .select("current_stage")
+      .eq("id", paperId)
+      .eq("user_id", auth.userId)
+      .maybeSingle();
+    const currentStage = existing?.current_stage ?? 1;
+    const resumeMovesForward = body.resume.stage >= currentStage;
     const { error: resumeError } = await auth.supabase
       .from("papers")
-      .update({ resume: body.resume, current_stage: body.resume.stage, updated_at: now })
+      .update({
+        ...(resumeMovesForward ? { resume: body.resume, current_stage: body.resume.stage } : {}),
+        updated_at: now,
+      })
       .eq("id", paperId)
       .eq("user_id", auth.userId);
     if (resumeError) {

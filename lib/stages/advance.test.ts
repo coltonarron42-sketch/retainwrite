@@ -7,6 +7,7 @@ import { initialStageProgress } from "@/lib/stages/assert";
 import {
   advanceFromStage2ThroughEnd,
   advanceProductStage,
+  productStageBounce,
   progressAfterLogicContinue,
   sectionContinueTarget,
 } from "@/lib/stages/advance";
@@ -84,5 +85,27 @@ describe("logic-check continue from stage 2", () => {
     expect(strong.nextStage).toBe(3);
     expect(strong.progress.find((row) => row.stage === 2)?.status).toBe("complete");
     expect(strong.progress.find((row) => row.stage === 3)?.status).toBe("in_progress");
+  });
+
+  it("keeps Outline open when Stance progress is complete even if Body is still open in the saved session", () => {
+    const progress = progressAfterLogicContinue(startAtStance(), "outline").progress;
+    expect(
+      productStageBounce({
+        stage: 3,
+        progress,
+        sections: [
+          { status: "confirmed" },
+          { status: "open" },
+          { status: "confirmed" },
+        ],
+      }),
+    ).toBe("stay");
+    expect(
+      productStageBounce({
+        stage: 3,
+        progress: startAtStance(),
+        sections: [{ status: "open" }, { status: "open" }, { status: "confirmed" }],
+      }),
+    ).toBe("stance");
   });
 });

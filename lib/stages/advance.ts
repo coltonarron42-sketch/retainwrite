@@ -41,6 +41,24 @@ function withStatus(
   });
 }
 
+/**
+ * Outline stays open once Stance progress is complete.
+ * A saved session can still list Body as open; that must not bounce the student back.
+ */
+export function productStageBounce(input: {
+  stage: number;
+  progress: { stage: number; status: string }[];
+  sections: { status: string }[];
+}): "stay" | "stance" {
+  if (input.stage !== 3 && input.stage !== 4) return "stay";
+  const previous = input.progress.find((row) => row.stage === input.stage - 1);
+  if (previous?.status === "complete") return "stay";
+  const settled =
+    input.sections.length > 0 &&
+    input.sections.every((section) => section.status === "confirmed" || section.status === "skipped");
+  return settled ? "stay" : "stance";
+}
+
 /** Pass, Keep my angle, and Continue anyway all advance. Nothing blocks. */
 export function progressAfterLogicContinue(
   progress: StageProgressRow[],
