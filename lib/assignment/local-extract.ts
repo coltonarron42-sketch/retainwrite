@@ -1,12 +1,14 @@
 /**
  * Client/demo helpers to turn uploaded blobs into text without a server.
- * PDF/DOCX/images fall back to placeholders the student can replace via paste.
+ * Binary files wait for server OCR / native extract — paste is never required.
  */
 
 export type LocalExtractResult = {
   text: string;
   method: "txt" | "paste" | "pdf_text" | "docx" | "ocr_pending" | "unsupported";
   note?: string;
+  /** True when the file needs a server/OCR pass before text is available. */
+  pending: boolean;
 };
 
 export async function extractTextFromFile(file: File): Promise<LocalExtractResult> {
@@ -20,19 +22,19 @@ export async function extractTextFromFile(file: File): Promise<LocalExtractResul
     name.endsWith(".md")
   ) {
     let text = await file.text();
-    // latin-1 fallback if UTF-8 produced lots of replacement chars
     if (text.includes("\uFFFD") && text.length > 0) {
       const buf = await file.arrayBuffer();
       text = new TextDecoder("latin1").decode(buf);
     }
-    return { text, method: "txt" };
+    return { text, method: "txt", pending: false };
   }
 
   if (mime === "application/pdf" || name.endsWith(".pdf")) {
     return {
       text: "",
       method: "pdf_text",
-      note: "PDF uploaded — full text extraction runs when OCR/parse is available. Paste key pages if you need the card now.",
+      pending: true,
+      note: "Reading this PDF…",
     };
   }
 
@@ -44,7 +46,8 @@ export async function extractTextFromFile(file: File): Promise<LocalExtractResul
     return {
       text: "",
       method: "docx",
-      note: "Word file uploaded — text extraction runs on the server. Paste the prompt if you need the card now.",
+      pending: true,
+      note: "Reading this Word file…",
     };
   }
 
@@ -52,13 +55,15 @@ export async function extractTextFromFile(file: File): Promise<LocalExtractResul
     return {
       text: "",
       method: "ocr_pending",
-      note: "Photo uploaded — OCR runs next. You can also paste what you can read.",
+      pending: true,
+      note: "Reading this photo…",
     };
   }
 
   return {
     text: "",
     method: "unsupported",
-    note: "This file type isn’t supported for local preview.",
+    pending: false,
+    note: "That file type isn't supported. Try a PDF, a Word file, a text file, or a photo.",
   };
 }
