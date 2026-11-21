@@ -52,18 +52,32 @@ export async function ensureUserPaper(
     current_stage: 1,
   });
   if (error) {
-    console.error("[papers] create failed", { code: error.code });
+    console.error("[papers] create failed", { code: error.code, message: error.message });
     return { ok: false, status: 500, error: "Could not start the paper. Please try again." };
   }
 
   if (profile) {
-    await supabase
+    const { error: profileError } = await supabase
       .from("profiles")
       .update({
         free_paper_used: decision.freePaperUsed,
         paper_credits: decision.creditsAfter,
       })
       .eq("user_id", userId);
+    if (profileError) {
+      console.error("[papers] profile update failed", {
+        code: profileError.code,
+        message: profileError.message,
+      });
+      const { error: rollbackError } = await supabase.from("papers").delete().eq("id", id).eq("user_id", userId);
+      if (rollbackError) {
+        console.error("[papers] rollback failed", {
+          code: rollbackError.code,
+          message: rollbackError.message,
+        });
+      }
+      return { ok: false, status: 500, error: "Could not start the paper. Please try again." };
+    }
   }
 
   return { ok: true, id };
