@@ -694,6 +694,12 @@ export function CoachingLoop({
             <LogicCheckpoint
               phase="opener"
               onChoice={(choice) => {
+                if (choice === "tweak") {
+                  updateSection(section.key, { loopStep: "probe", logicRevealed: false });
+                  setIdea(keptIdeas(section.ideas).at(-1) ?? "");
+                  log("logic_opener_tweak");
+                  return;
+                }
                 if (choice === "yes") {
                   const passed = section.logic?.result.tier === "pass";
                   updateSection(section.key, {
@@ -701,7 +707,7 @@ export function CoachingLoop({
                     ...(passed ? { status: "confirmed" as const } : {}),
                   });
                 }
-                log(choice === "tweak" ? "logic_opener_tweak" : "logic_check_run");
+                log("logic_check_run");
               }}
               onContinue={() => undefined}
             />
@@ -754,8 +760,10 @@ export function CoachingLoop({
       {stage === 3 && session.sections.every((item) => item.status === "confirmed") ? (
         <ProductNotes
           title="Outline"
-          intro="These are your notes from Stance. Shape the outline in your own words."
+          intro="These are your notes from Stance. Edit them in your own words."
           sections={session.sections}
+          editable
+          onEdit={(key, text) => updateSection(key, { ideas: text.trim() ? [text.trim()] : [] })}
           onContinue={continueProductStage}
         />
       ) : null}
@@ -766,6 +774,11 @@ export function CoachingLoop({
         <ProductNotes
           title="Sources"
           intro="Directions to verify yourself. The app does not write the citations or the sentences."
+          direction={
+            subject === "your topic"
+              ? "Name the topic on the checklist, then look up a source you can check yourself."
+              : `Look up a source about ${subject} that you can check yourself. Search the phrase, open the real page, and decide if it fits.`
+          }
           sections={session.sections}
           showLeads
           onContinue={continueProductStage}
@@ -777,7 +790,10 @@ export function CoachingLoop({
           paperId={paperId}
           promptType={session.extraction.promptType}
           storyAngle={lesson.statement}
-          thesis={session.answers.map((answer) => answer.text).slice(-1)[0] ?? ""}
+          thesis={
+            keptIdeas(session.sections.find((item) => item.kind === "intro")?.ideas ?? [])[0] ||
+            (subject === "your topic" ? "" : subject)
+          }
           lessonConcept={lesson.concepts[0]?.term ?? null}
           sections={session.sections.map((item) => ({
             key: item.key,
@@ -949,27 +965,42 @@ function ConfirmPanel({
 function ProductNotes({
   title,
   intro,
+  direction,
   sections,
   showLeads = false,
+  editable = false,
+  onEdit,
   onContinue,
 }: {
   title: string;
   intro: string;
+  direction?: string;
   sections: RuntimeSection[];
   showLeads?: boolean;
+  editable?: boolean;
+  onEdit?: (key: string, text: string) => void;
   onContinue: () => void;
 }) {
   return (
     <section className="mt-8 space-y-3">
       <h2 className="font-display text-2xl text-rw-ink">{title}</h2>
       <p className="text-sm text-rw-ink/70">{intro}</p>
+      {direction ? <p className="text-sm text-rw-ink">{direction}</p> : null}
       {sections.map((item) => (
         <article key={item.key} className="rounded-xl bg-white p-4 text-sm">
           <h3 className="font-medium">{item.title}</h3>
           <p className="text-rw-ink/70">{item.needs}</p>
-          {keptIdeas(item.ideas).map((note) => (
-            <p key={note}>Your note: {note}</p>
-          ))}
+          {editable ? (
+            <Textarea
+              className="mt-2"
+              value={keptIdeas(item.ideas).join("\n")}
+              onChange={(event) => onEdit?.(item.key, event.target.value)}
+            />
+          ) : (
+            keptIdeas(item.ideas).map((note) => (
+              <p key={note}>Your note: {note}</p>
+            ))
+          )}
           {showLeads && item.chosenLead ? (
             <p className="mt-2">To verify: {item.chosenLead}</p>
           ) : null}

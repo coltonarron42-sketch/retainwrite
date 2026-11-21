@@ -336,8 +336,8 @@ export function DraftingStage({
           {step !== "opener" && (choice === "shot" || showShape) ? (
             <p className="text-sm text-rw-ink/70">{shapeLine}</p>
           ) : null}
-          {choice === "shot" && !showShape ? (
-            <Button type="button" variant="ghost" onClick={() => setShowShape(true)}>
+          {step !== "opener" && !showShape ? (
+            <Button type="button" variant="outline" onClick={() => setShowShape(true)}>
               Show me the shape
             </Button>
           ) : null}
