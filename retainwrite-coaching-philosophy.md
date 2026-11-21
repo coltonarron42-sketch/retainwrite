@@ -1,8 +1,10 @@
 # RetainWrite — Coaching Philosophy (governing document)
 
-**Version:** v1.6 · Nov 20, 2026 (appendix: interaction design layer and hidden-draft scaffold across the pipeline, t57, updated with Colton's t58 decisions; earlier: hybrid voice-note threshold, t51, and gentle memory-trigger guideline, t52; earlier: Stage 2 brainstorm t47, gentle Stage 6 voice nudge t48; earlier: LOGIC CHECKPOINT t41/t42, paste-everywhere t44/t45; his text in sections 1–4 is unchanged) · Author: Colton Simmons (owner)
+**Version:** v1.7 · Nov 20, 2026 (adds a pointer to project operating rules, including the no-idle bot rule, t69; earlier: appendix interaction design layer and hidden-draft scaffold across the pipeline, t57, updated with Colton's t58 decisions; earlier: hybrid voice-note threshold, t51, and gentle memory-trigger guideline, t52; earlier: Stage 2 brainstorm t47, gentle Stage 6 voice nudge t48; earlier: LOGIC CHECKPOINT t41/t42, paste-everywhere t44/t45; his text in sections 1–4 is unchanged) · Author: Colton Simmons (owner)
 
 **Status:** This is THE governing document for every stage, probe, summary, and interaction in RetainWrite. Where any spec or prompt conflicts with it **on philosophy**, this doc wins. The specs (`retainwrite-stage1-intake-spec.md`, `retainwrite-stage-specs.md`, `retainwrite-ai-checker-spec.md`) still hold the implementation details. Sections 1–4 are Colton's text, kept in his wording and only lightly organized. The appendix is ours.
+
+**Project operating rules:** Standing operating rules for every bot and session (Paper Coach, RetainWrite QA, Paper Coach Marketing, Paper Coach Research, and any Cursor agent) live in `retainwrite-project-rules.md`. That file is the source of truth for those rules, including the owner's no-idle standing rule (t69). This document remains the source of truth for coaching philosophy.
 
 ---
 
@@ -148,6 +150,7 @@ The Stage 6 (and Stage 5) voice-mismatch warning is no longer a check-in. It rea
 
 ### Changelog
 
+- **v1.7 — Nov 20, 2026 (t69)** — Added a short pointer near the top to `retainwrite-project-rules.md` (project operating rules for all bots, including the owner's no-idle standing rule). Colton's text in sections 1–4 is unchanged.
 - **v1.6 (t58 update) — Nov 20, 2026** — Appendix only: A.9 updated with Colton's t58 decisions (the stage is called **Drafting**; teach-then-draft for every section; one sentence at a time; strict order; example language, not templates; section-only zoom-outs; the big payoff at the end of Drafting with "Look at everything you wrote."; the hidden draft as a server-side full-paper answer key; scaffolding that fades over papers). The pipeline-wide principle is unchanged. Colton's text in sections 1–4 is unchanged.
 - **v1.6 — Nov 20, 2026 (t57)** — Appendix only, PROVISIONAL: new A.9 (the interaction design layer applies to the whole pipeline: one beat at a time, progress ghost, milestone zoom-outs with jump-to-edit, the end-of-outline payoff, and the hidden-draft scaffold as a private, never-shown sketch that only reorders or flags the student's own ideas) and a matching A.4 enforcement row. Colton's text in sections 1–4 is unchanged.
 - **v1.5 — Nov 20, 2026 (t51, t52)** — Appendix only: the A.4 paste row and A.7 item 8 now state the hybrid voice-note rule (natural voice words + paste share); the A.4 trauma row and A.7 item 5 add Colton's gentle-invitation guideline for memory triggers. Colton's text in sections 1–4 is unchanged.
