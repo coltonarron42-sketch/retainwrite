@@ -10,10 +10,10 @@ import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
 import { TeachCardView } from "@/components/coaching/teach-card";
 import { VoiceNote } from "@/components/coaching/voice-note";
 import { VoiceNudge } from "@/components/coaching/voice-nudge";
+import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import {
   assembleLeadBatch,
   buildGoogleSearchPrompt,
-  type LeadCandidate,
   type PreparedLead,
 } from "@/lib/coaching/leadBatch";
 import {
@@ -167,47 +167,6 @@ function freshSession(assignmentText: string): Session {
   };
 }
 
-function leadIdeas(concept: string): { candidates: LeadCandidate[]; wildcard: LeadCandidate } {
-  const label = concept || "the concept";
-  return {
-    candidates: [
-      {
-        name: "A source your field usually cites",
-        rubricMatch: 0.91,
-        rubricRef: "lesson_concept",
-        lessonLink: lessonLinkFor(label),
-        whyFits: `Often used when a class studies ${label}. Verify it before you cite it.`,
-      },
-      {
-        name: "A second example from the same field",
-        rubricMatch: 0.78,
-        rubricRef: "lesson_concept",
-        lessonLink: lessonLinkFor(label),
-        whyFits: `Another name readers expect for ${label}. Verify it before you cite it.`,
-        interestSteered: true,
-      },
-      {
-        name: "A case your rubric can score",
-        rubricMatch: 0.7,
-        rubricRef: "lesson_concept",
-        lessonLink: lessonLinkFor(label),
-        whyFits: "Fits the required theme. Verify the details yourself.",
-      },
-    ],
-    wildcard: {
-      name: "A school jazz band director",
-      rubricMatch: 0.22,
-      rubricRef: "lesson_concept",
-      lessonLink: lessonLinkFor(label),
-      whyFits: "Same pattern, different field.",
-      isWildcard: true,
-      wildcardWhy: `Music is another place the pattern of ${label} can show up.`,
-      familyFriendly: true,
-      controversyNote: null,
-    },
-  };
-}
-
 export function CoachingLoop({
   paperId,
   stage,
@@ -342,10 +301,20 @@ export function CoachingLoop({
       ? defaultTeachCard(section.concept, section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
-  const batch =
+  const examples =
     section && section.mode === "lesson"
+      ? exampleLeadBatch({
+          concept: section.concept,
+          assignmentText: session.assignmentText,
+          studentIdea: section.ideas.join(" "),
+          rubricRef: section.rubricRef,
+        })
+      : null;
+  const batch =
+    examples?.personalized
       ? assembleLeadBatch({
-          ...leadIdeas(section.concept ?? "the concept"),
+          candidates: examples.candidates,
+          wildcard: examples.wildcard,
           aiSuggestedSoFar: session.answers.filter((answer) => answer.kind === "probe").length > 8 ? 20 : 0,
           under18: false,
         })
@@ -561,6 +530,31 @@ export function CoachingLoop({
               {session.safetyNote ? (
                 <p className="rounded-lg bg-white p-3 text-sm text-rw-ink">{session.safetyNote}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {inStance && section.loopStep === "search" && !examples?.personalized ? (
+            <div className="space-y-3 rounded-xl border border-rw-ink/15 bg-white p-4">
+              <p className="text-sm text-rw-ink/80">
+                I couldn&apos;t tie research directions to this assignment yet. Name a source or
+                example you want to check, in your own words.
+              </p>
+              <Textarea
+                value={idea}
+                onChange={(event) => setIdea(event.target.value)}
+                placeholder="A source, person, or example to verify"
+              />
+              <Button
+                type="button"
+                disabled={!idea.trim()}
+                onClick={() => {
+                  updateSection(section.key, { chosenLead: idea.trim(), loopStep: "summarize" });
+                  log("section_lead_picked");
+                  setIdea("");
+                }}
+              >
+                I&apos;ll check this
+              </Button>
             </div>
           ) : null}
 

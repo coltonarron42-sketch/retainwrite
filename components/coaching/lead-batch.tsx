@@ -26,7 +26,7 @@ export function LeadBatchView({ ranked, wildcard, capReached, searchPrompt, onPi
             </div>
             <p className="mt-1 text-sm text-rw-ink/70">{lead.whyFits}</p>
             <Button type="button" size="sm" className="mt-3" variant="outline" onClick={() => onPick(lead)}>
-              Use this lead
+              Try this direction
             </Button>
           </li>
         ))}
@@ -46,7 +46,7 @@ export function LeadBatchView({ ranked, wildcard, capReached, searchPrompt, onPi
             A stretch pick. The ones above are the safer fit for your rubric.
           </p>
           <Button type="button" size="sm" className="mt-3" variant="outline" onClick={() => onPick(wildcard)}>
-            Use this stretch pick
+            Try this stretch
           </Button>
         </div>
       ) : null}
