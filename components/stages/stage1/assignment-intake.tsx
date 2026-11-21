@@ -148,6 +148,7 @@ export function AssignmentIntake({
   const [rightsOk, setRightsOk] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<StagedAssignmentFile[]>([]);
   const [parseStatus, setParseStatus] = useState("Extracting the text…");
+  const [parseSeconds, setParseSeconds] = useState(0);
   const [requirements, setRequirements] =
     useState<AssignmentRequirements | null>(null);
   const [rawText, setRawText] = useState("");
@@ -174,6 +175,12 @@ export function AssignmentIntake({
     label: string;
     excerpt: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (screen !== "parsing") return;
+    const timer = window.setInterval(() => setParseSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [screen]);
 
   useEffect(() => {
     setPaper(accountPaper ?? getDemoPaper(paperId) ?? null);
@@ -388,6 +395,7 @@ export function AssignmentIntake({
       return;
     }
 
+    setParseSeconds(0);
     setScreen("parsing");
     setParseStatus(
       stagedFiles.some((f) => f.method === "ocr_pending" || f.pending)
@@ -1009,8 +1017,11 @@ export function AssignmentIntake({
 
   if (screen === "parsing") {
     return (
-      <div className="mx-auto max-w-xl py-16 text-center">
+      <div className="mx-auto max-w-xl py-16 text-center" role="status">
         <p className="font-display text-2xl text-rw-ink">{parseStatus}</p>
+        <p className="mt-2 text-sm text-rw-ink/70">
+          {parseSeconds > 0 ? `Still reading… ${parseSeconds}s` : "Still reading…"}
+        </p>
         <p className="mt-3 text-sm text-rw-ink/55">
           No coaching questions yet — we only extract what the assignment says.
         </p>

@@ -211,6 +211,7 @@ export function CoachingLoop({
   const outlineDrafts = useRef<Record<string, string>>({});
   const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
+  const [moving, setMoving] = useState(false);
   const noteStatus = useDraftSave({
     paperId,
     fieldKey: `stance:${session?.sections[active]?.key ?? "note"}:draft`,
@@ -377,10 +378,16 @@ export function CoachingLoop({
   }
 
   async function persistAndGo(progress: StageProgressRow[], nextStage: number) {
+    setMoving(true);
     const saved = await onStageProgress?.(progress, nextStage);
-    if (saved === false) return;
+    if (saved === false) {
+      setMoving(false);
+      return;
+    }
     if (nextStage !== stage) {
       router.push(`/app/papers/${paperId}/stage/${nextStage}`);
+    } else {
+      setMoving(false);
     }
   }
 
@@ -496,6 +503,11 @@ export function CoachingLoop({
 
   return (
     <div className="mx-auto max-w-3xl pb-24">
+      {moving ? (
+        <p className="mb-4 text-sm font-medium text-rw-ink" role="status">
+          Opening the next stage…
+        </p>
+      ) : null}
       {stage === 2 ? (
         <>
       <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
