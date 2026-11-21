@@ -5,9 +5,10 @@
 1. **`retainwrite-coaching-philosophy.md` — THE governing document** (v1.5, Nov 20, 2026). It governs every stage, probe, summary, and interaction. It wins over every other doc, including the stage specs, **on philosophy**. The specs below still hold the implementation detail. If a spec rule would break a hard limit in the philosophy doc, follow the philosophy doc and flag the conflict in your PR description.
 2. `retainwrite-stage1-intake-spec.md` — wins on Stage 1 implementation.
 3. `retainwrite-stage-specs.md` — wins on Stages 2–6 and cross-stage implementation (including the section-by-section loop, section 2A, and the Stage 2 lesson-first coaching spec, section 2B).
-4. `retainwrite-ai-checker-spec.md` — wins on the standalone AI checker (Phase 11).
-5. `retainwrite-admin-passcodes-spec.md` — wins on passcodes (Phase 13).
-6. This build prompt — stack, conventions, data model, and build order.
+4. `retainwrite-stage3-draft-spec.md` — **FIRST DRAFT, PENDING COLTON'S REVIEW.** Colton's "Stage 3 (draft stage)" drafting muscle (the code's Stage 5 route). Read it for context, but do **not** build it until build item S3-t56 is marked approved; until then stage specs 5.1–5.3 govern the draft stage.
+5. `retainwrite-ai-checker-spec.md` — wins on the standalone AI checker (Phase 11).
+6. `retainwrite-admin-passcodes-spec.md` — wins on passcodes (Phase 13).
+7. This build prompt — stack, conventions, data model, and build order.
 
 You are building **RetainWrite** (retainwrite.com), a student paper-writing COACHING app. It coaches students through writing their own paper in six gated stages. It NEVER writes the submission for the student. Build a complete, production-ready Next.js app in this repo.
 
@@ -326,6 +327,7 @@ API routes (`upload-url`, `finalize`, `parse-status` via polling or Realtime, `p
 - **Draft feedback pattern (philosophy section 4), per section:** "Here are the {n} ideas we captured for this section based on what you told me. We chose {leader}, we chose {style}. Idea one: {idea note}… Write those ideas in your own words." Idea notes are the student's own words or ≤ 12-word fragments, never finished sentences; transition suggestions are a relationship label plus connective words only; the student mixes freely. Built in code from `section_decisions` (stage specs 5.3 step 2).
 - Side panel: their outline, sentence plan, linked excerpts, and "Your raw material" bank for reference, as a map only (INTD600 Phase 5). The student writes every sentence in their own voice. No example sentences and no "write this for me" button anywhere.
 - Complete when a draft ≥ 300 words is saved.
+- **Pending (S3-t56):** the per-paragraph drafting muscle in `retainwrite-stage3-draft-spec.md` will layer on this stage behind `FEATURES.draftingMuscle = false` once Colton approves it. Don't build it yet.
 
 ### Stage 6 — Revise & feedback
 - Show draft vs. intake voice comparison (bar chart: sentence length, grade level, formality) with coaching tips ("your draft sentences average 31 words vs. your natural 14 — try splitting the longest ones").
@@ -383,6 +385,37 @@ Replace the Stage 6 (and Stage 5 section-feedback) mismatch warning UI with the 
 - [ ] **Make it sound like me** opens the panel and never shows rewritten or example sentences; saving a revision re-runs the check.
 - [ ] **Keep it as is** needs no note, logs `voice_nudge_kept`, and resolves checklist item 5; nothing in the UI implies the student didn't write it.
 - [ ] CI grep: the retired warning headline, "I've reworked it", "This is my writing", "I reworked these", and the events `mismatch_warned` / `mismatch_response` (patterns built from parts) appear nowhere in app code.
+
+### Build item S3-t56 — Stage 3 draft-stage muscle (Colton, Nov 20, 2026) — ⚠ PENDING COLTON'S REVIEW, DO NOT BUILD YET
+
+> **Status: PENDING.** Spec: **`retainwrite-stage3-draft-spec.md`** (first draft; decisions 48–60, all [PROVISIONAL]). Colton still has to answer its open questions (spec section 15: stage naming, arc-frame style, intro timing, paragraph-per-point default, reorder control, second sentence in the outline, skipping, teacher's words, the four intro variants, genre classifier, format bank). **Do not start this item until this banner is replaced with "APPROVED".** When approved, it ships behind `FEATURES.draftingMuscle = false` in `lib/config.ts` (a code constant, not an env var) and is turned on only after the acceptance tests pass. Until then the classic draft stage (stage specs 5.1–5.3) is the behavior. "Stage 3" is Colton's name; the route stays `/app/papers/[paperId]/stage/5`.
+
+**Implementation steps (when approved)**
+1. **Flag and mode:** `FEATURES.draftingMuscle` (default `false`); read at draft-stage entry and stored as `stage_progress.data.draftingMode = 'classic'|'muscle'`. Papers already drafting stay classic.
+2. **Migration `0010_drafting_muscle.sql`** (spec section 12): `papers.paper_genre` + `paper_genre_source`, `draft_ledgers`, `draft_paragraphs` (incl. `intro_variant`, `intro_format`, `rubric_explainers`, `paste_meta`), RLS `auth.uid() = user_id`. 0009 stays reserved for the section-loop fallback.
+3. **Locked ledger** (`lib/drafting/ledger.ts`, section 3): built in code from `section_decisions`, the approved outline, verified excerpts, lesson, story angle and thesis; verbatim origins only; versioned on outline edits or section reopen, with the soft "Your plan changed" banner.
+4. **Framework** (section 4): intro → one paragraph per major point → counter only if the rubric requires it → conclusion; promote/fold ideas (cap 3 per section); paragraph minimums split from the 5.3 formula (floor 50).
+5. **Intro first** (section 5): scripted format card (`lib/coaching/introFormats.ts`), teach-then-ask chips, verbatim read-back, an empty editor with the variant's first-summary prompt, the opening checklist, "rough is fine" copy, and a one-time intro revisit after the last body paragraph.
+6. **Per-type intro variants** (section 6): `paper_genre` → thesis / story / reflective / case (fallback from `prompt_type`; `unknown` → thesis); **Change** control; variant-specific formats, checklist, first-summary prompt and default arc.
+7. **Rubric explainer** (section 7): verbatim teacher quote + ≤ 30-word plain line + self-check question; `MODEL_FAST`, cached; scripted fallback.
+8. **Per-paragraph loop** (section 8): TEACH → RE-READ → STUDENT DRAFTS → CHECK → STRUCTURE FEEDBACK → TIGHTEN/REORDER → STUDENT REVISES → SAVE; `ParagraphFeedback` (`MODEL_STRONG`) with a rule-based fallback; 5.3 hard rules per paragraph; section text derived from paragraphs so `drafts` v1 assembly and the section 7 check are unchanged.
+9. **Tightening** (section 9): code-computed flow/tighten checklist, reorder questions by sentence/paragraph number, a Reorder view that moves the student's own text byte-for-byte (no auto-apply), and scripted arc frames (`lib/coaching/arcFrames.ts`, incl. Colton's "We started with… Then we went to…") with no copy button.
+10. **Drafting guard** (`lib/ai/draftGuard.ts`, section 10): rules D1–D8 after `lib/ai/guard.ts`; retry once, then fallback; `lib/ai/genericWords.ts` allow-list; CI bank checks.
+11. **Edge cases** (section 11): stall reuses TEACH / MIRROR + t52 gentle triggers + Say it out loud + flag; the fixed "write it for me" decline; paste allowed with the 5.2 note once per session per paper (shared key); t48 voice nudge only.
+12. **Events** (section 13) and `// SOP: coaching only, never generate submission text` at every AI call site.
+
+**Acceptance tests (full list: spec section 14)**
+- [ ] Ledger v1 is created on entry with verbatim-only origins; no ledger edit control; outline edits create v2 and flag only affected paragraphs.
+- [ ] No draft-stage screen re-asks anything answered in Stages 1–4.
+- [ ] The intro opens first; the format card precedes an empty editor with the variant's first-summary prompt; no coach output before the student writes.
+- [ ] Per-type variants: thesis types → thesis intro with a thesis check; narrative / personal-experience / admissions → story intro with a so-what check and no thesis check; reflective → context + insight; case study → situation + question; the student's **Change** wins.
+- [ ] Rubric intro requirements show a verbatim quote, a plain line and a question; topic claims in the plain line are rejected.
+- [ ] A rough intro at the minimum can be checked and saved; flow never blocks.
+- [ ] Reorder suggestions use numbers only; no auto-apply; moves are byte-identical.
+- [ ] Arc frames come only from the bank (≥ 2 slots, allow-listed words, no copy button, not exported).
+- [ ] Drafting-guard topic-leak set (servant leadership / Legere cases) passes; nightly `evals/drafting-guard.jsonl` has 0 leaks.
+- [ ] Stall paths and the "write it for me" decline never render a sentence; paste never blocks and shows the 5.2 note once per session per paper; drafting text doesn't change `naturalWords`.
+- [ ] 5.3 gates, Stage 5 completion and `drafts` v1 shape are unchanged; with the flag `false`, the classic flow renders and no `draft_*` rows are written.
 
 ## 5. Style metrics (`lib/style/metrics.ts`, pure functions + unit tests with Vitest)
 ```ts
@@ -558,6 +591,7 @@ After this phase, run typecheck and tests and fix failures.
 
 ## Changelog
 
+- **Nov 20, 2026 (t56)** — Added build item **S3-t56** (Colton's "Stage 3 — draft stage" drafting muscle; spec `retainwrite-stage3-draft-spec.md`, decisions 48–60): locked ledger, framework, intro first with teach-then-draft and per-type intro variants, rubric intro explainers, per-paragraph loop, tightening with scripted arc frames, drafting guard, migration `0010_drafting_muscle.sql`, acceptance tests. **Pending Colton's review of the open questions; ships behind `FEATURES.draftingMuscle = false`.** Added the spec to Read these first (#4) and a pending pointer under Stage 5. Build order unchanged.
 - **Nov 20, 2026 (t51, t52)** — Per Colton: the voice note now uses a hybrid threshold on natural (typed/spoken) words across the paper plus paste share (tiers 600 / 200 / 80 [PROVISIONAL]; `…_SHORT` and `…_LOW` strings; `VOICE_NOTE_ANSWERS_ALL` retired) in Stage 6, S2-t47 item 10 and its tests (including the 58-page and short-session cases), and the checker phase. Memory triggers are rewritten as gentle invitations that connect back to the paper, with a CI phrasing test (S2-t47 item 7 and tests). Governing doc is now v1.5.
 - **Nov 20, 2026 (t47, t48)** — Added build item **S2-t47** (Colton's Stage 2 brainstorm: THE LESSON per paper, three routing paths, TEACH before PROBE with teach-then-ask, concept vs. instance highlight reels with a search offer, ranked leads plus one Outside the box wildcard counted toward the 20 cap, memory-forward path for personal prompts, the logic-check opener and red alert, counterargument only when required, the all-pasted voice note) and build item **S6-t48** (gentle voice nudge replacing the mismatch warning's check-in buttons; `voice_nudge_*` events). Loop order, Stage 2/3/4/6 bullets, section 6, the hard-limits table, the quality bar and the build order updated. Governing doc is now v1.4 (still #1 in Read these first).
 - **Nov 20, 2026 (t46)** — Per Colton: the voice-baseline note now uses one consistent soft style (`VOICE_NOTE_SAMPLE` for the public checker's writing sample, `VOICE_NOTE_ANSWERS` for voice answers and Stage 6), retiring the t45 wording. Stage 5 (and the Stage 6 editor): the ≥ 80-word paste modal question is replaced by a supportive, dismissible inline suggestion shown at most once per session per paper, with no answer recorded. Tests and greps added.
