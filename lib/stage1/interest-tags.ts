@@ -31,6 +31,9 @@ const STOP_TAG_WORDS = new Set([
   "really",
   "just",
   "very",
+  "idk",
+  "dont",
+  "don't",
 ]);
 
 export function containsSensitiveContent(text: string): boolean {

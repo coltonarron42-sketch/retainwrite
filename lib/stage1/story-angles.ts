@@ -10,12 +10,24 @@ export type StoryAngle = {
   fromStudentPhrase?: string;
 };
 
+const FILLER = /^(?:idk|i don't know|i dont know|not sure|whatever|n\/a|na|none|nothing)\b[\s,:-]*/i;
+
+/** Drop filler so a casual phrase is not glued onto the assignment topic. */
+export function cleanInterestPhrase(raw: string): string | null {
+  const cleaned = raw.replace(FILLER, "").replace(/^["“”']+|["“”']+$/g, "").trim();
+  if (cleaned.length < 3) return null;
+  if (/^idk\b/i.test(cleaned)) return null;
+  return cleaned.slice(0, 40);
+}
+
 export function buildStoryAngleFallback(input: {
   topic: string;
   studentPhrases: string[];
 }): StoryAngle[] {
   const topic = (input.topic || "this assignment").trim().slice(0, 80);
-  const phrase = input.studentPhrases.find((p) => p.trim().length >= 8)?.trim();
+  const phrase = input.studentPhrases
+    .map((item) => cleanInterestPhrase(item))
+    .find((item): item is string => Boolean(item));
 
   const angles: StoryAngle[] = [
     {
@@ -37,9 +49,11 @@ export function buildStoryAngleFallback(input: {
     {
       id: "change",
       question: phrase
-        ? `What changed for you around “${phrase.slice(0, 40)}”, and what does that say about ${topic}?`
+        ? `You mentioned ${phrase}. Is there a moment there that speaks to this assignment?`
         : `What changed when you tried something related to ${topic}?`,
-      whyFits: "Turns a personal detail into the paper's story spine.",
+      whyFits: phrase
+        ? "Uses something you already mentioned, without turning it into the whole prompt."
+        : "Turns a personal detail into the paper's story spine.",
       fromStudentPhrase: phrase,
     },
   ];
