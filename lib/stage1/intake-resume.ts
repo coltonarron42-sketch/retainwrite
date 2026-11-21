@@ -32,6 +32,11 @@ export function resumeIntake(planIds: string[], answeredIds: string[]): IntakeRe
   };
 }
 
+/** Skip get-to-know-you must not throw away answers already counted in the voice sample. */
+export function answersAfterSkippingInterest<T extends { kind: string }>(answers: T[]): T[] {
+  return answers;
+}
+
 export function stanceStartBlockers(input: {
   checklistConfirmed: boolean;
   hasStory: boolean;

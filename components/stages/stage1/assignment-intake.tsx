@@ -51,7 +51,7 @@ import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
-import { resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
+import { answersAfterSkippingInterest, resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
@@ -182,10 +182,19 @@ export function AssignmentIntake({
     let cancelled = false;
     void fetch(`/api/papers/${paperId}/intake/answers`)
       .then(async (res) => (res.ok ? res.json() : null))
-      .then((data: { answers?: IntakeAnswer[]; storyAngle?: { text: string; source: "ai" | "student" } | null } | null) => {
+      .then((data: {
+        answers?: IntakeAnswer[];
+        storyAngle?: { text: string; source: "ai" | "student" } | null;
+        resume?: { screen?: string | null; questionId?: string | null } | null;
+      } | null) => {
         if (cancelled || !data) return;
         if (data.answers?.length) setAnswers(data.answers);
         if (data.storyAngle?.text) setStoryAngle(data.storyAngle);
+        if (data.resume?.screen === "gate" || data.resume?.questionId === "stance_early") {
+          setChecklistConfirmed(true);
+          setScreen("gate");
+          resumedIntake.current = true;
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -513,7 +522,7 @@ export function AssignmentIntake({
 
   function skipInterest() {
     setSkippedInterest(true);
-    setAnswers((prev) => prev.filter((a) => a.kind !== "interest"));
+    setAnswers((prev) => answersAfterSkippingInterest(prev));
     setQIndex(0);
     setDraftAnswer("");
   }
@@ -729,12 +738,23 @@ export function AssignmentIntake({
         fieldKey: "stage1:stance_early",
         text,
         submitted: true,
-        resume: { stage: 1, questionId: "stance_early", screen: "coaching" },
+        resume: { stage: 1, questionId: "stance_early", screen: "gate" },
       });
       if (!saved) {
         setError("Couldn't save that answer. It is still in the box.");
         return;
       }
+      await fetch(`/api/papers/${paperId}/intake/next-question`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          answer: text,
+          questionId: "stance_early",
+          questionText: "What's your early take?",
+          questionKind: "coaching",
+          sequence: 50,
+        }),
+      }).catch(() => undefined);
     }
     const angleText = storyAngle?.text || "this assignment";
     const nextAnswers: IntakeAnswer[] = [

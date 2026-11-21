@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resumeIntake, resumeQuestionIndex, stanceStartBlockers } from "@/lib/stage1/intake-resume";
+import {
+  answersAfterSkippingInterest,
+  resumeIntake,
+  resumeQuestionIndex,
+  stanceStartBlockers,
+} from "@/lib/stage1/intake-resume";
 
 describe("intake resume", () => {
   it("continues at the first question that was not saved", () => {
@@ -35,5 +40,13 @@ describe("intake resume", () => {
         stanceOk: true,
       }),
     ).toEqual([]);
+  });
+
+  it("keeps interest answers when get-to-know-you is skipped", () => {
+    const answers = [
+      { kind: "interest", answerText: "word ".repeat(90) },
+      { kind: "coaching", answerText: "word ".repeat(60) },
+    ];
+    expect(answersAfterSkippingInterest(answers)).toEqual(answers);
   });
 });

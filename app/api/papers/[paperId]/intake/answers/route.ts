@@ -61,11 +61,17 @@ export async function GET(_request: Request, ctx: Ctx) {
       pasteRatio: row.paste_ratio ?? undefined,
     }));
 
+  const { data: paper } = await supabase
+    .from("papers")
+    .select("resume")
+    .eq("id", paperId)
+    .eq("user_id", user.id)
+    .maybeSingle();
   const story = assignment.data?.story_angle as { text?: string; source?: string } | null;
   const storyAngle =
     story && typeof story.text === "string" && story.text.trim()
       ? { text: story.text.trim(), source: story.source === "student" ? "student" : "ai" }
       : null;
 
-  return NextResponse.json({ answers, storyAngle });
+  return NextResponse.json({ answers, storyAngle, resume: paper?.resume ?? null });
 }
