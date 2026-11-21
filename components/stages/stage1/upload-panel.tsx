@@ -22,6 +22,8 @@ export type StagedAssignmentFile = {
   extractedText: string;
   extractNote?: string;
   method: string;
+  pending?: boolean;
+  failed?: boolean;
 };
 
 type Props = {
@@ -35,6 +37,7 @@ type Props = {
   onRightsOkChange: (value: boolean) => void;
   error: string | null;
   onError: (message: string | null) => void;
+  onRetryFile?: (id: string) => void;
 };
 
 const ACCEPT =
@@ -55,6 +58,7 @@ export function UploadPanel({
   onRightsOkChange,
   error,
   onError,
+  onRetryFile,
 }: Props) {
   const fileInputId = useId();
   const cameraInputId = useId();
@@ -106,6 +110,8 @@ export function UploadPanel({
             extractedText: extracted.text,
             extractNote: extracted.note,
             method: extracted.method,
+            pending: extracted.pending,
+            failed: extracted.method === "unsupported",
           });
         }
         onFilesChange([...files, ...staged]);
@@ -260,7 +266,17 @@ export function UploadPanel({
                   {f.extractNote ? ` · ${f.extractNote}` : null}
                 </p>
               </div>
-              <div className="flex shrink-0 gap-1">
+              <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                {(f.failed || (f.pending && !f.extractedText)) && onRetryFile ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onRetryFile(f.id)}
+                  >
+                    Retry
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -313,17 +329,17 @@ export function UploadPanel({
           className="text-sm font-medium text-rw-teal underline-offset-2 hover:underline"
           onClick={() => setShowPaste((v) => !v)}
         >
-          {showPaste ? "Hide paste" : "Or paste the prompt instead"}
+          {showPaste ? "Hide optional text" : "Add assignment text (optional)"}
         </button>
         {showPaste ? (
           <div className="mt-2 space-y-2">
-            <Label htmlFor="paste">Paste the prompt</Label>
+            <Label htmlFor="paste">Assignment text (optional)</Label>
             <Textarea
               id="paste"
               value={paste}
               onChange={(e) => onPasteChange(e.target.value)}
               rows={8}
-              placeholder="Paste the full assignment text here."
+              placeholder="Optional — only if you want to add text alongside your files."
             />
           </div>
         ) : null}

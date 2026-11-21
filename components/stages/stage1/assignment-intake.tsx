@@ -19,13 +19,17 @@ import {
   AI_POLICY_NOTICE,
   needsAiPolicyAck,
 } from "@/lib/assignment/ai-policy-notice";
+import { extractTextFromFile } from "@/lib/assignment/local-extract";
+import { canStartAssignmentParse } from "@/lib/assignment/can-start-parse";
+import { missingImportant } from "@/lib/assignment/missing-important";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
-import type {
-  AssignmentRequirements,
-  CitationStyle,
-  Field,
+import {
+  emptyRequirements,
+  type AssignmentRequirements,
+  type CitationStyle,
+  type Field,
 } from "@/lib/assignment/schema";
 import {
   STAGE1_VOICE_MIN_WORDS,
@@ -44,7 +48,14 @@ import {
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
-type Screen = "upload" | "parsing" | "card" | "ai_policy" | "coaching" | "gate";
+type Screen =
+  | "upload"
+  | "parsing"
+  | "card"
+  | "followup"
+  | "ai_policy"
+  | "coaching"
+  | "gate";
 
 type IntakeAnswer = {
   questionId: string;
@@ -124,6 +135,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   const [needFallback, setNeedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
+  const [followupAsked, setFollowupAsked] = useState(false);
   const [viewSource, setViewSource] = useState<{
     label: string;
     excerpt: string;
@@ -194,6 +206,42 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
     return <p className="text-rw-ink/55">Loading paper…</p>;
   }
 
+  function openChecklist(next: AssignmentRequirements, corpus: string) {
+    setRawText(corpus);
+    setRequirements(next);
+    if (!followupAsked && missingImportant(next)) {
+      setScreen("followup");
+      return;
+    }
+    setScreen("card");
+  }
+
+  async function retryFile(id: string) {
+    const target = stagedFiles.find((f) => f.id === id);
+    if (!target) return;
+    setError(null);
+    const extracted = await extractTextFromFile(target.file);
+    setStagedFiles((prev) =>
+      prev.map((f) =>
+        f.id === id
+          ? {
+              ...f,
+              extractedText: extracted.text,
+              extractNote: extracted.note,
+              method: extracted.method,
+              pending: extracted.pending,
+              failed: extracted.method === "unsupported" || (!extracted.text && !extracted.pending),
+            }
+          : f,
+      ),
+    );
+    if (!extracted.text && extracted.pending) {
+      setError(
+        `We couldn't read ${target.filename} yet. Try again, or retake the photo in brighter light.`,
+      );
+    }
+  }
+
   async function runParse() {
     setError(null);
     const linkList = parseLinkField(links);
@@ -201,26 +249,19 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       setError("Confirm you're uploading this for your own coursework.");
       return;
     }
+    const hasFiles = stagedFiles.length > 0;
     const fileTexts = stagedFiles
       .map((f) => f.extractedText.trim())
       .filter(Boolean);
-    const hasBinaryOnly = stagedFiles.some(
-      (f) => !f.extractedText.trim() && f.method !== "unsupported",
-    );
-    if (!paste.trim() && fileTexts.length === 0 && linkList.length === 0) {
-      if (stagedFiles.length > 0 && hasBinaryOnly) {
-        setError(
-          "We received your files. Paste the prompt text for now so we can build the card — full PDF/OCR parse runs when those services are online.",
-        );
-        return;
-      }
-      setError("Upload a file, paste the prompt, or add at least one link.");
+    // Paste / links are optional. Files alone are enough to continue.
+    if (!hasFiles && !paste.trim() && linkList.length === 0) {
+      setError("Upload a file, add optional text, or add at least one link.");
       return;
     }
 
     setScreen("parsing");
     setParseStatus(
-      stagedFiles.some((f) => f.method === "ocr_pending")
+      stagedFiles.some((f) => f.method === "ocr_pending" || f.pending)
         ? "Reading your photos…"
         : "Extracting the text…",
     );
@@ -238,60 +279,52 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
           pasteText: paste.trim() || undefined,
           links: linkList.length ? linkList : undefined,
           extractedText: fileTexts.join("\n\n") || undefined,
-          extractionMethod: fileTexts.length ? "txt" : paste.trim() ? "paste" : "manual",
+          extractionMethod: fileTexts.length
+            ? "txt"
+            : paste.trim()
+              ? "paste"
+              : "manual",
         }),
       });
     } catch {
       /* parse continues */
     }
 
-    const fileNotes = stagedFiles
-      .filter((f) => f.extractNote && !f.extractedText.trim())
-      .map((f) => `[${f.filename}] ${f.extractNote}`);
-
     const combined = [
       ...fileTexts,
       paste.trim(),
-      ...fileNotes,
-      ...linkList.map((u) => `[Link provided — paste content if fetch fails]: ${u}`),
+      ...linkList.map((u) => `[Link provided]: ${u}`),
     ]
       .filter(Boolean)
       .join("\n\n");
 
     // SOP: coaching only, never generate submission text
-    try {
-      const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ corpusText: combined }),
-      });
-      const data = (await res.json()) as {
-        requirements?: AssignmentRequirements;
-        rawText?: string;
-        parseStatus?: string;
-        error?: string;
-      };
-      if (res.ok && data.requirements) {
-        if (data.parseStatus === "needs_input") {
-          setError(
-            "We couldn't get enough readable text yet. Add another file or paste the prompt.",
-          );
-          setScreen("upload");
+    if (combined.trim()) {
+      try {
+        const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ corpusText: combined }),
+        });
+        const data = (await res.json()) as {
+          requirements?: AssignmentRequirements;
+          rawText?: string;
+          parseStatus?: string;
+        };
+        if (res.ok && data.requirements) {
+          openChecklist(data.requirements, data.rawText ?? combined);
           return;
         }
-        setRawText(data.rawText ?? combined);
-        setRequirements(data.requirements);
-        setScreen("card");
-        return;
+      } catch {
+        /* local fallback */
       }
-    } catch {
-      /* local fallback */
+      openChecklist(parseAssignmentFallback(combined), combined);
+      return;
     }
 
-    const parsed = parseAssignmentFallback(combined);
-    setRawText(combined);
-    setRequirements(parsed);
-    setScreen("card");
+    // Photos/PDF uploaded but no local text yet — still open the checklist.
+    // Per-file Retry stays on the upload screen if they go back.
+    openChecklist(emptyRequirements(), "");
   }
 
   function updateField<K extends keyof AssignmentRequirements>(
@@ -546,9 +579,12 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
   }
 
   if (screen === "upload") {
-    const canSubmit =
-      rightsOk &&
-      (stagedFiles.length > 0 || Boolean(paste.trim()) || Boolean(links.trim()));
+    const canSubmit = canStartAssignmentParse({
+      fileCount: stagedFiles.length,
+      pasteText: paste,
+      linkCount: parseLinkField(links).length,
+      rightsOk,
+    });
 
     return (
       <div className="mx-auto max-w-xl">
@@ -576,6 +612,7 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
             onRightsOkChange={setRightsOk}
             error={error}
             onError={setError}
+            onRetryFile={(id) => void retryFile(id)}
           />
           <Button
             type="button"
@@ -601,8 +638,57 @@ export function AssignmentIntake({ paperId, demoMode = true }: Props) {
       <div className="mx-auto max-w-xl py-16 text-center">
         <p className="font-display text-2xl text-rw-ink">{parseStatus}</p>
         <p className="mt-3 text-sm text-rw-ink/55">
-          No coaching questions yet — we only extract what the prompt says.
+          No coaching questions yet — we only extract what the assignment says.
         </p>
+      </div>
+    );
+  }
+
+  if (screen === "followup" && requirements) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+          One quick check
+        </p>
+        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+          Anything else for the assignment?
+        </h1>
+        <p className="mt-3 text-sm text-rw-ink/65">
+          Is there any other context or page you want to add so I fully understand
+          the assignment?
+        </p>
+        {error ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setFollowupAsked(true);
+              setScreen("upload");
+            }}
+          >
+            Add files or text
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setFollowupAsked(true);
+              void fetch(`/api/papers/${paperId}/assignment/followup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ done: true }),
+              }).catch(() => undefined);
+              setScreen("card");
+            }}
+          >
+            No, that&apos;s everything
+          </Button>
+        </div>
       </div>
     );
   }

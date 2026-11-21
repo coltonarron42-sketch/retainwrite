@@ -14,7 +14,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 4. Refined thesis passes only if it meets 5 criteria (arguable, specific scope, reason, survives a counterargument, differs from the original or is defended); max 3 attempts, then the student may advance with a flag (never a hard dead end).
 5. Stage 2 text boxes are paste-blocked (like Stage 1 voice-sample answers: interest, coaching, personal, and fallback); Stage 5 allows paste.
 6. Stage 3 outline = Intro + N body sections + Counterargument/Rebuttal + Conclusion, with N = 3 (< 1,500 words), 4 (1,500–3,000), 5 (> 3,000); N = 3 if length is unknown.
-7. Every outline section holds only student-written notes (claim, evidence notes, explanation note); the coach checks fit with the thesis; drag-to-reorder (with keyboard up/down buttons); the student clicks Approve; later edits are allowed and logged.
+7. Every outline section holds only student-written notes (claim, evidence notes, explanation note, and a sentence plan of purpose/point notes with citation flags — section 4.2); the coach checks fit with the thesis; drag-to-reorder (with keyboard up/down buttons); the student clicks Approve; later edits are allowed and logged.
 8. Stage 5 coaching is not live per keystroke: prompts come before writing a section, "Ask coach" is on request (max 3 per section), and full feedback arrives when a section is submitted.
 9. Stage 5 allows paste from Google Docs/Word; every paste is logged with size; pastes ≥ 80 words trigger a non-blocking "Is this your own writing?" check and a style comparison; nothing is ever blocked.
 10. Stage 5 per-section gate: topic sentence first, then coaching questions + an evidence checklist from Stage 4 sources + the outline note, then the student writes, then section feedback, then the student marks done. Hard blockers are minimum length and the topic sentence being in the text; everything else is soft and carries to Stage 6.
@@ -30,7 +30,8 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 20. Email "from" is `RetainWrite Coach <coach@send.retainwrite.com>`; copy is drafted for signup confirmation (with minor variant), guardian consent, audio delivery, and feedback-credit confirmation (plus two short feedback-status emails).
 21. New env vars: `GROK_API_KEY`, `GOOGLE_CLOUD_TTS_API_KEY`, `GOOGLE_CLOUD_TTS_VOICE_ID`, `ADMIN_NOTIFY_EMAIL`, `UNPAYWALL_EMAIL`, `CRON_SECRET`, and optional `MISTRAL_OCR_API_KEY` (see section 8). Do not add `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, or `ELEVENLABS_VOICE_ID`.
 22. AI is never a single point of failure: if an AI call fails, rule-based fallbacks keep the student moving and the failure is logged.
-23. Stage 1 is assignment-first (upload → parsed Assignment card the student must confirm → skippable get-to-know-you → assignment-grounded coaching, with voice sampled from those typed answers). Full rules are in `retainwrite-stage1-intake-spec.md`. Interest-steered research leads are always "to verify," never citations; Stage 4 drops leads it cannot verify.
+23. Stage 1 is assignment-first (upload → parsed Assignment card the student must confirm → skippable get-to-know-you → assignment-grounded coaching, with voice sampled from those typed answers). Full rules are in `retainwrite-stage1-intake-spec.md`. Interest-steered research leads are always "to verify," never citations; Stage 4 drops leads it cannot verify. Updated Nov 20, 2026: uploads are read immediately and pasting is never a gate; the student confirms a short checklist (missing fields become "Not specified"), gets at most one follow-up question, and picks a story angle before the early stance. Stage 2 receives `storyAngle`.
+24. (Nov 20, 2026) The owner's INTD600 workflow sets the order of work across the six unchanged stages: Phase 1 → Stage 1; Phase 2 (story options, pick early) → end of Stage 1, carried into Stage 2; Phase 3 (raw-material interview) → Stage 2; Phase 4 (sentence-level outline + citation flags + short excerpts) → Stage 3 sentence plan + Stage 4 excerpts; Phase 5 (student writes every sentence) → Stage 5; Phase 6 (citation integrity, a/b/c suffixes) → Stage 6 item 4; Phase 7 (final assembly + light check) → Stage 6. Principles: the student owns the sentences; personal detail beats generic summary; citations tie to specific claims; slight imperfection is fine (keep the student's natural voice; never framed around AI detectors); decide the story early. Full table in `retainwrite-stage1-intake-spec.md` section 0B.
 
 ---
 
@@ -187,11 +188,15 @@ Selection algorithm (`pickMoves(cluster, stanceText, paperId)`):
 4. **Optional extras:** after 3 moves, button "Try another challenge" (max 2 more, same flow). Not required.
 5. **Refined thesis** (3.5), then complete.
 
+**Raw material (INTD600 Phase 3).** Stage 2 is the structured interview for raw material in the student's natural language. The header shows the Stage 1 `storyAngle` ("Your story: …"). When `specific=false`, the follow-up asks for a concrete detail (a person, moment, place, or number from their own experience) rather than a generic summary. On each answered move, save up to 3 short **verbatim** phrases the student wrote (substring-checked in code, ≤ 30 words each) to `rawMaterial`, plus the same from Stage 1 coaching answers. This "Your raw material" bank is shown read-only in the Stage 3 and Stage 5 sidebars. It's the student's own words only; the AI never adds to it.
+
 Stage 2 data shape:
 ```ts
 type Stage2Data = {
   cluster: ClusterId; clusterSource: 'student'|'llm'|'fallback'; clusterConfidence: number;
+  storyAngle: { text: string; source: 'ai'|'student' }; // Stage 1 pick (INTD600 Phase 2), snapshot
   originalThesis: string;                      // Stage 1 early stance, snapshot
+  rawMaterial: { phrase: string; from: 'stage1'|'stage2'; answerId: string }[]; // verbatim student phrases (≤ 30 words each), no AI text
   moves: { type: MoveType; phrasingId: string; prompt: string; slots: Record<string,string>;
            response: string; probes: string[]; flaggedStuck: boolean }[];
   thesisAttempts: { text: string; rubric: RubricResult; at: string }[];
@@ -243,14 +248,17 @@ Outline = **Intro** + **Body 1…N** + **Counterargument & Rebuttal** + **Conclu
 - **Body (each):** `claim` (one sentence, 8–40 words, student-typed); `evidenceNotes[]` (≥ 1, up to 4; each ≥ 5 words, e.g. "Chapter 3 stats on turnout"; optional `sourceId` linkable later in Stage 4/5); `explanationNote` (≥ 10 words: "why this evidence proves the claim").
 - **Counterargument & Rebuttal:** shows the student's three Stage 2 move responses as a read-only reference; student chooses which counterargument they'll address (select) and writes `counterNote` (≥ 10 words: what the objection is, in their words) and `rebuttalNote` (≥ 15 words: how they'll respond).
 - **Conclusion:** `soWhatNote` (≥ 10 words: what the reader should take away beyond repeating the thesis).
+- **Sentence plan (INTD600 Phase 4; every Body card, optional on Intro / Counter / Conclusion):** 2–8 rows, one per planned sentence, in order. Each row: `role` (fixed enum: `claim`, `evidence`, `personal_example`, `explanation`, `link_to_thesis`, `transition`); `purposeNote` (student-written, 3–25 words, *what this sentence will do or say*, not the sentence itself); `needsCitation` (boolean; required true on `evidence` rows); optional `sourceId` / `beatId` filled in Stage 4. The coach may suggest a role sequence for a card (structure only, from the enum); it never writes a `purposeNote`. Guard rejects any `purposeNote` suggestion. Paste allowed and logged, as for the rest of Stage 3.
 
-Stage 3 data: `{ targetWords, sections: [{id, kind:'intro'|'body'|'counter'|'conclusion', order, claim?, evidenceNotes?, explanationNote?, ...}], approvedAt?, version }`.
+Stage 3 data: `{ targetWords, sections: [{id, kind:'intro'|'body'|'counter'|'conclusion', order, claim?, evidenceNotes?, explanationNote?, sentencePlan?: {id, role, purposeNote, needsCitation, sourceId?, beatId?}[], ...}], approvedAt?, version }`.
+
+**Stage 4 link-up.** In Stage 4, every `needsCitation` row is matched to a verified source and one short excerpt (the beat `passage`, ≤ 2 sentences of quoted source text with page/location). Unverified Stage 1 leads are dropped, never attached. Rows with no verified source yet show "needs a source" and carry to Stage 5 and Stage 6 as a soft flag.
 
 ### 4.3 Coach checks and the approval gate
 - **Per-card check** (button "Check this section", also auto-run once when a card first becomes complete). `MODEL_FAST` returns `{supportsThesis: 'yes'|'partly'|'no', question ≤ 30 words}`. Rule-based fallback: content-word overlap between the card text and thesis keywords (≥ 2 shared stems → 'partly', ≥ 4 → 'yes').
   - `yes`: green check. `partly`: amber, shows the question, allowed.
   - `no`: red; the student must either revise the card or write a ≥ 20-word "How this connects to my thesis" reply (saved on the card) before approval.
-- **Approve button enabled only when:** no empty/under-minimum field in any card; every card has been checked at least once with no unresolved `no`; at least 3 body cards; order is valid (Intro first, Conclusion last).
+- **Approve button enabled only when:** no empty/under-minimum field in any card; every Body card has a sentence plan of ≥ 2 rows with every `evidence` row flagged `needsCitation`; every card has been checked at least once with no unresolved `no`; at least 3 body cards; order is valid (Intro first, Conclusion last).
 - On click: confirm dialog "Approve this outline? You can still edit it later, and edits are logged." Then run one `MODEL_STRONG` whole-outline pass for *questions only* ({gaps: string[] ≤ 3}), shown on the Stage 4 sidebar (not blocking). Save `approvedAt`, snapshot as `outline_v1`, log `outline_approved`, mark Stage 3 complete.
 - **Later edits** (Stages 4–6): outline stays editable via an "Edit outline" drawer. Opening requires a reason (≥ 5 words, e.g. "added a new source"); every save logs `outline_edited` with before/after of changed fields and bumps `version`; changed cards are re-checked. Stage 3 stays complete.
 
@@ -281,6 +289,7 @@ Sections unlock in outline order; Conclusion unlocks after all others are done. 
 2. **Coach prompts** (`MODEL_FAST`, generated once per section): up to 3 *questions* tied to the card ("Which of your evidence notes will you lead with, and what do you want the reader to notice?"), plus:
    - an **evidence checklist** built in code from Stage 4: the evidence notes from the card; any sources linked to them; for each, the source title and the beat's short passage (≤ 2 sentences, it is quoted source text) plus the student's own "how I'll use it" sentence from Stage 4. Checkboxes are for the student's own tracking.
    - a reminder: the student's `explanationNote` verbatim.
+   - the card's **sentence plan** as a map (roles + the student's own purpose notes + citation flags, each flag showing its linked Stage 4 excerpt or "needs a source"), plus the "Your raw material" bank. The student writes every sentence; the plan is not text to copy.
    - **No paragraph text, no example sentences.**
 3. **Body textarea unlocks** below the locked topic sentence (editable later). Student writes. Autosave every 5 s to `stage_progress.data.sections[id].text` (no AI call on autosave). Live word counter against the minimum.
 4. **Minimum length per section:** `min = clamp(round(0.5 × targetWords / (N + 3)), 60, 200)` words (e.g. 1,200 target, 3 body → 100 words). Intro/conclusion use `max(60, 0.75 × min)`.
@@ -306,14 +315,14 @@ Side panel (all sections): outline (collapsible), Stage 4 beats, thesis pinned. 
 ## 6. STAGE 6 — Revise & professor feedback
 
 ### 6.1 Revision checklist (student-facing)
-Header: "Revise it in your own words. Each item is checked by you, by the app, or both." Items:
+Header: "Revise it in your own words. Each item is checked by you, by the app, or both." This is the final assembly and **light** quality check (INTD600 Phase 7): items point out what's missing or unclear and never coach the student to polish away their natural voice (slight imperfection is fine; the reason is authenticity, never AI detectors). Items:
 
 | # | Item | Check type | How it works | Resolved when |
 |---|---|---|---|---|
 | 1 | Thesis is present in the intro | Auto | Content-word overlap (≥ 60% of refined thesis stems) in the intro section | Pass, or student note ≥ 10 words |
 | 2 | Every outline section appears | Auto | Section keys preserved in the assembled draft, each ≥ its minimum words | Pass |
 | 3 | Planned evidence appears | Auto | Each outline evidence note has stem overlap ≥ 2 content words somewhere in its section | Pass, or note ≥ 10 words for misses |
-| 4 | Citations are present and formatted for {citation_style} | Auto + self | Regex check: in-text pattern count (APA `(Author, 2020)`, MLA `(Author 12)`, Chicago footnote markers or author-date), and a "References/Works Cited/Bibliography" heading exists; student confirms formatting by hand | Auto pass + self tick |
+| 4 | Citation integrity (INTD600 Phase 6): present, formatted for {citation_style}, tied to claims, disambiguated | Auto + self | Regex check: in-text pattern count (APA `(Author, 2020)`, MLA `(Author 12)`, Chicago footnote markers or author-date), and a "References/Works Cited/Bibliography" heading exists. Plus: (a) **tied to claims** — each Stage 3 `needsCitation` row's section contains an in-text citation, and citations are not clustered only in the final paragraph/sentences of the draft (flag if > 50% of in-text citations fall in the last 10% of the text); (b) **a/b/c suffixes** — in author-date styles (APA, Harvard, Chicago author-date), if the reference list has two or more works by the same author(s) in the same year, in-text citations and references must use matching suffixes (2020a, 2020b); in MLA, same-author works must use short titles. Shown as questions ("Which claim does this citation support?"); the app never inserts or rewrites citations. Student confirms formatting by hand | Auto pass (or a ≥ 10-word note per miss) + self tick |
 | 5 | Voice matches your sample | Auto | Mismatch check on the whole draft (section 7); shows the warning with specific tells and the per-section hot spots | No warning, or student ticks "I reworked these" / "I've reviewed this and it's my writing" with a ≥ 10-word note |
 | 6 | Length meets the assignment | Auto | Word count vs. parsed target (±15%) | Pass or note |
 | 7 | Thesis is clear and arguable | AI (`MODEL_STRONG`, on demand) | Re-runs the rubric C1–C3 as questions | Student marks "reviewed"; required self-check with note if Stage 2 thesis was flag-advanced |
@@ -572,4 +581,5 @@ All sends: server-side, try/catch, failures logged as `email_failed`, never bloc
 ---
 
 ## 12. Tests to add (Vitest)
+Nov 20, 2026 additions: sentence-plan gate (≥ 2 rows per body card, evidence rows flagged), guard rejects AI-written `purposeNote`, `rawMaterial` phrases must be verbatim substrings, citation clustering flag, a/b/c suffix detection (same author + year without matching suffixes flagged in APA; short titles in MLA), Stage 2 receives `storyAngle`.
 Cluster/slot verification (non-substring slot rejected), `pickMoves` determinism and absolute-word rule, thesis deterministic checks, thesis max-attempt flag-advance, outline section count by length, approval gating, section minimum formula, paste threshold, mismatch table (each tell, strong, two-tell, exclusions, min length, short-sample downgrade), checklist completion logic, feedback auto-grant conditions and rate limit, dedupe hash, `grant_feedback_credit` idempotency, guardian gating, AI output guard (rewrite phrases rejected), AI fallback paths.
