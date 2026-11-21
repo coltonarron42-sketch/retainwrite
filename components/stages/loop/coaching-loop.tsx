@@ -692,7 +692,7 @@ export function CoachingLoop({
         />
       ) : null}
 
-      {stage === 5 && FEATURES.draftingMuscle ? (
+      {stage === 5 && FEATURES.draftingMuscle && !locks ? (
         <DraftingStage
           paperId={paperId}
           promptType={session.extraction.promptType}
@@ -711,7 +711,7 @@ export function CoachingLoop({
         />
       ) : null}
 
-      {stage === 5 && !FEATURES.draftingMuscle ? (
+      {stage === 5 && (!FEATURES.draftingMuscle || locks) ? (
         <StageFive
           locked={locks}
           skipped={skipped.map((item) => item.title)}
