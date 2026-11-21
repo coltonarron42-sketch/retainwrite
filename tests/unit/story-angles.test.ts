@@ -80,3 +80,17 @@ describe("story angles", () => {
   });
 });
 
+
+describe("story angle quotes the student", () => {
+  it("quotes first-person words instead of parroting them as 'You mentioned I…'", () => {
+    const angles = buildStoryAngleFallback({
+      topic: "later school start times",
+      studentPhrases: ["I like basketball and cooking with my grandma. It helps me relax."],
+    });
+    const change = angles.find((angle) => angle.id === "change");
+    expect(change?.question).toBe(
+      "You wrote, “I like basketball and cooking with my grandma.” Is there a moment there that speaks to this assignment?",
+    );
+    expect(change?.question).not.toMatch(/You mentioned I/);
+  });
+});
