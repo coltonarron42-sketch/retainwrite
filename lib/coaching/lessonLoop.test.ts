@@ -287,6 +287,23 @@ describe("memory path and logic checkpoint", () => {
       expect(finalized.result.tier).not.toBe("pass");
       expect(finalized.blocks).toBe(false);
     }
+
+    const offPrompt = logicCheckFromNotes({
+      notes: "I will write a careful paper about my weekend plans and my friends at school.",
+      assignmentText: assignment,
+      rubricRef: "lesson_concept",
+      mode: "lesson",
+    });
+    expect(offPrompt.tier).toBe("moderate");
+    expect(offPrompt.alternativeAngles[0]?.question.endsWith("?")).toBe(true);
+
+    const onPrompt = logicCheckFromNotes({
+      notes: "Social media can change how teens sleep and how they talk to each other at night.",
+      assignmentText: assignment,
+      rubricRef: "lesson_concept",
+      mode: "lesson",
+    });
+    expect(onPrompt.tier).toBe("pass");
   });
 
   it("mirrors verbatim feeling words and builds a student-only memory card", () => {

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { isVerbatimSubstring } from "@/lib/coaching/lesson";
 import { isThinAnswer } from "@/lib/coaching/thin";
+import { wordCount } from "@/lib/utils";
 
 export const LOGIC_OPENER = "I want to do a logic check. Do you feel good about this?";
 export const LOGIC_YES = "Yes, check it";
@@ -239,13 +240,17 @@ export function logicCheckFromNotes(input: {
       reframeAvailable: false,
     };
   }
-  if (isThinAnswer(notes, 12).thin) {
+  const thin = isThinAnswer(notes, 12).thin;
+  const addressed = notesAddressAssignment(notes, input.assignmentText);
+  if (thin || !addressed) {
     const quote = input.assignmentText.trim().slice(0, 80) || "this assignment";
     return {
       tier: "moderate",
       basis: "weak_support",
       confidence: 0.74,
-      reason: "This note is too thin to call solid. Add a concrete claim in your own words.",
+      reason: thin
+        ? "This note is too thin to call solid. Add a concrete claim in your own words."
+        : "This doesn't yet speak to what the assignment asks.",
       citedTerm: { rubricRef: input.rubricRef, quote },
       studentClaimRef: notes.trim()
         ? { ideaId: "claim", quote: notes.slice(0, 160) }
@@ -253,7 +258,9 @@ export function logicCheckFromNotes(input: {
       logicFailure: null,
       alternativeAngles: [
         {
-          question: "What is one specific point you want this section to make?",
+          question: thin
+            ? "What is one specific point you want this section to make?"
+            : "Which part of the assignment is this section answering?",
           rubricRef: input.rubricRef,
         },
       ],
@@ -261,4 +268,53 @@ export function logicCheckFromNotes(input: {
     };
   }
   return passResult();
+}
+
+const ADDRESS_STOP = new Set([
+  "this",
+  "that",
+  "with",
+  "from",
+  "your",
+  "about",
+  "have",
+  "what",
+  "when",
+  "where",
+  "which",
+  "would",
+  "could",
+  "their",
+  "there",
+  "they",
+  "into",
+  "than",
+  "then",
+  "just",
+  "like",
+  "some",
+  "more",
+  "also",
+  "been",
+  "were",
+  "assignment",
+  "paper",
+  "write",
+  "writing",
+]);
+
+function contentWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3 && !ADDRESS_STOP.has(word));
+}
+
+/** A pass needs the student's words to touch the assignment, not just be long. */
+export function notesAddressAssignment(notes: string, assignment: string): boolean {
+  const asked = contentWords(assignment);
+  if (asked.length === 0) return wordCount(notes) >= 40;
+  const said = new Set(contentWords(notes));
+  return asked.some((word) => said.has(word));
 }
