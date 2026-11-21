@@ -17,9 +17,10 @@ export function StageRail({ paperId, current, statuses }: Props) {
       <ol className="mt-6 space-y-2">
         {STAGE_LABELS.map((label, idx) => {
           const stage = idx + 1;
-          const status = statuses[stage] ?? "locked";
-          const unlocked = status !== "locked";
           const active = stage === current;
+          const saved = statuses[stage] ?? "locked";
+          const status = active && saved === "locked" ? "in_progress" : saved;
+          const unlocked = status !== "locked";
           const content = (
             <span
               className={cn(

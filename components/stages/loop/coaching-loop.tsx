@@ -44,7 +44,7 @@ import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
-import { FEATURES } from "@/lib/config";
+import { FEATURES, STAGE_LABELS } from "@/lib/config";
 import {
   advanceProductStage,
   progressAfterLogicContinue,
@@ -377,6 +377,8 @@ export function CoachingLoop({
 
   return (
     <div className="mx-auto max-w-3xl pb-24">
+      {stage === 2 ? (
+        <>
       <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
         What you&apos;re learning
       </p>
@@ -386,6 +388,13 @@ export function CoachingLoop({
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
           : `This assignment teaches ${lesson.concepts[0]?.term ?? "the concept in your prompt"}.`}
       </p>
+        </>
+      ) : (
+        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+          {STAGE_LABELS[stage - 1]}
+        </p>
+      )}
+      {stage === 2 ? (
       <label className="mt-3 block text-sm text-rw-ink/70">
         Prompt type
         <select
@@ -409,7 +418,9 @@ export function CoachingLoop({
           <option value="mixed">Mixed</option>
         </select>
       </label>
+      ) : null}
 
+      {stage === 2 ? (
       <ol className="mt-6 flex flex-wrap gap-2">
         {session.sections.map((item, index) => (
           <li key={item.key}>
@@ -427,8 +438,9 @@ export function CoachingLoop({
           </li>
         ))}
       </ol>
+      ) : null}
 
-      {section ? (
+      {stage === 2 && section ? (
         <div className="mt-6 space-y-4">
           <p className="text-sm text-rw-ink/70">{section.needs}</p>
           {inStance && section.mode === "lesson" && section.loopStep === "teach" && card ? (
