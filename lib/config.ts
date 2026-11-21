@@ -60,6 +60,22 @@ export const MISMATCH_THRESHOLDS = {
   shortSampleWords: 200,
 } as const;
 
+/**
+ * Drafting feature flags. Code constants, not env vars.
+ * Stay false until the acceptance tests pass; the last Drafting commit turns them on.
+ */
+export const FEATURES = {
+  draftingMuscle: false,
+  interactionLayer: false,
+  hiddenDraft: false,
+} as const;
+
+/** Full-paper answer key. `structure` is only an outage fallback. */
+export const HIDDEN_DRAFT_MODE = "prose" as const;
+
+/** Per-sentence peeks stay off. Zoom-outs happen after a section, not after a sentence. */
+export const SKELETON_PEEKS = false;
+
 export const STAGE_LABELS = [
   "Intake",
   "Stance",
