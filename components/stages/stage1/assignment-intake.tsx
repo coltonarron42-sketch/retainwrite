@@ -1626,16 +1626,13 @@ export function AssignmentIntake({
 
         {metrics ? (
           <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
-            <p>
-              Your natural voice: ~{metrics.avgSentenceLength} words per
-              sentence, grade-level {metrics.readingGrade}, {metrics.formality}{" "}
-              tone.
-            </p>
-            <p className="mt-2">
-              Your go-to words:{" "}
-              {metrics.topContentWords.map((w) => w.word).slice(0, 6).join(", ") ||
-                "—"}
-            </p>
+            <p>We have enough of your voice to coach you.</p>
+            {metrics.topContentWords.length > 0 ? (
+              <p className="mt-2">
+                A few words that sound like you:{" "}
+                {metrics.topContentWords.map((w) => w.word).slice(0, 6).join(", ")}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
