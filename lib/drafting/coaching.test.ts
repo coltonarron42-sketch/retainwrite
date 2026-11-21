@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { draftGuard } from "@/lib/ai/draftGuard";
 import { CONNECTORS, connectorWordCount } from "@/lib/coaching/connectors";
 import { assertNoHiddenDraftLeak } from "@/lib/drafting/leak";
+import { hiddenSignalsFromIdeas } from "@/lib/drafting/hiddenSignals";
 import { shapeReadback } from "@/lib/drafting/readback";
 import { nextDraftScreen } from "@/lib/drafting/screen";
 import { buildSkeleton, skeletonHasOnlyStudentText } from "@/lib/skeleton/build";
@@ -97,5 +98,13 @@ describe("drafting coach limits", () => {
     });
     expect(read.flags.length).toBeLessThanOrEqual(2);
     expect(read.flags.every((flag) => flag.confidence >= 0.7)).toBe(true);
+    const heavy = "idea ".repeat(45);
+    const signals = hiddenSignalsFromIdeas([
+      { id: "1", text: heavy, sectionKey: "intro" },
+      { id: "2", text: heavy, sectionKey: "body" },
+      { id: "3", text: heavy, sectionKey: "conclusion" },
+    ]);
+    expect(signals.length).toBeLessThanOrEqual(2);
+    expect(JSON.stringify(signals)).not.toMatch(/you could say/i);
   });
 });

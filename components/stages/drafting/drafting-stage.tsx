@@ -16,7 +16,7 @@ import {
 import { CONCLUSION_PROMPTS, PARAGRAPH_SHAPES, ROUGH_INTRO_COPY, WRITE_FOR_ME_DECLINE } from "@/lib/coaching/paragraphShapes";
 import { buildFramework, type FrameworkParagraph } from "@/lib/drafting/framework";
 import { buildLedger, type LedgerInput } from "@/lib/drafting/ledger";
-import { shapeReadback } from "@/lib/drafting/readback";
+import { shapeReadback, type ReadbackFlag } from "@/lib/drafting/readback";
 import { nextDraftScreen, type DraftScreen } from "@/lib/drafting/screen";
 import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
@@ -84,6 +84,7 @@ export function DraftingStage({
   const [error, setError] = useState<string | null>(null);
   const [jumpBack, setJumpBack] = useState<number | null>(null);
   const [decline, setDecline] = useState(false);
+  const [serverFlags, setServerFlags] = useState<ReadbackFlag[]>([]);
 
   useEffect(() => {
     setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -129,13 +130,40 @@ export function DraftingStage({
 
   const current = plan[index];
   const sentences = current ? saved[current.key] ?? [] : [];
-  const readback = shapeReadback({
-    ideas: (current?.notes ?? []).map((text, ideaIndex) => ({
-      id: `${current?.key ?? "p"}-${ideaIndex}`,
-      text,
-      sectionKey: current?.sectionKey ?? "",
-    })),
-  });
+  const localIdeas = (current?.notes ?? []).map((text, ideaIndex) => ({
+    id: `${current?.key ?? "p"}-${ideaIndex}`,
+    text,
+    sectionKey: current?.sectionKey ?? "",
+  }));
+  const noteKey = localIdeas.map((idea) => idea.text).join("|");
+  const readback = shapeReadback({ ideas: localIdeas });
+  const flags = serverFlags.length ? serverFlags : readback.flags;
+
+  useEffect(() => {
+    if (!current || localIdeas.length === 0) {
+      setServerFlags([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/papers/${paperId}/draft/readback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideas: localIdeas }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { flags?: ReadbackFlag[] };
+        if (!cancelled && data.flags) setServerFlags(data.flags.slice(0, 2));
+      })
+      .catch(() => {
+        if (!cancelled) setServerFlags([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // noteKey is the stable content of localIdeas for this paragraph.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId, current?.key, noteKey]);
   const skeleton = buildSkeleton(
     plan.map((row) => ({
       key: row.key,
@@ -303,7 +331,7 @@ export function DraftingStage({
                   <li key={idea.id}>{idea.text}</li>
                 ))}
               </ol>
-              {readback.flags.map((flag) => (
+              {flags.map((flag) => (
                 <p key={flag.ideaId} className="mt-2">{flag.text}</p>
               ))}
               {current.kind === "intro" ? <p className="mt-3 font-medium">{FIRST_SUMMARY[variant]}</p> : null}
