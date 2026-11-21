@@ -48,6 +48,7 @@ import {
 } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
+import { draftingAnchors } from "@/lib/drafting/anchors";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
 import { FEATURES, STAGE_LABELS } from "@/lib/config";
@@ -120,6 +121,7 @@ type Props = {
   assignmentPrompt: string | null;
   confirmedTopic?: string | null;
   confirmedPrompt?: string | null;
+  storyAnswer?: string | null;
   persist?: boolean;
   stageProgress?: StageProgressRow[];
   onStageProgress?: (
@@ -194,6 +196,7 @@ export function CoachingLoop({
   assignmentPrompt,
   confirmedTopic = null,
   confirmedPrompt = null,
+  storyAnswer = null,
   persist = true,
   stageProgress = [],
   onStageProgress,
@@ -921,10 +924,17 @@ export function CoachingLoop({
           persist={persist}
           paperId={paperId}
           promptType={session.extraction.promptType}
-          storyAngle={lesson.statement}
+          storyAngle={
+            draftingAnchors({
+              introNote: keptIdeas(session.sections.find((item) => item.kind === "intro")?.ideas ?? [])[0],
+              storyAnswer,
+            }).story
+          }
           thesis={
-            keptIdeas(session.sections.find((item) => item.kind === "intro")?.ideas ?? [])[0] ||
-            (subject === "your topic" ? "" : subject)
+            draftingAnchors({
+              introNote: keptIdeas(session.sections.find((item) => item.kind === "intro")?.ideas ?? [])[0],
+              storyAnswer,
+            }).mainPoint
           }
           lessonConcept={lesson.concepts[0]?.term ?? null}
           sections={session.sections.map((item) => ({

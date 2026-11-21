@@ -44,6 +44,7 @@ export async function loadAccountPaper(userId: string, paperId: string): Promise
   paper: DemoPaper;
   requirements: AssignmentRequirements | null;
   rawText: string;
+  storyAnswer: string | null;
 } | null> {
   const supabase = await createClient();
   const { data: paper } = await supabase
@@ -64,7 +65,7 @@ export async function loadAccountPaper(userId: string, paperId: string): Promise
 
   const { data: assignment } = await supabase
     .from("assignments")
-    .select("requirements, raw_text, confirmed_at")
+    .select("requirements, raw_text, confirmed_at, story_angle")
     .eq("paper_id", paperId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -103,5 +104,10 @@ export async function loadAccountPaper(userId: string, paperId: string): Promise
     },
     requirements: parsed?.success ? parsed.data : null,
     rawText: assignment?.raw_text ?? "",
+    storyAnswer:
+      assignment &&
+      typeof (assignment.story_angle as { text?: string } | null)?.text === "string"
+        ? (assignment.story_angle as { text: string }).text
+        : null,
   };
 }

@@ -18,6 +18,7 @@ type Props = {
   initialPaper?: DemoPaper | null;
   initialRequirements?: AssignmentRequirements | null;
   initialRawText?: string;
+  storyAnswer?: string | null;
 };
 
 function loopStageAccess(progress: StageProgressRow[], stage: number) {
@@ -38,6 +39,7 @@ export function StageShell({
   initialPaper = null,
   initialRequirements = null,
   initialRawText = "",
+  storyAnswer = null,
 }: Props) {
   const router = useRouter();
   const [paper, setPaper] = useState<DemoPaper | null | undefined>(undefined);
@@ -118,6 +120,7 @@ export function StageShell({
             assignmentPrompt={paper.assignment_prompt}
             confirmedTopic={initialRequirements?.topic.value ?? null}
             confirmedPrompt={initialRequirements?.promptQuestion.value ?? null}
+            storyAnswer={storyAnswer}
             persist={!demoMode}
             stageProgress={paper.stage_progress.map((row) => ({
               stage: row.stage,

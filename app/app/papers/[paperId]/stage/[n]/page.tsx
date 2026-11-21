@@ -24,6 +24,7 @@ export default async function StagePage({ params }: Props) {
         initialPaper={loaded.paper}
         initialRequirements={loaded.requirements}
         initialRawText={loaded.rawText}
+        storyAnswer={loaded.storyAnswer}
       />
     );
   }
