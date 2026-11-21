@@ -14,6 +14,7 @@ export async function ensureUserPaper(
   supabase: Supabase,
   userId: string,
   paperId?: string,
+  options?: { skipCredits?: boolean },
 ): Promise<
   | { ok: true; id: string }
   | { ok: false; status: number; error: string }
@@ -34,10 +35,12 @@ export async function ensureUserPaper(
     .eq("user_id", userId)
     .maybeSingle();
 
-  const decision = decidePaperFunding({
-    free_paper_used: Boolean(profile?.free_paper_used),
-    paper_credits: Number(profile?.paper_credits ?? 0),
-  });
+  const decision = options?.skipCredits
+    ? { ok: true as const, isFree: false, fundedBy: null, creditsAfter: Number(profile?.paper_credits ?? 0), freePaperUsed: Boolean(profile?.free_paper_used) }
+    : decidePaperFunding({
+        free_paper_used: Boolean(profile?.free_paper_used),
+        paper_credits: Number(profile?.paper_credits ?? 0),
+      });
   if (!decision.ok) {
     return { ok: false, status: 402, error: "Add a paper credit to start another paper." };
   }
@@ -56,7 +59,7 @@ export async function ensureUserPaper(
     return { ok: false, status: 500, error: "Could not start the paper. Please try again." };
   }
 
-  if (profile) {
+  if (profile && !options?.skipCredits) {
     const { error: profileError } = await supabase
       .from("profiles")
       .update({

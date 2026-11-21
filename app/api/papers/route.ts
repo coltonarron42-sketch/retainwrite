@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureUserPaper } from "@/lib/papers/account";
+import { betaCreditBypass } from "@/lib/papers/beta-bypass";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,7 +18,9 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const created = await ensureUserPaper(supabase, user.id);
+  const skipCredits = betaCreditBypass(user.email);
+  if (skipCredits) console.info("[papers] beta_credit_bypass");
+  const created = await ensureUserPaper(supabase, user.id, undefined, { skipCredits });
   if (!created.ok) {
     return NextResponse.json({ error: created.error }, { status: created.status });
   }

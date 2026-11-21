@@ -50,6 +50,15 @@ stripe listen --forward-to localhost:3000/api/stripe/webhook
 - `retainwrite-cursor-build-prompt.md`
 - `retainwrite-stage-specs.md` (overrides win on conflict)
 
+## Beta credit bypass
+
+Off unless both are set on the server (Vercel env, not the browser):
+
+- `BETA_BYPASS_CREDITS=true`
+- `BETA_BYPASS_EMAILS=person@example.com,other@example.com`
+
+Allowlisted accounts can start another paper without a credit or payment. Everyone else still hits the normal check. The flag is not accepted from a query string, cookie, or `NEXT_PUBLIC_` variable. A use is logged as `beta_credit_bypass` with no email address. Leave both values empty unless you are testing.
+
 ## Deploy
 
 Vercel project linked to this repo. Domain: retainwrite.com. Set env vars exactly as listed in `.env.example`.
