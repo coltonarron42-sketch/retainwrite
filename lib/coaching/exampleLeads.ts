@@ -39,34 +39,9 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
   return text;
 }
 
-const KEYWORD_STOP = new Set([
-  "this", "that", "with", "from", "your", "about", "have", "what", "when", "where",
-  "which", "would", "could", "their", "there", "they", "them", "into", "than",
-  "then", "just", "like", "some", "more", "also", "been", "were", "because",
-  "after", "before", "want", "look", "looking", "really", "very",
-]);
-
-/** A few words from the student's note, for a search box rather than a sentence to paste. */
-export function searchKeywords(note: string, topic: string): string {
-  const words = note
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .map((word) => word.replace(/^-+|-+$/g, ""))
-    .filter((word) => word.length > 3 && !KEYWORD_STOP.has(word));
-  const unique = [...new Set(words)].slice(0, 4);
-  if (unique.length >= 2) return unique.join(" ");
-  const fromTopic = topic
-    .replace(/[^a-z0-9\s-]/gi, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 3)
-    .slice(0, 6);
-  return fromTopic.join(" ") || topic.slice(0, 80);
-}
-
-export function sourceSearchDirections(topic: string, note: string): string {
-  const keywords = searchKeywords(note, topic);
-  return `Search JSTOR, Google Scholar, or your school library for “${keywords}”. Look for a peer-reviewed study or a report you can open. Check the author and the date, then decide if it fits. This is a direction, not a sentence to paste.`;
+export function sourceSearchDirections(topic: string, _note?: string): string {
+  const subject = topic.trim() || "your topic";
+  return `What would you search first? Try JSTOR, Google Scholar, or your school library for “${subject}”. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
 
 export function stageLessonHeader(subject: string, lessonStatement: string): string {
@@ -107,38 +82,33 @@ export function exampleLeadBatch(input: {
   }
 
   const ref = input.rubricRef;
-  const keywords = searchKeywords(idea, subject);
   const candidates: LeadCandidate[] = [
     {
-      name: `A peer-reviewed study on ${keywords}`,
+      name: `What should you look up first about ${subject}?`,
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Search JSTOR or your school library for “${keywords}”. Open the study and decide if it fits ${subject}. This is a direction, not a sentence to paste.`,
+      whyFits: `Search JSTOR or your school library for “${subject}”. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
-      name: `A report you can check on ${keywords}`,
+      name: `What kind of source could show ${subject} in a real case?`,
       rubricMatch: 0.78,
       rubricRef: ref,
       lessonLink: `Shows ${subject}`,
-      whyFits: `Look for a report or article about ${keywords}. Check the author and the date yourself before you rely on it.`,
+      whyFits: `Look for a report or article about ${subject}. Check the author and the date yourself before you rely on it.`,
     },
-    idea
-      ? {
-          name: "A source that speaks to what you wrote",
-          rubricMatch: 0.7,
-          rubricRef: ref,
-          lessonLink: `Your note about ${keywords}`,
-          whyFits: `Your note mentions ${keywords}. Find one source about that, then explain the connection in your own words.`,
-          studentNamed: true,
-        }
-      : {
-          name: `A source a reader would connect to ${subject}`,
-          rubricMatch: 0.66,
-          rubricRef: ref,
-          lessonLink: `Fits ${subject}`,
-          whyFits: `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
-        },
+    {
+      name: idea
+        ? `Which part of your thinking about ${subject} still needs a source you can open?`
+        : `What would a reader expect you to verify about ${subject}?`,
+      rubricMatch: idea ? 0.7 : 0.66,
+      rubricRef: ref,
+      lessonLink: `Fits ${subject}`,
+      whyFits: idea
+        ? `You already have a note. Find one source that speaks to the claim you are least sure about, then explain that connection in your own words.`
+        : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+      ...(idea ? { studentNamed: true } : {}),
+    },
   ];
 
   return {

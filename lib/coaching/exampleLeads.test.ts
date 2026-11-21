@@ -3,7 +3,6 @@ import {
   coachingSubject,
   exampleLeadBatch,
   leadCopyIsTemplate,
-  searchKeywords,
   sourceSearchDirections,
   stageLessonHeader,
   visibleSourceLead,
@@ -21,14 +20,22 @@ describe("exampleLeadBatch", () => {
     const names = [...batch.candidates.map((lead) => lead.name), batch.wildcard?.name ?? ""];
     expect(names.every((name) => !/^Research on /i.test(name))).toBe(true);
     expect(names.every((name) => !leadCopyIsTemplate(name))).toBe(true);
-    expect(searchKeywords("I want to look at late-night scrolling and sleep.", "social media")).toMatch(/scrolling/);
-    expect(batch.candidates.some((lead) => /late-night scrolling|scrolling/i.test(`${lead.name} ${lead.whyFits}`))).toBe(true);
+    expect(batch.candidates.some((lead) => lead.name.includes("?"))).toBe(true);
     expect(batch.candidates.some((lead) => /JSTOR|school library/i.test(lead.whyFits))).toBe(true);
-    expect(batch.candidates.every((lead) => !/paste this sentence|your thesis is/i.test(lead.whyFits))).toBe(true);
+    const garbled = exampleLeadBatch({
+      concept: "teen sleep and social media",
+      assignmentText: "Explain how social media affects teen sleep.",
+      studentIdea: "I will restating heavy hurt if the claim is too broad",
+      rubricRef: "lesson_concept",
+    });
+    const garbledText = JSON.stringify(garbled);
+    expect(garbledText).not.toMatch(/will restating|heavy hurt/i);
+    expect(garbledText).toMatch(/teen sleep|social media/i);
+    expect(sourceSearchDirections("teen sleep and social media", "I will restating heavy hurt")).not.toMatch(/heavy hurt/);
     expect(stageLessonHeader("how social media affects teen mental health", "How the assigned concept shows up in the examples you choose")).toMatch(/social media/);
     expect(stageLessonHeader("how social media affects teen mental health", "How the assigned concept shows up in the examples you choose")).not.toMatch(/assigned concept/);
     expect(sourceSearchDirections("teen mental health", "late-night scrolling and sleep")).toMatch(/JSTOR/);
-    expect(sourceSearchDirections("teen mental health", "late-night scrolling and sleep")).toMatch(/scrolling/);
+    expect(sourceSearchDirections("teen mental health", "late-night scrolling and sleep")).not.toMatch(/scrolling/);
   });
 
   it("asks the student to name a source when nothing in the assignment is usable", () => {
