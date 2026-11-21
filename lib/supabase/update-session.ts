@@ -13,6 +13,7 @@ export async function updateSession(request: NextRequest) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   if (!url || !key) return response;
 
+  try {
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll() {
@@ -37,4 +38,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   return response;
+  } catch {
+    return NextResponse.next({ request });
+  }
 }
