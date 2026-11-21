@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
+import { CoachingLoop } from "@/components/stages/loop/coaching-loop";
 import { StageRail } from "@/components/stages/stage-rail";
-import { assertStageUnlocked } from "@/lib/stages/assert";
+import { assertStageUnlocked, type StageProgressRow } from "@/lib/stages/assert";
 import { getDemoPaper, type DemoPaper } from "@/lib/demo/store";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -13,6 +14,17 @@ type Props = {
   paperId: string;
   stage: number;
 };
+
+function loopStageAccess(progress: StageProgressRow[], stage: number) {
+  if (stage === 3 || stage === 4) {
+    const stage1 = progress.find((row) => row.stage === 1);
+    const stage2 = progress.find((row) => row.stage === 2);
+    if (stage1?.status === "complete" && stage2 && stage2.status !== "locked") {
+      return { ok: true as const };
+    }
+  }
+  return assertStageUnlocked(progress, stage);
+}
 
 export function StageShell({ paperId, stage }: Props) {
   const router = useRouter();
@@ -45,7 +57,7 @@ export function StageShell({ paperId, stage }: Props) {
     );
   }
 
-  const gate = assertStageUnlocked(paper.stage_progress, stage);
+  const gate = loopStageAccess(paper.stage_progress, stage);
   if (!gate.ok) {
     return (
       <div className="flex min-h-[70vh] flex-col md:flex-row">
@@ -78,18 +90,11 @@ export function StageShell({ paperId, stage }: Props) {
         {stage === 1 ? (
           <AssignmentIntake paperId={paperId} demoMode />
         ) : (
-          <div className="mx-auto max-w-xl">
-            <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
-              Stage {stage}
-            </p>
-            <h1 className="mt-2 font-display text-3xl text-rw-ink">
-              Coming next
-            </h1>
-            <p className="mt-3 text-rw-ink/65">
-              Stage {stage} UI ships after intake. Finish Stage 1 to unlock the
-              rest of the coaching path.
-            </p>
-          </div>
+          <CoachingLoop
+            paperId={paperId}
+            stage={stage}
+            assignmentPrompt={paper.assignment_prompt}
+          />
         )}
       </div>
     </div>

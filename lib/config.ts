@@ -16,6 +16,22 @@ export const MODEL_STRONG = "grok-4.7"; // assignment parsing, rubric, section f
 export const TTS_VOICE_DEFAULT = "en-US-Chirp3-HD-Charon";
 export const VOICE_BASELINE_MAX_AGE_DAYS = 180;
 
+/** AI-suggested research leads per paper, wildcards included (t47). */
+export const RESEARCH_LEADS_MAX_PER_PAPER = 20;
+export const SEARCH_PROMPT_MAX_WORDS = 32;
+
+/**
+ * Hybrid voice-note tiers (Colton t51). Numbers are provisional.
+ * Pasted words do not count toward natural words.
+ */
+export const VOICE_NATURAL_WORDS_PLENTY = 600;
+export const VOICE_NATURAL_WORDS_ENOUGH = 200;
+export const VOICE_NATURAL_WORDS_LOW = 80;
+/** Used only inside the `enough` tier. */
+export const VOICE_PASTED_SHARE_NOTE = 0.6;
+/** Below this many natural words, mismatch has no strong levels. */
+export const VOICE_SHORT_SAMPLE_NATURAL_WORDS = 150;
+
 /** Allowlisted MIME types for Stage 1 assignment uploads. */
 export const ASSIGNMENT_ALLOWED_MIME = [
   "application/pdf",

@@ -1,0 +1,5 @@
+{"id":"leadership-lesson","prompt":"Connect leadership styles to leaders you admire and give three examples.","expect":{"promptType":"lesson","concept":"leadership styles"}}
+{"id":"summer-memory","prompt":"Tell us about your summer vacation: three things that stood out and made it magical.","expect":{"promptType":"personal_experience","emotionalTerm":"magical"}}
+{"id":"teach-servant","answer":"I like servant leadership","expect":{"kind":"teach_then_ask"}}
+{"id":"highlight-legere","answer":"I want to write about John Legere","concept":"servant leadership","expect":{"offer":"Want me to search for references on how Legere was a servant leader?"}}
+{"id":"memory-clamp","mode":"memory","tier":"strong","expect":{"tierNot":"strong","clamped":true}}

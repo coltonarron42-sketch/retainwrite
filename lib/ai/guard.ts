@@ -35,3 +35,6 @@ export function rejectIfRewritesStudentWork<T extends { text?: string; content?:
   const blob = `${output.text ?? ""} ${output.content ?? ""}`;
   return assertCoachingOnly(blob);
 }
+
+export { guardTeachCard } from "@/lib/coaching/teach";
+export { assertGentleInvitation } from "@/lib/coaching/memoryTriggers";

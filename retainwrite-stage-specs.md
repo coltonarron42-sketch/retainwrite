@@ -2,7 +2,7 @@
 
 Paste this into Cursor **after** the build prompt. Where this doc conflicts with the build prompt, **this doc wins** (see "Overrides to the build prompt") for Stages 2–6 and cross-stage rules. **Stage 1 intake is specified in `retainwrite-stage1-intake-spec.md`; that doc wins on Stage 1 behavior.** The six-stage structure is unchanged (intake, stance interview, outline, sources and audio beats, draft, revise and feedback); only Stage 1's internals change. Table names, stage order, price constants and existing env var names are unchanged.
 
-**Governing document:** `retainwrite-coaching-philosophy.md` (v1.2, Nov 20, 2026) governs every stage, probe, summary, and interaction. It wins over this doc on philosophy; this doc still holds the implementation detail for Stages 2–6. The section-by-section loop (DISSECT → PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE) is placed on the stages in section 2A.
+**Governing document:** `retainwrite-coaching-philosophy.md` (v1.4, Nov 20, 2026) governs every stage, probe, summary, and interaction. It wins over this doc on philosophy; this doc still holds the implementation detail for Stages 2–6. The section-by-section loop (DISSECT → TEACH → PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE; TEACH added by Colton t47) is placed on the stages in section 2A, and the Stage 2 coaching behavior inside it (THE LESSON, teach-then-ask, concept vs. instance, ranked leads + wildcard, the memory-forward path for personal prompts) is specified in section 2B.
 
 LOCKED RULES (hold everywhere): coaching only (the app never writes submission prose: no paragraphs, no thesis, no rewrites; AI produces questions, probes, checklists, feedback, and source summaries for study; the student writes every submitted sentence). Style metrics are for feedback/revision coaching only. Mismatch warnings name specific tells and never use detector-evasion framing. Every stage is gated on real student input. Every session is logged to `session_events`. Add `// SOP: coaching only, never generate submission text` at every AI call site.
 
@@ -15,7 +15,7 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 3. Coach question slots ({claim}, {key_term}, {group}, {evidence_type}) are only ever filled with verbatim substrings of the student's own text, enforced in code; otherwise a slot-free fallback phrasing is used.
 4. Refined thesis passes only if it meets 5 criteria (arguable, specific scope, reason, survives a counterargument, differs from the original or is defended); max 3 attempts, then the student may advance with a flag (never a hard dead end).
 5. ~~Stage 2 text boxes are paste-blocked~~ **Superseded Nov 20, 2026 (Colton t44): paste is allowed in every text input in every stage**, including Stage 1 voice answers and Stage 2 boxes. Paste is recorded quietly as metadata (`paste_ratio`) and never blocks (decision 34).
-6. Stage 3 outline = the sections of the student-confirmed Stage 1 roadmap (`section_plans`). When the rubric/prompt names no sections, the roadmap defaults to Intro + N body sections + Conclusion, with N = 3 (< 1,500 words), 4 (1,500–3,000), 5 (> 3,000); N = 3 if length is unknown. (Updated Nov 20, 2026: Counterargument/Rebuttal is included only when the assignment requires it or the paper type is argumentative — default kept, **unconfirmed by Colton** as of Nov 20, 2026; Stage 1 spec section 16 item 5.)
+6. Stage 3 outline = the sections of the student-confirmed Stage 1 roadmap (`section_plans`). When the rubric/prompt names no sections, the roadmap defaults to Intro + N body sections + Conclusion, with N = 3 (< 1,500 words), 4 (1,500–3,000), 5 (> 3,000); N = 3 if length is unknown. (Updated Nov 20, 2026: ~~Counterargument/Rebuttal is included only when the assignment requires it or the paper type is argumentative — default kept, unconfirmed by Colton~~ **Confirmed by Colton, t47: a Counterargument/Rebuttal section appears only when the rubric/assignment asks for one** (decision 43); Stage 1 spec section 16 item 5.)
 7. Every outline section holds only student-written notes (claim, evidence notes, explanation note, and a sentence plan of purpose/point notes with citation flags — section 4.2); the coach checks fit with the thesis; drag-to-reorder (with keyboard up/down buttons); the student clicks Approve; later edits are allowed and logged.
 8. Stage 5 coaching is not live per keystroke: prompts come before writing a section, "Ask coach" is on request (max 3 per section), and full feedback arrives when a section is submitted.
 9. Stage 5 allows paste from Google Docs/Word; every paste is recorded quietly (size and paste ratio). **Updated Nov 20, 2026 (Colton t46):** a paste of ≥ 80 words shows one supportive, dismissible suggestion, at most once per session: “We suggest using your own writing so your tone is better understood and we can serve you better.” It is not a question, needs no answer, and nothing is ever blocked (section 5.2, decision 35).
@@ -34,17 +34,30 @@ LOCKED RULES (hold everywhere): coaching only (the app never writes submission p
 22. AI is never a single point of failure: if an AI call fails, rule-based fallbacks keep the student moving and the failure is logged.
 23. Stage 1 is assignment-first (upload → parsed Assignment card the student must confirm → skippable get-to-know-you → assignment-grounded coaching, with voice sampled from those typed answers). Full rules are in `retainwrite-stage1-intake-spec.md`. Interest-steered research leads are always "to verify," never citations; Stage 4 drops leads it cannot verify. Updated Nov 20, 2026: uploads are read immediately and pasting is never a gate; the student confirms a short checklist (missing fields become "Not specified"), gets at most one follow-up question, and picks a story angle before the early stance. Stage 2 receives `storyAngle`.
 24. (Nov 20, 2026) The owner's INTD600 workflow sets the order of work across the six unchanged stages: Phase 1 → Stage 1; Phase 2 (story options, pick early) → end of Stage 1, carried into Stage 2; Phase 3 (raw-material interview) → Stage 2; Phase 4 (sentence-level outline + citation flags + short excerpts) → Stage 3 sentence plan + Stage 4 excerpts; Phase 5 (student writes every sentence) → Stage 5; Phase 6 (citation integrity, a/b/c suffixes) → Stage 6 item 4; Phase 7 (final assembly + light check) → Stage 6. Principles: the student owns the sentences; personal detail beats generic summary; citations tie to specific claims; slight imperfection is fine (keep the student's natural voice; never framed around AI detectors); decide the story early. Full table in `retainwrite-stage1-intake-spec.md` section 0B.
-25. (Nov 20, 2026) **Where the loop lives.** DISSECT ends Stage 1 (a student-confirmed roadmap). The per-section loop runs in **Stages 2–4**: **PROBE** in Stage 2 (after the whole-paper stance work), **SEARCH** in Stage 3 (while each outline card is built), **SUMMARIZE + CONFIRM** in Stage 4, followed by the mandatory, non-blocking **LOGIC CHECKPOINT** (decision 33). **Updated Nov 20, 2026 (Colton, t40): section-first order.** Each section runs PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT before the next section opens for work. Later sections (and the rest of the workflow, including Stages 5–6) can be **previewed read-only**. A section can be **skipped**; a skipped section counts as finished-for-now so the next one opens, and it stays flagged with a persistent reminder and a jump-back link until it is confirmed. To make this work, the per-stage gate is relaxed **only inside Stages 2–4** (the "loop span"): Stages 3 and 4 open once Stage 2's whole-paper stance work (cluster, 3 moves, refined thesis) is done, and the work inside them is gated per section and per step. All other stage gates are unchanged: Stage 1 → 2, and Stage 5 still opens only when every section is confirmed (no skipped sections left). Section 2A.1.
+25. (Nov 20, 2026) **Where the loop lives.** DISSECT ends Stage 1 (a student-confirmed roadmap). The per-section loop runs in **Stages 2–4**: **PROBE** in Stage 2 (after the whole-paper stance work), **SEARCH** in Stage 3 (while each outline card is built), **SUMMARIZE + CONFIRM** in Stage 4, followed by the mandatory, non-blocking **LOGIC CHECKPOINT** (decision 33). **Updated Nov 20, 2026 (Colton, t40): section-first order.** Each section runs PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT before the next section opens for work. Later sections (and the rest of the workflow, including Stages 5–6) can be **previewed read-only**. A section can be **skipped**; a skipped section counts as finished-for-now so the next one opens, and it stays flagged with a persistent reminder and a jump-back link until it is confirmed. To make this work, the per-stage gate is relaxed **only inside Stages 2–4** (the "loop span"): Stages 3 and 4 open once Stage 2's whole-paper stance work (cluster, 3 moves, refined thesis) is done, and the work inside them is gated per section and per step. All other stage gates are unchanged: Stage 1 → 2, and Stage 5 still opens only when every section is confirmed (no skipped sections left). Section 2A.1. **t47:** a **TEACH** step now runs in Stage 2 right before PROBE (order teach → probe → search → summarize → confirm; decision 38, section 2B.3).
 26. (Nov 20, 2026) **Saved per-section decisions are the skeleton.** Each section's ideas (student's words), chosen leaders, chosen style, and verified sources are saved in `section_decisions` and prefill the Stage 3 outline card, the Stage 5 draft view, and Stage 6 checks. The student never re-explains anything.
 27. (Nov 20, 2026) **Stage 5 draft feedback pattern:** section by section, the captured ideas as short notes (never finished sentences), the chosen leader and style, the source excerpts, and transition suggestions (relationship + connective words only). The student writes in their own words (section 5.3).
 28. (Nov 20, 2026) **Light cleanup is narrow:** flag spelling, grammar, and citation-format issues for the student to accept or fix; never rephrase (section 6.1 item 12). One-click Accept only for single-word and citation-format fixes — default kept, **unconfirmed by Colton** as of Nov 20, 2026.
 29. (Nov 20, 2026) **Stay inside the rubric:** every probe, lead, source card, angle, and suggestion carries a `rubricRef` to the confirmed assignment or roadmap; the guard rejects outputs without one. Imagination (angles, reframed questions, alternative framings) is allowed inside those bounds.
-30. (Nov 20, 2026, Colton t40) **Research leads: 3–5 at a time, 20 per paper.** Every lead set shows 3–5 options, never more than 5. If none appeal: **Show me 3–5 more** or **I have someone specific to look into**. The cap is **per paper** (not per section): after 20 AI-researched leads across Stage 1 and Stage 3, the coach stops suggesting and hands the student a ready-to-paste Google search prompt built from the section, rubric terms and story angle, then researches the names they bring back in the same 3–5 card pattern (uncapped, always `to_verify`). Section 2A.3.
+30. (Nov 20, 2026, Colton t40) **Research leads: 3–5 at a time, 20 per paper.** Every lead set shows 3–5 options, never more than 5. If none appeal: **Show me 3–5 more** or **I have someone specific to look into**. The cap is **per paper** (not per section): after 20 AI-researched leads across Stage 1 and Stage 3, the coach stops suggesting and hands the student a ready-to-paste Google search prompt built from the section, rubric terms and story angle, then researches the names they bring back in the same 3–5 card pattern (uncapped, always `to_verify`). Section 2A.3. **t47:** each batch is ranked by rubric match and adds one **Outside the box** wildcard, which counts toward the 20 (decision 40, section 2B.6).
 31. (Nov 20, 2026, Colton t40) **Final outline exports as Word (.docx) and PDF**, generated in code from saved student data; structure, idea notes, source excerpts and citation flags only, no AI prose. Section 2A.7.
-32. (Nov 20, 2026, Colton t40) **Stage 1 voice minimum is 200 words across the answers given** (skipped answers allowed), with 2 answers ≥ 40 words kept and no separate personal-question requirement. The Stage 6 mismatch baseline uses whatever Stage 1 collected; the short-sample downgrade in section 7 still applies below 150 words (since t44, **typed** words; Stage 1 spec 8.1a).
-33. (Nov 20, 2026, Colton t41 + t42) **Per-section LOGIC CHECKPOINT, mandatory and never blocking.** After each section's CONFIRM is saved and before ADVANCE, the coach runs a logic check on the section's claim against the story angle, thesis and the assignment's own terms. There are three tiers: **pass**, **moderate** (light feedback when an interpretation is debatable; the student decides) and **strong** (a firm, clear flag with suggested edits and alternative angles as questions when a claim defies logic or contradicts the assignment). **Nothing in the checkpoint gates anything:** every tier ends with the student able to move on, including **Continue anyway** on a strong flag. The student is always the writer, even of a weaker paper. When unsure, the result is **pass**. t41's "hard stop" tier was removed by Colton in t42 and never shipped. Section 2A.4a.
-34. (Nov 20, 2026, Colton t43 → t44 → t45) **Paste is allowed in every text input, in every stage.** t43 kept voice answers paste-blocked; t44 removed that exception. **Consequence:** the Stage 6 voice comparison's baseline may include pasted text. **Mitigation (never blocks, never warns during writing):** per-answer `paste_ratio` metadata, a typed-weighted baseline, and the short-sample downgrade when fewer than 150 baseline words were typed or spoken. **t45/t46:** when the baseline's pasted share is over 60%, the Stage 6 comparison (and the checker report) shows one kind, factual note at the very bottom, below the scores, in the soft t46 wording (checker spec 5.9). Spoken input (OS dictation or in-app speech-to-text) counts as typed. No note when there's no baseline. Stage 1 spec 8.1a; checker spec 5.9.
+32. (Nov 20, 2026, Colton t40) **Stage 1 voice minimum is 200 words across the answers given** (skipped answers allowed), with 2 answers ≥ 40 words kept and no separate personal-question requirement. The Stage 6 mismatch baseline uses whatever Stage 1 collected; the short-sample downgrade in section 7 still applies below 150 words (since t44, **typed** words; Stage 1 spec 8.1a). **t47:** Colton's "200 words total across skipped answers" is read as across all answers given, skipped answers allowed (decision 44).
+33. (Nov 20, 2026, Colton t41 + t42) **Per-section LOGIC CHECKPOINT, mandatory and never blocking.** After each section's CONFIRM is saved and before ADVANCE, the coach runs a logic check on the section's claim against the story angle, thesis and the assignment's own terms. There are three tiers: **pass**, **moderate** (light feedback when an interpretation is debatable; the student decides) and **strong** (a firm, clear flag with suggested edits and alternative angles as questions when a claim defies logic or contradicts the assignment). **Nothing in the checkpoint gates anything:** every tier ends with the student able to move on, including **Continue anyway** on a strong flag. The student is always the writer, even of a weaker paper. When unsure, the result is **pass**. t41's "hard stop" tier was removed by Colton in t42 and never shipped. Section 2A.4a. **t47:** Colton's opener and red-alert copy added (decision 42).
+34. (Nov 20, 2026, Colton t43 → t44 → t45) **Paste is allowed in every text input, in every stage.** t43 kept voice answers paste-blocked; t44 removed that exception. **Consequence:** the Stage 6 voice comparison's baseline may include pasted text. **Mitigation (never blocks, never warns during writing):** per-answer `paste_ratio` metadata, a typed-weighted baseline, and the short-sample downgrade when fewer than 150 baseline words were typed or spoken. **t45/t46:** when the baseline's pasted share is over 60%, the Stage 6 comparison (and the checker report) shows one kind, factual note at the very bottom, below the scores, in the soft t46 wording (checker spec 5.9). **Superseded t51:** the note now follows the hybrid rule (decision 46). Spoken input (OS dictation or in-app speech-to-text) counts as typed. No note when there's no baseline. Stage 1 spec 8.1a; checker spec 5.9.
 35. (Nov 20, 2026, Colton t46) **Stage 5 paste: a supportive suggestion, not a question.** The old ≥ 80-word paste modal is replaced by one dismissible inline note, “We suggest using your own writing so your tone is better understood and we can serve you better.”, shown at most once per session per paper, with no answer, no buttons beyond Got it, and no recorded choice. Only quiet paste metadata is kept. **Voice note:** one consistent soft style on every surface (checker spec 5.9). Stage 6 uses “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.”
+
+36. (Nov 20, 2026, Colton t47) **Lesson-first hierarchy.** Every assignment is analyzed for THE LESSON (what it's trying to teach, why the paper is assigned, what the student should learn), extracted in Stage 1 with the parse, shown and editable on the checklist and roadmap, and stored per paper in `papers.lesson`. All coaching spends more effort elaborating the lesson than the examples used to show it ("connect leadership styles to leaders you admire" → the lesson is leadership styles; the leaders serve it). Section 2B.1.
+37. (Nov 20, 2026, Colton t47) **Three routing paths.** Paper-level `papers.prompt_type` = `lesson` (default) / `personal_experience` / `mixed`, classified in Stage 1 and changeable by the student; section-level `section_plans.mode` = `lesson` / `memory`. Inside lesson sections, each answer is tagged as naming a **concept** (→ teach) or an **instance** (→ highlight reel). Memory sections run the memory-forward path. Section 2B.2.
+38. (Nov 20, 2026, Colton t47) **TEACH step and teach-then-ask.** The loop is now DISSECT → **TEACH** → PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE. TEACH runs in Stage 2 before PROBE: a short concept card (definition, 3–5 qualities, how it shows up) and "Which part interests you most?". It's skippable (**I know this one**) and never blocks. On a vague concept answer anywhere ("I like servant leadership"), the coach affirms warmly, gives the concise breakdown, then asks which aspect interests the student most. Teach cards are study material, never exported or offered for copying. Section 2B.4.
+39. (Nov 20, 2026, Colton t47) **Concept vs. instance (style vs. leader, generalized).** Concepts (styles, theories, frameworks, devices) get the textbook treatment. Instances (named people, organizations, cases, works, events) get a highlight reel of 1–2 concrete moves that match the style, marked **To verify** with no quotes, then always "Want me to search for references on how {instance} was a {concept}?". Accepted searches seed SEARCH with a student-added lead (not counted toward the cap). Section 2B.5.
+40. (Nov 20, 2026, Colton t47) **Ranked leads plus one wildcard.** Each lead batch is 3–5 leads ranked by rubric match (including how well they show the lesson concept) plus exactly one **Outside the box** wildcard with a one-line why. It's never preselected and never offensive for its own sake; controversial picks get a neutral note such as "although controversial"; stricter rules apply for under-18 students; it's omitted when no safe one fits. **The wildcard counts toward the 20-per-paper cap** and is dropped first when a batch is trimmed at the cap. The 32-word Google/Scholar search-prompt handoff is unchanged. Section 2B.6.
+41. (Nov 20, 2026, Colton t47) **Memory-forward path for vague/personal prompts.** MIRROR the prompt's emotional words ("What does magical mean to you?"), then on a stall show gentle, scripted memory-trigger chips (a little milestone like losing a tooth, getting hurt, a family member starting or losing a job, moving houses, plus lighter ones; every line rewritten as a gentle invitation in t52, decision 47), each with **Not this one** and a **Skip these** option. It never pushes for trauma disclosure, and a supportive safety note shows if risk language appears. SEARCH is optional (off by default unless the rubric requires sources), the summary is a memory card in the student's own words, CONFIRM asks about "this moment," and the logic checkpoint is light (pass or moderate prompt-fit only, never strong). How common these prompts are, and at which grade levels, is an open TODO for Paper Coach Research (no statistics invented). Section 2B.8.
+42. (Nov 20, 2026, Colton t47) **Logic checkpoint copy and outcomes confirmed.** Opener: "I want to do a logic check. Do you feel good about this?" (**Yes, check it** / **Let me tweak it first**; the check runs in the background, so neither choice blocks). Three outcomes: no flag, light constructive feedback (moderate), or strong pushback as a **red alert**, "We would not recommend moving forward.", with **Continue anyway**. No hard stops. Moderate for debatable takes, strong for indefensible ones (e.g. Hitler as objectively moral in a leadership paper). When unclear, let it through. The 80/60 downgrade rules and the `logic_strong_continued` logging stay. Section 2B.9 (amends 2A.4a).
+43. (Nov 20, 2026, Colton t47) **Counterargument only when the rubric asks for one** (confirms the earlier default, now tighter: the "or argumentative paper type" inclusion is dropped). DISSECT adds a Counterargument & Rebuttal section only when the assignment requires it; Stage 6 item 9 and the logic checkpoint apply only then. The Stage 2 counterargument *moves* still run for every paper, because they stress-test the student's own claim and don't add a section.
+44. (Nov 20, 2026, Colton t47) **Voice capture confirmed.** 200 words total across the answers given; "across skipped answers" is read as across all answers with skips allowed (t40). The quiet safeguard down-weights mostly-pasted answers (paste_ratio, 0.2 weight for fully pasted) and favors typed or spoken ones. No warnings during the flow. End-of-results notes: ~~> 60% pasted → `VOICE_NOTE_ANSWERS`; ≥ 95% pasted → `VOICE_NOTE_ANSWERS_ALL`~~ **superseded by the t51 hybrid rule (decision 46).** Section 2B.10; checker spec 5.9.
+45. (Nov 20, 2026, Colton t48) **Stage 6 (and Stage 5) voice-mismatch warning becomes a gentle voice nudge.** The amber "This reads differently from your sample" warning and its "I've reworked it" / "This is my writing" buttons are retired. It now reads: **“This part sounds a little different from your usual voice. Want to read it aloud and make it sound more like you?”**, with a collapsed **What we noticed** list that still names the specific tells. Buttons: **Make it sound like me** (opens the voice-tips/rework panel: highlights the sentences, read-aloud for that part, and coaching tips, never rewrites) and **Keep it as is** (dismisses; logged neutrally; no note, no penalty, no accusation). Same trigger and thresholds (section 7). Events `mismatch_warned` / `mismatch_response` are replaced by `voice_nudge_shown` / `voice_nudge_rework_opened` / `voice_nudge_kept`. Section 7 and 6.1 item 5.
+46. (Nov 20, 2026, Colton t51) **Hybrid voice-note threshold.** The bottom-of-results voice note no longer depends on paste % alone. It weighs `naturalWords` (typed + dictated/spoken words across the whole paper's conversational answers; pasted words excluded) together with `pastedShare`. Tiers [PROVISIONAL]: ≥ 600 → no note at any paste %; 200–599 → lighter-read note only if > 60% pasted; 80–199 → lighter-read note regardless of paste %; < 80 → stronger note regardless of paste %. New strings `VOICE_NOTE_ANSWERS_SHORT`, `VOICE_NOTE_ANSWERS_LOW` (replaces `VOICE_NOTE_ANSWERS_ALL`) and the sample equivalents. The public checker applies the same tiers to the writing sample. The Stage 6 baseline now uses the same counted answers. Section 2B.10; checker spec 5.9.
+47. (Nov 20, 2026, Colton t52) **Memory-trigger sensitivity guideline.** Every personal-prompt memory trigger reads as a caring coach gently opening a door: the memory is offered softly ("Maybe…"), never as a yes/no interrogation; the student is invited to reflect; and the line connects back to the assignment. Model line: “A family member started or lost a job. Do you want to expand on it so we can explore how it might help your paper?” The whole bank is rewritten, with a CI/guard test for the phrasing. **Not this one**, **Skip these** and the safety note stay. Section 2B.8.
 
 ---
 
@@ -100,7 +113,7 @@ Notes:
 - Dedupe: before accepting an upload, query `file_hashes @> '"<sha>"'` for any other row; if found, reject with "This file has already been used for a credit."
 - `drafts`: version 1 = assembled Stage 5 draft; each Stage 6 save = next version. `drafts.metrics` / `mismatch` as in the build prompt.
 - Credit grant RPC `grant_feedback_credit(feedback_id uuid)` (security definer, service role only), one transaction: `update professor_feedback set credit_granted=true ... where id=$1 and credit_granted=false returning user_id, paper_id`; if a row returned then `update profiles set paper_credits = paper_credits + 1` and `insert into purchases (user_id, paper_id, kind, amount_cents, status) values (.., 'feedback_credit', 0, 'paid')`. Idempotent.
-- New `session_events.event` names: `cluster_selected`, `move_shown`, `move_answered`, `thesis_attempt`, `thesis_flag_advanced`, `outline_section_checked`, `outline_approved`, `outline_edited`, `section_topic_submitted`, `coach_asked`, `section_feedback`, `section_done`, `paste`, `paste_suggestion_shown`, `paste_suggestion_dismissed`, `mismatch_warned`, `mismatch_response`, `checklist_item`, `revision_saved`, `feedback_submitted`, `feedback_auto_granted`, `feedback_queued`, `feedback_reviewed`, `audio_generated`, `guardian_requested`, `guardian_granted`, `ai_fallback`, `email_failed`.
+- New `session_events.event` names: `cluster_selected`, `move_shown`, `move_answered`, `thesis_attempt`, `thesis_flag_advanced`, `outline_section_checked`, `outline_approved`, `outline_edited`, `section_topic_submitted`, `coach_asked`, `section_feedback`, `section_done`, `paste`, `paste_suggestion_shown`, `paste_suggestion_dismissed`, `voice_nudge_shown`, `voice_nudge_rework_opened`, `voice_nudge_kept` (t48; replace the retired `mismatch_warned` / `mismatch_response`), `checklist_item`, `revision_saved`, `feedback_submitted`, `feedback_auto_granted`, `feedback_queued`, `feedback_reviewed`, `audio_generated`, `guardian_requested`, `guardian_granted`, `ai_fallback`, `email_failed`.
 - Stage 1 session event names (assignment parse/confirm, interest, leads, voice) are listed in `retainwrite-stage1-intake-spec.md` section 13. Do not put interest prose or assignment full text in `session_events.detail`.
 
 ---
@@ -118,13 +131,14 @@ Notes:
 
 ## 2A. The section-by-section loop (Stages 2–4) — Nov 20, 2026
 
-Source: `retainwrite-coaching-philosophy.md` (governing). The story angle (Stage 1, Pick your story) is the spine; the roadmap (Stage 1, DISSECT) lists the sections; the loop runs per section underneath both. Every loop screen shows the story angle and the section's `needs` + `rubricRefs` in a header strip.
+Source: `retainwrite-coaching-philosophy.md` (governing). The story angle (Stage 1, Pick your story) is the spine; the roadmap (Stage 1, DISSECT) lists the sections; the loop runs per section underneath both. Every loop screen shows **THE LESSON** ("What you're learning: …", t47, 2B.1), the story angle and the section's `needs` + `rubricRefs` in a header strip. **t47:** the Stage 2 coaching behavior inside the loop (TEACH, teach-then-ask, concept vs. instance, ranked leads + wildcard, memory-forward path) is specified in section 2B, which wins over this section where they differ.
 
 ### 2A.1 Placement
 
 | Loop step | Stage | When | Saved to |
 |---|---|---|---|
-| DISSECT | 1 (end) | After the early stance | `section_plans` |
+| DISSECT | 1 (end) | After the early stance | `section_plans` (+ `mode`, `concept`, t47) |
+| TEACH (Colton, t47) | 2 | Start of each section, before PROBE; lesson mode: concept card + "Which part interests you most?"; memory mode: MIRROR (2B.4, 2B.8). Skippable, never blocks | `section_decisions.teach_*` |
 | PROBE | 2 | After the 3 moves and the refined thesis, once per roadmap section | `section_decisions.ideas`, `probe_choice` |
 | SEARCH | 3 | Per section, as its outline card is built | `section_decisions.search_terms`, `research_leads` (to verify), `chosen_lead_ids`, `chosen_style` |
 | SUMMARIZE | 4 | Per section | `sources`, `sources.beats`, `section_decisions.source_card_ids` |
@@ -132,11 +146,11 @@ Source: `retainwrite-coaching-philosophy.md` (governing). The story angle (Stage
 | LOGIC CHECKPOINT (Colton, t41/t42) | 4 | Right after CONFIRM is saved, before ADVANCE; mandatory, non-blocking | `section_decisions.logic_*` (2A.6) |
 | ADVANCE | 2, 3, 4 | Next section in roadmap order | `section_decisions.loop_step` |
 
-**Order: section-first (Colton, Nov 20, 2026; replaces the per-stage passes).** After Stage 2's whole-paper stance work, the loop takes one roadmap section at a time through PROBE → SEARCH (with its outline card) → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT (non-blocking, 2A.4a), then ADVANCEs. The left rail still shows Stages 2, 3 and 4, each with per-section progress dots, so the student sees where each section sits.
+**Order: section-first (Colton, Nov 20, 2026; replaces the per-stage passes).** After Stage 2's whole-paper stance work, the loop takes one roadmap section at a time through TEACH (t47) → PROBE → SEARCH (with its outline card) → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT (non-blocking, 2A.4a), then ADVANCEs. The left rail still shows Stages 2, 3 and 4, each with per-section progress dots, so the student sees where each section sits.
 
 **Reconciling with the stage gates (the loop span).**
-- Stage 2 has two parts. **2a, whole paper:** cluster, 3 moves, refined thesis, gated exactly as before. **2b, PROBE**, runs per section inside the loop.
-- `assertStageUnlocked(paperId, 3|4)` passes once 2a is complete (instead of once Stage 2 is complete). Every write inside Stages 2b–4 also calls `assertSectionStepUnlocked(paperId, sectionKey, step)`, which passes only when (1) every earlier section is `confirmed` or `skipped`, and (2) the section's earlier steps are done (probe → search → summarize → confirm). It fails with 409 `section_locked` and names the section to finish first.
+- Stage 2 has two parts. **2a, whole paper:** cluster, 3 moves, refined thesis, gated exactly as before. **2b, TEACH + PROBE** (TEACH added t47), runs per section inside the loop.
+- `assertStageUnlocked(paperId, 3|4)` passes once 2a is complete (instead of once Stage 2 is complete). Every write inside Stages 2b–4 also calls `assertSectionStepUnlocked(paperId, sectionKey, step)`, which passes only when (1) every earlier section is `confirmed` or `skipped`, and (2) the section's earlier steps are done (teach → probe → search → summarize → confirm; t47 added teach, which is done once explored, skipped, `not_applicable`, or mirrored; in memory mode search auto-completes as `not_needed`). It fails with 409 `section_locked` and names the section to finish first.
 - **Stage completion is unchanged in meaning:** Stage 2 completes when 2a is done and every section has a PROBE result; Stage 3 when every section has its SEARCH result and complete card **and** the whole outline is approved (the Approve button appears once the last section's card is complete); Stage 4 when every section is confirmed (2A.5). A skipped section blocks those completions until it is finished.
 - **Stage 5 and 6 gates are unchanged:** Stage 5 opens only when Stage 4 is complete, so no section can still be skipped when drafting starts.
 
@@ -151,7 +165,7 @@ The last section's CONFIRM never auto-advances into Stage 5 while a section is s
 
 ### 2A.2 PROBE (Stage 2)
 
-After the refined thesis (Stage 2a), the loop starts at the first roadmap section. Each section, when it opens for work, starts here, and the first prompt is exactly:
+After the refined thesis (Stage 2a), the loop starts at the first roadmap section. **t47:** each section now opens with TEACH (2B.4; MIRROR in memory mode, 2B.8) and then comes here. In lesson mode the first PROBE prompt is exactly:
 
 > “Do you already have an idea of how you want this section to go, or do you want me to ask some probing questions so we can start finding research?”
 
@@ -160,6 +174,7 @@ Buttons: **I have an idea** / **Ask me some questions**.
 - **I have an idea** → textarea (paste allowed), “Tell me the idea in a few words or a few sentences.” No minimum beyond 5 words. Up to 2 follow-ups only if it's vague (`specific=false`).
 - **Ask me some questions** → `MODEL_FAST` asks 2–4 probing questions, one at a time, each tied to the section's `rubricRefs` and the story angle (≤ 30 words each).
 - **Freeze / “I don't know” / empty twice** → **warm-up questions** first (scripted bank: “What's one thing you already know about this?” / “Who's someone you've seen do this well?” / “What part of this makes you curious?”). Never dump sources cold. Only after a warm-up answer does SEARCH get a framework.
+- **t47 response patterns:** a vague answer that names a concept gets **teach-then-ask** (affirm → breakdown → "Which part interests you most?", 2B.4); a named leader/person/org/case gets a **highlight reel** of 1–2 moves and the search offer (2B.5). Memory-mode sections use the memory opener and trigger chips instead (2B.8).
 - Every answer is saved verbatim (`ideas[]`, each with `answerId`) and added to the raw-material bank. Paste is allowed, as everywhere (decision 34).
 - Skip: **Skip this section for now** saves `status = 'skipped'` (section 2A.1); the next section opens for work and the skipped one stays flagged with the bottom reminder bar and jump-back link. Stage 2 completes only when every section has a PROBE result.
 
@@ -169,15 +184,16 @@ For each section, alongside its outline card:
 
 - **Search terms** the student would naturally run (3–6, built from the section's ideas, the rubric's required styles/themes, and the story angle), with a **Copy** button and a short note on why each term helps. Teaching the search is the point: show the reasoning (“We added ‘servant leadership’ because the rubric asks for a named style”).
 - **Cross-reference** against `requiredStyles` / `requiredSources`: a small checklist of what the rubric needs in this section and which leads cover it.
-- **3–5 leads** (people, organizations, cases, examples, works), never more than 5 at once, each with a one-line why-it-fits-the-rubric, a `rubricRef`, and the badge **To verify**. No quotes. Stage 1 accepted leads tagged to this section appear first. **I have someone else** adds a student lead (also to verify).
+- **3–5 leads** (people, organizations, cases, examples, works), never more than 5 ranked leads at once, **ranked by rubric match** (t47), each with a one-line why-it-fits-the-rubric, a `rubricRef`, a `lessonLink`, and the badge **To verify**, **plus exactly one Outside the box wildcard** below them (t47, 2B.6; counts toward the cap; omitted when no safe one fits). No quotes. Stage 1 accepted leads tagged to this section appear first. **I have someone else** adds a student lead (also to verify).
 - **None of these appeal** → two choices: **Show me 3–5 more** (a new batch; leads already shown aren't repeated) or **I have someone specific to look into** (a name or two, researched in the same card pattern).
-- **Lead cap (per paper):** `RESEARCH_LEADS_MAX_PER_PAPER = 20` AI-researched leads per paper, counting every AI-suggested lead shown in Stage 1 and Stage 3 (`research_leads.origin = 'ai_suggested'`). Per paper, not per section, because the cost and the over-reliance risk grow per paper; a 5-section paper averages 4 per section. A batch that would pass the cap is trimmed to what's left (it can be fewer than 3 only for this last batch). The server enforces the cap.
+- **Lead cap (per paper):** `RESEARCH_LEADS_MAX_PER_PAPER = 20` AI-researched leads per paper, counting every AI-suggested lead shown in Stage 1 and Stage 3 (`research_leads.origin = 'ai_suggested'`), **wildcards included** (t47; when a batch is trimmed at the cap, the wildcard is dropped first). Per paper, not per section, because the cost and the over-reliance risk grow per paper; a 5-section paper averages 4 per section. A batch that would pass the cap is trimmed to what's left (it can be fewer than 3 only for this last batch). The server enforces the cap.
 - **At the cap: the search-it-yourself handoff.** The coach says: “I've pulled 20 leads for this paper, so it's your turn to search. Here's a search you can paste into Google. It's built from this section, your rubric and your story angle, so it'll keep finding new names.” The card shows:
   - a **ready-to-paste Google query**, built in code (no model) from the section title, up to 3 rubric terms (from `rubricRefs` and `required_styles`, the teacher's wording), the chosen style, and 1–2 key nouns from the story angle. Template: `"{style or rubric term 1}" {section key terms} ({rubric term 2} OR {rubric term 3}) {story-angle nouns} (interview OR book OR talk OR "case study")`. Quoted phrases are escaped, empty slots dropped, max 32 words (Google's limit). Example: `"servant leadership" pricing gross margin (profit OR "cost control") small business (interview OR book OR talk OR "case study")`;
   - when the rubric needs scholarly sources, a second line with the same terms as a Google Scholar link;
   - **Copy** and **Open in Google** (`https://www.google.com/search?q=…`, new tab) buttons, and a one-line tip: “Skim for people or organizations who come up more than once.”
   - **Bring back names:** a box for up to 5 names at a time (one per line, paste allowed here because these are names, not writing). The coach researches them in the same 3–5 card pattern (why it fits the rubric, `rubricRef`, **To verify**; it says so plainly when it knows nothing reliable about a name) and the student picks as before. Brought-back names (`origin = 'student_brought'`) don't count toward the cap and are unlimited; they still go through Stage 4 verification. Log `lead_cap_reached`, `search_prompt_copied`, `search_prompt_opened`, `student_names_brought`.
 - The student picks **leaders** and a **style** (from the rubric's required styles; if none, the section's angle). Saved as `chosen_lead_ids`, `chosen_style`.
+- **Memory-mode sections (t47):** SEARCH is off by default (`search_status = 'not_needed'`) with a **Want to look anything up?** link; it's `required` only when the rubric requires sources (2B.8).
 - **Never re-explain:** the outline card is prefilled from `section_decisions`: the claim field shows the student's own idea notes as a reference (not auto-filled into the claim), evidence notes are pre-listed from the chosen leaders, and the sentence plan offers rows linked to the ideas. Everything stays editable and student-written.
 
 ### 2A.4 SUMMARIZE and CONFIRM (Stage 4)
@@ -185,15 +201,17 @@ For each section, alongside its outline card:
 For each section, in roadmap order:
 
 1. **Verify** the chosen leads: find the real source (open-access fetch, Unpaywall, or a student upload with the rights checkbox). If a lead can't be verified, drop it with “We couldn't verify this lead, so we dropped it,” and offer to go back to SEARCH for that section. No made-up quotes, ever.
-2. **Source cards** (`MODEL_STRONG`, from verified source text only): **the claim it supports** (tied to a sentence-plan row the student chose), **a short quotable excerpt** (≤ 2 sentences, verbatim, with page/location), and **one line on why it fits your rubric** (with `rubricRef`). A ten-page op-ed becomes the one nugget the student needs. These are the existing study beats with three added fields.
+2. **Source cards** (`MODEL_STRONG`, from verified source text only): **the claim it supports** (tied to a sentence-plan row the student chose), **a short quotable excerpt** (≤ 2 sentences, verbatim, with page/location), **one line on why it fits your rubric** (with `rubricRef`), and (t47) a **lessonLink** naming the concept it shows (2B.7). Memory-mode sections get a **memory card** in the student's own words instead (2B.8). A ten-page op-ed becomes the one nugget the student needs. These are the existing study beats with three added fields.
 3. **Audio** (optional, unchanged pricing): “Listen to these cards” uses the existing beats audio when the paper has audio unlocked; otherwise the existing $1.99 upsell. Never required.
-4. **CONFIRM:** “Are you comfortable moving forward with {leader} and {style}?” Buttons **Yes, lock it in** / **Not yet**. Yes → `status = 'confirmed'`, `confirm_snapshot` (ideas, leaders, style, source cards, citation flags) saved, then the **LOGIC CHECKPOINT** (2A.4a) runs before ADVANCE. Not yet → back to SEARCH for this section (Stage 3 card via the edit drawer, logged). Log `section_confirmed`.
+4. **CONFIRM:** “Are you comfortable moving forward with {leader} and {style}?” (memory mode, t47: “Are you comfortable moving forward with this moment?”) Buttons **Yes, lock it in** / **Not yet**. Yes → `status = 'confirmed'`, `confirm_snapshot` (ideas, leaders, style, source cards, citation flags) saved, then the **LOGIC CHECKPOINT** (2A.4a) runs before ADVANCE. Not yet → back to SEARCH for this section (Stage 3 card via the edit drawer, logged). Log `section_confirmed`.
 5. **LOGIC CHECKPOINT** (2A.4a), mandatory, never blocking.
 6. **ADVANCE** to the next section.
 
 ### 2A.4a LOGIC CHECKPOINT (Colton, Nov 20, 2026, t41; revised t42: no hard stop, nothing blocks)
 
 **Purpose.** A quick logic test of the section's claim, so the student hears clearly when an angle is debatable or doesn't hold up, while staying the writer. It is coaching, not a gate. It checks **logic and fit with the assignment's own terms**, never whether the coach shares the student's opinion.
+
+**Opener (Colton, t47).** The coach first says **“I want to do a logic check. Do you feel good about this?”** with **Yes, check it** / **Let me tweak it first** (2B.9). The check runs in the background meanwhile, so neither button blocks or waits.
 
 **When it runs.** Once per section, automatically, right after **Yes, lock it in** saves the CONFIRM snapshot and before ADVANCE. It runs again only if the student edits the section's claim, idea notes, leader or style afterward (re-CONFIRM, a reopen, or **Revise my claim** / **Pick a new angle** / **Reframe it** below). It doesn't run for skipped sections until they're confirmed. Skeleton: “Checking the logic…” for up to 8 s; on timeout or error the result is **pass** (fail open).
 
@@ -205,7 +223,7 @@ For each section, in roadmap order:
 |---|---|---|---|
 | **pass** | The claim is defensible and fits the assignment, **or the coach is unsure** | Nothing beyond a quiet “Logic check ✓” on the section card; auto-ADVANCE | No |
 | **moderate** | A reasonable reader could disagree, the interpretation is a stretch, or the evidence chosen doesn't clearly support it | A light card, **“A thought before you move on”**: the reason (≤ 2 sentences), up to 3 alternative angles as questions, and “Your call. You're the writer.” Buttons **Keep my angle** (primary) / **Adjust it** | No |
-| **strong** | The claim **defies logic** (self-contradictory, or impossible to support with evidence) **or contradicts the assignment's own terms** (e.g. calling Hitler an objectively moral leader in a paper that asks students to evaluate leaders against ethical leadership principles) | A firm, clearly marked card (amber, ⚠ icon plus text label, not color-only): **“This claim doesn't hold up. We strongly suggest a different angle.”** Then the reason (≤ 2 sentences), **“Your assignment asks: ‘{verbatim teacher term}’”**, and up to 3 alternative angles as questions. A short note when a reframe works: “You can keep this subject if you change what you claim about it, for example by analyzing it critically.” Buttons: **Pick a new angle**, **Revise my claim**, **Reframe it**, and **Continue anyway** (always visible, same size as the others) | **No** |
+| **strong** | The claim **defies logic** (self-contradictory, or impossible to support with evidence) **or contradicts the assignment's own terms** (e.g. calling Hitler an objectively moral leader in a paper that asks students to evaluate leaders against ethical leadership principles) | A firm, clearly marked **red alert** card (t47: red border, ⚠ icon plus the text label “Logic alert”, not color-only): **“We would not recommend moving forward.”** then “This claim doesn't hold up as written.” Then the reason (≤ 2 sentences), **“Your assignment asks: ‘{verbatim teacher term}’”**, and up to 3 alternative angles as questions. A short note when a reframe works: “You can keep this subject if you change what you claim about it, for example by analyzing it critically.” Buttons: **Pick a new angle**, **Revise my claim**, **Reframe it**, and **Continue anyway** (always visible, same size as the others) | **No** |
 
 **Actions (all non-blocking).**
 - **Keep my angle** (moderate) → ADVANCE. Log `logic_moderate_kept`.
@@ -219,6 +237,8 @@ For each section, in roadmap order:
 - `strong` is kept only when `confidence ≥ 0.80` **and** `citedTerm.quote` is a verbatim substring of the assignment text (for an assignment contradiction) **or** `logicFailure` names a concrete contradiction **and** `studentClaimRef.quote` is a verbatim substring of the student's notes. Otherwise it is downgraded to `moderate`.
 - `moderate` is kept only when `confidence ≥ 0.60` and a valid `rubricRef` is present. Otherwise it is downgraded to `pass`.
 - Downgrades log `logic_check_downgraded {from, to, reason}`.
+- **Counterargument (confirmed t47, decision 43):** never flag a missing counterargument and never suggest adding one unless the rubric/assignment requires it.
+- **Memory sections (t47):** `mode: 'memory'` clamps the tier to `pass | moderate` (prompt fit only; logged `logic_memory_clamped`), never `strong` (2B.8).
 - Prompt rules: an unpopular, political, religious or moral **opinion** that the student can support with evidence and that fits the assignment is **pass**, or **moderate** at most. A view never gets `strong` just because the coach disagrees with it. `strong` needs a logic failure or a conflict with the assignment's own words. Critical or cautionary analysis of a bad actor is legitimate and passes.
 
 **Grok structured output** (`MODEL_STRONG`, `temperature: 0`, Zod `json_schema`, `lib/coaching/logicCheck.ts`, prompt version `logic_v1`):
@@ -297,7 +317,7 @@ create table section_decisions (             -- per-section loop state + saved d
   section_plan_id uuid not null unique references section_plans on delete cascade,
   paper_id uuid not null references papers on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
-  loop_step text not null default 'probe',   -- probe | search | summarize | confirm | logic_check | confirmed (t41)
+  loop_step text not null default 'teach',   -- teach (t47) | probe | search | summarize | confirm | logic_check | confirmed (t41)
   probe_choice text,                         -- has_idea | wants_probes | warmup
   ideas jsonb not null default '[]',         -- [{ id, text (student verbatim), answerId }]
   search_terms jsonb not null default '[]',
@@ -341,7 +361,10 @@ alter table sources add column if not exists section_plan_id uuid references sec
 create index on section_plans (paper_id, sort_order);
 create index on section_decisions (paper_id);
 -- RLS on both new tables: auth.uid() = user_id (same pattern as 0002).
+-- t47 additions (lesson, prompt type, section mode/concept, teach/memory/highlight fields, lead rank + wildcard): see section 2B.11; fold them in here.
 ```
+
+**t47 note:** the section 2B.11 lines are folded into 0008 too (still spec-only). If 0008 has already been applied, ship the t40/t41/t44/t47 lines together as `0009_section_loop_followups.sql`.
 
 **t40/t41 note:** 0008 was still a spec (not applied) when Colton's answers came in, so the skip, lead-origin and `logic_*` columns were folded into it. If 0008 has already been applied anywhere, ship the t40 lines and the `logic_*` columns as `0009_section_loop_t40_t41.sql` (`alter table section_decisions add column if not exists …`) instead. The lead cap is a count query (`origin = 'ai_suggested'`), not a stored counter; the outline export stores nothing.
 
@@ -370,7 +393,358 @@ The file is streamed with `Content-Disposition: attachment; filename="{paper-tit
 
 ---
 
+## 2B. Stage 2 coaching spec: the lesson-first section loop and research (Colton, Nov 20, 2026, t47)
+
+Source: Colton's Stage 2 brainstorm (t47). It's the core coaching muscle and sits under the governing philosophy (v1.4). It **adds** to sections 2A and 3; where the two disagree on Stage 2–4 coaching behavior, this section wins. Hard limits hold throughout: coaching only, the student writes every submitted sentence, AI output is study material or questions, and nothing is framed around detectors. Decisions 36–44.
+
+### 2B.0 What changed, in one table
+
+| Topic | Before t47 | Now (t47) |
+|---|---|---|
+| What the coach teaches toward | Rubric criteria per section | **THE LESSON** of the paper, extracted once per paper and stored (`papers.lesson`). Every probe, teach card, lead and source card serves the lesson first; examples serve the lesson (2B.1) |
+| Loop order | DISSECT → PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE | DISSECT → **TEACH** → PROBE → SEARCH → SUMMARIZE → CONFIRM → LOGIC CHECKPOINT → ADVANCE. TEACH runs in Stage 2 (2b), right before PROBE (2B.3) |
+| Vague answers ("I like servant leadership") | Up to 2 thin-answer probes | **Teach-then-ask:** affirm warmly → concise breakdown of the concept → "Which part interests you most?" (2B.4) |
+| Concepts vs. named examples | Treated the same | **Concept** (style, theory, framework, device) gets the textbook treatment. **Instance** (a person, organization, case, text, event) gets a 1–2 move highlight reel, then "Want me to search for references…?" (2B.5) |
+| Lead sets | 3–5, unranked | 3–5 **ranked by rubric match**, plus exactly **one wildcard** labeled **Outside the box** with a one-line why. The wildcard counts toward the 20-per-paper cap (2B.6) |
+| Prompt types | One path | Paper-level `prompt_type`: `lesson` / `personal_experience` / `mixed`. Personal-experience sections run **memory-forward**: MIRROR → memory triggers, research optional, light checkpoint (2B.2, 2B.8) |
+| Logic checkpoint | Auto-run, amber strong card | Same tiers and rules, plus Colton's opener **"I want to do a logic check. Do you feel good about this?"** and a **red alert** strong card, **"We would not recommend moving forward"**, with **Continue anyway** (2B.9) |
+| Counterargument | Default, unconfirmed | **Confirmed:** only when the rubric/assignment asks for one (decision 43) |
+| Voice | > 60% pasted → soft note | **t51 hybrid rule:** the note depends on how many natural (typed/spoken) words were captured across the paper, not paste % alone: ≥ 600 → none; 200–599 → lighter note only if > 60% pasted; 80–199 → lighter note; < 80 → stronger note [PROVISIONAL]. No warnings during the flow (2B.10) |
+
+### 2B.1 THE LESSON (lesson-first hierarchy)
+
+**Rule.** Every assignment is analyzed for THE LESSON: what the assignment is trying to teach, why the student is writing this paper, and what they're meant to learn. All coaching spends more effort elaborating the lesson than any example used to drive it home. Example: "Connect leadership styles to leaders you admire; give three examples" → the lesson is **leadership styles** (what they are, how they show up in action). The three leaders serve the lesson; they aren't the point.
+
+**When it's extracted.** In Stage 1, as part of the assignment parse (Stage 1 spec 4.6), shown as one line on the confirm checklist ("What this assignment is teaching"), editable, and finalized with the DISSECT roadmap (Stage 1 spec 3.4b). Stored on `papers.lesson` (2B.11). Re-extracted only if the student re-confirms a changed assignment.
+
+**Shape (Zod `Lesson`, `MODEL_STRONG`, `reasoning_effort: "low"`, prompt version `lesson_v1`):**
+```ts
+// SOP: coaching only, never generate submission text
+export const Lesson = z.object({
+  statement: z.string().max(200),        // what the paper teaches, <= 30 words, phrased as a learning goal ("How leadership styles show up in real leaders' choices")
+  why: z.string().max(160),              // why the paper is assigned, <= 25 words
+  concepts: z.array(z.object({           // the things to learn, from the prompt/rubric wording
+    term: z.string().max(60),            // verbatim or near-verbatim teacher term, e.g. "servant leadership", "leadership styles"
+    rubricRef: z.string(),
+  })).max(6),
+  examplesServe: z.string().max(160).nullable(), // how the requested examples serve the lesson, e.g. "three leaders illustrate the styles"
+  evidence: z.object({ file: z.string(), page: z.number().nullable(), quote: z.string().max(240) }), // verbatim prompt/rubric text it rests on
+  emotionalTerms: z.array(z.string().max(40)).max(4), // personal-experience prompts only: verbatim feeling words ("magical") for MIRROR (2B.8)
+  confidence: z.number().min(0).max(1),
+});
+```
+- `evidence.quote` and every `emotionalTerms[]` item must be verbatim substrings of the confirmed assignment text (guard). `statement`/`why` describe the **learning goal**, never draft content, never a thesis, never a sentence the student could submit (finished-sentence rule applies: `statement` is a noun phrase or "How/Why…" phrase, no subject + verb claim).
+- Fallback (model error / guard reject twice / confidence < 0.5): `statement` = the confirmed assignment prompt's first requirement sentence, verbatim; `concepts` = `requiredStyles` + rubric criterion names; `source = 'fallback'`. The student can edit it on the checklist or roadmap screen.
+- Personal-experience prompts: `concepts` is usually empty and `statement` describes what the prompt asks the student to share and reflect on ("Three moments from your summer and why they felt magical").
+
+**How the lesson weights coaching (prompt rules + code):**
+1. Every Stage 2–4 system prompt receives `lesson.statement` and `lesson.concepts` and the rule: *"Teach the lesson first. Examples exist to show the lesson. When you talk about an example, connect it back to the concept."*
+2. **TEACH** (2B.4) always teaches a lesson concept before any example is discussed.
+3. **Highlight reels** (2B.5) are capped at 2 moves and must name the concept each move shows.
+4. **Lead ranking** (2B.6) scores how clearly each lead illustrates the section's lesson concept as part of rubric match.
+5. **Source cards** (2B.7) add a `lessonLink` line: which concept the excerpt shows.
+6. **Stage 5 draft view** shows the section's lesson concept above the leader and style, so the student writes about the concept through the example.
+7. Ratio check (code, soft): in a TEACH or highlight-reel response, concept text must be ≥ 50% of the coach's words; otherwise retry once with "focus on the concept", then accept (logged `lesson_ratio_retry`). Never blocks the student.
+
+The roadmap header strip (2A) shows **"What you're learning: {lesson.statement}"** above the story angle on every loop screen.
+
+### 2B.2 Prompt-type routing (three paths)
+
+**Paper level.** `papers.prompt_type`:
+- `lesson` — academic/rubric prompts with a concept to learn (default).
+- `personal_experience` — vague or personal prompts with no rubric lesson to dissect ("Tell us about your summer vacation: three things that stood out and made it magical").
+- `mixed` — a lesson paper that also asks for personal experience (e.g. "connect a leadership style to a time you led a group").
+
+Classified with the lesson in Stage 1 (`promptType`, `promptTypeConfidence`). Signals for `personal_experience`: second-person "tell us about your / describe a time you / reflect on your" framing, no named concepts, no required sources, emotional or experiential words. Confidence < 0.6 → `lesson` (the existing path). The student sees it on the DISSECT screen as a small line ("This looks like a personal-story assignment. We'll help you remember and tell it." / "This assignment teaches {concept}…") with **Change** (pick one of the three). The student's choice wins and is logged (`prompt_type_changed`).
+
+**Section level.** Each roadmap section gets `section_plans.mode`: `lesson` or `memory`. `lesson` papers → all `lesson`; `personal_experience` → all `memory` (intro/conclusion included); `mixed` → sections whose `needs` asks for a personal moment are `memory`, the rest `lesson`. The student can flip a section's mode on the roadmap.
+
+**Answer level (inside a lesson section).** Every student answer in TEACH/PROBE is tagged by `MODEL_FAST` (`MentionTag`, 2B.5) as naming a **concept**, an **instance**, both, or neither, and whether it's **vague**. That decides the response pattern:
+
+| Path | Trigger | Coach pattern |
+|---|---|---|
+| 1. Concept | Section has a lesson concept, or the student names one (often vaguely) | TEACH card / teach-then-ask (2B.4) |
+| 2. Instance | The student names a specific leader/person/org/case/text | Highlight reel (1–2 concrete moves matching the style) → offer to search (2B.5) |
+| 3. Memory | Section `mode = 'memory'` | MIRROR the prompt's emotional words → memory triggers on stall → memory card (2B.8) |
+
+### 2B.3 Section flow (end to end)
+
+Front of the paper (Stage 1, unchanged except the lesson): dissect the assignment → summarize the sections → roadmap up front (DISSECT, Stage 1 spec 3.4b), now headed by THE LESSON and showing each section's mode.
+
+Then, **for each section, in roadmap order (section-first, 2A.1):**
+
+| # | Step | Stage | Lesson mode | Memory mode | Saved to |
+|---|---|---|---|---|---|
+| 1 | **TEACH** (new) | 2 (2b) | Concept card for the section's concept, then "Which part interests you most?" (2B.4). Skippable: **I know this one** | **MIRROR**: "Your prompt says “{emotional term}.” What does {term} mean to you?" (2B.8) | `section_decisions.teach_*` |
+| 2 | **PROBE** | 2 (2b) | Colton's exact opener (2A.2), teach-then-ask on vague answers, highlight reel on named leaders | Memory opener + memory triggers on stall (2B.8) | `ideas`, `probe_choice` |
+| 3 | **SEARCH** | 3 | 3–5 ranked leads + 1 wildcard, all **To verify** (2B.6; 2A.3) | **Optional** ("Want to look anything up?"), off by default; required only if the rubric requires sources | `research_leads`, `chosen_lead_ids`, `chosen_style`, `search_status` |
+| 4 | **SUMMARIZE** | 4 | Source cards: claim, quotable excerpt, why it fits the rubric (+ lesson link) (2B.7) | **Memory card** from the student's own words only (2B.8) | `sources.beats`, `source_card_ids` / `memory_card` |
+| 5 | **CONFIRM** | 4 | "Are you comfortable moving forward with {leader} and {style}?" (Colton's text) | "Are you comfortable moving forward with this moment?" | `confirm_snapshot` |
+| 6 | **LOGIC CHECKPOINT** | 4 | Opener + pass / light feedback / red-alert strong, never blocking (2B.9) | Light only: pass or a gentle prompt-fit note, never strong (2B.8) | `logic_*` |
+| 7 | **ADVANCE** | 2–4 | Next section | Next section | `loop_step` |
+
+**Saved decisions feed everything downstream.** The lesson, each section's teach aspect, ideas, chosen leader(s), style, source cards (or memory card) and confirmation prefill the Stage 3 outline card, the outline export, the Stage 5 draft view and the Stage 6 checks. The student never re-explains anything. Stage 5's per-section line becomes: "Here are the {n} ideas we captured for this section based on what you told me. **You're showing {concept}.** We chose {leader}, we chose {style}…" (memory sections: "Your moment: {student phrase}. The details you remembered: {phrases}…").
+
+**Gating (unchanged in spirit).** `assertSectionStepUnlocked` step order is now `teach → probe → search → summarize → confirm`. TEACH never blocks: it's done when the student picks an aspect, taps **I know this one**, taps **Skip**, or answers the MIRROR question (or skips it). In memory mode SEARCH is auto-completed as `not_needed` unless the student opens it or the rubric requires sources. Skip-section and browse-ahead rules (2A.1) apply unchanged.
+
+### 2B.4 TEACH and the teach-then-ask pattern
+
+**TEACH card (start of each lesson-mode section).** Shown when the section has a concept (`section_plans.concept`, set by DISSECT from `requiredStyles` / `lesson.concepts`; null for most intros and conclusions, which skip TEACH as `not_applicable`). The card is **study material** (like a source summary), labeled **"Quick lesson: {concept}"**:
+- **What it is** — one plain definition, ≤ 35 words.
+- **Key qualities** — 3–5 bullets, each ≤ 10 words, noun phrases (not sentences).
+- **How it shows up** — 2–3 bullets of observable behaviors, ≤ 12 words each.
+- **Where it gets debated** — optional, 1 bullet ≤ 15 words (only if the rubric asks for evaluation or critique).
+- Footer: "This is for learning. In your paper, define it in your own words and cite a real source."
+- Then the ask: **"Which part of {concept} interests you most?"** with each quality as a tappable chip, plus **Something else** (free text, paste allowed) and **I know this one** (skips to PROBE, logged `teach_skipped_known`).
+- The chosen aspect is saved (`teach_aspect`, verbatim or chip id) and seeds PROBE and SEARCH ("leaders who show {aspect}").
+
+**Teach-then-ask on a vague answer (anywhere in TEACH or PROBE).** When `MentionTag.vague = true` and the answer names a concept (e.g. "I like servant leadership"), the coach responds in three beats, in one message:
+1. **Affirm warmly** — one short line, ≤ 15 words, specific to what they said, no gushing ("Servant leadership is a great pick for this paper.").
+2. **Teach** — the compact breakdown: definition (≤ 35 words) + 3–5 quality chips (same shape as the TEACH card; reuses it if one exists for this concept).
+3. **Ask** — "Which part of {concept} do you find most interesting?" (chips + **Something else**).
+
+This replaces the generic thin-answer probe for concept answers. Vague answers that name no concept still get the existing thin-answer probe (max 2, then "I'm stuck — flag for help").
+
+**Schema (`TeachCard`, `MODEL_FAST` for the ask, `MODEL_STRONG` for the card, cached per paper + concept in `section_decisions.teach_card`):**
+```ts
+// SOP: coaching only, never generate submission text
+export const TeachCard = z.object({
+  concept: z.string().max(60), rubricRef: z.string(),
+  affirm: z.string().max(100).nullable(),          // only for teach-then-ask; <= 15 words
+  definition: z.string().max(240),                 // <= 35 words
+  qualities: z.array(z.string().max(70)).min(3).max(5),   // noun phrases, <= 10 words
+  showsUpAs: z.array(z.string().max(90)).min(2).max(3),
+  debate: z.string().max(110).nullable(),
+  ask: z.string().max(140),                        // must end with "?"
+});
+```
+**Guard (in addition to the shared rules):** `qualities` and `showsUpAs` items must not end in sentence punctuation or contain a subject + verb clause; no example sentences, no thesis-like claims, no named people in the definition; `ask` ends with "?"; no citation text. Definitions are generic textbook knowledge; the card never says "according to {author}". Card copy-to-clipboard is not offered.
+
+### 2B.5 Concept vs. instance (the style vs. leader split, generalized)
+
+**Generalization.** "Leadership style vs. specific leader" is one case of **concept vs. instance**:
+
+| Concept (textbook treatment) | Instance (highlight reel) |
+|---|---|
+| Leadership style, theory, framework, model | A named leader, person, organization |
+| Literary device, theme, genre | A specific novel, poem, scene |
+| Economic principle, policy type | A company, a market event, a specific law |
+| Historical force or pattern | A specific event, movement, figure |
+| Scientific concept | A specific experiment, study, species |
+
+**`MentionTag` (`MODEL_FAST`, `reasoning_effort: "none"`, every TEACH/PROBE answer in lesson mode):** `{ concepts: {text (verbatim from the answer), matchedLessonTerm|null}[], instances: {text (verbatim), kind: 'person'|'org'|'case'|'work'|'event'|'other'}[], vague: boolean }`. Mentions must be verbatim substrings of the student's answer (code check); unverified mentions are dropped.
+
+**Instance → highlight reel, then the search offer.** When the student names an instance:
+1. **Affirm + highlight reel** — one or two **concrete moves** the instance made that match the section's chosen (or most likely) style/concept, each tied to the concept by name. Colton's example: "John Legere really was a servant leader. He had many people work with him." Shape: `{ instance, concept, moves: [{ move ≤ 20 words, showsQuality (one of the TEACH qualities) }] (1–2), confidence }`.
+   - It's a factual claim about a real person or entity, so it carries the **To verify** badge, never includes quotes, dates, numbers or titles unless phrased as "reportedly", and is dropped (with "I don't know enough about {name} to say. Want me to look?") when `confidence < 0.6` or the model doesn't recognize the name. Never invent a move.
+   - When the instance doesn't fit the style, say so gently as a question: "From what's known, {name} is usually described as more of a {other style}. Want to look into how they fit {style}, or try someone else?"
+2. **The search offer** — always ends with: **"Want me to search for references on how {instance} was a {concept}?"** (e.g. "Want me to search for references on how Legere was a servant leader?"). Buttons **Yes, search** / **Not now**.
+   - **Yes** → SEARCH opens for this section seeded with the instance (`research_leads.origin = 'student_added'`, does not count toward the cap), and the coach looks for verifiable sources about that instance + concept. If the section's SEARCH step isn't unlocked yet (PROBE still open), the request is queued and runs when SEARCH opens; the student isn't forced forward.
+   - **Not now** → saved as an idea note (the student's verbatim mention) and the flow continues.
+3. Saved to `section_decisions.highlight_reels` (`[{instance, concept, moves, offeredSearch, accepted}]`). Highlight reels are **not** source cards and never appear in the outline export or draft view (unverified).
+
+**Guard:** the reel's `moves[]` must be ≤ 20 words, no quotation marks, no citation text, `showsQuality` must match a TEACH quality for the concept; ≤ 2 moves; the concept must be named (lesson-first).
+
+### 2B.6 Research leads: ranked by rubric match, plus one wildcard
+
+Applies to every AI-suggested lead set (Stage 3 SEARCH and Stage 1 coaching leads) in lesson-mode sections.
+
+**Each batch = 3–5 ranked leads + exactly 1 wildcard.**
+- **Ranked leads.** `MODEL_STRONG` returns candidates with `rubricMatch` (0–1): how directly the lead satisfies the section's `rubricRefs`, required styles/sources, and **illustrates the lesson concept** (and the student's teach aspect, when picked). Code sorts by `rubricMatch` (ties: interest-steered leads first, then the student's own named instances) and shows them in that order with a small "Best fit" tag on the top one. Each keeps the one-line why-it-fits-the-rubric, a `rubricRef`, a `lessonLink` (which concept it shows) and **To verify**. These dominate, because most students just want the paper done.
+- **The wildcard.** One extra card, visually separate below the ranked list, labeled **Outside the box**, with a one-line why (≤ 30 words) that names the pattern it shares with the lesson. Framing line above it: "These above are the ones usually cited. Here's one outside the box that shows the same pattern." Colton's illustration of the tone: "These are traditionally cited, but in music, Marilyn Manson, although controversial, was quite the leader in his personal endeavors." The wildcard trains pattern recognition without risking the grade: it's never ranked above, never preselected, and the card says "A stretch pick. The ones above are the safer fit for your rubric." It still needs a `rubricRef` (the concept it illustrates) and is **To verify**.
+- **Wildcard content rules (prompt + guard):**
+  - Must illustrate the same concept from a different field (music, sports, film, gaming, history, science, local business, etc.).
+  - Never offensive for its own sake, never shock value. Controversial figures are fine with a short neutral note ("although controversial"); the note never endorses or condemns.
+  - Excluded: people notable mainly for violence, hate, or crimes against people; anyone where the "leadership" would require praising harm; sexual content.
+  - Under-18 students (from `profiles.birth_date`): family-friendly wildcards only, and no figures with credible public allegations of abuse or sexual misconduct.
+  - Respects the interest profile when one fits; never uses sensitive categories (health, religion, politics, sexuality).
+  - If no safe wildcard fits, omit it for that batch (logged `lead_wildcard_omitted`). Never pad.
+
+**Cap (unchanged number, wildcard counted).** `RESEARCH_LEADS_MAX_PER_PAPER = 20` counts every AI-suggested lead **including wildcards** (`origin = 'ai_suggested'`, `is_wildcard` true or false). A 4-section paper with one batch of 4 + 1 per section uses the full 20. When a batch would pass the cap, ranked leads are kept first and the wildcard is dropped; the final batch can be fewer than 3. At the cap, the existing search-it-yourself handoff applies unchanged: the code-built Google query (≤ 32 words; Scholar line when scholarly sources are required), Copy / Open in Google, and brought-back names (uncapped, `to_verify`) (2A.3).
+
+**"Show me 3–5 more"** returns a new ranked batch plus a new wildcard (never repeats a lead), within the cap.
+
+**Memory-mode sections** get no leads or wildcard unless the student opens the optional search (2B.8).
+
+**Schema additions (`LeadBatch` item):** `rank` (int, 1 = best), `rubricMatch` (0–1), `lessonLink` (≤ 80 chars), `isWildcard` (bool), `wildcardWhy` (≤ 200 chars, wildcard only), `controversyNote` (≤ 60 chars, nullable; e.g. "although controversial"). Guard: exactly 0 or 1 wildcard per batch; a wildcard must have `wildcardWhy`; `controversyNote` from an allow-list of neutral phrasings ("although controversial", "a debated figure", "with a mixed record").
+
+### 2B.7 Source cards
+
+Unchanged from 2A.4 (verified sources only), now explicitly digestible: **the claim it supports** (tied to a sentence-plan row the student chose), **a short quotable excerpt** (≤ 2 sentences, verbatim, page/location), **why it fits your rubric** (one line, `rubricRef`), plus **lessonLink** (≤ 12 words: which concept the excerpt shows, e.g. "Shows servant leadership: putting the team's growth first"). Stored in `sources.beats[]` JSON (Zod-validated; no SQL change). The outline export still excludes AI "why it fits" and `lessonLink` lines (2A.7 allow-list unchanged).
+
+### 2B.8 Memory-forward path (personal-experience prompts)
+
+For `mode = 'memory'` sections. It's memory-forward, not research-forward.
+
+**MIRROR (TEACH step in memory mode).** The coach mirrors the prompt's own emotional language back: **"Your prompt says “{emotional term}.” What does {term} mean to you?"** (e.g. "What does magical mean to you?"). `{term}` comes only from `lesson.emotionalTerms` (verbatim from the assignment); if none, the slot-free fallback is "What feeling is this prompt asking you to capture?" The answer (paste allowed, **Skip** available) is saved as an idea note and counts toward the voice sample if Stage 1 still needs words (it doesn't change Stage 1's gate after Stage 1 is complete).
+
+**PROBE in memory mode.** Opener: **"Do you already have a moment in mind for this section, or do you want me to ask a few questions to jog your memory?"** Buttons **I have a moment** / **Help me remember**. Follow-ups ask for sensory, concrete detail (who was there, where, what you saw/heard, what you felt), one at a time, ≤ 25 words, never more than 2 per moment.
+
+**Memory triggers on stall.** On freeze ("I don't know", empty twice, or 2 thin answers), show **memory trigger chips**: 4 at a time from a scripted bank (`lib/coaching/memoryTriggers.ts`), not model-generated, chosen by the prompt's theme (vacation, school year, family, a challenge, a change, a first time). The t47 yes/no examples ("Did you lose a tooth?" etc.) are retired by t52.
+
+**Trigger sensitivity guideline (Colton, Nov 20, 2026, t52; applies to every memory-trigger line).** Write like a caring coach gently opening a door, never interrogating. Be mindful that hardship can sit behind any memory, and soften anything harsh or abrupt. Every trigger line must:
+1. offer the memory softly as a possibility ("Maybe…"), never as a yes/no question ("Did you…?");
+2. invite reflection with an opt-in ("Would you like to…", "Do you want to…", "Want to…", "If you're comfortable…");
+3. connect back to the assignment ("…so we can explore how it might help your paper", or the prompt's own feeling word: "…see if it was part of what made it {term}?", with `{term}` only from verbatim `lesson.emotionalTerms`);
+4. be ≤ 35 words, warm, with no pressure words ("must", "have to", "need to", "exactly", "everything", "why didn't").
+
+The chip shows a short label; tapping it shows the full invitation line. Colton's model line: “A family member started or lost a job. Do you want to expand on it so we can explore how it might help your paper?”
+
+**Trigger bank (`lib/coaching/memoryTriggers.ts`, scripted, not model-generated; lighter first):**
+
+| id | Chip label | Invitation line | Sensitivity |
+|---|---|---|---|
+| `first_time` | A first time | Maybe you tried something for the first time. Would you like to tell me about it so we can see how it might fit your paper? | light |
+| `best_day` | A day you didn't want to end | Maybe there was a day you didn't want to end. Would you like to share a little about it so we can explore how it might shape your paper? | light |
+| `someone_new` | Someone new | Maybe you met someone who stuck with you. Want to tell me about them so we can see where they might fit in your paper? | light |
+| `plan_sideways` | A plan that went sideways | Maybe a plan went sideways and turned into a story. Would you like to walk me through it so we can see how it might help your paper? | light |
+| `small_milestone` | A little milestone | Maybe you had a little milestone, like losing a tooth. Would you like to share it so we can see how it might add to your paper? | light |
+| `new_place` | A new place | Maybe you visited somewhere new, even close to home. Would you like to describe it so we can explore how it fits your paper? | light |
+| `new_skill` | Something you learned | Maybe you learned something new or got better at something. Want to tell me about it so we can see how it might help your paper? | light |
+| `small_moment` | A small moment | Maybe there's a small moment that still makes you smile. Would you like to share it so we can see if it belongs in your paper? | light |
+| `moved` | A move or a new school | Maybe you moved houses or changed schools. Would you like to share what that was like so we can explore how it might fit your paper? | light |
+| `got_hurt` | Getting hurt | Maybe you got hurt, like breaking a bone, and it changed your plans. If you're comfortable, would you like to share it so we can explore how it might shape your paper? | medium |
+| `family_job` | A family job change | A family member started or lost a job. Do you want to expand on it so we can explore how it might help your paper? *(Colton's model line, verbatim)* | medium |
+
+**Guard and CI test (`memoryTriggers.test.ts`, run in CI over the whole bank; the same checks run on any model-written memory-mode follow-up, which retries once and then falls back to the scripted follow-up):**
+- the line doesn't start with an interrogative auxiliary (`/^(did|do|does|have|has|had|were|was|is|are|can|could|will|would)\b/i`), so no yes/no interrogation opens it; model follow-ups in memory mode are rejected if they start with an auxiliary + "you";
+- it contains an allow-listed invitation phrase ("Would you like", "Do you want to", "Want to", "If you're comfortable");
+- it contains an assignment link ("your paper" or the `{term}` slot);
+- it ends with "?", is ≤ 35 words, and has no pressure words;
+- it matches nothing on the banned-topic list (death, abuse, illness, violence, divorce, self-harm);
+- `sensitivity: 'medium'` items never appear in the first set and are hidden for under-18 students.
+
+Rules:
+- Above the chips: "Just ideas to jog your memory. Pick one, or skip any that don't fit. Only share what you're comfortable sharing."
+- Every chip has **Not this one** (hides it, shows another); the set has **Skip these** and **More ideas** (max 3 refreshes per section).
+- Tapping a chip shows its full invitation line (above). If the student starts sharing, the one follow-up is gentle too: “Thank you. Whenever you're ready, tell me what you remember most, and we'll look at how it fits your paper.” It never asks for painful details (t52).
+- The bank orders lighter triggers first; `family_job` and `got_hurt` are `sensitivity: 'medium'` and appear only after the first set. The bank never includes death, abuse, illness, violence, divorce, or anything that asks the student to disclose trauma.
+- If the student brings up something heavy on their own, the coach responds kindly in one line, doesn't dig ("Thank you for sharing that. You can write about it or pick a different moment; both are okay."), and offers **Pick a different moment**. If the answer shows signs the student may be at risk (self-harm or abuse language, `MODEL_FAST` safety tag), the coach shows a short supportive note with a trusted-adult suggestion and the 988 Suicide & Crisis Lifeline (US) and pauses coaching on that section; logged as `memory_safety_note_shown` (no text stored in the event).
+- Under-18 students get the same bank minus any `sensitivity: 'medium'` item.
+
+**SEARCH in memory mode.** Off by default (`search_status = 'not_needed'`, auto-completed). A small **Want to look anything up?** link opens normal SEARCH (e.g. a place's history), and SEARCH is `required` when the rubric requires sources. No wildcard in memory mode.
+
+**SUMMARIZE in memory mode: the memory card.** Built in code from the student's own words only (verbatim phrases, substring-checked, ≤ 30 words each): **The moment** (their phrase), **Details you remembered** (up to 4 phrases), **Why it mattered / why it felt {term}** (their phrase, or an empty slot with the question "Why did it feel {term}?" for them to answer). No AI-written content on the card. Saved as `section_decisions.memory_card`.
+
+**CONFIRM in memory mode:** "Are you comfortable moving forward with this moment?" (the moment phrase shown). Same buttons and snapshot as 2A.4.
+
+**Light logic checkpoint.** Memory sections run the checkpoint with `mode: 'memory'`: the model may only return `pass` or `moderate`, and only for prompt fit (e.g. the moment is from winter when the prompt asks about summer, or the section repeats a moment already used). It never judges whether a personal experience is true, important enough, or "logical". `strong` is impossible in code (clamped to `moderate`, logged `logic_memory_clamped`). The moderate card copy: "A thought before you move on: {reason}. Your call."
+
+**Open research item — TODO for Paper Coach Research (do not invent statistics).** How common vague/personal-experience prompts are (e.g. "tell us about your summer vacation") relative to lesson/rubric prompts, and at which grade levels (elementary, middle, high school, college composition, graduate). Method to be decided by Paper Coach Research (public assignment banks, state standards, college composition syllabi, our own anonymized `prompt_type` counts once live). Until then, no stats in copy or specs; routing defaults are not tuned to any assumed share. Tracked as Stage 1 spec section 16 item 6.
+
+### 2B.9 Logic checkpoint (t47 alignment with 2A.4a)
+
+All of 2A.4a stays (tiers, 80/60 downgrade rules, fail-open to pass, guard, logging, `logic_strong_continued` SOP review, no gate reads `logic_*`). Colton's t47 adds or confirms:
+- **Opener.** After **Yes, lock it in**, the coach says: **"I want to do a logic check. Do you feel good about this?"** with **Yes, check it** / **Let me tweak it first**. The check starts running in the background as soon as CONFIRM saves, so **Yes** reveals the result with no wait. **Let me tweak it first** opens the section's idea notes and claim notes; saving re-confirms and re-runs. The opener never blocks: both buttons lead forward.
+- **Three outcomes.** **No flag** (pass: "Logic check ✓ Looks solid." then ADVANCE), **light constructive feedback** (moderate: the existing "A thought before you move on" card, Keep my angle / Adjust it), **strong pushback** with a **red alert** card: red border and a ⚠ icon plus the text label "Logic alert" (not color-only), headline **"We would not recommend moving forward."**, then "This claim doesn't hold up as written," the reason, "Your assignment asks: ‘{verbatim term}’", angle questions, and **Pick a new angle** / **Revise my claim** / **Reframe it** / **Continue anyway** (same size, always visible). No hard stops: **Continue anyway** always advances with no extra dialog.
+- **Moderate for debatable takes, strong for indefensible ones** (e.g. claiming Hitler was objectively moral in a leadership paper). **When unclear, let it through** rather than overruling the student (pass; enforced by the downgrade rules).
+- **Counterargument only when the rubric asks for one (confirmed, decision 43).** The checkpoint never flags a section for missing a counterargument unless the assignment requires one, and `alternativeAngles` never suggest adding one unless required.
+- Memory sections: light only (2B.8).
+
+### 2B.10 Voice capture (t47; voice-note rule revised t51)
+
+- **Minimum:** 200 words total across the answers given. Colton wrote "across skipped answers"; we read that as **across all answers, with skipped answers allowed** (t40), not "only skipped answers." The 2 × 40-word rule stays. (Stage 1 spec 8.2.)
+- **Quiet safeguard:** mostly-pasted answers are down-weighted in the baseline (`w = 1 − 0.8 × paste_ratio`; a fully pasted answer weighs 0.2), and typed or spoken answers are favored (Stage 1 spec 8.1a). No warnings, notes, or prompts during the flow, anywhere.
+- **End-of-results notes (one at most, very bottom of the Stage 6 comparison and of any checker report using these answers).** ~~t47: > 60% pasted → lighter-read note; ≥ 95% pasted → all-pasted note~~ (superseded by t51):
+
+**Hybrid voice-note rule (Colton, Nov 20, 2026, t51; replaces the paste-percentage-only rule). All numbers are [PROVISIONAL] for Colton to tune.**
+
+Principle: if there's enough natural voice to form a reliable baseline, show no note, whatever the paste %. If very little natural voice was captured, show a note even at a moderate paste %.
+
+- **`naturalWords`** = typed + dictated/spoken words in the counted text. **Pasted words are excluded** (they count 0 here). Per answer: `round(wordCount × (1 − paste_ratio))`; missing meta counts as all natural. The 0.2 paste weight still applies to the baseline *metrics* (`w = 1 − 0.8 × paste_ratio`); it doesn't add to `naturalWords`.
+- **Counted text, in app ("across the whole paper"):** Stage 1 voice answers plus every Stage 2–4 conversational answer: Stage 2 move replies and refined thesis, TEACH **Something else**, MIRROR, PROBE ideas, memory answers, highlight-reel follow-ups, and logic-checkpoint revise/new-angle/reframe answers. **Not counted:** Stage 3 outline notes and sentence-plan fragments, brought-back names, assignment paste and links, and Stage 5–6 draft text (that's what gets compared). The Stage 6 baseline metrics use the same counted answers, typed-weighted (t51; before, Stage 1 answers only).
+- **`pastedShare`** = pasted chars / (pasted + typed chars) over the same counted text.
+
+| Tier | `naturalWords` [PROVISIONAL] | Note |
+|---|---|---|
+| `plenty` | ≥ 600 | **No note**, at any paste % |
+| `enough` | 200–599 | Lighter-read note **only if `pastedShare > 0.60`**; otherwise none |
+| `thin` | 80–199 | Lighter-read note **regardless of paste %** |
+| `low` | < 80 | Stronger note **regardless of paste %** |
+
+- **Which lighter-read wording:** if `pastedShare > 0.60`, the paste wording (`VOICE_NOTE_ANSWERS` / `VOICE_NOTE_SAMPLE`); otherwise the short wording (`…_SHORT`), so the note never says "mostly pasted" when it wasn't.
+- At most one note, at the very bottom (placement and style unchanged). **No baseline at all → no note** (N/A unchanged). Never during intake or any writing step.
+- Constants (`lib/config.ts`): `VOICE_NATURAL_WORDS_PLENTY = 600`, `VOICE_NATURAL_WORDS_ENOUGH = 200`, `VOICE_NATURAL_WORDS_LOW = 80` [PROVISIONAL], plus `VOICE_PASTED_SHARE_NOTE = 0.60` (kept; now only used in the `enough` tier). `VOICE_ALL_PASTED_SHARE` and `VOICE_NOTE_ANSWERS_ALL` (t47) are retired. One pure function, `voiceNoteFor({ naturalWords, pastedShare, hasBaseline, surface: 'answers' | 'sample' }) → { tier, note }`, in `lib/style/voiceBaseline.ts`, is used on every surface.
+- The short-sample downgrade (no strong mismatch levels when fewer than 150 natural words) is unchanged and uses the same `naturalWords`.
+
+| Key (`lib/copy/voiceNotes.ts`) | When | Exact text |
+|---|---|---|
+| `VOICE_NOTE_ANSWERS` (t46, kept) | Answers; lighter read, paste cause (`enough` or `thin` tier with `pastedShare > 0.60`) | “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_ANSWERS_SHORT` (t51, new) | Answers; lighter read, short cause (`thin` tier, `pastedShare ≤ 0.60`) | “We only had a little of your typed or spoken voice to go on, which is totally fine. More typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_ANSWERS_LOW` (t51; replaces t47's `VOICE_NOTE_ANSWERS_ALL`) | Answers; `low` tier | “Most of your voice came in pasted, or there wasn't much of it, which is totally fine. We couldn't reliably read your voice from it, so treat the voice comparison with lower confidence.” |
+| `VOICE_NOTE_SAMPLE` (t46, kept) | Public writing sample; lighter read, paste cause | “Your writing sample was pasted in, which is totally fine. A typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_SAMPLE_SHORT` (t51, new) | Public writing sample; lighter read, short cause | “Your writing sample was on the short side, which is totally fine. A longer typed or spoken sample helps us understand your voice better, so treat the voice comparison as a lighter read.” |
+| `VOICE_NOTE_SAMPLE_LOW` (t51, new) | Public writing sample; `low` tier | “Most of your sample came in pasted, or it was short, which is totally fine. We couldn't reliably read your voice from it, so treat the voice comparison with lower confidence.” |
+
+### 2B.11 Data model (fold into `0008_section_loop.sql`; else `0009`)
+
+0008 is still spec-only (not applied), so these lines are folded into it. **If 0008 has already been applied anywhere, ship the t40/t41/t44 lines and these t47/t48 lines together as `supabase/migrations/0009_section_loop_followups.sql`** (all `add column if not exists`). RLS unchanged (`auth.uid() = user_id`).
+
+```sql
+-- t47: lesson-first + prompt-type routing
+alter table papers add column if not exists lesson jsonb;                         -- Lesson (2B.1); null until Stage 1 parse
+alter table papers add column if not exists lesson_source text;                   -- ai | student_edited | fallback
+alter table papers add column if not exists prompt_type text not null default 'lesson'
+  check (prompt_type in ('lesson','personal_experience','mixed'));
+alter table papers add column if not exists prompt_type_confidence numeric(3,2);
+alter table papers add column if not exists prompt_type_source text;              -- ai | student | fallback
+
+alter table section_plans add column if not exists mode text not null default 'lesson'
+  check (mode in ('lesson','memory'));
+alter table section_plans add column if not exists concept text;                  -- the section's lesson concept for TEACH; null = not_applicable
+
+-- section_decisions.loop_step values now: teach | probe | search | summarize | confirm | logic_check | confirmed (default becomes 'teach')
+alter table section_decisions alter column loop_step set default 'teach';
+alter table section_decisions add column if not exists teach_status text;         -- explored | skipped_known | skipped | not_applicable | mirrored
+alter table section_decisions add column if not exists teach_card jsonb;          -- cached TeachCard (study material, never exported)
+alter table section_decisions add column if not exists teach_aspect text;         -- student's chosen aspect (chip id or verbatim text)
+alter table section_decisions add column if not exists highlight_reels jsonb not null default '[]'; -- [{instance, concept, moves, offeredSearch, accepted}]
+alter table section_decisions add column if not exists memory_triggers jsonb not null default '[]'; -- [{triggerId, action: picked|not_this_one|skipped_set}]
+alter table section_decisions add column if not exists memory_card jsonb;         -- student-verbatim moment/details/why (memory mode)
+alter table section_decisions add column if not exists search_status text not null default 'required'; -- required | optional | not_needed
+
+alter table research_leads add column if not exists is_wildcard boolean not null default false;
+alter table research_leads add column if not exists wildcard_why text;
+alter table research_leads add column if not exists controversy_note text;
+alter table research_leads add column if not exists rubric_match numeric(3,2);
+alter table research_leads add column if not exists rank int;
+alter table research_leads add column if not exists lesson_link text;
+create index if not exists research_leads_paper_wildcard on research_leads (paper_id, is_wildcard);
+
+-- t51: hybrid voice-note rule (cached counts; recomputed on every counted answer save)
+alter table papers add column if not exists natural_voice_words int not null default 0;  -- typed + spoken words across Stage 1-4 counted answers (pasted excluded)
+alter table papers add column if not exists voice_pasted_share numeric(4,3);             -- pasted chars / all chars over the same answers
+alter table voice_profiles add column if not exists natural_words int;                    -- same count for the profile's answers (checker)
+```
+- t51: per-answer `inputMeta { pastedChars, typedChars, spokenChars }` (server-clamped) is added to every Stage 2–4 counted answer in JSON (`stage_progress.data` moves/thesis, `section_decisions.ideas[]`, teach/mirror/memory answers). Zod only, no SQL.
+- The lead cap stays a count query: `count(*) where paper_id = $1 and origin = 'ai_suggested'` (wildcards included).
+- Source-card `lessonLink` lives in `sources.beats[]` JSON (Zod), like the other card fields. No SQL.
+- Existing rows: `prompt_type = 'lesson'`, `mode = 'lesson'`, `loop_step` unchanged; sections already past PROBE get `teach_status = 'not_applicable'`.
+- t48 adds no columns (`drafts.mismatch` keeps its shape; only events and copy change).
+
+### 2B.12 New `session_events` (no student prose in `detail`)
+
+`lesson_extracted {confidence_bucket, source}`, `lesson_edited`, `prompt_type_classified {type, confidence_bucket}`, `prompt_type_changed {from, to}`, `section_mode_changed`, `teach_shown {concept}`, `teach_aspect_picked`, `teach_skipped_known`, `teach_skipped`, `teach_then_ask_shown`, `lesson_ratio_retry`, `mention_tagged {concepts, instances, vague}` (counts only), `highlight_reel_shown {moves}`, `highlight_reel_dropped {reason}`, `highlight_search_offered`, `highlight_search_accepted`, `highlight_search_declined`, `lead_batch_shown {ranked, wildcard}`, `lead_wildcard_shown`, `lead_wildcard_picked`, `lead_wildcard_omitted {reason}`, `mirror_shown`, `mirror_answered`, `mirror_skipped`, `memory_triggers_shown {set}`, `memory_trigger_picked {triggerId}`, `memory_trigger_hidden {triggerId}`, `memory_triggers_skipped`, `memory_safety_note_shown`, `memory_card_saved`, `memory_search_opened`, `logic_opener_shown`, `logic_opener_tweak`, `logic_memory_clamped`.
+
+### 2B.13 Tests (Vitest + evals)
+
+1. **Lesson extraction:** the leadership prompt ("connect leadership styles to leaders you admire, give three examples") → `lesson.concepts` includes "leadership styles", `examplesServe` mentions the examples serving the styles; `evidence.quote` is a verbatim substring; a `statement` that is a full claim sentence is rejected; fallback fills from the prompt when the model fails.
+2. **Routing:** the summer-vacation prompt → `personal_experience`, `emotionalTerms` includes "magical", every section `mode = 'memory'`; the leadership prompt → `lesson`; a "connect a style to a time you led" prompt → `mixed` with at least one memory section; confidence < 0.6 → `lesson`; the student's override wins.
+3. **TEACH:** a lesson section with a concept shows the card before PROBE; **I know this one** advances to PROBE; `qualities` with sentence punctuation or a subject + verb are rejected; intros without a concept are `not_applicable`; `assertSectionStepUnlocked` enforces teach → probe; TEACH never blocks.
+4. **Teach-then-ask:** "I like servant leadership" → one response with affirm (≤ 15 words), definition, 3–5 chips and a question ending in "?"; "I don't know" (no concept) → the existing thin probe instead.
+5. **Highlight reel:** "John Legere" in a servant-leadership section → 1–2 moves (≤ 20 words, no quotes) naming the concept, a **To verify** badge, and the exact search offer "Want me to search for references on how Legere was a servant leader?"-pattern; Yes seeds SEARCH with a `student_added` lead not counted toward the cap; an unknown name → the "I don't know enough" line and no invented moves.
+6. **Leads:** each batch has 3–5 ranked leads sorted by `rubric_match` desc plus 0–1 wildcard (`is_wildcard = true`, `wildcard_why` present, labeled Outside the box, never preselected); the 20th AI lead may be a wildcard and the 21st (of any kind) is rejected server-side; when trimming at the cap the wildcard goes first; memory sections get no leads by default; guard rejects a batch with 2 wildcards or a non-allow-listed `controversy_note`; an under-18 profile never receives a wildcard flagged by the safety filter.
+7. **Memory path:** MIRROR uses only verbatim `emotionalTerms`; stall → 4 scripted trigger chips with Not this one / Skip these; no trigger in the bank matches the banned-topic list (CI test over `memoryTriggers.ts`); **(t52) every trigger line passes the gentle-invitation test** (doesn't open with an interrogative auxiliary, has an allow-listed invitation phrase and an assignment link, ends with “?”, ≤ 35 words, no pressure words) and a model follow-up opening with "Did you…" / "Were you…" is rejected; under-18 sees no `medium` triggers; the memory card contains only verbatim student phrases; SEARCH auto-completes as `not_needed`; the memory checkpoint never returns `strong` (clamped and logged).
+8. **Logic checkpoint (t47):** the opener appears after CONFIRM with both buttons leading forward; the strong card shows "We would not recommend moving forward." with a text label (not color-only) and a working **Continue anyway**; existing golden cases (2A.4a / section 12 t41) still pass; no checkpoint result suggests a counterargument when the rubric doesn't require one.
+9. **Voice:** 200 words across answers with skips completes; **hybrid note rule (t51):** the **58-page paper** (4,200 counted answer words, pastedShare 0.70 → naturalWords 1,260) → **no note**; a **short session with moderate paste** (260 words, pastedShare 0.45 → naturalWords 143) → `VOICE_NOTE_ANSWERS_SHORT`; 300 words at 0.70 → 90 → `VOICE_NOTE_ANSWERS`; 400 words at 0.50 → 200 → no note; 700 words at 0.65 → 245 → `VOICE_NOTE_ANSWERS`; 210 words at 0.65 → 74 → `VOICE_NOTE_ANSWERS_LOW`; 250 words fully pasted → 0 → `VOICE_NOTE_ANSWERS_LOW`; 210 words fully typed (Stage 1 minimum only) → 210 at 0.0 → no note; boundaries 600 vs. 599 and 200 vs. 199 at pastedShare 0.61 (none vs. note; note vs. note), 80 vs. 79 (lighter vs. stronger), 0.60 vs. 0.61 in the `enough` tier (none vs. note); dictated words count as natural; Stage 5 draft text and Stage 3 notes don't change `naturalWords`; no baseline → no note; no voice note or warning renders on any Stage 1–5 screen.
+10. **Downstream:** Stage 3 card, outline export and Stage 5 view render the lesson concept, teach aspect and memory card from saved data with no re-asked questions; the export allow-list still excludes teach cards, highlight reels and wildcard whys (canary test).
+Golden cases 1, 2, 4, 5 and the memory clamp also live in `evals/stage2-lesson-loop.jsonl`, run nightly against the live model.
+
+---
+
 ## 3. STAGE 2 — Stance interview
+
+**t47:** Stage 2 has two parts: **2a** (below: cluster, 3 moves, refined thesis, unchanged) and **2b**, the per-section TEACH + PROBE inside the loop, specified in sections 2B and 2A.2. The lesson (`papers.lesson`) and `prompt_type` are passed to every Stage 2 call. For `personal_experience` papers, the cluster defaults to `personal_reflective` (the student can change it) and the moves use personal-detail phrasings.
 
 ### 3.1 Topic clustering
 Fixed clusters (`lib/coaching/clusters.ts`):
@@ -495,9 +869,9 @@ Student writes the refined thesis in a textarea (paste allowed) with the prompt:
 
 **Max attempts:** 3. After attempt 3 with any unmet criterion, show "You can move on and keep working on this." The student may advance; save `thesisFlag.advancedUnmet = [ids]`, set `refinedThesis` to the latest attempt, log `thesis_flag_advanced`. Consequences: Stage 3 shows a banner "Your thesis still needs work on: {criteria in plain words}"; Stage 6 "thesis clarity" becomes a required self-check with a note. Never a dead end.
 
-6. **Per-section PROBE pass** (section 2A.2), after the refined thesis.
+6. **Per-section TEACH + PROBE pass** (sections 2B.4 and 2A.2; memory mode 2B.8), after the refined thesis.
 
-**Stage 2 complete when:** cluster set, 3 moves answered (or flagged stuck), a refined thesis saved (passed or flagged-advance), and every roadmap section has a PROBE result (ideas saved). Skipped sections block completion until finished. With the section-first loop, Stages 3–4 work on section 1 can happen before Stage 2 is complete (section 2A.1).
+**Stage 2 complete when:** cluster set, 3 moves answered (or flagged stuck), a refined thesis saved (passed or flagged-advance), and every roadmap section has a TEACH status (t47; explored, skipped, mirrored or not applicable) and a PROBE result (ideas saved). Skipped sections block completion until finished. With the section-first loop, Stages 3–4 work on section 1 can happen before Stage 2 is complete (section 2A.1).
 
 ---
 
@@ -512,14 +886,14 @@ Target length: prefer the confirmed Stage 1 assignment card (`assignments.requir
 | 1,500–3,000 | 4 |
 | > 3,000 | 5 |
 
-**Roadmap first (Nov 20, 2026):** the cards are the confirmed Stage 1 roadmap sections (`section_plans`), in that order, with the teacher's names. The default below applies only when the rubric/prompt names no sections; the Counterargument & Rebuttal card is included only when the assignment requires it or the paper type is argumentative (default kept, **unconfirmed by Colton** as of Nov 20, 2026). Each card runs the SEARCH step (section 2A.3) and is prefilled from that section's saved decisions.
+**Roadmap first (Nov 20, 2026):** the cards are the confirmed Stage 1 roadmap sections (`section_plans`), in that order, with the teacher's names. The default below applies only when the rubric/prompt names no sections; the Counterargument & Rebuttal card is included **only when the rubric/assignment asks for one** (confirmed by Colton, t47, decision 43). Each card runs the SEARCH step (section 2A.3) and is prefilled from that section's saved decisions.
 
-Default outline = **Intro** + **Body 1…N** + **Counterargument & Rebuttal** + **Conclusion** (N + 3 cards). Intro is fixed first, Conclusion fixed last; Body cards and the Counterargument card can be reordered between them. The student may remove one body card only if N > 3 (floor of 3 body cards).
+Default outline = **Intro** + **Body 1…N** + **Conclusion** (N + 2 cards), plus **Counterargument & Rebuttal** only when the assignment requires one (decision 43). Intro is fixed first, Conclusion fixed last; Body cards and the Counterargument card can be reordered between them. The student may remove one body card only if N > 3 (floor of 3 body cards).
 
 ### 4.2 What each card contains (all student-written; AI writes none of it)
 - **Intro:** hook idea note (≥ 5 words, a note on *how* they'll open, not the sentence); **thesis** (read-only copy of Stage 2 `refinedThesis`; "Revise thesis" link opens an edit that logs `outline_edited` and re-runs the thesis rubric as advisory).
 - **Body (each):** `claim` (one sentence, 8–40 words, student-typed); `evidenceNotes[]` (≥ 1, up to 4; each ≥ 5 words, e.g. "Chapter 3 stats on turnout"; optional `sourceId` linkable later in Stage 4/5); `explanationNote` (≥ 10 words: "why this evidence proves the claim").
-- **Counterargument & Rebuttal:** shows the student's three Stage 2 move responses as a read-only reference; student chooses which counterargument they'll address (select) and writes `counterNote` (≥ 10 words: what the objection is, in their words) and `rebuttalNote` (≥ 15 words: how they'll respond).
+- **Counterargument & Rebuttal** (only when the assignment requires it, decision 43): shows the student's three Stage 2 move responses as a read-only reference; student chooses which counterargument they'll address (select) and writes `counterNote` (≥ 10 words: what the objection is, in their words) and `rebuttalNote` (≥ 15 words: how they'll respond).
 - **Conclusion:** `soWhatNote` (≥ 10 words: what the reader should take away beyond repeating the thesis).
 - **Sentence plan (INTD600 Phase 4; every Body card, optional on Intro / Counter / Conclusion):** 2–8 rows, one per planned sentence, in order. Each row: `role` (fixed enum: `claim`, `evidence`, `personal_example`, `explanation`, `link_to_thesis`, `transition`); `purposeNote` (student-written, 3–25 words, *what this sentence will do or say*, not the sentence itself); `needsCitation` (boolean; required true on `evidence` rows); optional `sourceId` / `beatId` filled in Stage 4. The coach may suggest a role sequence for a card (structure only, from the enum); it never writes a `purposeNote`. Guard rejects any `purposeNote` suggestion. Paste allowed and logged, as for the rest of Stage 3.
 
@@ -591,7 +965,7 @@ Sections unlock in outline order; Conclusion unlocks after all others are done. 
      praise: string[];      // ≤ 2, specific ("Your second sentence names the study clearly.")
      styleCheck: MismatchResult }  // computed in code, section 7
    ```
-   Show as a card: "What's working", "Questions to think about", "Evidence you planned vs. used", style note (amber, if tripped).
+   Show as a card: "What's working", "Questions to think about", "Evidence you planned vs. used", style note (if tripped, t48: the gentle voice nudge from section 7, not an amber warning).
 7. **Student marks done.** Enabled when: (hard) section ≥ minimum words, the locked topic sentence is still the first sentence of the text, and feedback was viewed. (Soft; never blocking) anything feedback flagged; flagged items are copied into `stage_progress.data.carryFlags` for Stage 6. If `evidenceUsed` shows 0 present on a body section, the student must write a ≥ 15-word "Why I haven't used evidence yet" note (saved, carried to Stage 6) before marking done.
 8. **Unlock next section.**
 
@@ -614,11 +988,11 @@ Header: "Revise it in your own words. Each item is checked by you, by the app, o
 | 2 | Every outline section appears | Auto | Section keys preserved in the assembled draft, each ≥ its minimum words | Pass |
 | 3 | Planned evidence appears | Auto | Each outline evidence note has stem overlap ≥ 2 content words somewhere in its section | Pass, or note ≥ 10 words for misses |
 | 4 | Citation integrity (INTD600 Phase 6): present, formatted for {citation_style}, tied to claims, disambiguated | Auto + self | Regex check: in-text pattern count (APA `(Author, 2020)`, MLA `(Author 12)`, Chicago footnote markers or author-date), and a "References/Works Cited/Bibliography" heading exists. Plus: (a) **tied to claims** — each Stage 3 `needsCitation` row's section contains an in-text citation, and citations are not clustered only in the final paragraph/sentences of the draft (flag if > 50% of in-text citations fall in the last 10% of the text); (b) **a/b/c suffixes** — in author-date styles (APA, Harvard, Chicago author-date), if the reference list has two or more works by the same author(s) in the same year, in-text citations and references must use matching suffixes (2020a, 2020b); in MLA, same-author works must use short titles. Shown as questions ("Which claim does this citation support?"); the app never inserts or rewrites citations. Student confirms formatting by hand | Auto pass (or a ≥ 10-word note per miss) + self tick |
-| 5 | Voice matches your sample | Auto | Mismatch check on the whole draft (section 7); shows the warning with specific tells and the per-section hot spots | No warning, or student ticks "I reworked these" / "I've reviewed this and it's my writing" with a ≥ 10-word note |
+| 5 | Sounds like you | Auto | Mismatch check on the whole draft (section 7); shows the gentle voice nudge (t48) with the specific tells under **What we noticed** and the per-section hot spots | No nudge, or for each nudged part the student either opens **Make it sound like me** and saves a revision, or taps **Keep it as is** (no note required, no penalty, logged neutrally) |
 | 6 | Length meets the assignment | Auto | Word count vs. parsed target (±15%) | Pass or note |
 | 7 | Thesis is clear and arguable | AI (`MODEL_STRONG`, on demand) | Re-runs the rubric C1–C3 as questions | Student marks "reviewed"; required self-check with note if Stage 2 thesis was flag-advanced |
 | 8 | Each paragraph ties back to the thesis | AI (`MODEL_STRONG`) | Per-section `supportsThesis` on the full draft; lists weak sections as questions | Student marks reviewed |
-| 9 | The counterargument is addressed | AI (`MODEL_STRONG`) | Detects whether the counterargument section engages the chosen Stage 2 objection | Student marks reviewed |
+| 9 | The counterargument is addressed (only when the assignment requires a counterargument, decision 43; otherwise the item is hidden and counts as resolved) | AI (`MODEL_STRONG`) | Detects whether the counterargument section engages the chosen Stage 2 objection | Student marks reviewed |
 | 10 | Transitions between sections | AI (`MODEL_FAST`) | Looks only at the last/first sentences at each boundary and asks questions ("How does the end of section 2 lead into section 3?") | Student marks reviewed |
 | 11 | Conclusion does more than repeat the intro | Self + AI hint | Content-word overlap between conclusion and intro; if > 70% shows a nudge question; student ticks | Student ticks |
 | 12 | Mechanics: light cleanup + read-aloud pass | Auto flags + self | **Light cleanup (Nov 20, 2026, narrow definition):** the app flags spelling, grammar, and citation-format issues inline; the student accepts or fixes each one themselves. One-click **Accept** is offered only for a single-word spelling fix, a single-word grammatical form (e.g. "was" → "were"), or a citation-format fix (punctuation, order, capitalization, a/b/c suffix). Everything else is a flag with a short explanation of the rule, and the student edits. **Never** synonyms, reordering, merging/splitting sentences, tone changes, or any rephrase; guard-enforced. Spelling uses a dictionary check in code; grammar and citation format may use `MODEL_FAST` returning `{span, issue, rule, fix?}` where `fix` must pass the single-word/format rule or is dropped. Then the existing "Read my draft aloud" (`speechSynthesis`) and tick "I read it aloud and fixed what sounded wrong" | All flags accepted, fixed, or dismissed + student ticks |
@@ -692,14 +1066,20 @@ Starting values; **tune from logged data** (every evaluation logs the full metri
 - **Unseen-vocabulary allow-list** (stem-matched by stripping -s/-es/-ed/-ing/-ly): sample vocabulary, assignment prompt, thesis/outline notes, Stage 4 source passages and the student's own "how I'll use it" notes. Denominator = all distinct content words in the evaluated text. Report up to 8 example words.
 - **Minimum text:** evaluate only text of ≥ **120 words**. Shorter sections are evaluated on the cumulative text of all submitted sections so far once ≥ 120 words; pasted spans use their own text if ≥ 120 words.
 - **Exclusions before computing:** text inside quotation marks and block quotes, in-text citations, headings, and the references list.
-- **Trigger rule:** warn when **≥ 2 tells** (from different signals; sentence length and reading grade count as separate signals) **or ≥ 1 strong signal**. If the sample is under 200 words, the sentence-length signal's "strong" level is treated as a plain tell (so it needs a second signal), to reduce noise from short samples. **Paste-weighted baseline (Colton, Nov 20, 2026, t44/t45):** baseline metrics are typed-weighted (`w = 1 − 0.8 × paste_ratio`). If fewer than 150 baseline words were typed or spoken, apply the short-sample downgrade (no strong levels). If the baseline's **pasted share is over 60%** of its characters, the Stage 6 comparison shows the soft bottom-of-panel note from the checker spec (section 5.9, t46 wording): “Your voice answers were mostly pasted in, which is totally fine. Typed or spoken answers help us understand your voice better, so treat the voice comparison as a lighter read.” It is never shown when there is no baseline (N/A behavior unchanged).
+- **Trigger rule:** warn when **≥ 2 tells** (from different signals; sentence length and reading grade count as separate signals) **or ≥ 1 strong signal**. If the sample is under 200 words, the sentence-length signal's "strong" level is treated as a plain tell (so it needs a second signal), to reduce noise from short samples. **Paste-weighted baseline (Colton, Nov 20, 2026, t44/t45):** baseline metrics are typed-weighted (`w = 1 − 0.8 × paste_ratio`). If fewer than 150 baseline words were typed or spoken, apply the short-sample downgrade (no strong levels). **Bottom-of-panel voice note (t51 hybrid rule, replaces the t45 > 60% and t47 ≥ 95% rules):** the Stage 6 comparison shows at most one note, chosen by `voiceNoteFor()` from the natural (typed/spoken) words captured across the paper and the pasted share: ≥ 600 natural words → none; 200–599 → `VOICE_NOTE_ANSWERS` only if > 60% pasted; 80–199 → a lighter-read note (`VOICE_NOTE_ANSWERS`, or `VOICE_NOTE_ANSWERS_SHORT` when ≤ 60% pasted); < 80 → `VOICE_NOTE_ANSWERS_LOW` [PROVISIONAL numbers; section 2B.10]. It is never shown when there is no baseline (N/A behavior unchanged).
 - **Direction:** only upward jumps are evaluated; a draft simpler than the sample never warns.
 - **Output** (saved to `drafts.mismatch` / section state / event): `{triggered, tells: [{signal, sampleValue, draftValue, level}], examples: string[]}`.
-- **Warning copy** (amber, non-blocking, name the tells, never accusatory):
-  > **This reads differently from your sample.** We noticed: {e.g. "sentences average 32 words vs. 14 in your sample", "reading level is about 5 grades above your sample", "words that weren't in your sample: X, Y, Z"}. Your own voice is your strongest asset — rework these parts in your words.
-  
-  Buttons: "Show me which sentences" (highlights the longest sentences and unseen words, coaching only) and "I've reworked it" / "This is my writing" (both log `mismatch_response`; "This is my writing" never penalizes).
-- **Tuning plan:** after ~50 completed papers, review `/admin/sop`: target a warning rate of ~10–20% of drafts; if > 30% loosen tells (e.g. +70% / +5 grades); if < 5% tighten. Also track how often students respond "reworked" vs. "my writing".
+- **Voice nudge copy (Colton, t48; replaces the amber warning, the “This reads differently from your sample” headline, and the “I've reworked it” / “This is my writing” buttons).** Non-blocking, warm, never a check-in or an accusation. Shown inline on the nudged part (Stage 5 section feedback and Stage 6 item 5), in a soft neutral style (no amber, no ⚠):
+  > **This part sounds a little different from your usual voice. Want to read it aloud and make it sound more like you?**
+
+  Under it, a collapsed **What we noticed** line names the specific tells in plain words (e.g. “sentences here average 32 words; yours usually run about 14”, “a reading level about 5 grades above your usual”, “words you don't usually use: X, Y, Z”). Short-sample downgrade wording stays softer (“might sound a little different”).
+
+  Buttons:
+  - **Make it sound like me** (primary) → opens the voice-tips/rework panel for that part: highlights the longest sentences and unusual words, a **Read it aloud** button (`speechSynthesis`) for just that part, and up to 3 coaching tips from the tells (“Try splitting the longest sentence”, “Swap a word you wouldn't say out loud for one you would”). Coaching only: no rewritten text, no example sentences. Saving a revision re-runs the check. Logs `voice_nudge_rework_opened`.
+  - **Keep it as is** → dismisses the nudge for that part of this version; logged neutrally as `voice_nudge_kept`; no note, no penalty, no follow-up question, and the wording never implies the student didn't write it. It resolves checklist item 5 for that part.
+  - Showing the nudge logs `voice_nudge_shown {level, tells, section}`.
+  - Retired strings (CI grep over app code; patterns built from parts): the old headline, “I've reworked it”, “This is my writing”, “I reworked these”, “it's my writing”.
+- **Tuning plan:** after ~50 completed papers, review `/admin/sop`: target a nudge rate of ~10–20% of drafts; if > 30% loosen tells (e.g. +70% / +5 grades); if < 5% tighten. Also track how often students choose **Make it sound like me** vs. **Keep it as is** (t48).
 
 ---
 
@@ -872,6 +1252,9 @@ All sends: server-side, try/catch, failures logged as `email_failed`, never bloc
 ---
 
 ## 12. Tests to add (Vitest)
+Nov 20, 2026 (t51/t52) additions: **hybrid voice note** via `voiceNoteFor()`: the **58-page paper** (4,200 counted answer words, pastedShare 0.70 → naturalWords 1,260) → **no note**; a **short session with moderate paste** (260 words, pastedShare 0.45 → naturalWords 143) → `VOICE_NOTE_ANSWERS_SHORT`; 300 words at 0.70 → 90 → `VOICE_NOTE_ANSWERS`; 400 words at 0.50 → 200 → no note; 700 words at 0.65 → 245 → `VOICE_NOTE_ANSWERS`; 210 words at 0.65 → 74 → `VOICE_NOTE_ANSWERS_LOW`; 250 words fully pasted → 0 → `VOICE_NOTE_ANSWERS_LOW`; 210 words fully typed (Stage 1 minimum only) → 210 at 0.0 → no note; boundaries 600 vs. 599 and 200 vs. 199 at pastedShare 0.61 (none vs. note; note vs. note), 80 vs. 79 (lighter vs. stronger), 0.60 vs. 0.61 in the `enough` tier (none vs. note); dictated words count as natural; Stage 5 draft text and Stage 3 notes don't change `naturalWords`; no baseline → no note; public sample: 150 typed words → `VOICE_NOTE_SAMPLE_SHORT`, 650 typed → none, 650 pasted → `VOICE_NOTE_SAMPLE_LOW`; `VOICE_NOTE_ANSWERS_ALL` and `VOICE_ALL_PASTED_SHARE` appear nowhere in app code. **Memory triggers:** the gentle-invitation test passes for every bank line (section 2B.8); a line like "Did you lose a tooth?" fails it.
+Nov 20, 2026 (t48) additions, VOICE NUDGE: a triggered mismatch shows the exact t48 copy with **What we noticed** naming each tell; **Make it sound like me** opens the rework panel (highlights, read-aloud for that part, ≤ 3 tips, no rewritten text) and logs `voice_nudge_rework_opened`; **Keep it as is** dismisses, logs `voice_nudge_kept`, requires no note and resolves item 5; no amber/⚠ styling; CI grep: the retired headline and button strings (patterns built from parts) and the events `mismatch_warned` / `mismatch_response` appear nowhere in app code.
+Nov 20, 2026 (t47) additions, LESSON-FIRST LOOP: see section 2B.13 (lesson extraction, three-path routing, TEACH and teach-then-ask, highlight reel + search offer, ranked leads + one wildcard counted toward the cap, memory-forward path with scripted gentle triggers and a clamped light checkpoint, logic-checkpoint opener and red alert, counterargument only when required, `VOICE_NOTE_ANSWERS_ALL` at ≥ 0.95).
 Nov 20, 2026 (t46) additions: a ≥ 80-word paste in the Stage 5/6 editors shows the suggestion once per session per paper (a second big paste in another section → not shown again; a new browser session → shown again); it is inline, not a modal, has no answer controls, and writes no choice; .docx/.txt import doesn't show it; < 80 words doesn't show it; `drafts.section_paste_meta` is saved on submit; Stage 6 shows `VOICE_NOTE_ANSWERS` above 0.60 pasted share; CI grep: the retired Stage 5 question string (pattern built from parts) appears nowhere in app code or in the build specs outside changelog lines and `.bak` files; `paste_confirm` appears nowhere in app code.
 Nov 20, 2026 (t43–t45) additions, PASTE: no `preventDefault` in any paste/drop/copy/cut/beforeinput/contextmenu handler anywhere in `app/` or `components/` (CI grep, no exceptions); Stage 2 moves, thesis, PROBE ideas, and logic-checkpoint answers accept paste on desktop and iOS long-press; `paste_ratio` is clamped and computed server-side; a typed-weighted baseline (fully pasted answer weight 0.2); < 150 typed baseline words → short-sample downgrade; Stage 6 shows the (t46: soft) bottom note only when the baseline pasted share is > 0.60, not at 0.60, and never when there is no baseline; dictated text counts as typed.
 Nov 20, 2026 (t41/t42) additions, LOGIC CHECKPOINT: (a) **Hitler example** (assignment “Analyze a historical leader's leadership style and evaluate it against the ethical leadership principles from Unit 3”; student note “Hitler was an objectively moral leader”) → `tier = 'strong'`, `basis = 'contradicts_assignment'`, `citedTerm.quote` a verbatim substring of the assignment, 1–3 question angles, `reframeAvailable = true`; **and the student can still proceed:** **Continue anyway** advances, sets `logic_student_choice = 'continued'`, logs `logic_strong_continued`, the next section opens, and Stage 4 completes with the flag present. (b) **Debatable interpretation** (same assignment; “Steve Jobs's demanding style was ethical because it pushed people to do their best work”) → `moderate`; Keep my angle advances. (c) **Critical-analysis reframe** (“Hitler's leadership is a cautionary example of how charisma without ethics leads to catastrophe”) → `pass`. (d) An evidence-supportable unpopular opinion that fits the assignment never returns `strong`. (e) Downgrades: a `strong` with confidence < 0.80 or a non-verbatim `citedTerm` becomes `moderate`; a `moderate` with confidence < 0.60 becomes `pass`. (f) Model error, timeout, guard reject or rate limit → `pass` + `logic_check_failed_open`, and no card shown. (g) The guard rejects a `reason` or `question` with rewrite cues, a pasteable quoted sentence, > 12 copied words, or a question not ending in “?”. (h) **No gating anywhere:** `assertSectionStepUnlocked`, Stage 4 completion and Stage 5 entry never read `logic_tier`; a search of the gate code finds no `logic_` reference. (i) The check re-runs after Revise / New angle / Reframe and doesn't run for skipped sections. Golden cases (a)–(d) also live in `evals/logic-checkpoint.jsonl`, run nightly against the live model; unit tests mock the model.
@@ -884,6 +1267,9 @@ Cluster/slot verification (non-substring slot rejected), `pickMoves` determinism
 
 ## 13. Changelog
 
+- **Nov 20, 2026 (t51, t52):** Per Colton: replaced the paste-percentage-only voice-note rules with a hybrid threshold on natural (typed/spoken) words across the paper plus paste share (tiers 600 / 200 / 80, all [PROVISIONAL]), with new short and low strings (`VOICE_NOTE_ANSWERS_ALL` retired), cached counts on `papers` and `voice_profiles.natural_words` (folded into 0008, else 0009), and tests including the 58-page example (decision 46; 2B.10, section 7). Rewrote every memory trigger as a gentle invitation that connects back to the paper, with a CI/guard phrasing test (decision 47; 2B.8).
+- **Nov 20, 2026 (t48):** Per Colton, softened the Stage 6 (and Stage 5) voice-mismatch warning into a gentle voice nudge: “This part sounds a little different from your usual voice. Want to read it aloud and make it sound more like you?” with **Make it sound like me** / **Keep it as is**; tells still named under **What we noticed**; no note required to keep. Events renamed to `voice_nudge_*`. Decision 45; sections 6.1 item 5, 7, 12.
+- **Nov 20, 2026 (t47):** Folded in Colton's Stage 2 brainstorm as section 2B (the dedicated Stage 2 section-loop and research spec): THE LESSON per paper, three routing paths (`prompt_type`, section `mode`), a TEACH step before PROBE with teach-then-ask, concept vs. instance (highlight reel + search offer), ranked leads plus one Outside the box wildcard (counted toward the 20 cap), digestible source cards with a lesson link, the memory-forward path for personal prompts (MIRROR, gentle scripted triggers, optional search, memory card, light checkpoint), the logic-checkpoint opener and red alert, counterargument only when the rubric asks (confirmed), and the all-pasted voice note. Revised 2A.1–2A.6, sections 3 and 4.1/4.2. New columns folded into 0008 (else 0009). Decisions 36–44. Open research TODO on vague-prompt prevalence.
 - **Nov 20, 2026 (t46):** Per Colton, replaced the Stage 5 ≥ 80-word paste modal question with a supportive, dismissible inline suggestion (once per session per paper; no answer, no buttons, no recorded choice; quiet paste metadata only; `paste_confirm` removed). Decision 9 updated, decision 35 added, section 5.2 rewritten. The Stage 6 voice note now uses the soft `VOICE_NOTE_ANSWERS` wording.
 - **Nov 20, 2026 (t43/t44/t45):** Paste is now allowed in every text input across Stages 1–6 (Colton t44 removed the voice-answer exception from t43). Decision 5 is superseded, and the section 2 paste policy, Stage 2 boxes, PROBE, the logic-checkpoint inputs and 5.2 are updated. Decision 34 adds the paste-ratio mitigation, a typed-weighted baseline, and (t45) the bottom-of-panel “Voice was not reliably determined” note in Stage 6 when the baseline is more than 60% pasted.
 - **Nov 20, 2026 (t41/t42):** Added Colton's mandatory per-section LOGIC CHECKPOINT after CONFIRM, before ADVANCE (decision 33, section 2A.4a). Tiers: pass / moderate / strong. Per t42 it never blocks: strong is a firm flag with alternative angles as questions and a **Continue anyway** button, logged for SOP review. Defaults to pass when unsure. Adds a Grok schema, guard rules, `logic_*` columns on `section_decisions` (folded into spec-only 0008), events and tests. t41's hard-stop tier was dropped before shipping.
