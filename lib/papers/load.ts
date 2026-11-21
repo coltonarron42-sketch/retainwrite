@@ -86,7 +86,11 @@ export async function loadAccountPaper(userId: string, paperId: string): Promise
       title: paper.title,
       course: paper.course,
       due_date: paper.due_date,
-      assignment_prompt: paper.assignment_prompt,
+      assignment_prompt:
+        paper.assignment_prompt?.trim() ||
+        assignment?.raw_text?.trim() ||
+        (parsed?.success ? parsed.data.topic.value || parsed.data.promptQuestion.value : null) ||
+        null,
       required_length: paper.required_length,
       citation_style: paper.citation_style,
       is_free_paper: paper.is_free_paper,

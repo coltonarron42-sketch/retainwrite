@@ -186,6 +186,12 @@ export function CoachingLoop({
     const saved = window.localStorage.getItem(storageKey(paperId));
     if (saved) {
       const parsed = JSON.parse(saved) as Session;
+      const incoming = assignmentPrompt?.trim() || "";
+      if (incoming && !parsed.assignmentText?.trim()) {
+        const extraction = extractLesson(incoming);
+        parsed.assignmentText = incoming;
+        parsed.extraction = extraction;
+      }
       setSession(parsed);
       setActive(parsed.activeIndex ?? 0);
       return;
