@@ -1,7 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 export type ReadbackFlag = {
-  kind: "placement" | "weight";
+  kind: "placement" | "weight" | "pacing" | "gap";
   text: string;
   ideaId: string;
   confidence: number;

@@ -10,6 +10,23 @@ const eslintConfig = [
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    files: ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/lib/server/hiddenDraft", "@/lib/server/hiddenDraft/*"],
+              message:
+                "Hidden-draft text stays in lib/server/hiddenDraft. Routes call lib/server/readback.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

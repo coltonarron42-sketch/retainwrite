@@ -42,6 +42,7 @@ import {
 } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
+import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { DraftingStage } from "@/components/stages/drafting/drafting-stage";
 import { FEATURES } from "@/lib/config";
 import {
@@ -297,11 +298,41 @@ export function CoachingLoop({
     });
     if (target.kind === "section") setActive(nextIndex);
     persistAndGo(result.progress, result.nextStage);
+    if (stage >= 2 && stage <= 4) {
+      requestHiddenDraftMilestone(paperId, {
+        trigger: "section_complete",
+        stage,
+        promptType: session.extraction.promptType,
+        storyAngle: lesson.statement,
+        thesis: session.answers.map((answer) => answer.text).slice(-1)[0] ?? "",
+        sections: sections.map((item) => ({
+          key: item.key,
+          title: item.title,
+          kind: item.kind,
+          ideas: item.ideas,
+        })),
+      });
+    }
   }
 
   function continueProductStage() {
     const result = advanceProductStage(stageProgress, stage);
     persistAndGo(result.progress, result.nextStage);
+    if (stage === 3 && session) {
+      requestHiddenDraftMilestone(paperId, {
+        trigger: "outline_approved",
+        stage: 3,
+        promptType: session.extraction.promptType,
+        storyAngle: lesson.statement,
+        thesis: session.answers.map((answer) => answer.text).slice(-1)[0] ?? "",
+        sections: session.sections.map((item) => ({
+          key: item.key,
+          title: item.title,
+          kind: item.kind,
+          ideas: item.ideas,
+        })),
+      });
+    }
   }
 
   const card =

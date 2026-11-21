@@ -20,6 +20,7 @@ import { shapeReadback, type ReadbackFlag } from "@/lib/drafting/readback";
 import { nextDraftScreen, type DraftScreen } from "@/lib/drafting/screen";
 import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
+import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { buildSkeleton } from "@/lib/skeleton/build";
 import { wordCount } from "@/lib/utils";
 
@@ -85,6 +86,7 @@ export function DraftingStage({
   const [jumpBack, setJumpBack] = useState<number | null>(null);
   const [decline, setDecline] = useState(false);
   const [serverFlags, setServerFlags] = useState<ReadbackFlag[]>([]);
+  const [serverIdeas, setServerIdeas] = useState<{ id: string; text: string; sectionKey: string }[] | null>(null);
   const milestoneHeading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -152,25 +154,38 @@ export function DraftingStage({
   const noteKey = localIdeas.map((idea) => idea.text).join("|");
   const readback = shapeReadback({ ideas: localIdeas });
   const flags = serverFlags.length ? serverFlags : readback.flags;
+  const shownIdeas = serverIdeas ?? readback.ideas;
 
   useEffect(() => {
     if (!current || localIdeas.length === 0) {
       setServerFlags([]);
+      setServerIdeas(null);
       return;
     }
     let cancelled = false;
     void fetch(`/api/papers/${paperId}/draft/readback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ideas: localIdeas }),
+      body: JSON.stringify({
+        ideas: localIdeas,
+        labels: sections.map((section) => ({ key: section.key, title: section.title })),
+      }),
     })
       .then(async (res) => {
         if (!res.ok) return;
-        const data = (await res.json()) as { flags?: ReadbackFlag[] };
-        if (!cancelled && data.flags) setServerFlags(data.flags.slice(0, 2));
+        const data = (await res.json()) as {
+          ideas?: { id: string; text: string; sectionKey: string }[];
+          flags?: ReadbackFlag[];
+        };
+        if (cancelled) return;
+        if (data.ideas) setServerIdeas(data.ideas);
+        if (data.flags) setServerFlags(data.flags.slice(0, 2));
       })
       .catch(() => {
-        if (!cancelled) setServerFlags([]);
+        if (!cancelled) {
+          setServerFlags([]);
+          setServerIdeas(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -232,6 +247,21 @@ export function DraftingStage({
     }
     const last = index >= plan.length - 1;
     setScreen(nextDraftScreen("zoomed_in", last ? "conclusion_saved" : "section_saved"));
+    requestHiddenDraftMilestone(paperId, {
+      trigger: "draft_section_done",
+      draftingComplete: last,
+      stage: 5,
+      promptType,
+      storyAngle,
+      thesis,
+      lessonConcept,
+      sections: sections.map((section) => ({
+        key: section.key,
+        title: section.title,
+        kind: section.kind,
+        ideas: section.ideas,
+      })),
+    });
   }
 
   function openNext() {
@@ -348,7 +378,7 @@ export function DraftingStage({
               {storyAngle ? <p className="mt-2">Your story: {storyAngle}</p> : null}
               {thesis ? <p>Your main point: {thesis}</p> : null}
               <ol className="mt-2 list-decimal pl-5">
-                {readback.ideas.map((idea) => (
+                {shownIdeas.map((idea) => (
                   <li key={idea.id}>{idea.text}</li>
                 ))}
               </ol>

@@ -16,6 +16,20 @@ function grams(text: string, size: number): Set<string> {
   return out;
 }
 
+function charGrams(text: string, size = 4): Set<string> {
+  const compact = text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const out = new Set<string>();
+  for (let i = 0; i <= compact.length - size; i += 1) out.add(compact.slice(i, i + size));
+  return out;
+}
+
+function jaccard(left: Set<string>, right: Set<string>): number {
+  if (!left.size || !right.size) return 0;
+  let shared = 0;
+  for (const item of left) if (right.has(item)) shared += 1;
+  return shared / (left.size + right.size - shared);
+}
+
 export function assertNoHiddenDraftLeak(
   output: string,
   hiddenDraft: string,
@@ -36,6 +50,15 @@ export function assertNoHiddenDraftLeak(
       const hiddenTokens = new Set(tokens(hidden));
       const hit = novel.filter((token) => hiddenTokens.has(token)).length / novel.length;
       if (hit >= 0.5) return { ok: false, rule: "near" };
+      const hiddenNovel = tokens(hidden).filter((token) => !tokens(studentCorpus).includes(token)).join(" ");
+      const novelText = novel.join(" ");
+      if (
+        novelText.length >= 12 &&
+        hiddenNovel.length >= 12 &&
+        jaccard(charGrams(novelText), charGrams(hiddenNovel)) >= 0.6
+      ) {
+        return { ok: false, rule: "near" };
+      }
     }
   }
   return { ok: true };

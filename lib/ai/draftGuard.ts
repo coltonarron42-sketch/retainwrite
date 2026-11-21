@@ -1,12 +1,15 @@
 // SOP: coaching only, never generate submission text
 
 import { GENERIC_WORDS } from "@/lib/ai/genericWords";
+import { assertNoHiddenDraftLeak } from "@/lib/drafting/leak";
 
 export type DraftGuardInput = {
   text: string;
   topicStems: string[];
   studentText: string;
   quotedOk?: boolean;
+  hiddenDraft?: string;
+  canary?: string;
 };
 
 const REWRITE = [
@@ -74,6 +77,10 @@ export function draftGuard(input: DraftGuardInput): { ok: true } | { ok: false; 
         if (shared.length >= 3) return { ok: false, rule: "D5" };
       }
     }
+  }
+  if (input.hiddenDraft?.trim()) {
+    const leak = assertNoHiddenDraftLeak(text, input.hiddenDraft, input.studentText, input.canary);
+    if (!leak.ok) return { ok: false, rule: "D9" };
   }
   return { ok: true };
 }
