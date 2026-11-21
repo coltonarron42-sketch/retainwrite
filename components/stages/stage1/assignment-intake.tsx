@@ -49,6 +49,8 @@ import {
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
+import { useDraftSave } from "@/lib/papers/use-draft-save";
+import { SaveStatus } from "@/components/stages/save-status";
 import { resumeIntake, stanceStartBlockers } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
@@ -246,6 +248,13 @@ export function AssignmentIntake({
       setScreen("coaching");
     }
   }, [demoMode, answers, coachingPlan, storyAngle]);
+
+  const draftStatus = useDraftSave({
+    paperId,
+    fieldKey: `stage1:${coachingPlan[qIndex]?.id ?? "draft"}`,
+    text: draftAnswer,
+    enabled: !demoMode && screen === "coaching",
+  });
 
   const voiceEval = useMemo(() => {
     const voiceAnswers: VoiceAnswer[] = answers
@@ -1611,7 +1620,7 @@ export function AssignmentIntake({
           </Button>
         </div>
         <p className="mt-4 text-xs text-rw-ink/45">
-          Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words
+          Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words <SaveStatus status={draftStatus} />
         </p>
       </div>
     );

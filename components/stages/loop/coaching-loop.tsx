@@ -65,6 +65,8 @@ import {
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
 import { persistField } from "@/lib/papers/persist";
+import { useDraftSave } from "@/lib/papers/use-draft-save";
+import { SaveStatus } from "@/components/stages/save-status";
 import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
@@ -193,6 +195,12 @@ export function CoachingLoop({
   const [idea, setIdea] = useState("");
   const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
+  const noteStatus = useDraftSave({
+    paperId,
+    fieldKey: `stance:${session?.sections[active]?.key ?? "note"}:draft`,
+    text: idea,
+    enabled: persist && stage === 2 && Boolean(session),
+  });
   const paste = usePasteMeta();
 
   useEffect(() => {
@@ -562,6 +570,7 @@ export function CoachingLoop({
                 placeholder="Your idea, in your words"
               />
               {thinNote ? <p className="text-sm text-red-700">{thinNote}</p> : null}
+              <SaveStatus status={noteStatus} />
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -801,6 +810,8 @@ export function CoachingLoop({
           intro="These are your notes from Stance. Edit them in your own words."
           sections={session.sections}
           editable
+          paperId={paperId}
+          persist={persist}
           onEdit={(key, text) => updateSection(key, { ideas: text.trim() ? [text.trim()] : [] })}
           onContinue={() => {
             void (async () => {
@@ -1020,6 +1031,33 @@ function ConfirmPanel({
   );
 }
 
+function OutlineDraft({
+  paperId,
+  sectionKey,
+  value,
+  enabled,
+  onChange,
+}: {
+  paperId: string;
+  sectionKey: string;
+  value: string;
+  enabled: boolean;
+  onChange: (text: string) => void;
+}) {
+  const status = useDraftSave({
+    paperId,
+    fieldKey: `outline:${sectionKey}`,
+    text: value,
+    enabled,
+  });
+  return (
+    <>
+      <Textarea className="mt-2" value={value} onChange={(event) => onChange(event.target.value)} />
+      <SaveStatus status={status} />
+    </>
+  );
+}
+
 function ProductNotes({
   title,
   intro,
@@ -1027,6 +1065,8 @@ function ProductNotes({
   sections,
   showLeads = false,
   editable = false,
+  paperId,
+  persist = false,
   onEdit,
   onContinue,
 }: {
@@ -1036,6 +1076,8 @@ function ProductNotes({
   sections: RuntimeSection[];
   showLeads?: boolean;
   editable?: boolean;
+  paperId?: string;
+  persist?: boolean;
   onEdit?: (key: string, text: string) => void;
   onContinue: () => void;
 }) {
@@ -1049,10 +1091,12 @@ function ProductNotes({
           <h3 className="font-medium">{item.title}</h3>
           <p className="text-rw-ink/70">{item.needs}</p>
           {editable ? (
-            <Textarea
-              className="mt-2"
+            <OutlineDraft
+              paperId={paperId ?? ""}
+              sectionKey={item.key}
               value={keptIdeas(item.ideas).join("\n")}
-              onChange={(event) => onEdit?.(item.key, event.target.value)}
+              enabled={Boolean(persist && paperId)}
+              onChange={(text) => onEdit?.(item.key, text)}
             />
           ) : (
             keptIdeas(item.ideas).map((note) => (

@@ -22,6 +22,8 @@ import { commitSentence } from "@/lib/drafting/sentences";
 import { variantFromPromptType } from "@/lib/drafting/variants";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
 import { persistField } from "@/lib/papers/persist";
+import { useDraftSave } from "@/lib/papers/use-draft-save";
+import { SaveStatus } from "@/components/stages/save-status";
 import { buildSkeleton } from "@/lib/skeleton/build";
 import { wordCount } from "@/lib/utils";
 
@@ -79,6 +81,12 @@ export function DraftingStage({
   const [choice, setChoice] = useState<"shot" | "breakdown" | null>(null);
   const [showShape, setShowShape] = useState(false);
   const [draft, setDraft] = useState("");
+  const draftStatus = useDraftSave({
+    paperId,
+    fieldKey: `draft:${plan[index]?.key ?? "section"}:wip`,
+    text: draft,
+    enabled: persist,
+  });
   const [saved, setSaved] = useState<Saved>({});
   const [screen, setScreen] = useState<DraftScreen>("zoomed_in");
   const [checked, setChecked] = useState(false);
@@ -429,6 +437,7 @@ export function DraftingStage({
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder="Start here. It doesn't need to be perfect."
               />
+              <SaveStatus status={draftStatus} />
               <p className="text-xs text-rw-ink/50">{wordCount([...sentences, draft].join(" "))} words</p>
               {sentences.length > 0 ? (
                 <div>
