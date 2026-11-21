@@ -11,5 +11,6 @@ describe("ready for stance copy", () => {
     expect(source).toContain("Somewhat comfortable");
     expect(source).not.toContain("grade-level");
     expect(source).not.toContain("words per sentence");
+    expect(source).not.toContain("words that sound like you");
   });
 });

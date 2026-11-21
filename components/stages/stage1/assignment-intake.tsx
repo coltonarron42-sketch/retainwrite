@@ -1773,12 +1773,6 @@ export function AssignmentIntake({
         {metrics && readyVoiceLine(voiceEval.totalWords) ? (
           <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
             <p>{readyVoiceLine(voiceEval.totalWords)}</p>
-            {metrics.topContentWords.length > 0 ? (
-              <p className="mt-2">
-                A few words that sound like you:{" "}
-                {metrics.topContentWords.map((w) => w.word).slice(0, 6).join(", ")}
-              </p>
-            ) : null}
           </div>
         ) : null}
 
