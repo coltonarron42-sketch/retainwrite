@@ -70,6 +70,7 @@ import {
   voiceNoteForStage,
   type CountedAnswer,
 } from "@/lib/style/voiceBaseline";
+import { applyOutlineDrafts } from "@/lib/papers/outline";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
@@ -201,6 +202,7 @@ export function CoachingLoop({
   const [session, setSession] = useState<Session | null>(null);
   const [idea, setIdea] = useState("");
   const replacingClaim = useRef(false);
+  const outlineDrafts = useRef<Record<string, string>>({});
   const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const noteStatus = useDraftSave({
@@ -212,50 +214,56 @@ export function CoachingLoop({
   const paste = usePasteMeta();
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(storageKey(paperId));
-    if (!saved && persist) {
-      void fetch(`/api/papers/${paperId}/autosave`)
-        .then(async (res) => (res.ok ? res.json() : null))
-        .then((data: { session?: Session; resume?: { sectionKey?: string } } | null) => {
-          if (data?.session && data.session.sections) {
-            setSession(data.session);
-            const key = data.resume?.sectionKey;
-            const index = key ? data.session.sections.findIndex((item) => item.key === key) : 0;
-            setActive(index >= 0 ? index : 0);
-            return;
-          }
-          const text = assignmentPrompt?.trim() || "";
-          setSession(text ? freshSession(text) : null);
-        })
-        .catch(() => {
-          const text = assignmentPrompt?.trim() || "";
-          setSession(text ? freshSession(text) : null);
-        });
-      return;
-    }
-    if (saved) {
-      const parsed = JSON.parse(saved) as Session;
-      const incoming = assignmentPrompt?.trim() || "";
-      if (incoming && !parsed.assignmentText?.trim()) {
-        const extraction = extractLesson(incoming);
-        parsed.assignmentText = incoming;
-        parsed.extraction = extraction;
+    let cancelled = false;
+    const savedRaw = window.localStorage.getItem(storageKey(paperId));
+    const saved = savedRaw ? (JSON.parse(savedRaw) as Session) : null;
+    const finish = (
+      base: Session | null,
+      drafts: { fieldKey: string; text: string }[],
+      sectionKey?: string | null,
+    ) => {
+      if (cancelled) return;
+      if (!base?.sections) {
+        const text = assignmentPrompt?.trim() || "";
+        setSession(text ? freshSession(text) : null);
+        return;
       }
-      parsed.sections = parsed.sections.map((section) => {
+      const incoming = assignmentPrompt?.trim() || "";
+      if (incoming && !base.assignmentText?.trim()) {
+        const extraction = extractLesson(incoming);
+        base.assignmentText = incoming;
+        base.extraction = extraction;
+      }
+      base.sections = applyOutlineDrafts(base.sections, drafts).map((section) => {
         if (section.loopStep !== "logic_check" || section.ideas.length === 0) return section;
         const refreshed = refreshStoredLogic(section, {
-          assignmentText: parsed.assignmentText,
+          assignmentText: base.assignmentText,
           rubricRef: section.rubricRef,
           mode: section.mode,
         });
         return { ...section, ideas: refreshed.ideas, logic: refreshed.logic };
       });
-      setSession(parsed);
-      setActive(parsed.activeIndex ?? 0);
+      for (const section of base.sections) {
+        outlineDrafts.current[section.key] = keptIdeas(section.ideas).join("\n");
+      }
+      setSession(base);
+      const index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
+      setActive(index >= 0 ? index : 0);
+    };
+    if (!persist) {
+      finish(saved, []);
       return;
     }
-    const text = assignmentPrompt?.trim() || "";
-    setSession(text ? freshSession(text) : null);
+    void fetch(`/api/papers/${paperId}/autosave`)
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { session?: Session; drafts?: { fieldKey: string; text: string }[]; resume?: { sectionKey?: string } } | null) => {
+        const remote = data?.session?.sections ? data.session : null;
+        finish(remote ?? saved, data?.drafts ?? [], data?.resume?.sectionKey);
+      })
+      .catch(() => finish(saved, []));
+    return () => {
+      cancelled = true;
+    };
   }, [paperId, assignmentPrompt, persist]);
 
   useEffect(() => {
@@ -858,17 +866,27 @@ export function CoachingLoop({
           editable
           paperId={paperId}
           persist={persist}
-          onEdit={(key, text) => updateSection(key, { ideas: text.trim() ? [text.trim()] : [] })}
+          onEdit={(key, text) => {
+            outlineDrafts.current[key] = text;
+            updateSection(key, { ideas: text.trim() ? [text.trim()] : [] });
+          }}
           onContinue={() => {
             void (async () => {
+              const sections = session.sections.map((item) => {
+                const text = outlineDrafts.current[item.key];
+                if (text == null) return item;
+                return { ...item, ideas: text.trim() ? [text.trim()] : [] };
+              });
+              const nextSession = { ...session, sections };
+              commit(nextSession);
               if (persist) {
-                for (const item of session.sections) {
+                for (const item of sections) {
                   const ok = await persistField(paperId, {
                     fieldKey: `outline:${item.key}`,
                     text: keptIdeas(item.ideas).join("\n"),
                     submitted: true,
                     resume: { stage: 3, sectionKey: item.key, screen: "outline" },
-                    session,
+                    session: nextSession,
                   });
                   if (!ok) {
                     setThinNote("Couldn't save the outline.");
