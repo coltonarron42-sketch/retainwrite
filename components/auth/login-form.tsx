@@ -64,6 +64,11 @@ export function LoginForm({ nextPath = "/app" }: Props) {
         <Button type="submit" className="w-full" variant="secondary" disabled={pending}>
           {signInPending ? "Signing in…" : "Log in"}
         </Button>
+        <p className="text-right text-sm">
+          <Link href="/forgot-password" className="text-rw-teal underline">
+            Forgot password?
+          </Link>
+        </p>
       </form>
 
       <div className="relative text-center text-xs uppercase tracking-wide text-rw-ink/40">

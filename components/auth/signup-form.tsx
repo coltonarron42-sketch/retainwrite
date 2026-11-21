@@ -74,7 +74,18 @@ export function SignupForm({ nextPath = "/app" }: Props) {
         </p>
         {error ? (
           <p className="text-sm text-red-700" role="alert">
-            {error}
+            {error}{" "}
+            {error.includes("already exists") ? (
+              <>
+                <Link href="/login" className="font-semibold underline">
+                  Log in
+                </Link>{" "}
+                ·{" "}
+                <Link href="/forgot-password" className="font-semibold underline">
+                  Reset password
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
         {notice ? (
