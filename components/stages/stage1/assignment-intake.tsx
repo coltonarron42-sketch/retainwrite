@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ import {
   type VoiceAnswer,
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
+import { resumeQuestionIndex } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { wordCount } from "@/lib/utils";
 
@@ -126,6 +127,7 @@ export function AssignmentIntake({
   initialRawText = "",
 }: Props) {
   const router = useRouter();
+  const resumedIntake = useRef(false);
   const pasteMeta = usePasteMeta();
   const [paper, setPaper] = useState<DemoPaper | null>(null);
   const [screen, setScreen] = useState<Screen>("upload");
@@ -164,9 +166,25 @@ export function AssignmentIntake({
     if (initialRequirements) {
       setRequirements(initialRequirements);
       setRawText(initialRawText);
-      setScreen("card");
+      setScreen((current) => (current === "upload" ? "card" : current));
     }
   }, [paperId, accountPaper, initialRequirements, initialRawText]);
+
+  useEffect(() => {
+    resumedIntake.current = false;
+    if (demoMode) return;
+    let cancelled = false;
+    void fetch(`/api/papers/${paperId}/intake/answers`)
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { answers?: IntakeAnswer[] } | null) => {
+        if (cancelled || !data?.answers?.length) return;
+        setAnswers(data.answers);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [paperId, demoMode]);
 
   const coachingPlan = useMemo(() => {
     if (!requirements) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
@@ -205,6 +223,18 @@ export function AssignmentIntake({
     }
     return plan;
   }, [requirements, skippedInterest, needFallback]);
+
+  useEffect(() => {
+    if (demoMode || resumedIntake.current || answers.length === 0 || coachingPlan.length === 0) return;
+    resumedIntake.current = true;
+    const next = resumeQuestionIndex(
+      coachingPlan.map((question) => question.id),
+      answers.map((answer) => answer.questionId),
+    );
+    if (next >= coachingPlan.length) return;
+    setQIndex(next);
+    setScreen("coaching");
+  }, [demoMode, answers, coachingPlan]);
 
   const voiceEval = useMemo(() => {
     const voiceAnswers: VoiceAnswer[] = answers.map((a) => ({

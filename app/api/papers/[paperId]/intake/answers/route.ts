@@ -1,0 +1,57 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { hasSupabaseConfig } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
+
+const KINDS = new Set([
+  "interest",
+  "coaching",
+  "personal",
+  "fallback_voice",
+  "background",
+  "story_angle",
+]);
+
+type Ctx = { params: Promise<{ paperId: string }> };
+
+/** Saved Stage 1 answers for this paper. Used to restore a refresh. */
+export async function GET(_request: Request, ctx: Ctx) {
+  const { paperId } = await ctx.params;
+  if (!z.string().uuid().safeParse(paperId).success) {
+    return NextResponse.json({ error: "Invalid paper id" }, { status: 400 });
+  }
+  if (!hasSupabaseConfig()) return NextResponse.json({ answers: [] });
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ answers: [] });
+
+  const { data, error } = await supabase
+    .from("intake_answers")
+    .select("question_id, question_text, question_kind, answer_text, is_voice_sample, paste_ratio")
+    .eq("paper_id", paperId)
+    .eq("user_id", user.id)
+    .order("sequence", { ascending: true });
+
+  if (error) {
+    console.error("[intake/answers] load failed", { code: error.code, message: error.message });
+    return NextResponse.json({ answers: [] });
+  }
+
+  const answers = (data ?? [])
+    .filter((row) => KINDS.has(row.question_kind) && row.answer_text.trim())
+    .map((row) => ({
+      questionId: row.question_id,
+      questionText: row.question_text,
+      kind: row.question_kind,
+      answerText: row.answer_text,
+      isVoiceSample: row.is_voice_sample,
+      pasteRatio: row.paste_ratio ?? undefined,
+    }));
+
+  return NextResponse.json({ answers });
+}
