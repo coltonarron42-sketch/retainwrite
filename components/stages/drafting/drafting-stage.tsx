@@ -275,6 +275,14 @@ export function DraftingStage({
               <p className="mt-3 text-rw-ink/70">{INTRO_FOOTER}</p>
             </div>
           ) : null}
+          {showShape && (current.kind === "body" || current.kind === "counter") ? (
+            <div className="rounded-xl bg-white p-4 text-sm">
+              <p className="font-medium">
+                {current.kind === "counter" ? PARAGRAPH_SHAPES.counter.title : PARAGRAPH_SHAPES.body.title}
+              </p>
+              <p className="mt-2">{current.kind === "counter" ? PARAGRAPH_SHAPES.counter.line : PARAGRAPH_SHAPES.body.line}</p>
+            </div>
+          ) : null}
           {showShape && current.kind === "conclusion" ? (
             <div className="rounded-xl bg-white p-4 text-sm">
               <p className="font-medium">{PARAGRAPH_SHAPES.conclusion.title}</p>
