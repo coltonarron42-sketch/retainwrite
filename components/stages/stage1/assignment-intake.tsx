@@ -286,6 +286,12 @@ export function AssignmentIntake({
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
     if (answers.length === 0 && !storyAngle && !pendingQuestion.current) return;
+    // needFallback is not saved; a reload must rebuild the plan with the
+    // fallback question the student already answered before resuming.
+    if (!needFallback && answers.some((answer) => answer.questionId === "fallback_voice")) {
+      setNeedFallback(true);
+      return;
+    }
     resumedIntake.current = true;
     const resume = resumeIntake(
       coachingPlan.map((question) => question.id),
@@ -299,10 +305,25 @@ export function AssignmentIntake({
     if (resume.screen === "coaching" || pendingQuestion.current) {
       const asked = pendingQuestion.current || new URLSearchParams(window.location.search).get("question");
       const askedIndex = asked ? coachingPlan.findIndex((question) => question.id === asked) : -1;
-      setQIndex(askedIndex >= 0 ? askedIndex : resume.index);
+      const index = askedIndex >= 0 ? askedIndex : resume.index;
+      const askedQuestion = askedIndex >= 0 ? coachingPlan[askedIndex] : null;
+      const askedDone = askedQuestion
+        ? answers.some((answer) => answer.questionId === askedQuestion.id)
+        : false;
+      const allAnswered = coachingPlan
+        .filter((question) => !(resume.skipInterest && question.kind === "interest"))
+        .every((question) => answers.some((answer) => answer.questionId === question.id));
+      // Every intake question answered: reopen Pick your story (or the early
+      // stance if a story is already picked) instead of a blank "Loading…" step.
+      if (allAnswered && (askedIndex < 0 || askedDone)) {
+        if (storyAngle) goToStanceOnStory();
+        else finishCoaching(answers);
+        return;
+      }
+      setQIndex(index);
       setScreen("coaching");
     }
-  }, [demoMode, answers, coachingPlan, storyAngle]);
+  }, [demoMode, answers, coachingPlan, storyAngle, needFallback]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -608,7 +629,10 @@ export function AssignmentIntake({
 
   async function submitAnswer(opts?: { skip?: boolean }) {
     const q = coachingPlan[qIndex];
-    if (!q) return;
+    if (!q) {
+      if (qIndex >= coachingPlan.length && coachingPlan.length > 0) finishCoaching(answers);
+      return;
+    }
     const text = opts?.skip ? "" : draftAnswer.trim();
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Type an answer to continue, or skip this one.");
