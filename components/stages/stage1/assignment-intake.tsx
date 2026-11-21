@@ -44,6 +44,8 @@ import { createLead, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
 import {
   evaluateStage1VoiceMinimum,
+  readyVoiceLine,
+  tallyVoiceWords,
   type VoiceAnswer,
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
@@ -133,6 +135,7 @@ export function AssignmentIntake({
   const pasteMeta = usePasteMeta();
   const [paper, setPaper] = useState<DemoPaper | null>(null);
   const [screen, setScreen] = useState<Screen>("upload");
+  const [resumeReady, setResumeReady] = useState(demoMode);
   const [paste, setPaste] = useState("");
   const [links, setLinks] = useState("");
   const [rightsOk, setRightsOk] = useState(false);
@@ -166,15 +169,14 @@ export function AssignmentIntake({
 
   useEffect(() => {
     setPaper(accountPaper ?? getDemoPaper(paperId) ?? null);
-    if (initialRequirements) {
-      setRequirements(initialRequirements);
-      setRawText(initialRawText);
-      if (initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed) {
-        setChecklistConfirmed(true);
-      }
-      setScreen((current) => (current === "upload" ? "card" : current));
+    if (!resumeReady || !initialRequirements) return;
+    setRequirements(initialRequirements);
+    setRawText(initialRawText);
+    if (initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed) {
+      setChecklistConfirmed(true);
     }
-  }, [paperId, accountPaper, initialRequirements, initialRawText]);
+    setScreen((current) => (current === "upload" ? "card" : current));
+  }, [paperId, accountPaper, initialRequirements, initialRawText, resumeReady]);
 
   useEffect(() => {
     resumedIntake.current = false;
@@ -187,7 +189,11 @@ export function AssignmentIntake({
         storyAngle?: { text: string; source: "ai" | "student" } | null;
         resume?: { screen?: string | null; questionId?: string | null } | null;
       } | null) => {
-        if (cancelled || !data) return;
+        if (cancelled) return;
+        if (!data) {
+          setResumeReady(true);
+          return;
+        }
         if (data.answers?.length) setAnswers(data.answers);
         if (data.storyAngle?.text) setStoryAngle(data.storyAngle);
         if (data.resume?.screen === "gate" || data.resume?.questionId === "stance_early") {
@@ -195,8 +201,9 @@ export function AssignmentIntake({
           setScreen("gate");
           resumedIntake.current = true;
         }
+        setResumeReady(true);
       })
-      .catch(() => undefined);
+      .catch(() => setResumeReady(true));
     return () => {
       cancelled = true;
     };
@@ -268,23 +275,29 @@ export function AssignmentIntake({
   });
 
   const voiceEval = useMemo(() => {
-    const voiceAnswers: VoiceAnswer[] = answers
-      .filter((a) => a.isVoiceSample)
-      .map((a) => ({
-        text: a.answerText,
-        isVoiceSample: true,
-        kind: a.kind,
-        pasteRatio: a.pasteRatio,
-      }));
-    if (
-      storyAngle?.source === "student" &&
-      storyAngle.text.trim() &&
-      !voiceAnswers.some((answer) => answer.text === storyAngle.text)
-    ) {
-      voiceAnswers.push({ text: storyAngle.text, isVoiceSample: true, kind: "story_angle" });
+    const latest = new Map<string, (typeof answers)[number]>();
+    for (const answer of answers) {
+      if (!answer.isVoiceSample || !answer.answerText.trim()) continue;
+      latest.set(answer.questionId, answer);
     }
-    return evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-  }, [answers, storyAngle]);
+    const voiceAnswers: VoiceAnswer[] = [...latest.values()].map((answer) => ({
+      text: answer.answerText,
+      isVoiceSample: true,
+      kind: answer.kind,
+      pasteRatio: answer.pasteRatio,
+    }));
+    const evaluated = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
+    return {
+      ...evaluated,
+      totalWords: tallyVoiceWords(
+        [...latest.values()].map((answer) => ({
+          questionId: answer.questionId,
+          text: answer.answerText,
+          isVoiceSample: true,
+        })),
+      ),
+    };
+  }, [answers]);
 
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
@@ -523,8 +536,11 @@ export function AssignmentIntake({
   function skipInterest() {
     setSkippedInterest(true);
     setAnswers((prev) => answersAfterSkippingInterest(prev));
-    setQIndex(0);
     setDraftAnswer("");
+    const rest = coachingPlan.filter((question) => question.kind !== "interest");
+    const answered = new Set(answers.map((answer) => answer.questionId));
+    const next = rest.findIndex((question) => !answered.has(question.id));
+    setQIndex(next === -1 ? 0 : next);
   }
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
@@ -1737,9 +1753,9 @@ export function AssignmentIntake({
           sample meets the minimum, and you have an early take.
         </p>
 
-        {metrics ? (
+        {metrics && readyVoiceLine(voiceEval.totalWords) ? (
           <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
-            <p>We have enough of your voice to coach you.</p>
+            <p>{readyVoiceLine(voiceEval.totalWords)}</p>
             {metrics.topContentWords.length > 0 ? (
               <p className="mt-2">
                 A few words that sound like you:{" "}

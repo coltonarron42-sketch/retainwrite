@@ -55,6 +55,31 @@ export function collectWeightedVoiceSample(answers: VoiceAnswer[]): string {
   return parts.join("\n");
 }
 
+export type CountedVoiceRow = {
+  questionId: string;
+  text: string;
+  isVoiceSample: boolean;
+};
+
+/** One count per question. Duplicate saves and a story blurb are not added again. */
+export function tallyVoiceWords(rows: CountedVoiceRow[]): number {
+  const latest = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.isVoiceSample) continue;
+    const text = row.text.trim();
+    if (!text) continue;
+    latest.set(row.questionId, text);
+  }
+  let total = 0;
+  for (const text of latest.values()) total += wordCount(text);
+  return total;
+}
+
+export function readyVoiceLine(words: number, minimum = STAGE1_VOICE_MIN_WORDS): string | null {
+  if (words < minimum) return null;
+  return "We have enough of your voice to coach you.";
+}
+
 export function evaluateStage1VoiceMinimum(
   input: VoiceMinimumInput,
 ): VoiceMinimumResult {
