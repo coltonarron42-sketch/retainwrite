@@ -14,7 +14,9 @@ export default function PrivacyPage() {
           professor feedback you choose to share. We do not sell your data.
           Course materials are for your personal study only. Professor feedback
           uploads are deleted within 90 days of review (30 if rejected). You can
-          request deletion via support@retainwrite.com.
+          request deletion via support@retainwrite.com. RetainWrite is for people
+          13 and older. If you are under 18, a parent or guardian should know
+          you are using it.
         </p>
       </article>
     </main>

@@ -60,6 +60,10 @@ export function SignupForm({ nextPath = "/app" }: Props) {
             . I confirm I am 13 or older.
           </span>
         </label>
+        <p className="text-sm text-rw-ink/70">
+          If you&apos;re under 18, please make sure a parent or guardian knows
+          you&apos;re using RetainWrite.
+        </p>
         {error ? (
           <p className="text-sm text-red-700" role="alert">
             {error}

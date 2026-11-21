@@ -19,8 +19,7 @@ export default async function SignupPage({ searchParams }: Props) {
       <div className="mx-auto max-w-md px-5 pb-20 pt-28">
         <h1 className="font-display text-4xl text-rw-ink">Start free</h1>
         <p className="mt-2 text-sm text-rw-ink/60">
-          First paper free. No card at signup. Must be 13+. Ages 13–17 need
-          guardian confirmation.
+          First paper free. No card at signup. Must be 13+.
         </p>
         {errorMessage ? (
           <p
