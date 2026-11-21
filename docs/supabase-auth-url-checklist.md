@@ -6,7 +6,7 @@ Do this in the **Retain write** project (`hstxsytpcpusmjlcrhfz`):
 
 | Setting | Value |
 |---|---|
-| **Site URL** | `https://retainwrite.com` |
+| **Site URL** | `https://www.retainwrite.com` |
 | **Redirect URLs** | Add all of: |
 
 ```
@@ -34,4 +34,6 @@ Also update **Magic Link** and **Reset password** templates the same way if you 
 
 ## 4. Env
 
-Set `NEXT_PUBLIC_SITE_URL=https://retainwrite.com` on Vercel (production + preview).
+Set `NEXT_PUBLIC_SITE_URL=https://www.retainwrite.com` on Vercel (production and preview).
+
+The app builds `emailRedirectTo` from that variable, then `VERCEL_URL`, then `https://www.retainwrite.com`. A localhost value is ignored. The confirmation email still follows the Supabase **Site URL** until the Confirm sign-up template in this folder is pasted in, so the dashboard settings above are required.

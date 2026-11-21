@@ -1,20 +1,20 @@
 import { SITE_URL } from "@/lib/config";
 
-/** Canonical public origin for auth redirects (never localhost in production). */
+function usableOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (/localhost|127\.0\.0\.1/i.test(trimmed)) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withProtocol.replace(/\/$/, "");
+}
+
+/** Public origin for auth emails. Env first, then Vercel, never localhost. */
 export function getAuthSiteUrl(): string {
-  const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-
-  // Prefer the product domain over ephemeral Vercel preview hosts for email links.
-  if (process.env.NODE_ENV === "production") {
-    return SITE_URL.replace(/\/$/, "");
-  }
-
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`;
-  }
-
-  return SITE_URL.replace(/\/$/, "");
+  return (
+    usableOrigin(process.env.NEXT_PUBLIC_SITE_URL) ||
+    usableOrigin(process.env.VERCEL_URL) ||
+    SITE_URL.replace(/\/$/, "")
+  );
 }
 
 export function getEmailConfirmRedirectTo(nextPath = "/app"): string {

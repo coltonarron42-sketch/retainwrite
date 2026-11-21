@@ -1,4 +1,4 @@
-export const SITE_URL = "https://retainwrite.com";
+export const SITE_URL = "https://www.retainwrite.com";
 /** Stage specs override the build prompt hello@ address. */
 export const EMAIL_FROM = "RetainWrite Coach <coach@send.retainwrite.com>";
 export const PRICES = { single: 900, pack3: 1500, audio: 199 } as const; // cents, USD

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Manrope } from "next/font/google";
+import { SITE_URL } from "@/lib/config";
 import "./globals.css";
 
 const display = Fraunces({
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
   },
   description:
     "A student paper-writing coach. Six gated stages. You write every sentence.",
-  metadataBase: new URL("https://retainwrite.com"),
+  metadataBase: new URL(SITE_URL),
 };
 
 export default function RootLayout({
