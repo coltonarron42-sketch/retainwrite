@@ -339,7 +339,7 @@ export function DraftingStage({
 
   return (
     <div className={reduceMotion ? "" : "transition-opacity"}>
-      <div aria-hidden="true" className="pointer-events-none mb-2 flex gap-2 overflow-hidden text-[10px] leading-none text-rw-ink/15">
+      <div className="mb-2 flex gap-2 text-xs font-medium text-rw-ink/80">
         {skeleton.map((block) => (
           <span key={block.key} className="min-w-0 flex-1 truncate">
             {block.label}
@@ -358,6 +358,7 @@ export function DraftingStage({
           {skeleton.map((block) => (
             <span
               key={block.key}
+              aria-label={block.label}
               className={`h-2 flex-1 rounded-full ${block.status === "drafted" ? "bg-rw-teal" : "bg-rw-ink/20"}`}
             />
           ))}
@@ -390,8 +391,8 @@ export function DraftingStage({
             <p className="text-sm text-rw-ink/70">{shapeLine}</p>
           ) : null}
           {step !== "opener" && !showShape ? (
-            <Button type="button" variant="outline" onClick={() => setShowShape(true)}>
-              Show me the shape
+            <Button type="button" variant="outline" onClick={() => { setChoice("breakdown"); setShowShape(true); }}>
+              Break it down for me
             </Button>
           ) : null}
           {showShape && current.kind === "intro" ? (
