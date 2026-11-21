@@ -32,19 +32,19 @@ export function buildStoryAngleFallback(input: {
   const angles: StoryAngle[] = [
     {
       id: "moment",
-      question: `What's one moment from your own experience that shows ${topic}?`,
-      whyFits: `Grounds the paper in a concrete detail that still answers ${topic}.`,
+      question: "What's one moment from your own life that belongs in this paper?",
+      whyFits: "Grounds the paper in a concrete detail you actually lived.",
       fromStudentPhrase: phrase,
     },
     {
       id: "lead",
-      question: `Which lead would you most like to dig into for ${topic}, and why?`,
-      whyFits: "Connects research leads to the assignment's required angle.",
+      question: "Which example would you most like to dig into, and why?",
+      whyFits: "Connects a source you can verify to the assignment.",
     },
     {
       id: "disagree",
       question: `What would someone who disagrees with you about ${topic} say?`,
-      whyFits: "Sets up a counterargument the rubric often expects.",
+      whyFits: "Sets up the other side without writing it for you.",
     },
     {
       id: "change",

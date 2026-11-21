@@ -28,5 +28,10 @@ describe("story angles", () => {
     expect(personal?.question).toMatch(/you mentioned music/i);
     expect(personal?.question).not.toMatch(/idk/i);
     expect(personal?.question).not.toMatch(/Social media and teen mental health/);
+    const mentions = angles.filter((angle) =>
+      angle.question.includes("Social media and teen mental health"),
+    );
+    expect(mentions).toHaveLength(1);
   });
 });
+
