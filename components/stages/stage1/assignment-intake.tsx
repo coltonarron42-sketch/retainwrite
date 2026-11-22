@@ -39,6 +39,7 @@ import {
   upsertDemoPaper,
   type DemoPaper,
 } from "@/lib/demo/store";
+import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-stance";
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { createLead, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
@@ -866,12 +867,14 @@ export function AssignmentIntake({
         }),
       }).catch(() => undefined);
     }
-    const angleText = storyAngle?.text || "this assignment";
     const nextAnswers: IntakeAnswer[] = [
       ...answers.filter((a) => a.questionId !== "stance_early"),
       {
         questionId: "stance_early",
-        questionText: `What's your early take on: ${angleText}`,
+        questionText: earlyStanceQuestion({
+          topic: requirements?.topic.value,
+          promptQuestion: requirements?.promptQuestion.value,
+        }),
         kind: "coaching",
         answerText: text,
         isVoiceSample: true,
@@ -1642,7 +1645,10 @@ export function AssignmentIntake({
       ? {
           id: "stance_early",
           kind: "coaching" as const,
-          text: `What's your early take on: ${earlyTakeSubject(storyAngle?.text || requirements.topic.value || "this assignment")}? (at least 25 words)`,
+          text: `${earlyStanceQuestion({
+            topic: requirements.topic.value,
+            promptQuestion: requirements.promptQuestion.value,
+          })} ${EARLY_STANCE_MIN_NOTE}`,
         }
       : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
@@ -1968,11 +1974,6 @@ export function AssignmentIntake({
   }
 
   return null;
-}
-
-/** "…this paper?" + "?" should read as one question mark. */
-function earlyTakeSubject(text: string): string {
-  return text.trim().replace(/[\s?.!]+$/, "");
 }
 
 function CardField({

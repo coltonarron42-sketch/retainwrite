@@ -29,7 +29,7 @@ describe("voice minimum is a warning", () => {
     expect(intake).toContain("setDraftAnswer(savedAnswerText(target.id));");
     expect(intake).toContain("Previous question");
     expect(intake).toContain("voiceWordsMet && readyVoiceLine");
-    expect(intake).toContain("earlyTakeSubject(");
+    expect(intake).toContain("earlyStanceQuestion(");
   });
 });
 
