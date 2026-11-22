@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
+import { asQuestion, isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
 import { LogicCheckpoint } from "@/components/coaching/logic-checkpoint";
@@ -548,7 +549,9 @@ export function CoachingLoop({
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
           : subject === "your topic"
             ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-            : `This assignment teaches ${subjectMidSentence(subject)}.`}{" "}
+            : isQuestionTopic(subject)
+              ? `This assignment asks: ${asQuestion(subject)}`
+              : `This assignment teaches ${subjectMidSentence(subject)}.`}{" "}
         <a
           href={`/app/papers/${paperId}/stage/1`}
           className={dsLink}

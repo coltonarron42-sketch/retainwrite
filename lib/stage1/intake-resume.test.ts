@@ -64,4 +64,10 @@ describe("intake resume", () => {
     ];
     expect(answersAfterSkippingInterest(answers)).toEqual(answers);
   });
+  it("reopens the early take that was being typed", () => {
+    expect(
+      intakeScreenAfterLoad({ resumeScreen: "coaching", resumeQuestionId: "stance_early", hasAnswers: true }),
+    ).toBe("stance");
+    expect(intakeScreenAfterLoad({ resumeQuestionId: "stance_early", hasAnswers: true })).toBe("gate");
+  });
 });

@@ -37,8 +37,10 @@ export function intakeScreenAfterLoad(input: {
   resumeScreen?: string | null;
   resumeQuestionId?: string | null;
   hasAnswers: boolean;
-}): "card" | "coaching" | "gate" | "story" {
-  if (input.resumeScreen === "gate" || input.resumeQuestionId === "stance_early") return "gate";
+}): "card" | "coaching" | "gate" | "story" | "stance" {
+  if (input.resumeScreen === "gate") return "gate";
+  // Typing the early take (draft autosave says "coaching"): reopen that box.
+  if (input.resumeQuestionId === "stance_early") return input.resumeScreen === "coaching" ? "stance" : "gate";
   if (input.resumeScreen === "story") return "story";
   if (
     input.resumeScreen === "coaching" ||
