@@ -32,12 +32,20 @@ export const VOICE_PASTED_SHARE_NOTE = 0.6;
 /** Below this many natural words, mismatch has no strong levels. */
 export const VOICE_SHORT_SAMPLE_NATURAL_WORDS = 150;
 
-/** Allowlisted MIME types for Stage 1 assignment uploads. */
+/** Allowlisted MIME types for Stage 1 assignment uploads (see lib/assignment/file-types.ts). */
 export const ASSIGNMENT_ALLOWED_MIME = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/vnd.oasis.opendocument.text",
+  "application/rtf",
+  "text/rtf",
+  "application/vnd.apple.pages",
+  "application/x-iwork-pages-sffpages",
+  "text/html",
   "text/plain",
   "text/markdown",
+  "text/x-markdown",
   "image/jpeg",
   "image/png",
   "image/webp",

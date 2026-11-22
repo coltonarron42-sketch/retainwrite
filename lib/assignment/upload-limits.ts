@@ -4,6 +4,7 @@ import {
   ASSIGNMENT_MAX_FILES,
   ASSIGNMENT_MAX_TOTAL_BYTES,
 } from "@/lib/config";
+import { mimeFromName, rejectedTypeMessage } from "@/lib/assignment/file-types";
 
 export type UploadCandidate = {
   filename: string;
@@ -15,38 +16,18 @@ export type UploadLimitResult =
   | { ok: true }
   | { ok: false; reason: string };
 
-const EXT_MIME: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".docx":
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".heic": "image/heic",
-  ".heif": "image/heif",
-  ".gif": "image/gif",
-};
-
+/** Kept for callers; .doc is now read (best effort) instead of rejected. */
 export function rejectLegacyDoc(filename: string): string | null {
-  if (filename.toLowerCase().endsWith(".doc") && !filename.toLowerCase().endsWith(".docx")) {
-    return "Save or export this as a PDF or a .docx and try again.";
-  }
+  void filename;
   return null;
 }
 
 export function guessMimeFromFilename(filename: string): string | null {
-  const lower = filename.toLowerCase();
-  for (const [ext, mime] of Object.entries(EXT_MIME)) {
-    if (lower.endsWith(ext)) return mime;
-  }
-  return null;
+  return mimeFromName(filename);
 }
 
 export function isAllowedAssignmentMime(mime: string): boolean {
-  return (ASSIGNMENT_ALLOWED_MIME as readonly string[]).includes(mime);
+  return (ASSIGNMENT_ALLOWED_MIME as readonly string[]).includes(mime.split(";")[0]!.trim().toLowerCase());
 }
 
 export function assertUploadBatch(
@@ -57,12 +38,11 @@ export function assertUploadBatch(
     const legacy = rejectLegacyDoc(file.filename);
     if (legacy) return { ok: false, reason: legacy };
 
-    const mime = file.mime || guessMimeFromFilename(file.filename) || "";
+    // Trust a known extension over a vague browser type (e.g. octet-stream).
+    const byName = guessMimeFromFilename(file.filename);
+    const mime = isAllowedAssignmentMime(file.mime) ? file.mime : byName ?? file.mime ?? "";
     if (!isAllowedAssignmentMime(mime)) {
-      return {
-        ok: false,
-        reason: `${file.filename} isn’t a supported type. Use PDF, Word, text, or an image.`,
-      };
+      return { ok: false, reason: rejectedTypeMessage(file.filename) };
     }
     if (file.byteSize <= 0) {
       return { ok: false, reason: `${file.filename} looks empty.` };
