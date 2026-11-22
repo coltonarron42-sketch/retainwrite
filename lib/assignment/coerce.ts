@@ -256,7 +256,7 @@ const VALUE_COERCERS: Record<string, (value: unknown) => unknown> = {
   providedReadings: readings,
   providedSources: readings,
   structuralRequirements: stringList,
-  dueDate: (value) => shortString(value, 40),
+  dueDate: (value) => shortString(value, 80),
   rubricCriteria: criteria,
   otherInstructions: (value) => shortString(value, 1000),
   aiPolicy: policyValue,

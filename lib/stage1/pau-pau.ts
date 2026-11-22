@@ -70,8 +70,14 @@ function structurePhrases(req: AssignmentRequirements): string[] {
   const rules = (req.formattingRules.value ?? []).join(" ").toLowerCase();
   if (/title page|cover page/.test(rules)) out.push("a title page");
   for (const item of req.structuralRequirements.value ?? []) {
-    const text = item.replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "");
-    if (!text || text.length > 70) continue;
+    const text = item
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[.;:]+$/, "")
+      .replace(/^(include|includes|including|add|write|have)\s+/i, "");
+    // Short noun phrases only; full instructions ("a thesis should appear…") read badly here.
+    if (!text || text.length > 70 || text.split(" ").length > 8) continue;
+    if (/\b(should|must|will|needs? to|has to|have to|is|are)\b/i.test(text)) continue;
     const lower = text.charAt(0).toLowerCase() + text.slice(1);
     out.push(/^(a|an|the|one|two|three|include|use|each|every)\b/i.test(lower) ? lower : `a ${lower}`);
     if (out.length >= 3) break;

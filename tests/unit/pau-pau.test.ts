@@ -40,4 +40,14 @@ describe("Pau Pau bubble", () => {
     expect(lengthFromAnswer("1,200-1,500 words")).toMatchObject({ wordsMin: 1200, wordsMax: 1500 });
     expect(lengthFromAnswer("5 to 7 pages")).toMatchObject({ pagesMin: 5, pagesMax: 7 });
   });
+  it("skips full-sentence structure rules and keeps short parts", () => {
+    const r = req();
+    r.structuralRequirements = extractedField(
+      ["Your thesis should appear in the first paragraph", "Include one paragraph that answers a counterargument"],
+      0.9,
+    );
+    const text = pauPauSummary(r);
+    expect(text).not.toMatch(/should appear/);
+    expect(text).toContain("one paragraph that answers a counterargument");
+  });
 });

@@ -34,7 +34,7 @@ export function PauPauAvatar() {
   return (
     <span
       aria-hidden
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[13px] font-semibold tracking-wide text-white"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ds-ink sm:h-10 sm:w-10 font-ds-sans text-[13px] font-semibold tracking-wide text-white"
     >
       PP
     </span>
@@ -155,7 +155,7 @@ export function PauPauConfirm({
 
   return (
     <div className="mx-auto max-w-[680px]">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2 sm:gap-3">
         <PauPauAvatar />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
