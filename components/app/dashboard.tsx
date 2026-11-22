@@ -50,7 +50,7 @@ export function Dashboard({
           </p>
         </div>
         <Button asChild variant="secondary">
-          <Link href="/app/papers/new">Start new paper</Link>
+          <Link href="/app/papers/new">Start a new paper</Link>
         </Button>
       </div>
 

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { Dashboard } from "@/components/app/dashboard";
 import { requireUser } from "@/lib/auth/require-user";
 import { listAccountPapers } from "@/lib/papers/load";
@@ -12,6 +13,8 @@ export default async function AppHomePage() {
   }
 
   const papers = await listAccountPapers(access.session.id);
+  // Nothing to list yet: go straight to starting the first paper.
+  if (papers.length === 0) redirect("/app/papers/new");
   const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")

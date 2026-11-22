@@ -1,5 +1,6 @@
 import { SiteHeader } from "@/components/marketing/site-header";
 import { ForgotPasswordForm } from "@/components/auth/password-reset-forms";
+import { PasswordUpdatedListener } from "@/components/auth/password-updated-listener";
 import { resetErrorMessage } from "@/lib/auth/reset";
 
 export const metadata = { title: "Reset password" };
@@ -22,6 +23,7 @@ export default async function ForgotPasswordPage({ searchParams }: Props) {
             {linkError}
           </p>
         ) : null}
+        <PasswordUpdatedListener showLoginLink />
         <ForgotPasswordForm />
       </div>
     </main>
