@@ -15,6 +15,7 @@
  */
 
 import { mergeTileTexts } from "@/lib/assignment/tile-merge";
+import { looksBlank } from "@/lib/assignment/blank-image";
 import {
   KIND_LABEL,
   kindFromMime,
@@ -293,19 +294,38 @@ function drawRegion(bitmap: ImageBitmap, sy: number, sh: number): HTMLCanvasElem
   return canvas;
 }
 
+/** True when a drawn page has no ink at all (never sent to OCR; see blank-image.ts). */
+function canvasIsBlank(canvas: HTMLCanvasElement): boolean {
+  try {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    return looksBlank(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The whole photo (kept as the stored copy) plus, for a tall page, two
- * overlapping halves that OCR reads in parallel at higher detail.
+ * overlapping halves that OCR reads in parallel at higher detail. Blank
+ * halves are dropped so the vision model never "reads" an empty page.
  */
 async function photoToJpeg(file: Blob): Promise<{ full: Blob; tiles: Blob[] }> {
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
-    const full = await canvasToJpeg(drawRegion(bitmap, 0, bitmap.height));
+    const fullCanvas = drawRegion(bitmap, 0, bitmap.height);
+    const full = await canvasToJpeg(fullCanvas);
+    if (canvasIsBlank(fullCanvas)) return { full, tiles: [] };
     if (bitmap.height < bitmap.width * 1.25 || bitmap.height < 1400) return { full, tiles: [full] };
     const h = bitmap.height;
-    const top = await canvasToJpeg(drawRegion(bitmap, 0, Math.round(h * 0.55)));
-    const bottom = await canvasToJpeg(drawRegion(bitmap, Math.round(h * 0.45), h - Math.round(h * 0.45)));
-    return { full, tiles: [top, bottom] };
+    const tiles: Blob[] = [];
+    for (const canvas of [
+      drawRegion(bitmap, 0, Math.round(h * 0.55)),
+      drawRegion(bitmap, Math.round(h * 0.45), h - Math.round(h * 0.45)),
+    ]) {
+      if (!canvasIsBlank(canvas)) tiles.push(await canvasToJpeg(canvas));
+    }
+    return { full, tiles: tiles.length ? tiles : [full] };
   } finally {
     bitmap.close();
   }
@@ -370,6 +390,7 @@ async function readPdf(paperId: string, data: Uint8Array): Promise<ClientExtract
   let method: "pdf_text" | "ocr_grok_vision" = "pdf_text";
   if (scannedPages.length) {
     const images: Blob[] = [];
+    const imagePages: number[] = [];
     for (const n of scannedPages.slice(0, MAX_OCR_PAGES)) {
       const page = await doc.getPage(n);
       const base = page.getViewport({ scale: 1 });
@@ -381,13 +402,15 @@ async function readPdf(paperId: string, data: Uint8Array): Promise<ClientExtract
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+      if (canvasIsBlank(canvas)) continue;
       images.push(await canvasToJpeg(canvas, 0.8));
+      imagePages.push(n);
     }
     if (images.length) {
       const ocr = await ocrImages(paperId, images);
       if (ocr.ok) {
         method = "ocr_grok_vision";
-        scannedPages.slice(0, MAX_OCR_PAGES).forEach((n, i) => {
+        imagePages.forEach((n, i) => {
           pageTexts[n - 1] = [pageTexts[n - 1], ocr.pages[i] ?? ""].filter(Boolean).join("\n");
         });
       } else if (pageTexts.every((t) => words(t) < SCANNED_PAGE_WORDS)) {
@@ -417,6 +440,13 @@ async function readPhoto(paperId: string, file: Blob, kind: FileKind): Promise<C
         error: "We couldn't open this photo. Take a screenshot of it, or export it as JPG or PNG.",
       };
     }
+  }
+  if (!jpeg.tiles.length) {
+    return {
+      ok: false,
+      kind,
+      error: "This photo looks blank, with no writing on it. Retake it with the whole page in view, or tell Pau Pau about the assignment.",
+    };
   }
   const ocr = await ocrImages(paperId, jpeg.tiles);
   if (!ocr.ok) return { ok: false, kind, error: ocr.error };
