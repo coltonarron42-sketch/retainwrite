@@ -1,5 +1,6 @@
 // SOP: coaching only, never generate submission text
 
+import { clipWords } from "@/lib/copy/clip";
 import { z } from "zod";
 
 export const promptTypeSchema = z.enum([
@@ -92,7 +93,7 @@ export function guardLesson(
 
 function firstSentence(prompt: string): string {
   const match = prompt.match(/^[\s\S]{1,200}?[.!](?=\s|$)/);
-  return (match?.[0] ?? prompt).trim().slice(0, 200);
+  return clipWords(match?.[0] ?? prompt, 200);
 }
 
 export function fallbackLesson(
@@ -101,7 +102,7 @@ export function fallbackLesson(
 ): LessonExtraction {
   const quote = firstSentence(prompt);
   const concepts = requiredStyles.slice(0, 6).map((term) => ({
-    term: term.slice(0, 60),
+    term: clipWords(term, 60),
     rubricRef: "required_style",
   }));
   const lesson: Lesson = {

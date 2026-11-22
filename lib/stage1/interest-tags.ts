@@ -48,17 +48,17 @@ export function extractInterestTags(answers: string[]): string[] {
     const trimmed = answer.trim();
     if (!trimmed || containsSensitiveContent(trimmed)) continue;
 
-    // Prefer quoted interests / "I love X" / "into X"
+    // Prefer "I love X" / "into X"; otherwise read the whole answer as a list.
     const love = trimmed.match(
-      /\b(?:i(?:'m| am)?\s+(?:into|interested in)|i (?:really )?(?:love|like|follow|play|watch)|fan of)\s+([^,.!?;:]{3,80})/i,
+      /\b(?:i(?:'m| am)?\s+(?:into|interested in)|i (?:really )?(?:love|like|enjoy|follow|play|watch)|fan of)\s+([^.!?;:]{3,160})/i,
     );
-    if (love) {
-      // First item only, whole words: "soccer and baking sourdough with my cousin" → "soccer".
-      const first = love[1]!.split(/\s+(?:and|with|because|but|or|when|since|so)\s+/i)[0]!.trim();
-      const tag = normalizeTag(first.split(/\s+/).slice(0, 3).join(" "));
-      if (tag) tags.add(tag);
+    const listText = love ? love[1]! : trimmed;
+    const found = interestItems(listText);
+    if (found.length) {
+      found.forEach((tag) => tags.add(tag));
       continue;
     }
+    if (love) continue;
 
     // Fallback: first content-ish phrase under 4 words
     const words = trimmed
@@ -73,6 +73,40 @@ export function extractInterestTags(answers: string[]): string[] {
   }
 
   return [...tags].slice(0, 12);
+}
+
+/** Things too generic to steer a lead ("hanging out", "my cousin Mia"). */
+const GENERIC_ITEM =
+  /^(hanging out|hang out|chilling|relaxing|spending time|having fun|friends?|family|people|stuff|things|everything|school|tv|music|games|sleeping|eating|going out|the show|my\b.*|a lot|lots)$/i;
+const LEAD_VERB = /^(watching|watch|playing|play|listening to|following|doing|going to|reading|i\s+\w+)\s+/i;
+
+/**
+ * Split an answer into interest items and keep the specific ones, whole words:
+ * "hanging out with my cousin Mia and baking sourdough, plus watching soccer"
+ * → ["baking sourdough", "soccer"].
+ */
+export function interestItems(text: string): string[] {
+  const out: string[] = [];
+  const parts = text
+    .split(/,|;|\s+(?:and|with|plus|also|or|but|because|when|since|so)\s+/i)
+    .map((part) =>
+      part
+        .trim()
+        .replace(/^(?:and|plus|also|then|i\s+(?:also\s+)?(?:like|love|enjoy))\s+/i, "")
+        .replace(/^(?:the|a|an|some)\s+/i, "")
+        .trim(),
+    );
+  for (const part of parts) {
+    let item = part.replace(LEAD_VERB, "").replace(/^(?:the|a|an)\s+/i, "").trim();
+    // Keep "baking sourdough" (activity + thing) but drop a bare lead verb like "watching soccer" → "soccer".
+    if (!item) continue;
+    item = item.split(/\s+/).slice(0, 3).join(" ");
+    if (GENERIC_ITEM.test(item) || /\b(cousin|friend|mom|dad|brother|sister|grandpa|grandma)\b/i.test(item)) continue;
+    if (item.split(/\s+/).every((w) => STOP_TAG_WORDS.has(w.toLowerCase()))) continue;
+    const tag = normalizeTag(item);
+    if (tag && !out.includes(tag)) out.push(tag);
+  }
+  return out;
 }
 
 function normalizeTag(raw: string): string | null {

@@ -3,6 +3,7 @@
  * // SOP: coaching only, never generate submission text
  */
 
+import { plausibleTopic } from "@/lib/assignment/plausible";
 import { dropInvalidEvidence } from "@/lib/assignment/evidence";
 import { applyPageWordEstimates } from "@/lib/assignment/pages-to-words";
 import { coerceRequirements, requirementsHaveFacts, schemaIssueLog } from "@/lib/assignment/coerce";
@@ -31,7 +32,7 @@ export function isFormatOrLengthLine(value: string | null | undefined): boolean 
   return !/\b(how|why|should|affect|social|health|argue|explain|discuss)\b/i.test(text);
 }
 
-export type ModelReader = (input: { system: string; user: string }) => Promise<
+export type ModelReader = (input: { system: string; user: string; timeoutMs?: number }) => Promise<
   | { ok: true; text: string; model: string }
   | { ok: false; reason: string }
 >;
@@ -182,7 +183,7 @@ function acceptModelJson(text: string, corpus: string): AssignmentRequirements |
  * took 7-12s (and fell back to the rule parser on a timeout, which loses the
  * rubric and named sources). This is a copy-the-facts task, not reasoning.
  */
-const defaultModel: ModelReader = ({ user }) =>
+const defaultModel: ModelReader = ({ user, timeoutMs }) =>
   grokChatJson({
     model: MODEL_FAST,
     system: FLAT_PARSE_SYSTEM,
@@ -192,8 +193,91 @@ const defaultModel: ModelReader = ({ user }) =>
       name: "assignment_requirements",
       schema: FLAT_ASSIGNMENT_SCHEMA as unknown as Record<string, unknown>,
     },
-    timeoutMs: PARSE_TIMEOUT_MS,
+    timeoutMs: timeoutMs ?? PARSE_TIMEOUT_MS,
   });
+
+/**
+ * Rule-read facts are guesses unless they came off a labeled line ("Length:",
+ * "Topic"), which the rules mark 0.8+. Everything else drops below the 0.6 bar
+ * Pau Pau uses to say a fact back, so it asks instead of stating it.
+ */
+export function capFallbackConfidence(req: AssignmentRequirements): AssignmentRequirements {
+  const next = { ...req } as Record<string, unknown>;
+  for (const [key, field] of Object.entries(req)) {
+    if (!field || typeof field !== "object" || !("confidence" in field)) continue;
+    const f = field as { confidence: number; value: unknown };
+    if (f.value == null) continue;
+    let confidence = f.confidence < 0.8 ? Math.min(f.confidence, 0.5) : f.confidence;
+    if (key === "topic" && typeof f.value === "string" && !plausibleTopic(f.value)) confidence = 0;
+    next[key] = { ...f, confidence };
+  }
+  return next as AssignmentRequirements;
+}
+
+/**
+ * The model read is the only trustworthy one, so don't give up on it after a
+ * single try. One request starts at once; a second starts if the first fails
+ * or hasn't answered within HEDGE_AFTER_MS (slow queueing, not a slow task);
+ * a third if both fail early. First accepted answer wins; overall deadline
+ * PARSE_DEADLINE_MS.
+ */
+export const HEDGE_AFTER_MS = 6_000;
+export const PARSE_DEADLINE_MS = 22_000;
+
+async function askReliably(
+  ask: ModelReader,
+  rawText: string,
+): Promise<{ ok: true; requirements: AssignmentRequirements; model: string } | { ok: false; reason: string }> {
+  const started = Date.now();
+  const user = rawText.slice(0, 80_000);
+  return new Promise((resolve) => {
+    let settled = false;
+    let launched = 0;
+    let finished = 0;
+    let lastReason = "request_failed";
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const done = (value: Awaited<ReturnType<typeof askReliably>>) => {
+      if (settled) return;
+      settled = true;
+      timers.forEach(clearTimeout);
+      resolve(value);
+    };
+    const launch = () => {
+      if (settled || launched >= 3) return;
+      const remaining = PARSE_DEADLINE_MS - (Date.now() - started);
+      if (remaining < 4_000) return;
+      launched++;
+      const attempt = launched;
+      void ask({ system: PARSE_SYSTEM, user, timeoutMs: Math.min(PARSE_TIMEOUT_MS + 4_000, remaining) })
+        .then((res) => {
+          finished++;
+          if (res.ok) {
+            const accepted = acceptModelJson(res.text, rawText);
+            if (accepted) {
+              console.info("[assignment/parse] model read", { attempt, ms: Date.now() - started });
+              done({ ok: true, requirements: accepted, model: res.model });
+              return;
+            }
+            lastReason = "schema";
+          } else {
+            lastReason = publicGrokReason(res.reason);
+          }
+          console.warn("[assignment/parse] attempt failed", { attempt, reason: lastReason, ms: Date.now() - started });
+          if (lastReason === "missing_key") return done({ ok: false, reason: lastReason });
+          if (launched < 3) launch();
+          else if (finished >= launched) done({ ok: false, reason: lastReason });
+        })
+        .catch(() => {
+          finished++;
+          if (launched < 3) launch();
+          else if (finished >= launched) done({ ok: false, reason: lastReason });
+        });
+    };
+    launch();
+    timers.push(setTimeout(launch, HEDGE_AFTER_MS));
+    timers.push(setTimeout(() => done({ ok: false, reason: "timeout" }), PARSE_DEADLINE_MS));
+  });
+}
 
 export async function parseAssignmentCorpus(
   corpus: string,
@@ -225,26 +309,21 @@ export async function parseAssignmentCorpus(
   let modelReason = ask ? "schema" : "missing_key";
   if (ask) {
     // SOP: coaching only, never generate submission text
-    const first = await ask({ system: PARSE_SYSTEM, user: rawText.slice(0, 80_000) });
-    if (first.ok) {
-      const accepted = acceptModelJson(first.text, rawText);
-      if (accepted) {
-        const filled = sanitizeParsedRequirements(
-          accepted,
-          scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
-        );
-        return {
-          requirements: filled,
-          rawText,
-          parseMeta: { model: first.model, fallback: false, candidates: [], usableWords: words },
-          needsInput: false,
-          needsConfirmation: false,
-        };
-      }
-      modelReason = "schema";
-    } else {
-      modelReason = publicGrokReason(first.reason);
+    const read = await askReliably(ask, rawText);
+    if (read.ok) {
+      const filled = sanitizeParsedRequirements(
+        read.requirements,
+        scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
+      );
+      return {
+        requirements: filled,
+        rawText,
+        parseMeta: { model: read.model, fallback: false, candidates: [], usableWords: words },
+        needsInput: false,
+        needsConfirmation: false,
+      };
     }
+    modelReason = read.reason;
   }
 
   const fallback = sanitizeParsedRequirements(
@@ -259,7 +338,7 @@ export async function parseAssignmentCorpus(
     console.info("[assignment/parse] used rule fallback", { reason: modelReason });
   }
   return {
-    requirements: fallback,
+    requirements: live ? capFallbackConfidence(fallback) : fallback,
     rawText,
     parseMeta: {
       model: "rule_fallback",

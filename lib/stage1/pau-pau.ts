@@ -5,6 +5,8 @@
  * SOP: coaching only. These lines summarize the assignment sheet only; they
  * never contain paper content, theses or outlines.
  */
+import { plausibleTopic } from "@/lib/assignment/plausible";
+import { emptyRequirements } from "@/lib/assignment/schema";
 import { indefiniteArticle, withArticle } from "@/lib/copy/articles";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
@@ -190,8 +192,48 @@ function joinList(items: string[]): string {
   return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 }
 
+const SAID_BACK = [
+  "course",
+  "instructor",
+  "paperType",
+  "topic",
+  "promptQuestion",
+  "length",
+  "citationStyle",
+  "requiredSources",
+  "dueDate",
+  "rubricCriteria",
+  "structuralRequirements",
+  "formattingRules",
+] as const;
+
+/**
+ * Only facts we're sure of get said back: confirmed by the student, or read
+ * with confidence ≥ 0.6 (the model read, or a labeled line). A topic must also
+ * look like a topic. Everything else is left out, and Pau Pau asks instead.
+ */
+export function trustedView(req: AssignmentRequirements): { view: AssignmentRequirements; skipped: number } {
+  const empty = emptyRequirements();
+  const view = { ...req };
+  let skipped = 0;
+  for (const key of SAID_BACK) {
+    const field = req[key] as { value: unknown; confidence: number; confirmed?: boolean } | undefined;
+    if (!field || field.value == null || (Array.isArray(field.value) && !field.value.length)) continue;
+    let ok = Boolean(field.confirmed) || field.confidence >= 0.6;
+    if (ok && !field.confirmed && (key === "topic" || key === "promptQuestion") && typeof field.value === "string") {
+      ok = plausibleTopic(field.value);
+    }
+    if (!ok) {
+      Object.assign(view, { [key]: empty[key] });
+      if (key === "topic" || key === "length" || key === "citationStyle" || key === "requiredSources" || key === "course") skipped++;
+    }
+  }
+  return { view, skipped };
+}
+
 /** What Pau Pau understood, as one conversational paragraph. */
-export function pauPauSummary(req: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null } = {}): string {
+export function pauPauSummary(full: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null } = {}): string {
+  const { view: req, skipped } = trustedView(full);
   const where = [coursePhrase(req), instructorPhrase(req)].filter((item): item is string => Boolean(item));
   const length = lengthPhrase(req);
   const citation = citationPhrase(req);
@@ -213,7 +255,12 @@ export function pauPauSummary(req: AssignmentRequirements, opts: { pendingAsk?: 
   if (due && due.length <= 60) parts.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
   const topic = topicLine(req);
   if (topic) parts.push(topic);
-  parts.push(opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?");
+  if (skipped) {
+    if (parts.length === 1 && parts[0] === "Okay, let's see here…") parts[0] = "Okay, I read through it.";
+    parts.push("I couldn't make out every detail on the sheet, so I'll check a couple of things with you.");
+  } else {
+    parts.push(opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?");
+  }
   return parts.join(" ").replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
 }
 
@@ -228,7 +275,8 @@ export function sourcesMissing(req: AssignmentRequirements): boolean {
 }
 
 /** The single most important missing thing, or null. Topic cannot be skipped. */
-export function pauPauNextAsk(req: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>): PauPauAsk | null {
+export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>): PauPauAsk | null {
+  const req = trustedView(full).view;
   const topic = cleanTopic(req.topic.value) || cleanTopic(req.promptQuestion.value);
   if (!topic || isPlaceholderTopic(topic)) return "topic";
   if (!dismissed.has("sources") && sourcesMissing(req)) return "sources";
