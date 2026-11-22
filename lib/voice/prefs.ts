@@ -10,11 +10,20 @@ import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
  * localStorage only makes a reload instant. A new account starts with
  * everything off, whatever another account in this browser chose.
  */
-export type ChatPrefs = { voice: boolean; sparkOff: boolean };
+export type ChatPrefs = {
+  voice: boolean;
+  sparkOff: boolean;
+  /** Voice call: the student's mic is muted (Pau Pau still speaks). */
+  micMuted: boolean;
+};
 
-const META_KEYS: Record<keyof ChatPrefs, string> = { voice: "pau_voice", sparkOff: "pau_spark_off" };
+const META_KEYS: Record<keyof ChatPrefs, string> = {
+  voice: "pau_voice",
+  sparkOff: "pau_spark_off",
+  micMuted: "pau_mic_muted",
+};
 const NAME = "chat-prefs";
-const DEFAULTS: ChatPrefs = { voice: false, sparkOff: false };
+const DEFAULTS: ChatPrefs = { voice: false, sparkOff: false, micMuted: false };
 
 type State = { uid: string; prefs: ChatPrefs };
 let state: State | null = null;
@@ -26,7 +35,7 @@ function readLocal(): ChatPrefs {
     const raw = readScoped(NAME);
     if (raw) {
       const p = JSON.parse(raw) as Partial<ChatPrefs>;
-      return { voice: p.voice === true, sparkOff: p.sparkOff === true };
+      return { voice: p.voice === true, sparkOff: p.sparkOff === true, micMuted: p.micMuted === true };
     }
   } catch {
     /* ignore */
@@ -79,9 +88,13 @@ async function loadRemote() {
     if (!data.user || data.user.id !== uid) return;
     const meta = (data.user.user_metadata ?? {}) as Record<string, unknown>;
     // The account wins; a setting it never saved is off.
-    const next: ChatPrefs = { voice: meta[META_KEYS.voice] === true, sparkOff: meta[META_KEYS.sparkOff] === true };
+    const next: ChatPrefs = {
+      voice: meta[META_KEYS.voice] === true,
+      sparkOff: meta[META_KEYS.sparkOff] === true,
+      micMuted: meta[META_KEYS.micMuted] === true,
+    };
     const cur = current().prefs;
-    if (next.voice !== cur.voice || next.sparkOff !== cur.sparkOff) commit(uid, next);
+    if (next.voice !== cur.voice || next.sparkOff !== cur.sparkOff || next.micMuted !== cur.micMuted) commit(uid, next);
   } catch {
     remoteLoaded.delete(uid);
   }

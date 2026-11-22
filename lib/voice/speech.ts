@@ -3,9 +3,16 @@
 import { speakableSentences } from "@/lib/voice/speakable";
 
 /**
- * One shared read-aloud queue for Pau Pau's bubbles (browser speechSynthesis).
+ * One shared read-aloud queue for Pau Pau's own words (browser speechSynthesis).
  * Sentences are queued separately (Chrome cuts long utterances) and read one
  * at a time, in order.
+ *
+ * Mobile (PLAN.md 9 voice): iOS Safari and Chrome Android only start speech
+ * that is "unlocked" by a user gesture, load voices late, sometimes never
+ * fire onend, drop a speak() that follows cancel() in the same tick, and can
+ * leave the engine paused. So: unlock on the first tap (and on the Voice
+ * switch), hold the queue until then, wait for voices, give every utterance a
+ * watchdog, wait a beat after cancel(), and resume() before each speak().
  */
 
 let queue: string[] = [];
@@ -13,6 +20,10 @@ let active = false;
 let generation = 0;
 const listeners = new Set<() => void>();
 let speakingNow = false;
+let unlocked = false;
+let lastCancelAt = 0;
+let watchdog: ReturnType<typeof setTimeout> | null = null;
+let cachedVoice: SpeechSynthesisVoice | null | undefined;
 
 function setSpeaking(v: boolean) {
   if (speakingNow === v) return;
@@ -41,35 +52,140 @@ export function speechSupported(): boolean {
 const PREFERRED = /(natural|neural|google us english|samantha|aria|jenny|ava|allison|serena|karen|daniel)/i;
 
 function pickVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  if (!voices.length) return null;
+  if (cachedVoice !== undefined) return cachedVoice;
+  const voices = window.speechSynthesis.getVoices?.() ?? [];
+  if (!voices.length) return null; // not loaded yet: try again next time
   const en = voices.filter((v) => /^en([-_]|$)/i.test(v.lang));
   const us = en.filter((v) => /^en[-_]us$/i.test(v.lang));
-  return (
+  cachedVoice =
     us.find((v) => PREFERRED.test(v.name)) ??
     en.find((v) => PREFERRED.test(v.name)) ??
     us.find((v) => v.localService) ??
     us[0] ??
     en[0] ??
-    null
-  );
+    null;
+  return cachedVoice;
+}
+
+/** Has this page had a real tap/click/key yet (needed by mobile browsers)? */
+function gestureSeen(): boolean {
+  if (unlocked) return true;
+  const nav = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { userActivation?: { hasBeenActive?: boolean } });
+  // Browsers without the User Activation API: try, and let the watchdog move on if it's blocked.
+  if (!nav?.userActivation) return true;
+  return Boolean(nav.userActivation.hasBeenActive);
+}
+
+let installed = false;
+/** Listens once for the first tap or key and for late-loading voices. */
+export function installSpeechUnlock() {
+  if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
+  installed = true;
+  const onGesture = () => unlockSpeech();
+  for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
+    window.addEventListener(type, onGesture, { capture: true, passive: true });
+  }
+  const synth = window.speechSynthesis as SpeechSynthesis & { onvoiceschanged?: unknown };
+  const onVoices = () => {
+    cachedVoice = undefined;
+    pickVoice();
+  };
+  if (typeof synth.addEventListener === "function") synth.addEventListener("voiceschanged", onVoices);
+  else synth.onvoiceschanged = onVoices;
+  // Chrome Android sometimes leaves the engine paused after the tab was hidden.
+  document?.addEventListener?.("visibilitychange", () => {
+    if (document.visibilityState === "visible" && (queue.length || active)) {
+      try {
+        window.speechSynthesis.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+}
+
+/**
+ * Call inside a user gesture (the Voice switch, Send, any tap). Speaks a
+ * silent utterance once so iOS/Android allow speech that starts later, after
+ * a network reply, then plays anything that was waiting.
+ */
+export function unlockSpeech() {
+  if (!speechSupported()) return;
+  const synth = window.speechSynthesis;
+  try {
+    synth.resume();
+  } catch {
+    /* ignore */
+  }
+  if (!unlocked) {
+    unlocked = true;
+    try {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      u.rate = 10;
+      synth.speak(u);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (queue.length && !active) pump();
+}
+
+/** Rough upper bound for one sentence, so a missing onend can't stall the queue. */
+export function utteranceBudgetMs(text: string): number {
+  return 4000 + text.length * 90;
+}
+
+/** Long sentences are split at commas/semicolons (Chrome stops mid-utterance after ~15s). */
+export function chunkSentence(text: string, max = 180): string[] {
+  if (text.length <= max) return [text];
+  const out: string[] = [];
+  let cur = "";
+  for (const part of text.split(/(?<=[,;:—])\s+/)) {
+    if ((cur + " " + part).trim().length > max && cur) {
+      out.push(cur.trim());
+      cur = part;
+    } else cur = `${cur} ${part}`;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.flatMap((c) => (c.length > max * 1.5 ? c.match(new RegExp(`.{1,${max}}(\\s|$)`, "g"))!.map((x) => x.trim()) : [c]));
 }
 
 function pump() {
   if (active) return;
-  const next = queue.shift();
-  if (!next) {
+  if (!queue.length) {
     setSpeaking(false);
     return;
   }
+  // Mobile: nothing can play before the first tap; keep the queue until then.
+  if (!gestureSeen()) return;
+  const wait = 80 - (Date.now() - lastCancelAt);
+  if (wait > 0) {
+    // speak() right after cancel() is dropped on Chrome; wait a beat.
+    active = true;
+    const gen = generation;
+    setTimeout(() => {
+      if (gen !== generation) return;
+      active = false;
+      pump();
+    }, wait);
+    return;
+  }
+  const next = queue.shift()!;
   active = true;
   const gen = generation;
+  const synth = window.speechSynthesis;
   const u = new SpeechSynthesisUtterance(next);
   const voice = pickVoice();
   if (voice) u.voice = voice;
   u.lang = voice?.lang ?? "en-US";
   u.rate = 1;
+  let finished = false;
   const done = () => {
+    if (finished) return;
+    finished = true;
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = null;
     if (gen !== generation) return;
     active = false;
     pump();
@@ -77,23 +193,43 @@ function pump() {
   u.onend = done;
   u.onerror = done;
   setSpeaking(true);
-  window.speechSynthesis.speak(u);
+  try {
+    if (synth.paused) synth.resume();
+  } catch {
+    /* ignore */
+  }
+  try {
+    synth.speak(u);
+  } catch {
+    done();
+    return;
+  }
+  watchdog = setTimeout(done, utteranceBudgetMs(next));
 }
 
 /** Queue Pau Pau's words. `interrupt` replaces anything already playing. */
 export function speak(texts: string[], opts: { interrupt?: boolean } = {}) {
   if (!speechSupported()) return;
+  installSpeechUnlock();
   if (opts.interrupt) stopSpeech();
-  for (const t of texts) queue.push(...speakableSentences(t));
+  for (const t of texts) for (const s of speakableSentences(t)) queue.push(...chunkSentence(s));
+  if (queue.length) setSpeaking(true);
   pump();
+  // Held for a tap: not "speaking" yet, so the mic is not paused for nothing.
+  if (!active) setSpeaking(false);
 }
 
 export function stopSpeech() {
   generation++;
   queue = [];
   active = false;
+  if (watchdog) clearTimeout(watchdog);
+  watchdog = null;
   setSpeaking(false);
-  if (speechSupported()) window.speechSynthesis.cancel();
+  if (speechSupported()) {
+    lastCancelAt = Date.now();
+    window.speechSynthesis.cancel();
+  }
 }
 
 /* ---- which bubbles were already on screen / already read (per paper) ---- */
@@ -133,4 +269,14 @@ export function __resetSpeech() {
   latestTurn = [];
   queue = [];
   active = false;
+  unlocked = false;
+  lastCancelAt = 0;
+  cachedVoice = undefined;
+  if (watchdog) clearTimeout(watchdog);
+  watchdog = null;
+}
+
+/** Test helper: pretend the student already tapped. */
+export function __unlockForTest() {
+  unlocked = true;
 }
