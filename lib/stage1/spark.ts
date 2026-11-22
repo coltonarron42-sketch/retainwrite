@@ -1,3 +1,4 @@
+import { PAU_PERSONALITY } from "@/lib/coach/personality";
 /**
  * Hesitation "spark" questions: 2–3 short, open, Socratic questions about the
  * student's own topic and experience. Never suggested sentences, wording or
@@ -89,6 +90,8 @@ export const SPARK_SYSTEM = [
   "The questions must help them answer the exact question they are stuck on. Use the assignment topic only when that question is about the topic (for a question about their hobbies or interests, ask about their life, not the assignment).",
   "Never suggest sentences, wording, claims, examples, facts, a thesis, or what to write. Never answer for them. No quotation marks.",
   "Each item is one question ending in a question mark. Plain, friendly, high-school reading level.",
+  PAU_PERSONALITY,
+  "Here the questions themselves carry the coaching; a light, kind touch of humor is fine in at most one of them.",
   'Return JSON: {"questions": ["...", "..."]}.',
 ].join("\n");
 

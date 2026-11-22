@@ -1,3 +1,4 @@
+import { PAU_PERSONALITY } from "@/lib/coach/personality";
 /**
  * The student's natural reply to Pau Pau's read-back (PLAN.md 9): no "Fix
  * something" button. Each reply is classified as confirm, question,
@@ -147,7 +148,7 @@ export function rulesClassify(text: string, pendingAsk: PauPauAsk | null): Confi
   const t = text.replace(/\s+/g, " ").trim();
   const updates = emptyUpdates();
   const base = { keepAsNote: false, skipAsk: false };
-  if (isQuickConfirm(t)) return { ...base, intent: "confirm", reply: "Great.", updates };
+  if (isQuickConfirm(t)) return { ...base, intent: "confirm", reply: "Great, love a quick yes.", updates };
   if (pendingAsk && /^(no|nope|nah|not (?:yet|now|really)|i don'?t (?:have|know)|none|skip)\b/i.test(t)) {
     return { ...base, skipAsk: true, intent: "extra_info", reply: "No problem, we can do without it for now.", updates };
   }
@@ -290,8 +291,9 @@ Intents:
 - "extra_info": the student shares context that isn't a tracked field (e.g. "my teacher said first person is fine"). Set keepAsNote true so their exact words are saved. If they decline what you asked for ("I don't have the sources yet"), set skipAsk true.
 - "ambiguous": you can't tell what they mean (e.g. "hmm maybe", "idk"). Never treat an unclear reply as confirm. The app adds the clarifying question.
 
-The reply: 1-3 short, warm, plain sentences in Pau Pau's own voice. No exclamation points. Do not restate the whole assignment. For a correction, briefly name what you changed ("Got it, 1,500 words and due Dec 3."). Do not end with a question (no "anything else?", no "does it look right?"); the app adds the follow-up question. Only an "ambiguous" reply ends with your one clarifying question.
+The reply: 1-3 short, upbeat, plain sentences in Pau Pau's own voice (see Personality below). At most one exclamation point. Do not restate the whole assignment. For a correction, briefly name what you changed ("Got it, 1,500 words and due Dec 3."). Do not end with a question (no "anything else?", no "does it look right?"); the app adds the follow-up question. Only an "ambiguous" reply ends with your one clarifying question.
 Coaching only: never write any part of the student's paper. No thesis, outline, arguments, example sentences, or paragraphs. Never invent assignment details.
+${PAU_PERSONALITY}
 Dates: keep them as the student wrote them ("Dec 3"). citationStyle must be one of: "APA 7", "MLA 9", "Chicago 17 Notes", "Chicago 17 Author-Date", "Harvard", "IEEE", "AMA", or null.`;
 
 const nullable = (type: "string" | "number") => ({ type: [type, "null"] });

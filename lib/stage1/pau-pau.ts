@@ -249,12 +249,12 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
  * [lead-in, verb phrase before "<course>: <length>"].
  */
 export const SUMMARY_OPENERS: ReadonlyArray<string> = [
-  "Okay, I've read it.",
+  "Okay, I've read it. Riveting stuff, honestly.",
   "Got it.",
-  "Alright, I read it through.",
+  "Alright, I read it through. Homework, my favorite genre.",
   "Okay, I've gone through it.",
   "Okay, here's what I'm seeing.",
-  "Okay, I've read it through.",
+  "Okay, I've read it through. No pop quiz, I promise.",
   "Alright, here's the gist.",
   "Great, I've got it.",
 ];
