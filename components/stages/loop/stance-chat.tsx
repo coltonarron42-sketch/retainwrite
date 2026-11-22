@@ -26,7 +26,7 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { isPlainYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { ASIDE_FOLLOW_UP, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
 
@@ -57,7 +57,8 @@ export type StanceHandlers = {
   teachAspect: (aspect: string, lines: LoopLine[]) => void;
   teachSkip: (lines: LoopLine[]) => void;
   mirrorSave: (lines: LoopLine[]) => void;
-  probeSave: (lines: LoopLine[]) => void;
+  /** Typed words saved as the note. fromTeach: typed over the teach chips; replace: typed over a choice turn (a revised claim). */
+  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) => void;
   followUpAspect: (aspect: string) => void;
   followUpSkip: () => void;
   triggerPick: (trigger: MemoryTrigger) => void;
@@ -92,6 +93,8 @@ type Props = {
   aside: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[]) => void;
+  /** Pau Pau is checking (relevance) before she answers. */
+  busy?: boolean;
   idea: string;
   onIdea: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -204,17 +207,19 @@ export function StanceChat(props: Props) {
   const you = (text: string): LoopLine => ({ k: section.key, who: "you", text });
   // A tapped choice is app text: a "Picked: …" chip, never the student's words.
   const pick = (text: string): LoopLine => ({ k: section.key, who: "pick", text });
-  const ask = turnParas.join(" ");
   const r = section.logic?.result;
   // Hints belong to this turn only; a new turn never shows an old hint.
   const turnId = `${section.key}:${kind}:${transcript.length}`;
   const hint = hintState?.key === turnId ? hintState.text : null;
   const setHint = (text: string | null) => setHintState(text ? { text, key: turnId } : null);
-  const asideParas = props.aside && props.aside.k === section.key && props.aside.at === transcript.length ? props.aside.paras : [];
-  // After she hands over probing questions, don't repeat the opening ask under them.
+  // Her answer to a request/question is already in the transcript (append-only).
+  // Legacy sessions may still carry it on the marker.
+  const asideHere = Boolean(props.aside && props.aside.k === section.key && props.aside.at === transcript.length);
+  const asideParas = asideHere ? props.aside!.paras : [];
+  // After she answers, she never re-asks the opener: a short follow-up instead.
   const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror";
-  const replacesAsk = asideParas.length > 0 && freeText && (props.aside?.intent === "request_probe" || props.aside?.intent === "request_help");
-  const paras = replacesAsk ? [ASIDE_FOLLOW_UP] : turnParas;
+  const paras = asideHere && freeText ? [asideFollowUp(props.aside?.intent, section.title)] : turnParas;
+  const ask = paras.join(" ");
 
   async function send() {
     const text = idea.trim();
@@ -236,8 +241,8 @@ export function StanceChat(props: Props) {
     }
     switch (kind) {
       case "teach_card":
-        // Their own words go on to the next question (the probe), unchanged.
-        h.teachAspect(SOMETHING_ELSE, [pau(card?.ask ?? ask), pick(SOMETHING_ELSE)]);
+        // Typed words are their reply (never a "Something else" chip): saved as the note.
+        h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true });
         return;
       case "mirror":
         h.mirrorSave([pau(ask), you(text)]);
@@ -271,6 +276,11 @@ export function StanceChat(props: Props) {
         }
         break;
     }
+    // Words typed over a choice are a revised note, sent as their reply.
+    if (choiceTurn && kind !== "none" && kind !== "locked_in") {
+      h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true });
+      return;
+    }
     setHint(TAP_HINT);
   }
 
@@ -287,10 +297,6 @@ export function StanceChat(props: Props) {
               ? "Or tell me in your own words"
               : "Reply to Pau Pau, or tap a choice";
 
-  const speak: SpeakItem[] = [
-    { key: "s2:intro", text: `${intro.heading}. ${intro.body}` },
-    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...asideParas, ...paras].join(" "), turn: true },
-  ];
   // The opener: question, "one section at a time", edit link, prompt type and
   // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
   const introBubbles: ReactNode[] = [
@@ -349,6 +355,10 @@ export function StanceChat(props: Props) {
   const trailing = groups.length && groups[groups.length - 1]!.who === "pau" && groups[groups.length - 1]!.k === section.key ? groups.pop()!.texts : [];
   const introInCurrent = groups.length === 0;
   const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
+  const speak: SpeakItem[] = [
+    { key: "s2:intro", text: `${intro.heading}. ${intro.body}` },
+    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
+  ];
   const history = groups.map((group, i) => {
     const head = i === 0 || groups[i - 1]!.k !== group.k ? sections.find((item) => item.key === group.k)?.title : null;
     const first = i === 0 && group.who === "pau";
@@ -528,7 +538,7 @@ export function StanceChat(props: Props) {
 
           {kind === "logic_opener" ? (
             <Choices label="Logic check">
-              <DsButton type="button" size="sm" onClick={() => h.logicOpener("yes", [pau(LOGIC_OPENER), pick(LOGIC_YES)])}>
+              <DsButton type="button" size="sm" disabled={props.busy} aria-busy={props.busy || undefined} onClick={() => h.logicOpener("yes", [pau(LOGIC_OPENER), pick(LOGIC_YES)])}>
                 {LOGIC_YES}
               </DsButton>
               <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicOpener("tweak", [pau(LOGIC_OPENER), pick(LOGIC_TWEAK)])}>
@@ -638,7 +648,7 @@ export function StanceChat(props: Props) {
           inputProps={{ onDrop: props.onDrop }}
           minRows={1}
           placeholder={placeholder}
-          sending={checking}
+          sending={checking || Boolean(props.busy)}
           onSend={() => void send()}
         />
         <SaveStatus status={props.noteStatus} />

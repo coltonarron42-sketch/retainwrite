@@ -56,7 +56,7 @@ import {
   sectionContinueTarget,
 } from "@/lib/stages/advance";
 import type { StageProgressRow } from "@/lib/stages/assert";
-import { defaultTeachCard, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
+import { defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
 import {
   checklistItem5Resolved,
   VOICE_NUDGE_EVENTS,
@@ -135,7 +135,7 @@ type Session = {
    * said (transcript length === at), so it never becomes its own bubble.
    */
   aside?: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
-  outlineAside?: { k: string; at: number; paras: string[] } | null;
+  outlineAside?: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
 };
 
 type Props = {
@@ -258,6 +258,8 @@ export function CoachingLoop({
   // The shell passes a fresh stageProgress array on every render. Read it from
   // a ref so a parent re-render does not reload the saved session over the
   // student's live progress (it reset Stance to the first section's leads).
+  const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
+  const [checkingLogic, setCheckingLogic] = useState(false);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   const stageProgressRef = useRef(stageProgress);
   useEffect(() => {
@@ -470,7 +472,7 @@ export function CoachingLoop({
 
   async function continueAfterLogic(choice: "pass" | "keep" | "continued", more: LoopLine[] = []) {
     if (!session || !section) return;
-    const transcript = appendLines(session.transcript, more);
+    let transcript = appendLines(session.transcript, more);
     const sections = session.sections.map((item, index) =>
       index === active
         ? {
@@ -488,14 +490,12 @@ export function CoachingLoop({
     );
     const nextIndex = target.kind === "section" ? target.index : active;
     // "Continue anyway" after a flag: a short acknowledgement in her next turn.
-    const aside =
+    const ack =
       choice === "continued" && target.kind === "section"
-        ? {
-            k: sections[nextIndex]!.key,
-            at: transcript.length,
-            paras: [`Okay, we'll keep going. I flagged your ${section.title.toLowerCase()} so you can come back to it before you draft.`],
-          }
-        : session.aside ?? null;
+        ? `Okay, we'll keep going. I flagged your ${section.title.toLowerCase()} so you can come back to it before you draft.`
+        : null;
+    if (ack) transcript = appendLines(transcript, [{ k: sections[nextIndex]!.key, who: "pau", text: ack }]);
+    const aside = ack ? null : session.aside ?? null;
     commit({
       ...session,
       sections,
@@ -591,13 +591,15 @@ export function CoachingLoop({
   /** A request or question is answered in her next turn and never saved as a note. */
   function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[]) {
     if (!session || !section) return;
-    const transcript = withLines(more);
     const paras = intentReply(intent, { turn, section });
+    // Append-only history: her answer is saved in the transcript (it survives
+    // the next turn and a reload); the aside marker only shapes her next ask.
+    const transcript = withLines([...more, ...paras.map((text): LoopLine => ({ k: section.key, who: "pau", text }))]);
     const moveToProbe = intent === "request_probe" && (turn === "teach_card" || turn === "mirror");
     const next: Session = {
       ...session,
       transcript,
-      aside: { k: section.key, at: transcript.length, paras, intent },
+      aside: { k: section.key, at: transcript.length, paras: [], intent },
       sections: moveToProbe
         ? session.sections.map((item) =>
             item.key === section.key ? { ...item, loopStep: "probe" as const, teachStatus: turn === "mirror" ? item.teachStatus : "explored" } : item,
@@ -675,7 +677,7 @@ export function CoachingLoop({
     setIdea("");
   }
 
-  async function onProbeSave(more: LoopLine[]) {
+  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) {
     if (!session || !section) return;
     if (!idea.trim()) return;
     const probe = probeForThinNote(idea);
@@ -684,6 +686,8 @@ export function CoachingLoop({
       return;
     }
     setThinNote(null);
+    if (opts?.replace) replacingClaim.current = true;
+    const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
     const step = afterProbe(section, idea, replacingClaim.current);
     replacingClaim.current = false;
     const transcript = withLines(more);
@@ -691,7 +695,7 @@ export function CoachingLoop({
       ...session,
       transcript,
       sections: session.sections.map((item) =>
-        item.key === section.key ? { ...item, ideas: step.ideas, loopStep: step.loopStep } : item,
+        item.key === section.key ? { ...item, ...teach, ideas: step.ideas, loopStep: step.loopStep } : item,
       ),
     };
     if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
@@ -704,9 +708,11 @@ export function CoachingLoop({
     updateSection(
       section.key,
       {
+        ...teach,
         ideas: step.ideas,
         chosenLead: seeded?.name ?? section.chosenLead,
         loopStep: step.loopStep,
+        ...(opts?.replace ? { logic: null, logicRevealed: false } : {}),
       },
       {
         transcript,
@@ -739,24 +745,49 @@ export function CoachingLoop({
     log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
   }
 
+  /** The model's relevance verdict for a note (null: it didn't answer, rules decide). */
+  function fetchRelevance(notes: string, title: string): Promise<boolean | null> {
+    const prompt = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+    if (!prompt || !notes.trim()) return Promise.resolve(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    return fetch(`/api/papers/${paperId}/stance/relevance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: notes.slice(0, 4000), prompt: prompt.slice(0, 1000), section: title }),
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<{ onTopic?: boolean | null }>) : null))
+      .then((data) => (typeof data?.onTopic === "boolean" ? data.onTopic : null))
+      .catch(() => null)
+      .finally(() => clearTimeout(timer));
+  }
+
+  function checkNotes(target: RuntimeSection, notes: string, onPrompt: boolean | null) {
+    const raw = logicCheckFromNotes({
+      notes,
+      assignmentText: session?.assignmentText ?? "",
+      rubricRef: target.rubricRef,
+      mode: target.mode,
+      confirmedPrompt,
+      confirmedTopic,
+      onPrompt,
+    });
+    return finalizeLogicCheck(raw, {
+      assignmentText: session?.assignmentText ?? "",
+      studentNotes: notes,
+      mode: target.mode,
+      rubricRequiresCounterargument: false,
+      validRubricRefs: [target.rubricRef, "ethics", "prompt"],
+    });
+  }
+
   function onConfirm(more: LoopLine[]) {
     if (!session || !section) return;
     const notes = keptIdeas(section.ideas).at(-1) ?? "";
-    const raw = logicCheckFromNotes({
-      notes,
-      assignmentText: session.assignmentText,
-      rubricRef: section.rubricRef,
-      mode: section.mode,
-      confirmedPrompt,
-      confirmedTopic,
-    });
-    const logic = finalizeLogicCheck(raw, {
-      assignmentText: session.assignmentText,
-      studentNotes: notes,
-      mode: section.mode,
-      rubricRequiresCounterargument: false,
-      validRubricRefs: [section.rubricRef, "ethics", "prompt"],
-    });
+    // Relevance first, on every section: ask the model now, use it at "Yes, check it".
+    relevance.current = { key: `${section.key}:${notes}`, verdict: fetchRelevance(notes, section.title) };
+    const logic = checkNotes(section, notes, null);
     updateSection(
       section.key,
       {
@@ -770,8 +801,26 @@ export function CoachingLoop({
     log("logic_opener_shown");
   }
 
-  function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
+  async function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
     if (!section) return;
+    if (choice === "yes") {
+      const notes = keptIdeas(section.ideas).at(-1) ?? "";
+      const pending = relevance.current?.key === `${section.key}:${notes}` ? relevance.current.verdict : fetchRelevance(notes, section.title);
+      setCheckingLogic(true);
+      const verdict = await pending;
+      setCheckingLogic(false);
+      if (verdict !== null) {
+        const logic = checkNotes(section, notes, verdict);
+        const passed = logic.result.tier === "pass";
+        updateSection(
+          section.key,
+          { logic, logicRevealed: true, ...(passed ? { status: "confirmed" as const } : {}) },
+          { transcript: withLines(more) },
+        );
+        log("logic_check_run");
+        return;
+      }
+    }
     if (choice === "tweak") {
       updateSection(section.key, { loopStep: "probe", logicRevealed: false }, { transcript: withLines(more) });
       setIdea(keptIdeas(section.ideas).at(-1) ?? "");
@@ -905,11 +954,12 @@ export function CoachingLoop({
     if (!session) return;
     const item = session.sections.find((sectionItem) => sectionItem.key === key);
     if (!item) return;
-    const outlineTranscript = appendLines(session.outlineTranscript, more);
+    const paras = intentReply(intent, { turn: "outline", section: item });
+    const outlineTranscript = appendLines(session.outlineTranscript, [...more, ...paras.map((text): LoopLine => ({ k: key, who: "pau", text }))]);
     commit({
       ...session,
       outlineTranscript,
-      outlineAside: { k: key, at: outlineTranscript.length, paras: intentReply(intent, { turn: "outline", section: item }) },
+      outlineAside: { k: key, at: outlineTranscript.length, paras: [], intent },
     });
   }
 
@@ -1028,6 +1078,7 @@ export function CoachingLoop({
           aside={session.aside ?? null}
           classify={classifyIntent}
           onAside={onAside}
+          busy={checkingLogic}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
@@ -1043,7 +1094,7 @@ export function CoachingLoop({
             teachAspect: onTeachAspect,
             teachSkip: onTeachSkip,
             mirrorSave: (more) => void onMirrorSave(more),
-            probeSave: (more) => void onProbeSave(more),
+            probeSave: (more, opts) => void onProbeSave(more, opts),
             followUpAspect: (aspect) => {
               if (!section) return;
               updateSection(section.key, { teachAspect: aspect, teachStatus: "explored" });
