@@ -76,7 +76,7 @@ export async function POST(request: Request, ctx: Ctx) {
       }
 
       const started = Date.now();
-      const parsed = await parseAssignmentCorpus(corpus, { mode: "live", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined });
+      const parsed = await parseAssignmentCorpus(corpus, { mode: "live", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined, described: body.described });
       console.info("[assignment/parse] timing", {
         ms: Date.now() - started,
         model: parsed.parseMeta.model,
@@ -153,7 +153,7 @@ export async function POST(request: Request, ctx: Ctx) {
   }
 
   const started = Date.now();
-  const parsed = await parseAssignmentCorpus(corpus, { mode: "demo", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined });
+  const parsed = await parseAssignmentCorpus(corpus, { mode: "demo", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined, described: body.described });
   console.info("[assignment/parse] timing", {
     ms: Date.now() - started,
     model: parsed.parseMeta.model,

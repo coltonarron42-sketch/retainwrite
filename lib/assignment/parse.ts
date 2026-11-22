@@ -3,6 +3,7 @@
  * // SOP: coaching only, never generate submission text
  */
 
+import { groundToDescription } from "@/lib/assignment/ground-described";
 import { plausibleTopic } from "@/lib/assignment/plausible";
 import { dropInvalidEvidence } from "@/lib/assignment/evidence";
 import { applyPageWordEstimates } from "@/lib/assignment/pages-to-words";
@@ -295,7 +296,13 @@ async function askReliably(
 
 export async function parseAssignmentCorpus(
   corpus: string,
-  options?: { mode?: "live" | "demo"; askModel?: ModelReader; minWords?: number },
+  options?: {
+    mode?: "live" | "demo";
+    askModel?: ModelReader;
+    minWords?: number;
+    /** The student's own typed description: keep only facts they actually gave. */
+    described?: boolean;
+  },
 ): Promise<ParseResult> {
   const mode = options?.mode ?? "demo";
   const rawText = corpus.trim();
@@ -330,7 +337,7 @@ export async function parseAssignmentCorpus(
         scrubEvidence(parseAssignmentFallback(rawText, { allowTopicAndDueDateGuess: false }), rawText),
       );
       return {
-        requirements: filled,
+        requirements: options?.described ? groundToDescription(filled, rawText) : filled,
         rawText,
         parseMeta: { model: read.model, fallback: false, candidates: [], usableWords: words },
         needsInput: false,
@@ -351,8 +358,9 @@ export async function parseAssignmentCorpus(
   if (live) {
     console.info("[assignment/parse] used rule fallback", { reason: modelReason });
   }
+  const grounded = options?.described ? groundToDescription(fallback, rawText) : fallback;
   return {
-    requirements: live ? capFallbackConfidence(fallback) : fallback,
+    requirements: live ? capFallbackConfidence(grounded) : grounded,
     rawText,
     parseMeta: {
       model: "rule_fallback",
