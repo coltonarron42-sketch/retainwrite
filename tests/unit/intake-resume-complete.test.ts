@@ -7,6 +7,6 @@ describe("intake resume after every question is answered", () => {
     expect(intake).toContain('answer.questionId === "fallback_voice"');
     expect(intake).toContain("setNeedFallback(true);\n      return;");
     expect(intake).toContain("else finishCoaching(answers);");
-    expect(intake).toContain("if (qIndex >= coachingPlan.length && coachingPlan.length > 0) finishCoaching(answers);");
+    expect(intake).toContain("if (qIndex >= coachingPlan.length && coachingPlan.length > 0) {");
   });
 });

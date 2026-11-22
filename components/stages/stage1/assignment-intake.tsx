@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
+import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -150,6 +151,8 @@ export function AssignmentIntake({
   const [paper, setPaper] = useState<DemoPaper | null>(null);
   const [screen, setScreen] = useState<Screen>("upload");
   const [resumeReady, setResumeReady] = useState(demoMode);
+  /** A reload is still working out which screen and question to reopen. */
+  const [resumePending, setResumePending] = useState(!demoMode);
   const [paste, setPaste] = useState("");
   const [links, setLinks] = useState("");
   const [rightsOk, setRightsOk] = useState(false);
@@ -229,6 +232,7 @@ export function AssignmentIntake({
       } | null) => {
         if (cancelled) return;
         if (!data) {
+          setResumePending(false);
           setResumeReady(true);
           return;
         }
@@ -249,13 +253,39 @@ export function AssignmentIntake({
         } else if (nextScreen === "coaching") {
           setScreen("coaching");
         }
+        // Reload while typing the early take: reopen that box directly.
+        const stanceOpen = nextScreen === "stance" && Boolean(data.storyAngle?.text);
+        if (stanceOpen) {
+          resumedIntake.current = true;
+          setQIndex(-1);
+          setScreen("coaching");
+        } else if (nextScreen === "stance") {
+          setChecklistConfirmed(true);
+          setScreen("gate");
+          resumedIntake.current = true;
+        }
         const questionId = data.resume?.questionId ?? null;
         pendingQuestion.current = questionId;
-        if (questionId && nextScreen === "coaching") {
+        // Only the question screen needs the plan before it can open.
+        if (nextScreen !== "coaching") setResumePending(false);
+        else
+          window.setTimeout(() => {
+            if (!cancelled) setResumePending(false);
+          }, 8000);
+        if (questionId && (nextScreen === "coaching" || stanceOpen)) {
           // Show this browser's copy right away; the server copy replaces it
           // only if it is newer (for example, typed on another device).
           const local = readLocalDraft(paperId, `stage1:${questionId}`);
-          draftRestore.current = { questionId, text: local?.text ?? "", opened: false, serverDone: false };
+          const savedStance = stanceOpen
+            ? data.answers?.find((answer) => answer.questionId === "stance_early")?.answerText ?? ""
+            : "";
+          draftRestore.current = {
+            questionId,
+            text: local?.text ?? savedStance,
+            opened: stanceOpen,
+            serverDone: false,
+          };
+          if (stanceOpen) setDraftAnswer(local?.text ?? savedStance);
           // Show "Restoring your draft…" until the text is in the box, even when
           // this browser has a copy (the question can open a beat before it).
           setRestoringDraft(true);
@@ -291,7 +321,10 @@ export function AssignmentIntake({
         }
         setResumeReady(true);
       })
-      .catch(() => setResumeReady(true));
+      .catch(() => {
+        setResumePending(false);
+        setResumeReady(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -322,7 +355,9 @@ export function AssignmentIntake({
     plan.push({
       id: "personal_1",
       kind: "personal",
-      text: `When have you seen an idea like ${topic} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
+      text: isQuestionTopic(topic)
+        ? `When has the question “${asQuestion(topic)}” come up in real life — school, work, family, or something you follow? Write at least a few sentences.`
+        : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
     if (needFallback) {
@@ -337,12 +372,32 @@ export function AssignmentIntake({
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
-    if (answers.length === 0 && !storyAngle && !pendingQuestion.current) return;
+    if (answers.length === 0 && !storyAngle && !pendingQuestion.current) {
+      if (resumeReady) setResumePending(false);
+      return;
+    }
     // needFallback is not saved; a reload must rebuild the plan with the
-    // fallback question the student already answered before resuming.
-    if (!needFallback && answers.some((answer) => answer.questionId === "fallback_voice")) {
+    // fallback question before resuming, whether it was answered or was the
+    // question being typed when the page reloaded.
+    if (
+      !needFallback &&
+      (pendingQuestion.current === "fallback_voice" ||
+        answers.some((answer) => answer.questionId === "fallback_voice"))
+    ) {
       setNeedFallback(true);
       return;
+    }
+    // Same for a skipped get-to-know-you: rebuild the shorter plan first, so
+    // the question index points into the plan that is actually shown.
+    if (!skippedInterest) {
+      const preview = resumeIntake(
+        coachingPlan.map((question) => question.id),
+        answers.map((answer) => answer.questionId),
+      );
+      if (preview.skipInterest) {
+        setSkippedInterest(true);
+        return;
+      }
     }
     resumedIntake.current = true;
     // However the resume lands, the restore is settled after this pass.
@@ -352,6 +407,7 @@ export function AssignmentIntake({
       restore.opened = true;
       if (restore.serverDone) setRestoringDraft(false);
     };
+    setResumePending(false);
     const resume = resumeIntake(
       coachingPlan.map((question) => question.id),
       answers.map((answer) => answer.questionId),
@@ -389,7 +445,7 @@ export function AssignmentIntake({
       }
     }
     settleRestore();
-  }, [demoMode, answers, coachingPlan, storyAngle, needFallback]);
+  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, skippedInterest, resumeReady]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -430,8 +486,20 @@ export function AssignmentIntake({
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
 
-  if (!paper) {
-    return <p className="text-[16px] leading-[1.6] text-ds-muted">Loading paper…</p>;
+  if (!paper || resumePending) {
+    return (
+      <div className="mx-auto max-w-2xl py-16" role="status" aria-live="polite">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="h-5 w-5 animate-spin rounded-full border-2 border-ds-border border-t-ds-ink"
+          />
+          <p className="text-[16px] leading-[1.6] text-ds-muted">
+            {paper ? "Picking up where you left off…" : "Loading paper…"}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   function openChecklist(next: AssignmentRequirements, corpus: string) {
@@ -701,7 +769,10 @@ export function AssignmentIntake({
   async function submitAnswer(opts?: { skip?: boolean }) {
     const q = coachingPlan[qIndex];
     if (!q) {
-      if (qIndex >= coachingPlan.length && coachingPlan.length > 0) finishCoaching(answers);
+      if (qIndex >= coachingPlan.length && coachingPlan.length > 0) {
+        if (storyAngle) goToStanceOnStory();
+        else finishCoaching(answers);
+      }
       return;
     }
     const text = opts?.skip ? "" : draftAnswer.trim();
@@ -832,6 +903,12 @@ export function AssignmentIntake({
     ) {
       setNeedFallback(true);
       setQIndex(coachingPlan.length);
+      return;
+    }
+    // The story angle is already picked (the checklist says so): go on to the
+    // early take instead of asking for the story again.
+    if (storyAngle) {
+      goToStanceOnStory();
       return;
     }
     finishCoaching(nextAnswers);
@@ -1095,6 +1172,7 @@ export function AssignmentIntake({
       rightsOk,
     });
     const filesReading = stagedFiles.some((f) => f.status === "reading");
+    const fileFailed = stagedFiles.some((f) => f.status === "failed");
 
     return (
       <div className="mx-auto max-w-[680px]">
@@ -1128,12 +1206,18 @@ export function AssignmentIntake({
           <DsButton
             type="button"
             variant="primary"
-            disabled={!canSubmit || filesReading}
+            disabled={!canSubmit || filesReading || fileFailed}
             aria-busy={filesReading || undefined}
+            aria-describedby={fileFailed ? "file-failed-hint" : undefined}
             onClick={() => void runParse()}
           >
             {filesReading ? "Reading your files…" : "Read my assignment"}
           </DsButton>
+          {fileFailed && !filesReading ? (
+            <p id="file-failed-hint" className="text-[13px] leading-[1.6] text-ds-muted">
+              Retry or remove the file that couldn&apos;t be read to continue.
+            </p>
+          ) : null}
         </div>
         {demoMode ? (
           <p className="mt-6 text-[13px] leading-[1.6] text-ds-muted">
