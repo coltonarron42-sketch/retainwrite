@@ -49,7 +49,8 @@ export async function POST(request: Request, ctx: Ctx) {
     system: SEARCH_TERM_SYSTEM,
     user: JSON.stringify({ topic: body.topic, section: body.section, student_note: body.note ?? "" }),
     jsonSchema: { name: "search_query", schema: SEARCH_TERM_SCHEMA as unknown as Record<string, unknown> },
-    timeoutMs: 6_000,
+    // Low reasoning effort takes a few seconds; the keyword fallback shows meanwhile.
+    timeoutMs: 15_000,
   });
   let query: string | null = null;
   if (res.ok) {

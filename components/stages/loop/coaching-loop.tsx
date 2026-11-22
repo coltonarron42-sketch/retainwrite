@@ -388,7 +388,7 @@ export function CoachingLoop({
     const [key, note] = termKey.split("\u0001");
     const title = session?.sections.find((s) => s.key === key)?.title ?? key ?? "";
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000);
+    const timer = setTimeout(() => controller.abort(), 17000);
     void fetch(`/api/papers/${paperId}/stance/search-term`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
