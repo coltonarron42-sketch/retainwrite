@@ -1,5 +1,7 @@
 "use client";
 
+import { stopSpeech } from "@/lib/voice/speech";
+
 import {
   useCallback,
   useEffect,
@@ -254,6 +256,8 @@ export function ChatComposer({
     rec.onend = () => setListening(false);
     setMicNote(null);
     recRef.current = rec;
+    // Pau Pau stops talking while the student talks.
+    stopSpeech();
     try {
       rec.start();
       setListening(true);
