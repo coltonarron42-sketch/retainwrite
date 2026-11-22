@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { DsButton } from "@/components/ui/ds-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,7 +61,9 @@ import {
   voiceShortNote,
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
-import { wordCount } from "@/lib/utils";
+import { cn, wordCount } from "@/lib/utils";
+import { Check } from "lucide-react";
+import { dsEyebrow, dsH1, dsInput, dsSelect, dsTextarea } from "@/lib/ds/classes";
 
 type Screen =
   | "upload"
@@ -368,7 +370,7 @@ export function AssignmentIntake({
   const cardGate = { ok: checklistConfirmed };
 
   if (!paper) {
-    return <p className="text-rw-ink/55">Loading paper…</p>;
+    return <p className="text-[16px] leading-[1.6] text-ds-muted">Loading paper…</p>;
   }
 
   function openChecklist(next: AssignmentRequirements, corpus: string) {
@@ -1020,20 +1022,20 @@ export function AssignmentIntake({
     });
 
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>
           Stage 1 · Intake
         </p>
-        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        <h1 className={cn(dsH1, "mt-2")}>
           Start with the assignment
         </h1>
-        <p className="mt-3 text-sm text-rw-ink/65">
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
           Upload the full prompt — files, photos from your library, or a camera
           shot of the handout. We&apos;ll pull out the requirements, and
           you&apos;ll check them before we ask any questions.
         </p>
 
-        <div className="mt-8 space-y-5">
+        <div className="mt-8 space-y-6">
           <UploadPanel
             files={stagedFiles}
             onFilesChange={setStagedFiles}
@@ -1047,17 +1049,17 @@ export function AssignmentIntake({
             onError={setError}
             onRetryFile={(id) => void retryFile(id)}
           />
-          <Button
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             disabled={!canSubmit}
             onClick={() => void runParse()}
           >
             Read my assignment
-          </Button>
+          </DsButton>
         </div>
         {demoMode ? (
-          <p className="mt-6 text-xs text-rw-ink/45">
+          <p className="mt-6 text-[13px] leading-[1.6] text-ds-muted">
             Demo mode reads text files locally and uses a rule-based parser when
             Grok / OCR are offline.
           </p>
@@ -1068,12 +1070,12 @@ export function AssignmentIntake({
 
   if (screen === "parsing") {
     return (
-      <div className="mx-auto max-w-xl py-16 text-center" role="status">
-        <p className="font-display text-2xl text-rw-ink">{parseStatus}</p>
-        <p className="mt-2 text-sm text-rw-ink/70">
+      <div className="mx-auto max-w-[680px] py-16 text-center" role="status">
+        <p className="font-display text-[24px] font-semibold leading-[1.2] text-ds-ink">{parseStatus}</p>
+        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
           {parseSeconds > 0 ? `Still reading… ${parseSeconds}s` : "Still reading…"}
         </p>
-        <p className="mt-3 text-sm text-rw-ink/55">
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
           No coaching questions yet — we only extract what the assignment says.
         </p>
       </div>
@@ -1082,36 +1084,36 @@ export function AssignmentIntake({
 
   if (screen === "followup" && requirements) {
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>
           One quick check
         </p>
-        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        <h1 className={cn(dsH1, "mt-2")}>
           Anything else for the assignment?
         </h1>
-        <p className="mt-3 text-sm text-rw-ink/65">
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
           Is there any other context or page you want to add so I fully understand
           the assignment?
         </p>
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button
+        <div className="mt-8 flex flex-wrap gap-4">
+          <DsButton
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={() => {
               setFollowupAsked(true);
               setScreen("upload");
             }}
           >
             Add files or text
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             onClick={() => {
               setFollowupAsked(true);
               void fetch(`/api/papers/${paperId}/assignment/followup`, {
@@ -1123,7 +1125,7 @@ export function AssignmentIntake({
             }}
           >
             No, that&apos;s everything
-          </Button>
+          </DsButton>
         </div>
       </div>
     );
@@ -1131,14 +1133,14 @@ export function AssignmentIntake({
 
   if (screen === "card" && requirements) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="font-display text-3xl text-rw-ink">Does this look right?</h1>
-        <p className="mt-2 text-sm text-rw-ink/65">
+      <div className="mx-auto max-w-[680px]">
+        <h1 className={dsH1}>Does this look right?</h1>
+        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
           We read your prompt. Check every field. Fix anything that&apos;s off
           before we continue — we won&apos;t guess for you.
         </p>
         {error ? (
-          <p id="confirm-error" className="mt-4 text-sm text-red-700" role="alert">
+          <p id="confirm-error" className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
@@ -1150,6 +1152,7 @@ export function AssignmentIntake({
             confirmed={requirements.course.confirmed}
           >
             <Input
+              className={dsInput}
               value={requirements.course.value ?? ""}
               onChange={(e) =>
                 updateField(
@@ -1180,8 +1183,9 @@ export function AssignmentIntake({
               requirements.topic.confirmed && requirements.promptQuestion.confirmed
             }
           >
-            <Label className="text-xs text-rw-ink/50">Topic</Label>
+            <Label className="text-[13px] font-semibold text-ds-muted">Topic</Label>
             <Input
+              className={dsInput}
               value={requirements.topic.value ?? ""}
               onChange={(e) =>
                 updateField(
@@ -1192,8 +1196,9 @@ export function AssignmentIntake({
                 )
               }
             />
-            <Label className="mt-3 text-xs text-rw-ink/50">Prompt question</Label>
+            <Label className="mt-4 block text-[13px] font-semibold text-ds-muted">Prompt question</Label>
             <Textarea
+              className={dsTextarea}
               rows={3}
               value={requirements.promptQuestion.value ?? ""}
               onChange={(e) =>
@@ -1228,11 +1233,11 @@ export function AssignmentIntake({
             attention={fieldNeedsAttention(requirements.length)}
             confirmed={requirements.length.confirmed}
           >
-            <p className="text-sm text-rw-ink/70">
+            <p className="text-[16px] leading-[1.6] text-ds-muted">
               {formatLengthLabel(requirements.length.value)}
             </p>
             <Input
-              className="mt-2"
+              className={cn(dsInput, "mt-2")}
               value={requirements.length.value?.raw ?? ""}
               placeholder='e.g. 5–7 pages or 1500 words'
               onChange={(e) =>
@@ -1268,7 +1273,7 @@ export function AssignmentIntake({
             confirmed={requirements.citationStyle.confirmed}
           >
             <select
-              className="flex h-11 w-full rounded-md border border-rw-ink/15 bg-white/80 px-3 text-sm"
+              className={dsSelect}
               value={requirements.citationStyle.value ?? ""}
               onChange={(e) =>
                 updateField(
@@ -1287,7 +1292,7 @@ export function AssignmentIntake({
             </select>
             {requirements.citationStyle.value === "other" ? (
               <Input
-                className="mt-2"
+                className={cn(dsInput, "mt-2")}
                 placeholder="Describe the style"
                 value={requirements.citationStyleOther ?? ""}
                 onChange={(e) =>
@@ -1336,6 +1341,7 @@ export function AssignmentIntake({
               {key === "otherInstructions" ? (
                 // Multi-line so Enter keeps a line break between instructions.
                 <Textarea
+                  className={dsTextarea}
                   rows={3}
                   value={(requirements[key].value as string | null) ?? ""}
                   onChange={(e) =>
@@ -1349,6 +1355,7 @@ export function AssignmentIntake({
                 />
               ) : (
                 <Input
+                  className={dsInput}
                   value={(requirements[key].value as string | null) ?? ""}
                   onChange={(e) =>
                     updateField(
@@ -1411,6 +1418,7 @@ export function AssignmentIntake({
             confirmed={requirements.requiredSources.confirmed}
           >
             <Textarea
+              className={dsTextarea}
               rows={2}
               value={
                 requirements.requiredSources.value?.types ||
@@ -1520,7 +1528,7 @@ export function AssignmentIntake({
             confirmed={requirements.aiPolicy.confirmed}
           >
             <select
-              className="flex h-11 w-full rounded-md border border-rw-ink/15 bg-white/80 px-3 text-sm"
+              className={dsSelect}
               value={requirements.aiPolicy.value ?? "unspecified"}
               onChange={(e) =>
                 updateField(
@@ -1545,47 +1553,47 @@ export function AssignmentIntake({
         </div>
 
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button type="button" variant="outline" onClick={() => setScreen("upload")}>
+        <div className="mt-8 flex flex-wrap gap-4">
+          <DsButton type="button" variant="secondary" onClick={() => setScreen("upload")}>
             Back
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             disabled={confirming}
             onClick={() => void confirmCard()}
           >
             {confirming ? "Saving the checklist…" : "Looks right — continue"}
-          </Button>
+          </DsButton>
         </div>
 
         {viewSource ? (
           <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-rw-ink/40 p-4 sm:items-center"
+            className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(28,43,45,0.4)] p-4 sm:items-center"
             role="dialog"
             aria-modal="true"
             aria-label="View source"
           >
-            <div className="max-h-[70vh] w-full max-w-lg overflow-auto rounded-xl bg-rw-paper p-5 shadow-lg">
-              <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+            <div className="max-h-[70vh] w-full max-w-[560px] overflow-auto rounded-[12px] border border-ds-border bg-ds-surface p-8 font-ds-sans shadow-ds-card">
+              <p className={dsEyebrow}>
                 View source · {viewSource.label}
               </p>
-              <pre className="mt-3 whitespace-pre-wrap font-sans text-sm text-rw-ink/80">
+              <pre className="mt-4 whitespace-pre-wrap font-ds-sans text-[16px] leading-[1.6] text-ds-ink">
                 {viewSource.excerpt}
               </pre>
-              <Button
+              <DsButton
                 type="button"
                 className="mt-4"
-                variant="outline"
+                variant="secondary"
                 onClick={() => setViewSource(null)}
               >
                 Close
-              </Button>
+              </DsButton>
             </div>
           </div>
         ) : null}
@@ -1595,34 +1603,34 @@ export function AssignmentIntake({
 
   if (screen === "ai_policy" && requirements) {
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>
           Teacher AI policy
         </p>
-        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        <h1 className={cn(dsH1, "mt-2")}>
           Check before you continue
         </h1>
-        <p className="mt-4 text-sm leading-relaxed text-rw-ink/75">
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-ink">
           {AI_POLICY_NOTICE}
         </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button
+        <div className="mt-8 flex flex-wrap gap-4">
+          <DsButton
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={() => {
               setScreen("card");
               setError(null);
             }}
           >
             I&apos;ll check first
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             onClick={() => void confirmCard({ aiPolicyAck: true })}
           >
             Continue anyway
-          </Button>
+          </DsButton>
         </div>
       </div>
     );
@@ -1640,39 +1648,47 @@ export function AssignmentIntake({
     const isInterest = q?.kind === "interest";
 
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>
           {stanceMode
             ? "Your early stance"
             : isInterest
               ? "Get to know you"
               : "Assignment coaching"}
         </p>
-        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        <h1 className={cn(dsH1, "mt-2")}>
           {q?.text ?? "Loading…"}
         </h1>
         {isInterest ? (
-          <p className="mt-2 text-sm text-rw-ink/60">
+          <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
             Optional. We use this only to steer research leads toward things you
             find engaging.
           </p>
         ) : null}
-        <div className="mt-6 space-y-3">
+        <div className="mt-6 space-y-4">
           {q?.kind === "background" ? (
             <div className="flex flex-wrap gap-2">
               {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
-                <Button
+                <DsButton
                   key={choice}
                   type="button"
-                  variant={draftAnswer === choice ? "secondary" : "outline"}
+                  size="sm"
+                  variant="secondary"
+                  aria-pressed={draftAnswer === choice}
+                  className={
+                    draftAnswer === choice
+                      ? "border-ds-accent bg-[rgba(196,120,90,0.1)]"
+                      : undefined
+                  }
                   onClick={() => setDraftAnswer(choice)}
                 >
                   {choice}
-                </Button>
+                </DsButton>
               ))}
             </div>
           ) : null}
           <Textarea
+            className={dsTextarea}
             rows={q?.kind === "background" ? 3 : 8}
             value={draftAnswer}
             onPaste={pasteMeta.onPaste}
@@ -1688,7 +1704,7 @@ export function AssignmentIntake({
                 : "Write in your own words — paste is fine too."
             }
           />
-          <p className="text-xs text-rw-ink/45">
+          <p className="text-[13px] leading-[1.6] text-ds-muted">
             {wordCount(draftAnswer)} words
             {q?.kind && q.kind !== "background"
               ? " · counts toward your voice sample after you continue"
@@ -1698,38 +1714,38 @@ export function AssignmentIntake({
         </div>
 
         {leads.length > 0 && q?.id !== "stance_early" ? (
-          <div className="mt-8 space-y-3 border-t border-rw-ink/10 pt-6">
-            <h2 className="font-semibold text-rw-ink">Leads to verify</h2>
-            <p className="text-xs text-rw-ink/55">
+          <div className="mt-8 space-y-4 border-t border-ds-border pt-8">
+            <h2 className="font-display text-[20px] font-semibold leading-[1.2] text-ds-ink">Leads to verify</h2>
+            <p className="text-[13px] leading-[1.6] text-ds-muted">
               These are starting points for Stage 4 — not citations.
             </p>
             {leads.map((lead) => (
               <div
                 key={lead.name}
-                className="border-b border-rw-ink/10 py-3 text-sm"
+                className="rounded-[12px] border border-ds-border bg-ds-surface p-6 text-[16px] leading-[1.6] shadow-ds-card"
               >
-                <p className="font-medium text-rw-ink">{lead.name}</p>
-                <p className="mt-1 text-rw-ink/65">{lead.whyAssignment}</p>
+                <p className="font-semibold text-ds-ink">{lead.name}</p>
+                <p className="mt-2 text-ds-muted">{lead.whyAssignment}</p>
                 {lead.whyInterest ? (
-                  <p className="mt-1 text-rw-ink/65">{lead.whyInterest}</p>
+                  <p className="mt-2 text-ds-muted">{lead.whyInterest}</p>
                 ) : null}
                 {lead.hookOrExampleNote ? (
-                  <p className="mt-1 text-xs text-rw-ink/50">
+                  <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
                     {lead.hookOrExampleNote}
                   </p>
                 ) : null}
-                <span className="mt-2 inline-block text-xs font-semibold uppercase tracking-wide text-rw-teal">
+                <span className="mt-2 inline-block text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
                   To verify
                 </span>
-                <div className="mt-2">
-                  <Button
+                <div className="mt-4">
+                  <DsButton
                     type="button"
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     onClick={() => acceptLead(lead)}
                   >
                     Add as a lead
-                  </Button>
+                  </DsButton>
                 </div>
               </div>
             ))}
@@ -1737,35 +1753,35 @@ export function AssignmentIntake({
         ) : null}
 
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6 flex flex-wrap gap-4">
           {!stanceMode && qIndex > 0 ? (
-            <Button type="button" variant="ghost" onClick={() => openQuestion(qIndex - 1)}>
+            <DsButton type="button" variant="ghost" onClick={() => openQuestion(qIndex - 1)}>
               Previous question
-            </Button>
+            </DsButton>
           ) : null}
           {isInterest ? (
-            <Button type="button" variant="ghost" onClick={skipInterest}>
+            <DsButton type="button" variant="ghost" onClick={skipInterest}>
               Skip get-to-know-you
-            </Button>
+            </DsButton>
           ) : null}
           {!stanceMode && q?.kind !== "background" ? (
-            <Button
+            <DsButton
               type="button"
               variant="ghost"
               disabled={submitting}
               onClick={() => submitAnswer({ skip: true })}
             >
               Skip this one
-            </Button>
+            </DsButton>
           ) : null}
-          <Button
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             disabled={submitting}
             onClick={() => {
               if (submitting) return;
@@ -1776,9 +1792,9 @@ export function AssignmentIntake({
             }}
           >
             {submitting ? "Saving…" : "Continue"}
-          </Button>
+          </DsButton>
         </div>
-        <p className="mt-4 text-xs text-rw-ink/45">
+        <p className="mt-4 text-[13px] leading-[1.6] text-ds-muted">
           Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words <SaveStatus status={draftStatus} />
         </p>
       </div>
@@ -1787,14 +1803,14 @@ export function AssignmentIntake({
 
   if (screen === "story" && requirements) {
     return (
-      <div className="mx-auto max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>
           Pick your story
         </p>
-        <h1 className="mt-2 font-display text-3xl text-rw-ink">
+        <h1 className={cn(dsH1, "mt-2")}>
           Pick your story
         </h1>
-        <p className="mt-2 text-sm text-rw-ink/65">
+        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
           Here are a few directions your paper could take, built from what you
           told me. Pick one, or write your own. You can change it later.
         </p>
@@ -1802,33 +1818,34 @@ export function AssignmentIntake({
           {storyAngles.map((angle) => (
             <div
               key={angle.id}
-              className="border-b border-rw-ink/10 py-4"
+              className="rounded-[12px] border border-ds-border bg-ds-surface p-6 shadow-ds-card"
             >
-              <p className="font-medium text-rw-ink">{angle.question}</p>
-              <p className="mt-1 text-sm text-rw-ink/60">{angle.whyFits}</p>
-              <Button
+              <p className="text-[16px] font-semibold leading-[1.6] text-ds-ink">{angle.question}</p>
+              <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">{angle.whyFits}</p>
+              <DsButton
                 type="button"
                 size="sm"
-                className="mt-3"
-                variant="outline"
+                className="mt-4"
+                variant="secondary"
                 onClick={() => void pickStory(angle)}
               >
                 Pick this one
-              </Button>
+              </DsButton>
             </div>
           ))}
         </div>
         <div className="mt-8">
-          <Button
+          <DsButton
             type="button"
             variant="ghost"
             onClick={() => setWritingOwnStory((v) => !v)}
           >
             I&apos;ll write my own
-          </Button>
+          </DsButton>
           {writingOwnStory ? (
-            <div className="mt-3 space-y-3">
+            <div className="mt-4 space-y-4">
               <Textarea
+                className={dsTextarea}
                 rows={5}
                 value={ownStory}
                 onPaste={pasteMeta.onPaste}
@@ -1839,18 +1856,18 @@ export function AssignmentIntake({
                 }}
                 placeholder="Write your own story angle as a question (≥ 15 words)."
               />
-              <Button
+              <DsButton
                 type="button"
-                variant="secondary"
+                variant="primary"
                 onClick={() => void submitOwnStory()}
               >
                 Use my angle
-              </Button>
+              </DsButton>
             </div>
           ) : null}
         </div>
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
@@ -1869,20 +1886,20 @@ export function AssignmentIntake({
     const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
 
     return (
-      <div className="mx-auto max-w-xl">
-        <h1 className="font-display text-3xl text-rw-ink">Ready for stance?</h1>
-        <p className="mt-2 text-sm text-rw-ink/65">
+      <div className="mx-auto max-w-[680px]">
+        <h1 className={dsH1}>Ready for stance?</h1>
+        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
           Stage 1 finishes when the assignment card is confirmed, you have
           picked a story, and you have an early take.
         </p>
 
         {metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? (
-          <div className="mt-6 border-y border-rw-ink/10 py-5 text-sm text-rw-ink/75">
+          <div className="mt-6 rounded-[8px] border border-ds-border border-l-4 border-l-ds-sage bg-ds-surface px-6 py-4 text-[16px] leading-[1.6] text-ds-ink">
             <p>{readyVoiceLine(voiceEval.totalWords)}</p>
           </div>
         ) : null}
 
-        <ul className="mt-6 space-y-2 text-sm">
+        <ul className="mt-6 space-y-2 rounded-[12px] border border-ds-border bg-ds-surface p-6 text-[16px] leading-[1.6] text-ds-ink shadow-ds-card">
           <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
           <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
           <li>
@@ -1894,15 +1911,15 @@ export function AssignmentIntake({
         </ul>
 
         {error ? (
-          <p className="mt-4 text-sm text-red-700" role="alert">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button
+        <div className="mt-8 flex flex-wrap gap-4">
+          <DsButton
             type="button"
-            variant="outline"
+            variant="secondary"
             onClick={() => {
               // Reopen the first voice answer, prefilled, so the student can extend it.
               const first = coachingPlan.findIndex(
@@ -1912,10 +1929,10 @@ export function AssignmentIntake({
             }}
           >
             Back to questions
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="secondary"
+            variant="primary"
             disabled={
               startingStance ||
               stanceStartBlockers({
@@ -1928,7 +1945,7 @@ export function AssignmentIntake({
             onClick={() => void completeStage1()}
           >
             {startingStance ? "Starting the stance interview…" : "Start stance interview"}
-          </Button>
+          </DsButton>
         </div>
         {stanceStartBlockers({
           checklistConfirmed: cardGate.ok,
@@ -1937,12 +1954,12 @@ export function AssignmentIntake({
           voiceReason: voiceEval.reasons[0],
           stanceOk,
         }).map((reason) => (
-          <p key={reason} className="mt-3 text-sm text-rw-ink/70" role="status">
+          <p key={reason} className="mt-4 text-[16px] leading-[1.6] text-ds-muted" role="status">
             {reason}
           </p>
         ))}
         {voiceShortNote({ voiceOk: voiceWordsMet }) ? (
-          <p className="mt-3 text-sm text-rw-ink/70" role="note">
+          <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted" role="note">
             {voiceShortNote({ voiceOk: voiceWordsMet })}
           </p>
         ) : null}
@@ -1971,18 +1988,24 @@ function CardField({
 }) {
   return (
     <div
-      className={`rounded-md border px-4 py-4 ${
+      className={`rounded-[12px] border p-6 ${
         attention && !confirmed
-          ? "border-amber-500/50 bg-amber-50/40"
-          : "border-rw-ink/10 bg-white/40"
+          ? "border-[rgba(212,160,23,0.5)] bg-[rgba(212,160,23,0.08)]"
+          : "border-ds-border bg-ds-surface"
       }`}
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-rw-ink">{label}</p>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <p className="text-[16px] font-semibold leading-[1.2] text-ds-ink">{label}</p>
         {confirmed ? (
-          <span className="text-xs text-rw-teal">Confirmed</span>
+          <span className="inline-flex items-center gap-1 text-[13px] leading-[1.6] text-ds-muted">
+            <Check className="h-4 w-4 text-ds-sage" aria-hidden />
+            Confirmed
+          </span>
         ) : attention ? (
-          <span className="text-xs text-amber-700">Needs a look</span>
+          <span className="inline-flex items-center gap-2 text-[13px] text-ds-ink">
+            <span className="h-2 w-2 rounded-full bg-ds-amber" aria-hidden />
+            Needs a look
+          </span>
         ) : null}
       </div>
       {children}
@@ -1999,16 +2022,16 @@ function FieldActions({
   onViewSource?: () => void;
 }) {
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className="mt-4 flex flex-wrap gap-2">
       {onNotSpecified ? (
-        <Button type="button" size="sm" variant="ghost" onClick={onNotSpecified}>
+        <DsButton type="button" size="sm" variant="ghost" onClick={onNotSpecified}>
           Not specified
-        </Button>
+        </DsButton>
       ) : null}
       {onViewSource ? (
-        <Button type="button" size="sm" variant="ghost" onClick={onViewSource}>
+        <DsButton type="button" size="sm" variant="ghost" onClick={onViewSource}>
           View source
-        </Button>
+        </DsButton>
       ) : null}
     </div>
   );
@@ -2049,6 +2072,7 @@ function ListTextarea({ value, onChange }: { value: string; onChange: (raw: stri
   }
   return (
     <Textarea
+      className={dsTextarea}
       rows={2}
       value={text}
       onChange={(e) => {

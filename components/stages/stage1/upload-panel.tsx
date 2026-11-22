@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useId, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { DsButton } from "@/components/ui/ds-button";
+import { dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { extractTextFromFile } from "@/lib/assignment/local-extract";
@@ -141,13 +142,13 @@ export function UploadPanel({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div
         className={cn(
-          "rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors",
+          "rounded-[12px] border-2 border-dashed px-6 py-8 text-center transition-colors duration-150",
           dragging
-            ? "border-rw-teal bg-rw-teal/5"
-            : "border-rw-ink/15 bg-rw-paper/40",
+            ? "border-ds-accent bg-ds-surface"
+            : "border-ds-border bg-ds-surface",
         )}
         onDragEnter={(e) => {
           e.preventDefault();
@@ -167,38 +168,38 @@ export function UploadPanel({
           void ingestFiles(e.dataTransfer.files);
         }}
       >
-        <p className="font-display text-xl text-rw-ink">
+        <p className="font-display text-[20px] font-semibold leading-[1.2] text-ds-ink">
           Drop the assignment here
         </p>
-        <p className="mt-2 text-sm text-rw-ink/60">
+        <p className="mt-2 text-[16px] text-ds-muted">
           PDF, Word, text, or photos — up to {ASSIGNMENT_MAX_FILES} files, 25 MB
           each.
         </p>
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-          <Button
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          <DsButton
             type="button"
             variant="secondary"
             disabled={busy}
             onClick={() => fileRef.current?.click()}
           >
             Choose files
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="outline"
+            variant="ghost"
             disabled={busy}
             onClick={() => galleryRef.current?.click()}
           >
             Photo library
-          </Button>
-          <Button
+          </DsButton>
+          <DsButton
             type="button"
-            variant="outline"
+            variant="ghost"
             disabled={busy}
             onClick={() => cameraRef.current?.click()}
           >
             Take a photo
-          </Button>
+          </DsButton>
         </div>
         <input
           id={fileInputId}
@@ -243,7 +244,7 @@ export function UploadPanel({
           {files.map((f, i) => (
             <li
               key={f.id}
-              className="flex items-center gap-3 rounded-lg border border-rw-ink/10 bg-white/60 px-3 py-2"
+              className="flex items-center gap-4 rounded-[8px] border border-ds-border bg-ds-surface px-4 py-2"
             >
               {f.previewUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -253,31 +254,31 @@ export function UploadPanel({
                   className="h-12 w-12 rounded object-cover"
                 />
               ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded bg-rw-ink/5 text-xs font-semibold uppercase text-rw-ink/50">
+                <div className="flex h-12 w-12 items-center justify-center rounded bg-ds-page text-[13px] font-semibold uppercase text-ds-muted">
                   {f.filename.split(".").pop()?.slice(0, 4) || "file"}
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-rw-ink">
+                <p className="truncate text-[16px] font-medium text-ds-ink">
                   {f.filename}
                 </p>
-                <p className="text-xs text-rw-ink/50">
+                <p className="text-[13px] leading-[1.6] text-ds-muted">
                   {(f.byteSize / 1024).toFixed(0)} KB
                   {f.extractNote ? ` · ${f.extractNote}` : null}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                 {(f.failed || (f.pending && !f.extractedText)) && onRetryFile ? (
-                  <Button
+                  <DsButton
                     type="button"
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     onClick={() => onRetryFile(f.id)}
                   >
                     Retry
-                  </Button>
+                  </DsButton>
                 ) : null}
-                <Button
+                <DsButton
                   type="button"
                   size="sm"
                   variant="ghost"
@@ -286,8 +287,8 @@ export function UploadPanel({
                   onClick={() => moveFile(f.id, -1)}
                 >
                   ↑
-                </Button>
-                <Button
+                </DsButton>
+                <DsButton
                   type="button"
                   size="sm"
                   variant="ghost"
@@ -296,8 +297,8 @@ export function UploadPanel({
                   onClick={() => moveFile(f.id, 1)}
                 >
                   ↓
-                </Button>
-                <Button
+                </DsButton>
+                <DsButton
                   type="button"
                   size="sm"
                   variant="ghost"
@@ -305,7 +306,7 @@ export function UploadPanel({
                   onClick={() => removeFile(f.id)}
                 >
                   ✕
-                </Button>
+                </DsButton>
               </div>
             </li>
           ))}
@@ -313,8 +314,9 @@ export function UploadPanel({
       ) : null}
 
       <div className="space-y-2">
-        <Label htmlFor="links">Any links your professor gave you?</Label>
+        <Label className={dsLabel} htmlFor="links">Any links your professor gave you?</Label>
         <Textarea
+          className={dsTextarea}
           id="links"
           value={links}
           onChange={(e) => onLinksChange(e.target.value)}
@@ -326,15 +328,16 @@ export function UploadPanel({
       <div>
         <button
           type="button"
-          className="text-sm font-medium text-rw-teal underline-offset-2 hover:underline"
+          className="ds-focus rounded-[4px] text-[16px] font-semibold text-ds-ink underline underline-offset-4 transition-colors duration-150 hover:text-ds-muted"
           onClick={() => setShowPaste((v) => !v)}
         >
           {showPaste ? "Hide optional text" : "Add assignment text (optional)"}
         </button>
         {showPaste ? (
           <div className="mt-2 space-y-2">
-            <Label htmlFor="paste">Assignment text (optional)</Label>
+            <Label className={dsLabel} htmlFor="paste">Assignment text (optional)</Label>
             <Textarea
+              className={dsTextarea}
               id="paste"
               value={paste}
               onChange={(e) => onPasteChange(e.target.value)}
@@ -345,23 +348,23 @@ export function UploadPanel({
         ) : null}
       </div>
 
-      <label className="flex items-start gap-2 text-sm text-rw-ink/70">
+      <label className="flex items-start gap-2 text-[16px] leading-[1.6] text-ds-ink">
         <input
           type="checkbox"
-          className="mt-1"
+          className="mt-[6px] h-4 w-4 accent-[#c4785a]"
           checked={rightsOk}
           onChange={(e) => onRightsOkChange(e.target.checked)}
         />
         <span>I&apos;m uploading this for my own coursework.</span>
       </label>
 
-      <p className="text-xs text-rw-ink/45">
+      <p className="text-[13px] leading-[1.6] text-ds-muted">
         We keep these files while this paper is on your account, and for 90 days
         after it&apos;s deleted. You can remove a file anytime.
       </p>
 
       {error ? (
-        <p className="text-sm text-red-700" role="alert">
+        <p className="text-[16px] leading-[1.6] text-ds-error" role="alert">
           {error}
         </p>
       ) : null}
