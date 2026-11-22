@@ -61,7 +61,7 @@ export function StageShell({
   }, [paper]);
 
   if (paper === undefined) {
-    return <div className="p-8 text-rw-ink/50">Loading…</div>;
+    return <div className="p-8 font-ds-sans text-[16px] text-ds-muted">Loading…</div>;
   }
 
   if (!paper) {
@@ -78,13 +78,13 @@ export function StageShell({
   const gate = loopStageAccess(paper.stage_progress, stage);
   if (!gate.ok) {
     return (
-      <div className="flex min-h-[70vh] flex-col md:flex-row">
+      <div className="flex min-h-[70vh] flex-1 flex-col md:flex-row">
         <StageRail
           paperId={paperId}
           current={stage}
           statuses={statuses}
         />
-        <div className="flex-1 px-5 py-10 md:px-10">
+        <div className="min-w-0 flex-1 px-6 py-12 md:px-16">
           <h1 className="font-display text-3xl text-rw-ink">Stage locked</h1>
           <p className="mt-3 text-rw-ink/65">{gate.reason}</p>
           <Button
@@ -102,17 +102,20 @@ export function StageShell({
   }
 
   return (
-    <div className="flex min-h-[70vh] flex-col md:flex-row">
+    <div className="flex min-h-[70vh] flex-1 flex-col md:flex-row">
       <StageRail paperId={paperId} current={stage} statuses={statuses} />
-      <div className="flex-1 px-5 py-10 md:px-10">
+      <div className="min-w-0 flex-1 px-6 py-12 md:px-16">
         {stage === 1 ? (
-          <AssignmentIntake
-            paperId={paperId}
-            demoMode={demoMode}
-            accountPaper={demoMode ? null : paper}
-            initialRequirements={initialRequirements}
-            initialRawText={initialRawText}
-          />
+          // Stage 1 is on the PLAN.md 8 Editorial-Warm system; later stages are not yet.
+          <div className="font-ds-sans text-ds-ink">
+            <AssignmentIntake
+              paperId={paperId}
+              demoMode={demoMode}
+              accountPaper={demoMode ? null : paper}
+              initialRequirements={initialRequirements}
+              initialRawText={initialRawText}
+            />
+          </div>
         ) : (
           <CoachingLoop
             paperId={paperId}

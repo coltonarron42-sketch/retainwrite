@@ -11,10 +11,14 @@ type Props = {
 
 export function StageRail({ paperId, current, statuses }: Props) {
   return (
-    <aside className="w-full shrink-0 border-b border-rw-ink/10 bg-white/60 p-4 md:w-56 md:border-b-0 md:border-r md:p-6">
-      <p className="font-display text-lg text-rw-ink">RetainWrite</p>
-      <p className="mt-1 text-xs text-rw-ink/50">Six-stage coach</p>
-      <ol className="mt-6 space-y-2">
+    <nav
+      aria-label="Stages"
+      className="w-full shrink-0 border-b border-ds-border p-4 font-ds-sans md:w-60 md:border-b-0 md:border-r md:px-6 md:py-12"
+    >
+      <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+        Six-stage coach
+      </p>
+      <ol className="mt-4 space-y-1">
         {STAGE_LABELS.map((label, idx) => {
           const stage = idx + 1;
           const active = stage === current;
@@ -24,13 +28,22 @@ export function StageRail({ paperId, current, statuses }: Props) {
           const content = (
             <span
               className={cn(
-                "flex items-center gap-2 rounded-md px-2 py-2 text-sm",
-                active && "bg-rw-teal/10 font-semibold text-rw-ink",
-                !active && unlocked && "text-rw-ink/80",
-                !unlocked && "text-rw-ink/35",
+                "flex items-center gap-2 rounded-[8px] px-2 py-2 text-[16px] transition-colors duration-150",
+                active && "bg-ds-surface font-semibold text-ds-ink shadow-ds-card",
+                !active && unlocked && "text-ds-ink hover:bg-ds-surface",
+                !unlocked && "text-ds-faint",
               )}
             >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-current text-[11px]">
+              <span
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full border text-[13px]",
+                  active
+                    ? "border-ds-accent bg-ds-accent text-white"
+                    : status === "complete"
+                      ? "border-ds-sage text-ds-sage"
+                      : "border-current",
+                )}
+              >
                 {status === "complete" ? (
                   <Check className="h-3.5 w-3.5" aria-hidden />
                 ) : status === "locked" ? (
@@ -45,7 +58,11 @@ export function StageRail({ paperId, current, statuses }: Props) {
           return (
             <li key={label}>
               {unlocked ? (
-                <Link href={`/app/papers/${paperId}/stage/${stage}`}>
+                <Link
+                  href={`/app/papers/${paperId}/stage/${stage}`}
+                  aria-current={active ? "step" : undefined}
+                  className="ds-focus block rounded-[8px]"
+                >
                   {content}
                 </Link>
               ) : (
@@ -55,6 +72,6 @@ export function StageRail({ paperId, current, statuses }: Props) {
           );
         })}
       </ol>
-    </aside>
+    </nav>
   );
 }

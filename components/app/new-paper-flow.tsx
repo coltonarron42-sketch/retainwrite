@@ -83,14 +83,14 @@ export function NewPaperFlow({
 
   if (error) {
     return (
-      <div className="mx-auto max-w-xl px-5 py-16">
-        <p className="text-red-700" role="alert">
+      <div className="mx-auto max-w-[680px] px-6 py-12 font-ds-sans md:px-16">
+        <p className="text-[16px] leading-[1.6] text-ds-error" role="alert">
           {error}
         </p>
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-8 flex flex-wrap gap-4">
           <button
             type="button"
-            className="rounded-md bg-rw-teal px-4 py-2 text-sm font-semibold text-white"
+            className="ds-btn-primary"
             onClick={() => {
               started.current = false;
               setError(null);
@@ -100,7 +100,7 @@ export function NewPaperFlow({
           >
             Try again
           </button>
-          <Link href="/app" className="rounded-md border border-rw-ink/20 px-4 py-2 text-sm font-semibold">
+          <Link href="/app" className="ds-btn-secondary">
             Back to your papers
           </Link>
         </div>
@@ -110,7 +110,10 @@ export function NewPaperFlow({
 
   if (!ready || !profile) {
     return (
-      <div className="mx-auto max-w-xl px-5 py-16 text-rw-ink/60">
+      <div
+        className="mx-auto max-w-[680px] px-6 py-12 font-ds-sans text-[16px] text-ds-muted md:px-16"
+        role="status"
+      >
         Starting your paper…
       </div>
     );
