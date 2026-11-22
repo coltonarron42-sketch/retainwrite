@@ -50,7 +50,8 @@ export function callStatusText(status: CallStatus): string | null {
     case "listening":
       return "Listening… just talk, and I'll send it when you pause.";
     case "paused":
-      return "Pau Pau is talking. Your mic is paused so she doesn't hear herself.";
+      // Short: at 390px it must fit beside 'Talk now' in two lines like 'Listening…'.
+      return "Pau Pau is talking. Your mic is paused.";
     case "muted":
       return "Your mic is muted. Type, or unmute to talk.";
     case "unsupported":

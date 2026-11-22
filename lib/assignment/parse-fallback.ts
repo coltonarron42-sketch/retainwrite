@@ -1,3 +1,4 @@
+import { otherStyleName } from "@/lib/assignment/flat-parse";
 import { labeledValue, plausibleTopic } from "@/lib/assignment/plausible";
 import {
   applyPageWordEstimates,
@@ -150,6 +151,16 @@ export function parseAssignmentFallback(
         excerpt: m[0],
       });
       break;
+    }
+  }
+  // A style outside the list, written on a labeled line ("Citation style: ASA"):
+  // keep its name as "other" so the read-back and the paper say ASA (QA 11:48 #9).
+  if (req.citationStyle.value == null) {
+    const line = text.match(/\b(?:citation|citations|documentation|reference)\s+(?:style|format)\s*[:\-–][^\n.;]{2,60}/i);
+    const named = line ? otherStyleName(line[0]) : null;
+    if (named) {
+      req.citationStyle = extractedField("other" as CitationStyle, 0.8, line![0], { method: "paste", excerpt: line![0] });
+      req.citationStyleOther = named;
     }
   }
 

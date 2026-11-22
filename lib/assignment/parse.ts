@@ -132,6 +132,8 @@ export function fillEmptyRequirements(
   for (const key of keys) {
     if (fieldEmpty(next[key]) && !fieldEmpty(extra[key])) {
       Object.assign(next, { [key]: extra[key] });
+      // The named "other" style travels with its value.
+      if (key === "citationStyle" && extra.citationStyleOther) next.citationStyleOther = extra.citationStyleOther;
     }
   }
   return next;
