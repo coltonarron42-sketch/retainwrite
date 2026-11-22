@@ -16,9 +16,16 @@ import {
 } from "@/lib/config";
 
 describe("upload limits", () => {
-  it("rejects legacy .doc", () => {
-    expect(rejectLegacyDoc("prompt.doc")).toMatch(/PDF or a \.docx/);
-    expect(rejectLegacyDoc("prompt.docx")).toBeNull();
+  it("accepts legacy .doc and other text formats, rejects video and archives", () => {
+    expect(rejectLegacyDoc("prompt.doc")).toBeNull();
+    for (const name of ["a.doc", "a.odt", "a.rtf", "a.pages", "a.html", "a.md", "a.webp"]) {
+      expect(assertUploadBatch([], [{ filename: name, mime: "", byteSize: 10 }]).ok).toBe(true);
+    }
+    for (const name of ["clip.mp4", "song.mp3", "setup.exe", "files.zip"]) {
+      const result = assertUploadBatch([], [{ filename: name, mime: "application/octet-stream", byteSize: 10 }]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/can't be read as an assignment/);
+    }
   });
 
   it("guesses mime from extension", () => {

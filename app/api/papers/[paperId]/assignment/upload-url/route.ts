@@ -6,6 +6,7 @@ import {
 } from "@/lib/config";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
+import { rejectedTypeMessage } from "@/lib/assignment/file-types";
 import { assertUploadBatch, isAllowedAssignmentMime } from "@/lib/assignment/upload-limits";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,7 +41,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
   if (!isAllowedAssignmentMime(body.mime)) {
     return NextResponse.json(
-      { error: "File type not allowed", allowed: ASSIGNMENT_ALLOWED_MIME },
+      { error: rejectedTypeMessage(body.filename), allowed: ASSIGNMENT_ALLOWED_MIME },
       { status: 400 },
     );
   }
