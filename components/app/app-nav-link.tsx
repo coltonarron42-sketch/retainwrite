@@ -13,7 +13,7 @@ export function AppNavLink({ href, children, exact = false }: Props) {
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`ds-focus rounded-[8px] px-2 py-2 text-[16px] underline-offset-[6px] transition-colors duration-150 hover:text-ds-ink ${
+      className={`ds-focus whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] underline-offset-[6px] transition-colors duration-150 hover:text-ds-ink ${
         active
           ? "font-semibold text-ds-ink underline decoration-ds-accent decoration-2"
           : "text-ds-muted"

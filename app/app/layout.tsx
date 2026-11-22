@@ -9,7 +9,7 @@ import { requireUser } from "@/lib/auth/require-user";
  * background, banner, header) is restyled here; Stage content keeps its own styles.
  */
 const sessionButton =
-  "ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted";
+  "ds-focus whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted";
 
 export default async function AppLayout({
   children,
@@ -19,7 +19,7 @@ export default async function AppLayout({
   const access = await requireUser("/app");
 
   return (
-    <div className="min-h-screen bg-ds-page">
+    <div className="flex min-h-screen flex-col bg-ds-page">
       {access.kind !== "user" ? <DemoLossBanner /> : null}
       <header className="border-b border-ds-border px-6 py-4 font-ds-sans md:px-16">
         <div className="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-x-4 gap-y-2">
