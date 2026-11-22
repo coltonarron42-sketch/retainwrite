@@ -96,6 +96,9 @@ export function probingQuestions(section: { title: string; needs?: string | null
   ];
 }
 
+/** Her ask under the probing questions she just gave (replaces the opening ask, so it isn't repeated). */
+export const ASIDE_FOLLOW_UP = "Answer one of those in your own words, or tell me the idea you already have.";
+
 /** Pau Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null } }): string[] {
   const qs = probingQuestions(ctx.section);

@@ -134,7 +134,7 @@ type Session = {
    * you mean?"). It shows inside her current turn while nothing new has been
    * said (transcript length === at), so it never becomes its own bubble.
    */
-  aside?: { k: string; at: number; paras: string[] } | null;
+  aside?: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
   outlineAside?: { k: string; at: number; paras: string[] } | null;
 };
 
@@ -597,7 +597,7 @@ export function CoachingLoop({
     const next: Session = {
       ...session,
       transcript,
-      aside: { k: section.key, at: transcript.length, paras },
+      aside: { k: section.key, at: transcript.length, paras, intent },
       sections: moveToProbe
         ? session.sections.map((item) =>
             item.key === section.key ? { ...item, loopStep: "probe" as const, teachStatus: turn === "mirror" ? item.teachStatus : "explored" } : item,

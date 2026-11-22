@@ -26,7 +26,7 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { isPlainYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import type { IntentTurn, StanceIntent } from "@/lib/stages/stance-intent";
+import { ASIDE_FOLLOW_UP, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
 
@@ -89,7 +89,7 @@ type Props = {
   batch: { ranked: PreparedLead[]; wildcard: PreparedLead | null; capReached: boolean; searchPrompt: string | null } | null;
   transcript: LoopLine[];
   /** Her answer to a request/question; shown inside the current turn only. */
-  aside: { k: string; at: number; paras: string[] } | null;
+  aside: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[]) => void;
   idea: string;
@@ -211,7 +211,10 @@ export function StanceChat(props: Props) {
   const hint = hintState?.key === turnId ? hintState.text : null;
   const setHint = (text: string | null) => setHintState(text ? { text, key: turnId } : null);
   const asideParas = props.aside && props.aside.k === section.key && props.aside.at === transcript.length ? props.aside.paras : [];
-  const paras = turnParas;
+  // After she hands over probing questions, don't repeat the opening ask under them.
+  const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror";
+  const replacesAsk = asideParas.length > 0 && freeText && (props.aside?.intent === "request_probe" || props.aside?.intent === "request_help");
+  const paras = replacesAsk ? [ASIDE_FOLLOW_UP] : turnParas;
 
   async function send() {
     const text = idea.trim();
@@ -286,7 +289,7 @@ export function StanceChat(props: Props) {
 
   const speak: SpeakItem[] = [
     { key: "s2:intro", text: `${intro.heading}. ${intro.body}` },
-    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...asideParas, ask].join(" "), turn: true },
+    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...asideParas, ...paras].join(" "), turn: true },
   ];
   // The opener: question, "one section at a time", edit link, prompt type and
   // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
