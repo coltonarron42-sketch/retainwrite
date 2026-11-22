@@ -16,11 +16,14 @@ export type LocalPosition = {
   };
 };
 
-const key = (paperId: string) => `rw:pos:${paperId}`;
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
+
+const name = (paperId: string) => `pos:${paperId}`;
+const legacy = (paperId: string) => `rw:pos:${paperId}`;
 
 export function saveLocalPosition(paperId: string, pos: LocalPosition) {
   try {
-    window.localStorage.setItem(key(paperId), JSON.stringify(pos));
+    writeScoped(name(paperId), JSON.stringify(pos));
   } catch {
     /* private mode */
   }
@@ -28,7 +31,7 @@ export function saveLocalPosition(paperId: string, pos: LocalPosition) {
 
 export function readLocalPosition(paperId: string): LocalPosition | null {
   try {
-    const raw = window.localStorage.getItem(key(paperId));
+    const raw = readScoped(name(paperId), legacy(paperId));
     if (!raw) return null;
     const pos = JSON.parse(raw) as LocalPosition;
     return typeof pos?.at === "number" ? pos : null;

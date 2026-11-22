@@ -1,5 +1,6 @@
 "use client";
 
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,12 @@ type Saved = Record<string, string[]>;
 
 const ORDINALS = ["one", "two", "three", "four", "five", "six", "seven", "eight"];
 
+/** Scoped per user (see lib/local/user-scope). */
+function storageName(paperId: string) {
+  return `drafting:${paperId}`;
+}
+
+/** Pre-scoping key, read once and moved. */
 function storageKey(paperId: string) {
   return `rw_draft_${paperId}`;
 }
@@ -123,7 +130,7 @@ export function DraftingStage({
         })
         .catch(() => undefined);
     }
-    const raw = window.localStorage.getItem(storageKey(paperId));
+    const raw = readScoped(storageName(paperId), storageKey(paperId));
     if (!raw) {
       const beat = draftBeatFromProgress(savedBeat);
       if (!beat) return;
@@ -152,8 +159,7 @@ export function DraftingStage({
   }, [paperId, plan, savedBeat]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      storageKey(paperId),
+    writeScoped(storageName(paperId),
       JSON.stringify({ index, step, choice, saved, screen, draftingMode: "muscle" }),
     );
     void fetch(`/api/papers/${paperId}/progress`, {

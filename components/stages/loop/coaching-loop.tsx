@@ -1,5 +1,6 @@
 "use client";
 
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -142,6 +143,12 @@ type Props = {
 
 const PLACEHOLDER_CONCEPT = /^(the )?(assigned )?concept$/i;
 
+/** Scoped per user (see lib/local/user-scope). */
+function storageName(paperId: string) {
+  return `loop:${paperId}`;
+}
+
+/** Pre-scoping key, read once and moved. */
 function storageKey(paperId: string) {
   return `rw_loop_${paperId}`;
 }
@@ -244,7 +251,7 @@ export function CoachingLoop({
 
   useEffect(() => {
     let cancelled = false;
-    const savedRaw = window.localStorage.getItem(storageKey(paperId));
+    const savedRaw = readScoped(storageName(paperId), storageKey(paperId));
     const saved = savedRaw ? (JSON.parse(savedRaw) as Session) : null;
     const finish = (
       base: Session | null,
@@ -317,7 +324,7 @@ export function CoachingLoop({
 
   useEffect(() => {
     if (!session) return;
-    window.localStorage.setItem(storageKey(paperId), JSON.stringify(session));
+    writeScoped(storageName(paperId), JSON.stringify(session));
   }, [paperId, session]);
 
   useEffect(() => {
@@ -374,7 +381,7 @@ export function CoachingLoop({
   const skipped = session.sections.filter((item) => item.status === "skipped");
 
   function commit(next: Session) {
-    window.localStorage.setItem(storageKey(paperId), JSON.stringify(next));
+    writeScoped(storageName(paperId), JSON.stringify(next));
     setSession(next);
   }
 
@@ -388,7 +395,7 @@ export function CoachingLoop({
   }
 
   function log(event: string) {
-    const raw = window.localStorage.getItem(storageKey(paperId));
+    const raw = readScoped(storageName(paperId), storageKey(paperId));
     const current = raw ? (JSON.parse(raw) as Session) : session;
     if (!current) return;
     commit({ ...current, events: [...current.events, event] });

@@ -6,17 +6,18 @@
  */
 export type LocalDraft = { text: string; at: number };
 
-function key(paperId: string, fieldKey: string) {
-  return `rw:draft:${paperId}:${fieldKey}`;
-}
+import { readScoped, removeScoped, writeScoped } from "@/lib/local/user-scope";
+
+const name = (paperId: string, fieldKey: string) => `draft:${paperId}:${fieldKey}`;
+const legacy = (paperId: string, fieldKey: string) => `rw:draft:${paperId}:${fieldKey}`;
 
 export function writeLocalDraft(paperId: string, fieldKey: string, text: string) {
   try {
     if (!text.trim()) {
-      window.localStorage.removeItem(key(paperId, fieldKey));
+      removeScoped(name(paperId, fieldKey));
       return;
     }
-    window.localStorage.setItem(key(paperId, fieldKey), JSON.stringify({ text, at: Date.now() }));
+    writeScoped(name(paperId, fieldKey), JSON.stringify({ text, at: Date.now() }));
   } catch {
     // Storage can be full or blocked; the server save still runs.
   }
@@ -24,7 +25,7 @@ export function writeLocalDraft(paperId: string, fieldKey: string, text: string)
 
 export function readLocalDraft(paperId: string, fieldKey: string): LocalDraft | null {
   try {
-    const raw = window.localStorage.getItem(key(paperId, fieldKey));
+    const raw = readScoped(name(paperId, fieldKey), legacy(paperId, fieldKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LocalDraft>;
     if (typeof parsed.text !== "string" || typeof parsed.at !== "number" || !parsed.text.trim()) return null;
@@ -36,7 +37,7 @@ export function readLocalDraft(paperId: string, fieldKey: string): LocalDraft | 
 
 export function clearLocalDraft(paperId: string, fieldKey: string) {
   try {
-    window.localStorage.removeItem(key(paperId, fieldKey));
+    removeScoped(name(paperId, fieldKey));
   } catch {
     // ignore
   }
