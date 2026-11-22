@@ -28,15 +28,18 @@ export function PauFace({
     >
       <circle cx="20" cy="20" r="20" className="fill-ds-ink" />
       <g className={alive ? "pp-blink" : undefined}>
-        <ellipse cx="14" cy="18" rx="3.6" ry="4.2" fill="#fff" />
-        <ellipse cx="26" cy="18" rx="3.6" ry="4.2" fill="#fff" />
+        <ellipse cx="13.5" cy="18" rx="4.2" ry="4.8" fill="#fff" />
+        <ellipse cx="26.5" cy="18" rx="4.2" ry="4.8" fill="#fff" />
         <g className={alive ? "pp-glance" : undefined}>
-          <circle cx="14.4" cy="18.6" r="1.8" className="fill-ds-ink" />
-          <circle cx="26.4" cy="18.6" r="1.8" className="fill-ds-ink" />
+          <circle cx="14" cy="18.6" r="2.5" className="fill-ds-ink" />
+          <circle cx="26" cy="18.6" r="2.5" className="fill-ds-ink" />
+          <circle cx="13.2" cy="17.6" r="0.8" fill="#fff" />
+          <circle cx="25.2" cy="17.6" r="0.8" fill="#fff" />
         </g>
       </g>
+      <path d="M9.5 10.6 Q13 9 16 10.3 M24 10.3 Q27 9 30.5 10.6" fill="none" stroke="#fff" strokeOpacity="0.65" strokeWidth="1.2" strokeLinecap="round" />
       <path
-        d="M15 26.5 Q20 29.5 25 26.5"
+        d="M16 27 Q20 28.2 24 27"
         fill="none"
         stroke="#fff"
         strokeWidth="1.8"
@@ -96,7 +99,7 @@ export function SpeakingWaves({ active }: { active: boolean }) {
       aria-hidden
       data-pau-waves={active ? "on" : "fading"}
       className={cn(
-        "pp-waves pointer-events-none absolute inset-x-2 -inset-y-[10px] text-ds-accent transition-opacity duration-300",
+        "pp-waves pointer-events-none absolute inset-x-[20%] -inset-y-[10px] text-ds-accent transition-opacity duration-300",
         active ? "opacity-100" : "opacity-0",
       )}
     >
@@ -109,7 +112,7 @@ export function SpeakingWaves({ active }: { active: boolean }) {
           d={line}
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="1"
           vectorEffect="non-scaling-stroke"
           strokeLinecap="round"
         />
@@ -123,7 +126,7 @@ export function SpeakingWaves({ active }: { active: boolean }) {
           d={line}
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="1"
           vectorEffect="non-scaling-stroke"
           strokeLinecap="round"
         />

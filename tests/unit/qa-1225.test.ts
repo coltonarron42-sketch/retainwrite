@@ -171,6 +171,6 @@ describe("presence: face, glance/blink, speaking waves", () => {
     expect(block).toMatch(/@media \(prefers-reduced-motion: no-preference\) \{\s*\.pp-blink/);
     expect(block).toMatch(/@keyframes pp-glance/);
     expect(block).toMatch(/@keyframes pp-blink/);
-    expect(read("components/stages/stage1/voice.tsx")).toMatch(/<PauFace alive className="h-7 w-7" \/>/);
+    expect(read("components/stages/stage1/voice.tsx")).toMatch(/<PauFace alive className="hidden h-7 w-7 sm:block" \/>/);
   });
 });

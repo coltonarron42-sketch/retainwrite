@@ -115,7 +115,7 @@ export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eye
     <div className="flex min-h-[48px] items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2" data-pau-presence>
         {/* Her small face at the top of the chat: an occasional glance and blink. */}
-        <PauFace alive className="h-7 w-7" />
+        <PauFace alive className="hidden h-7 w-7 sm:block" />
         <p className={eyebrowClassName}>{eyebrow}</p>
       </div>
       <div className="flex items-center gap-1">
