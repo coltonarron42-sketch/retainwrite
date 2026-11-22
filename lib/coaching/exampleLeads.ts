@@ -42,8 +42,9 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
 }
 
 export function sourceSearchDirections(topic: string, _note?: string): string {
-  const subject = topicSearchTerms(topic) || "your topic";
-  return `What would you search first? Try JSTOR, Google Scholar, or your school library for “${subject}”. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
+  const subject = topicSearchTerms(topic);
+  const where = subject ? `with key words like ${searchKeywords(subject)}` : "with key words from your topic";
+  return `What would you search first? Try JSTOR, Google Scholar, or your school library ${where}. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
 
 /** The topic inside our own sentence ("This assignment teaches how…"). */
@@ -100,7 +101,7 @@ export function exampleLeadBatch(input: {
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Search JSTOR or your school library for “${search}”. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
+      whyFits: `Search JSTOR or your school library with key words from ${question ? "your question" : "your topic"}: ${searchKeywords(search)}. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
       name: question
@@ -109,7 +110,7 @@ export function exampleLeadBatch(input: {
       rubricMatch: 0.78,
       rubricRef: ref,
       lessonLink: question ? "Shows your question in a real case" : `Shows ${subject}`,
-      whyFits: `Look for a report or article about ${question ? search : subject}. Check the author and the date yourself before you rely on it.`,
+      whyFits: `${question ? "Look for a report or article that speaks to your question." : `Look for a report or article about ${subject}.`} Check the author and the date yourself before you rely on it.`,
     },
     {
       name: idea
@@ -144,4 +145,20 @@ export function exampleLeadBatch(input: {
 
 export function leadCopyIsTemplate(name: string): boolean {
   return GENERIC_TITLES.includes(name.trim().toLowerCase());
+}
+
+const SEARCH_STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "be", "it", "its", "their", "they", "them", "this", "that", "with", "by", "from", "as", "into", "more", "most", "than", "really", "actually"]);
+
+/** "high schools start later in the morning" → "high schools, start later, morning" (whole words, no grammar to break). */
+export function searchKeywords(phrase: string): string {
+  const groups: string[] = [];
+  let current: string[] = [];
+  for (const word of phrase.replace(/[“”"?.!,;:]/g, " ").split(/\s+/).filter(Boolean)) {
+    if (SEARCH_STOP.has(word.toLowerCase())) {
+      if (current.length) groups.push(current.join(" "));
+      current = [];
+    } else current.push(word);
+  }
+  if (current.length) groups.push(current.join(" "));
+  return groups.slice(0, 4).join(", ") || phrase;
 }

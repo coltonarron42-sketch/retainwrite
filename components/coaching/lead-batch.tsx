@@ -34,7 +34,7 @@ export function LeadBatchView({ ranked, wildcard, capReached, searchPrompt, onPi
       {wildcard ? (
         <div className="rounded-xl border border-dashed border-rw-ink/25 bg-rw-paper p-4">
           <p className="text-sm text-rw-ink/70">
-            These above are the ones usually cited. Here&apos;s one outside the box that shows the same pattern.
+            The ones above are usually cited. Here&apos;s one outside the box that shows the same pattern.
           </p>
           <p className="mt-2 text-xs font-semibold uppercase tracking-wider text-rw-ink/60">Outside the box</p>
           <p className="mt-1 font-medium text-rw-ink">{wildcard.name}</p>
