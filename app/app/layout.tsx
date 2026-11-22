@@ -8,6 +8,9 @@ import { requireUser } from "@/lib/auth/require-user";
  * Signed-in shell, PLAN.md section 8 (Editorial-Warm). Only the frame (page
  * background, banner, header) is restyled here; Stage content keeps its own styles.
  */
+const sessionButton =
+  "ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted";
+
 export default async function AppLayout({
   children,
 }: {
@@ -33,7 +36,9 @@ export default async function AppLayout({
             <AppNavLink href="/app/billing">Billing</AppNavLink>
             <AppNavLink href="/pricing">Pricing</AppNavLink>
             {access.kind === "user" ? (
-              <LogOutButton className="ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted" />
+              <LogOutButton className={sessionButton} />
+            ) : access.kind === "demo" ? (
+              <LogOutButton className={sessionButton} label="Exit demo" />
             ) : null}
           </nav>
         </div>
