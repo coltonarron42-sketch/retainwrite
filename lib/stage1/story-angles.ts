@@ -1,3 +1,4 @@
+import { isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 /**
  * Rule-based story angle fallback (INTD600 Phase 2).
  * // SOP: coaching only, never generate submission text
@@ -75,7 +76,14 @@ export function buildStoryAngleFallback(input: {
   topic: string;
   studentPhrases: string[];
 }): StoryAngle[] {
-  const topic = usableStoryTopic(input.topic || "this assignment");
+  const usable = usableStoryTopic(input.topic || "this assignment");
+  // "…disagrees with you about should high schools…" reads badly; refer to it.
+  const topic =
+    usable === "this assignment"
+      ? usable
+      : isQuestionTopic(input.topic)
+        ? "the assignment's question"
+        : topicMidSentence(usable);
   const phrase = input.studentPhrases
     .map((item) => mentionablePhrase(item))
     .find((item): item is string => Boolean(item));
