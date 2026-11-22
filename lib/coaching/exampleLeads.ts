@@ -52,15 +52,27 @@ export function subjectMidSentence(subject: string): string {
   return topicMidSentence(subject);
 }
 
+/**
+ * A lesson statement read off the sheet by the rule fallback can be the course
+ * header ("ENG 101: College Composition … Instructor: Prof. …"), not a lesson.
+ */
+export function lessonStatementUsable(statement: string | null | undefined): boolean {
+  const s = (statement ?? "").trim();
+  if (!s || s.length > 160 || /…$/.test(s)) return false;
+  if (/the assigned concept/i.test(s)) return false;
+  if (/\b(instructor|due(?: date)?|length|citation style|word count|points?)\s*:/i.test(s)) return false;
+  if (/\bdepartment of\b|\b(fall|spring|summer|winter) 20\d\d\b|\s·\s/i.test(s)) return false;
+  return true;
+}
+
 export function stageLessonHeader(subject: string, lessonStatement: string): string {
   if (subject && subject !== "your topic" && !/the assigned concept/i.test(subject)) {
-    if (/the assigned concept/i.test(lessonStatement)) {
-      // "How social media…" and "Should schools…?" already read as headings.
-      if (isQuestionTopic(subject) || isClauseTopic(subject)) return asHeading(subject);
-      return `How ${subject} shows up in the examples you choose`;
-    }
-    return lessonStatement;
+    // The student's confirmed question is the best heading there is.
+    if (isQuestionTopic(subject) || isClauseTopic(subject)) return asHeading(subject);
+    if (lessonStatementUsable(lessonStatement)) return lessonStatement;
+    return `How ${subject} shows up in the examples you choose`;
   }
+  if (lessonStatementUsable(lessonStatement)) return lessonStatement;
   return "What this assignment is asking you to learn";
 }
 

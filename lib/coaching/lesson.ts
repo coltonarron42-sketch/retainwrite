@@ -1,6 +1,6 @@
 // SOP: coaching only, never generate submission text
 
-import { firstSentenceOf } from "@/lib/copy/sentences";
+import { splitSentences } from "@/lib/copy/sentences";
 import { clipWords } from "@/lib/copy/clip";
 import { z } from "zod";
 
@@ -92,8 +92,19 @@ export function guardLesson(
   return { ok: true };
 }
 
+/**
+ * The evidence quote must stay verbatim (guardLesson checks it), so a long
+ * sentence is cut at a word boundary with no added "…". Prefers the sheet's
+ * own question over its course header.
+ */
 function firstSentence(prompt: string): string {
-  return clipWords(firstSentenceOf(prompt) || prompt, 200);
+  const sentences = prompt.split(/\n+/).flatMap((line) => splitSentences(line));
+  const question = sentences.find((s) => /\?["”’)]*$/.test(s) && s.split(/\s+/).length >= 5 && s.length <= 240);
+  const s = question ?? sentences[0] ?? prompt.trim();
+  if (s.length <= 200) return s;
+  const cut = s.slice(0, 200);
+  const space = cut.lastIndexOf(" ");
+  return (space > 80 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/, "");
 }
 
 export function fallbackLesson(
