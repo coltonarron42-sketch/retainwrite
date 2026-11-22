@@ -1,5 +1,6 @@
 // SOP: coaching only, never generate submission text
 
+import { isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { wordCount } from "@/lib/utils";
 
 export type SourceCard = {
@@ -12,7 +13,8 @@ export type SourceCard = {
 };
 
 export function lessonLinkFor(concept: string): string {
-  return `Shows ${concept}`.split(/\s+/).filter(Boolean).slice(0, 12).join(" ");
+  if (isQuestionTopic(concept)) return "Helps answer your question";
+  return `Shows ${topicMidSentence(concept)}`.split(/\s+/).filter(Boolean).slice(0, 12).join(" ");
 }
 
 export function guardSourceCard(card: SourceCard, sourceText: string): { ok: true } | { ok: false; reason: string } {

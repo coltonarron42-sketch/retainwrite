@@ -1,4 +1,4 @@
-import { asHeading, isClauseTopic, isQuestionTopic, topicAsObject, topicMidSentence } from "@/lib/copy/topic-phrase";
+import { asHeading, isClauseTopic, isQuestionTopic, topicMidSentence, topicRef, topicSearchTerms } from "@/lib/copy/topic-phrase";
 // SOP: coaching only, never generate submission text
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
@@ -41,7 +41,7 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
 }
 
 export function sourceSearchDirections(topic: string, _note?: string): string {
-  const subject = topic.trim() || "your topic";
+  const subject = topicSearchTerms(topic) || "your topic";
   return `What would you search first? Try JSTOR, Google Scholar, or your school library for “${subject}”. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
 
@@ -88,7 +88,9 @@ export function exampleLeadBatch(input: {
   if (!rawSubject) {
     return { personalized: false, candidates: [], wildcard: null };
   }
-  const subject = topicAsObject(rawSubject);
+  const subject = topicRef(rawSubject);
+  const question = isQuestionTopic(rawSubject);
+  const search = topicSearchTerms(rawSubject) || subject;
 
   const ref = input.rubricRef;
   const candidates: LeadCandidate[] = [
@@ -97,14 +99,16 @@ export function exampleLeadBatch(input: {
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Search JSTOR or your school library for “${subject}”. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
+      whyFits: `Search JSTOR or your school library for “${search}”. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
-      name: `What kind of source could show ${subject} in a real case?`,
+      name: question
+        ? "What kind of source could show your question playing out in a real case?"
+        : `What kind of source could show ${subject} in a real case?`,
       rubricMatch: 0.78,
       rubricRef: ref,
-      lessonLink: `Shows ${subject}`,
-      whyFits: `Look for a report or article about ${subject}. Check the author and the date yourself before you rely on it.`,
+      lessonLink: question ? "Shows your question in a real case" : `Shows ${subject}`,
+      whyFits: `Look for a report or article about ${question ? search : subject}. Check the author and the date yourself before you rely on it.`,
     },
     {
       name: idea
@@ -112,7 +116,7 @@ export function exampleLeadBatch(input: {
         : `What would a reader expect you to verify about ${subject}?`,
       rubricMatch: idea ? 0.7 : 0.66,
       rubricRef: ref,
-      lessonLink: `Fits ${subject}`,
+      lessonLink: question ? "Fits your question" : `Fits ${subject}`,
       whyFits: idea
         ? `You already have a note. Find one source that speaks to the claim you are least sure about, then explain that connection in your own words.`
         : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
@@ -124,13 +128,13 @@ export function exampleLeadBatch(input: {
     personalized: true,
     candidates,
     wildcard: {
-      name: `Outside this class: where else ${subject} shows up`,
+      name: question ? "Outside this class: where else a question like yours comes up" : `Outside this class: where else ${subject} shows up`,
       rubricMatch: 0.22,
       rubricRef: ref,
-      lessonLink: `Same pattern as ${subject}`,
+      lessonLink: question ? "Same pattern as your question" : `Same pattern as ${subject}`,
       whyFits: "A stretch. The directions above stay closer to the assignment.",
       isWildcard: true,
-      wildcardWhy: `Same pattern as ${subject}, in a field this assignment does not name.`,
+      wildcardWhy: `Same pattern as ${question ? "your question" : subject}, in a field this assignment does not name.`,
       familyFriendly: true,
       controversyNote: null,
     },

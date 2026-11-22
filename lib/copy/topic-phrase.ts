@@ -49,6 +49,23 @@ export function topicMidSentence(text: string | null | undefined): string {
 
 /** For "…about X", "…related to X": a question topic is quoted as the question. */
 export function topicAsObject(text: string | null | undefined): string {
-  if (isQuestionTopic(text)) return `the question “${asQuestion(text)}”`;
+  return topicRef(text);
+}
+
+/**
+ * The topic as the object of our own sentence ("…about X", "…show X in a real
+ * case"). A question can't sit there ("about Should schools…?"), so it is
+ * referred to as "your question" instead.
+ */
+export function topicRef(text: string | null | undefined): string {
+  if (isQuestionTopic(text)) return "your question";
   return topicMidSentence(text);
+}
+
+/** Words to type into a search box: no leading "Should/How/Why", no "?". */
+export function topicSearchTerms(text: string | null | undefined): string {
+  let topic = cleanTopic(text).replace(/[\s?]+$/, "");
+  topic = topic.replace(/^(to what extent|in what ways?|whether|should|shall|is|are|was|were|do|does|did|can|could|will|would|has|have|had|may|might|must|how|why|what|when|where|which|who)\s+/i, "");
+  topic = topic.replace(/^(do|does|did|is|are|has|have|should|can)\s+/i, "");
+  return topic ? topic.charAt(0).toLowerCase() + topic.slice(1) : "";
 }

@@ -1,6 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
+import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { wordCount } from "@/lib/utils";
 
 export const teachCardSchema = z.object({
@@ -69,7 +70,8 @@ export function guardTeachCard(card: TeachCard): { ok: true } | { ok: false; rea
 }
 
 export function askForConcept(concept: string): string {
-  return `Which part of ${concept} interests you most?`;
+  if (isQuestionTopic(concept)) return `Which part of this question interests you most: “${asQuestion(concept)}”`;
+  return `Which part of ${topicMidSentence(concept)} interests you most?`;
 }
 
 export function defaultTeachCard(concept: string, rubricRef: string): TeachCard {
@@ -80,7 +82,9 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
     definition:
       concept.toLowerCase() === "servant leadership"
         ? "A way of leading that puts other people's growth and needs ahead of the leader's status."
-        : `A concept your assignment asks you to understand before you pick examples of ${concept}.`,
+        : isQuestionTopic(concept)
+          ? "The question your assignment asks you to answer. Understand what it's really asking before you pick examples."
+          : `A concept your assignment asks you to understand before you pick examples of ${topicMidSentence(concept)}.`,
     qualities:
       concept.toLowerCase() === "servant leadership"
         ? [
