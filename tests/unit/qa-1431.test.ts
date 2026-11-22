@@ -91,7 +91,7 @@ describe("QA 2:31 #4: typed-assignment heading", () => {
   });
 });
 
-describe("QA 2:31 #5 + design: waves fade out, brows, tilt", () => {
+describe("QA 2:31 #5: waves fade out", () => {
   const css = readFileSync("app/globals.css", "utf8");
   const tsx = readFileSync("components/stages/stage1/pau-presence.tsx", "utf8");
   it("waves keep a 0.4s exit animation before unmount", () => {
@@ -101,14 +101,11 @@ describe("QA 2:31 #5 + design: waves fade out, brows, tilt", () => {
     // A real stop skips the between-sentence hold, so the fade starts at once.
     expect(tsx).toMatch(/audibleEndedForGood\(\) \? 0 : 450/);
   });
-  it("reduced motion: no exit animation, no tilt", () => {
+  it("reduced motion: no exit animation", () => {
     const reduce = css.slice(css.indexOf(".pp-waves-out {\n    animation: none") - 200);
     expect(reduce).toMatch(/\.pp-waves-out\s*\{\s*animation: none;\s*opacity: 0;/);
-    expect(css).toMatch(/no-preference\) \{[^@]*\.pp-tilt\s*\{\s*animation: pp-tilt/);
-    expect(css).toMatch(/@keyframes pp-tilt[\s\S]*rotate\(-3deg\)/);
-  });
-  it("brows are visible at 40px", () => {
-    expect(tsx).toMatch(/strokeOpacity="0\.92" strokeWidth="1\.8"/);
+    // The head tilt was dropped with the old face (2:43 scope change).
+    expect(css).not.toMatch(/pp-tilt/);
   });
 });
 

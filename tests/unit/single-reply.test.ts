@@ -149,7 +149,7 @@ describe("D: mobile voice", () => {
     vi.restoreAllMocks();
   });
 
-  function fakeSynth(opts: { endEvents?: boolean } = {}) {
+  function fakeSynth(opts: { endEvents?: boolean; startEvents?: boolean } = {}) {
     const spoken: string[] = [];
     class U {
       text: string;
@@ -157,6 +157,7 @@ describe("D: mobile voice", () => {
       rate = 1;
       lang = "";
       voice: unknown = null;
+      onstart: (() => void) | null = null;
       onend: (() => void) | null = null;
       onerror: (() => void) | null = null;
       constructor(t: string) {
@@ -167,6 +168,7 @@ describe("D: mobile voice", () => {
       paused: false,
       speak(u: U) {
         spoken.push(u.text);
+        if (opts.startEvents !== false) setTimeout(() => u.onstart?.(), 0);
         if (opts.endEvents !== false) setTimeout(() => u.onend?.(), 0);
       },
       cancel() {},

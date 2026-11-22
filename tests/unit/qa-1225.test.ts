@@ -150,8 +150,8 @@ describe("presence: face, glance/blink, speaking waves", () => {
   });
   it("waves follow the utterance's real start/end and stop", () => {
     const src = read("lib/voice/speech.ts");
-    expect(src).toMatch(/u\.onstart = \(\) => \{\s*if \(gen === generation && !finished\) \{\s*audibleEnded = false;\s*setAudible\(next\);/);
-    expect(src).toMatch(/setSpeaking\(false\);\s*audibleEnded = true;\s*setAudible\(null\);/);
+    expect(src).toMatch(/u\.onstart = \(\) => \{\s*if \(gen === generation && !finished\) \{\s*started = true;\s*setTapNeeded\(false\);\s*audibleEnded = false;\s*setAudible\(next\);/);
+    expect(src).toMatch(/setSpeaking\(false\);\s*audibleEnded = true;\s*setAudible\(null\);\s*setTapNeeded\(false\);/);
   });
   it("voice off shows nothing; waves never take layout space", async () => {
     const p = read("components/stages/stage1/pau-presence.tsx");
