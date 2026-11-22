@@ -97,7 +97,8 @@ export function nextOutlineIndex(sections: { key: string }[], done: string[]): n
 }
 
 /** A line of the Stage 2/3 conversation, kept on the session so a reload rebuilds it. */
-export type LoopLine = { k: string; who: "pau" | "you"; text: string };
+/** "pick" is a tapped choice: shown as a small "Picked: …" chip, never as the student's words. */
+export type LoopLine = { k: string; who: "pau" | "you" | "pick"; text: string };
 
 export function appendLines(prev: LoopLine[] | undefined, lines: LoopLine[]): LoopLine[] {
   // Keep the saved session small: the last 80 lines are plenty to rebuild the chat.

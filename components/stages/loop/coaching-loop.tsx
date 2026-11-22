@@ -32,6 +32,7 @@ import {
 } from "@/lib/coaching/lesson";
 import {
   finalizeLogicCheck,
+  LOGIC_STRONG_HEADLINE,
   logicCheckFromNotes,
   type FinalizedLogic,
 } from "@/lib/coaching/logicCheck";
@@ -87,6 +88,7 @@ import {
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
+import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 
 type RuntimeSection = {
   key: string;
@@ -127,6 +129,13 @@ type Session = {
   /** Stage 3: sections the student has outlined, one at a time. */
   outlineDone?: string[];
   outlineTranscript?: LoopLine[];
+  /**
+   * Pau Pau's answer to a request or question ("ask me questions", "what do
+   * you mean?"). It shows inside her current turn while nothing new has been
+   * said (transcript length === at), so it never becomes its own bubble.
+   */
+  aside?: { k: string; at: number; paras: string[] } | null;
+  outlineAside?: { k: string; at: number; paras: string[] } | null;
 };
 
 type Props = {
@@ -233,7 +242,8 @@ export function CoachingLoop({
   const [idea, setIdea] = useState("");
   const replacingClaim = useRef(false);
   const outlineDrafts = useRef<Record<string, string>>({});
-  const [thinNote, setThinNote] = useState<string | null>(null);
+  // A thin-note hint belongs to the turn it was shown on (QA 10:38 #6).
+  const [thinState, setThinState] = useState<{ text: string; turn: string } | null>(null);
   const [active, setActive] = useState(0);
   const [moving, setMoving] = useState(false);
   const [outlineSaving, setOutlineSaving] = useState(false);
@@ -345,6 +355,14 @@ export function CoachingLoop({
   }, [paperId, router, session, stage, stageProgress]);
 
   const section = session?.sections[active];
+  const turnKey =
+    stage === 2 && section
+      ? `${section.key}:${section.loopStep}:${section.logicRevealed ? 1 : 0}:${section.status}`
+      : `stage${stage}:${(session?.outlineDone ?? []).length}`;
+  const thinNote = thinState && thinState.turn === turnKey ? thinState.text : null;
+  function setThinNote(text: string | null) {
+    setThinState(text ? { text, turn: turnKey } : null);
+  }
   const totals = useMemo(
     () => summarizeCountedAnswers(session?.answers ?? []),
     [session?.answers],
@@ -469,10 +487,20 @@ export function CoachingLoop({
       target.kind === "section" ? "section" : "outline",
     );
     const nextIndex = target.kind === "section" ? target.index : active;
+    // "Continue anyway" after a flag: a short acknowledgement in her next turn.
+    const aside =
+      choice === "continued" && target.kind === "section"
+        ? {
+            k: sections[nextIndex]!.key,
+            at: transcript.length,
+            paras: [`Okay, we'll keep going. I flagged your ${section.title.toLowerCase()} so you can come back to it before you draft.`],
+          }
+        : session.aside ?? null;
     commit({
       ...session,
       sections,
       transcript,
+      aside,
       activeIndex: nextIndex,
       events: [
         ...session.events,
@@ -482,7 +510,7 @@ export function CoachingLoop({
     if (target.kind === "section") setActive(nextIndex);
     if (persist) {
       // Save on every confirm so a reload resumes at the next section.
-      const savedSession = { ...session, sections, transcript, activeIndex: nextIndex };
+      const savedSession = { ...session, sections, transcript, aside, activeIndex: nextIndex };
       await syncChain.current;
       await persistField(paperId, {
         fieldKey: "loop_session",
@@ -537,6 +565,52 @@ export function CoachingLoop({
   // ── Stage 2 turns (PLAN.md 9). Same transitions as the old panels; each
   // also records the exchange so the chat rebuilds after a reload.
   const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
+
+  /** Content, or a request/question to Pau Pau? Model first, rules if it fails. */
+  async function classifyIntent(text: string, ask: string): Promise<StanceIntent> {
+    const rules = rulesStanceIntent(text);
+    if (!needsModel(text)) return rules;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 7000);
+      const res = await fetch(`/api/papers/${paperId}/stance/intent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text.slice(0, 4000), ask: ask.slice(0, 1000), section: section?.title ?? "" }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) return rules;
+      const data = (await res.json()) as { intent?: StanceIntent };
+      return finalStanceIntent(data.intent ?? null, rules);
+    } catch {
+      return rules;
+    }
+  }
+
+  /** A request or question is answered in her next turn and never saved as a note. */
+  function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[]) {
+    if (!session || !section) return;
+    const transcript = withLines(more);
+    const paras = intentReply(intent, { turn, section });
+    const moveToProbe = intent === "request_probe" && (turn === "teach_card" || turn === "mirror");
+    const next: Session = {
+      ...session,
+      transcript,
+      aside: { k: section.key, at: transcript.length, paras },
+      sections: moveToProbe
+        ? session.sections.map((item) =>
+            item.key === section.key ? { ...item, loopStep: "probe" as const, teachStatus: turn === "mirror" ? item.teachStatus : "explored" } : item,
+          )
+        : session.sections,
+      events: [...session.events, `stance_${intent}`],
+    };
+    commit(next);
+    syncSession(next, section.key);
+    paste.reset();
+    setIdea("");
+    setThinNote(null);
+  }
 
   function onTeachAspect(aspect: string, more: LoopLine[]) {
     if (!section) return;
@@ -823,11 +897,20 @@ export function CoachingLoop({
         return;
       }
     }
-    if (nextIndex < 0) {
-      setOutlineSaving(true);
-      await finishOutline(next);
-      setOutlineSaving(false);
-    }
+    // The last section never jumps straight to Sources: she always asks
+    // "Ready to move on to sources?" first (QA 10:38 #9).
+  }
+
+  function onOutlineAside(intent: StanceIntent, key: string, more: LoopLine[]) {
+    if (!session) return;
+    const item = session.sections.find((sectionItem) => sectionItem.key === key);
+    if (!item) return;
+    const outlineTranscript = appendLines(session.outlineTranscript, more);
+    commit({
+      ...session,
+      outlineTranscript,
+      outlineAside: { k: key, at: outlineTranscript.length, paras: intentReply(intent, { turn: "outline", section: item }) },
+    });
   }
 
   function onOutlineReopen(key: string) {
@@ -847,6 +930,7 @@ export function CoachingLoop({
           assignmentText: subject === "your topic" ? session.assignmentText : subject,
           studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
+          section: { key: section.key, title: section.title },
         })
       : null;
   const batch =
@@ -941,6 +1025,9 @@ export function CoachingLoop({
               : null
           }
           transcript={session.transcript ?? []}
+          aside={session.aside ?? null}
+          classify={classifyIntent}
+          onAside={onAside}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
@@ -992,6 +1079,14 @@ export function CoachingLoop({
           sections={session.sections}
           done={session.outlineDone ?? []}
           transcript={session.outlineTranscript ?? []}
+          aside={session.outlineAside ?? null}
+          classify={classifyIntent}
+          onAside={onOutlineAside}
+          flags={Object.fromEntries(
+            session.sections
+              .filter((item) => item.continued && item.logic && item.logic.result.tier !== "pass")
+              .map((item) => [item.key, item.logic!.result.reason || LOGIC_STRONG_HEADLINE]),
+          )}
           saving={outlineSaving || moving}
           error={thinNote}
           skipped={skipped.map((item) => ({ key: item.key, title: item.title }))}

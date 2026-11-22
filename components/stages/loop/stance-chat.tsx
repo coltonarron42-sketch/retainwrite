@@ -3,7 +3,7 @@
 import { useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
-import { ComposerDock, PauPauGroup, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
+import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { asHeading } from "@/lib/copy/topic-phrase";
@@ -26,6 +26,7 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { isPlainYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import type { IntentTurn, StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
 
@@ -43,6 +44,7 @@ export type StanceSectionView = {
   logic: {
     result: {
       tier: "pass" | "moderate" | "strong";
+      basis?: string;
       reason?: string;
       studentClaimRef?: { quote?: string } | null;
       citedTerm?: { quote?: string } | null;
@@ -86,6 +88,10 @@ type Props = {
   safetyNote: string;
   batch: { ranked: PreparedLead[]; wildcard: PreparedLead | null; capReached: boolean; searchPrompt: string | null } | null;
   transcript: LoopLine[];
+  /** Her answer to a request/question; shown inside the current turn only. */
+  aside: { k: string; at: number; paras: string[] } | null;
+  classify: (text: string, ask: string) => Promise<StanceIntent>;
+  onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[]) => void;
   idea: string;
   onIdea: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -100,6 +106,21 @@ type Props = {
 
 const TAP_HINT = "Tap one of the choices in my message to keep going. Your words stay in the box.";
 
+/**
+ * "Quick lesson on <title>: <definition>" without splicing punctuation: a
+ * title that ends in ?, ! or . is quoted and keeps its own mark.
+ */
+export function quickLessonLine(concept: string, definition: string): string {
+  const c = concept.trim();
+  if (/[?!.]$/.test(c)) return `Quick lesson on your question, “${c}” ${definition}`;
+  return `Quick lesson on ${c}: ${definition}`;
+}
+
+/** Off-prompt claims lead with the mismatch, not a generalization critique (QA 10:38 #4). */
+export function isOffPrompt(r: { basis?: string; reason?: string } | null | undefined): boolean {
+  return Boolean(r && (r.basis === "off_prompt" || /^This doesn't answer the question your prompt asks/.test(r.reason ?? "")));
+}
+
 /** Pau Pau's words for the current turn: what's spoken and what the turn says. */
 export function stanceTurnParas(
   kind: StanceTurnKind,
@@ -113,7 +134,7 @@ export function stanceTurnParas(
   const { section, card } = ctx;
   switch (kind) {
     case "teach_card":
-      return card ? [card.affirm, `Quick lesson on ${card.concept}: ${card.definition}`, card.ask].filter((p): p is string => Boolean(p)) : [];
+      return card ? [card.affirm, quickLessonLine(card.concept, card.definition), card.ask].filter((p): p is string => Boolean(p)) : [];
     case "mirror":
       return [ctx.mirrorAsk];
     case "probe":
@@ -124,7 +145,7 @@ export function stanceTurnParas(
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
-      return ["Here are a few directions worth checking for this section. Pick the one you want to try, or tell me your own."];
+      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note. Pick the one you want to try, or tell me your own.`];
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
       return [section.mode === "memory" ? MEMORY_CONFIRM : "Ready to move forward with this?", ...(link ? [link] : [])];
@@ -135,6 +156,7 @@ export function stanceTurnParas(
       const r = section.logic?.result;
       if (!r) return [];
       if (r.tier === "pass") return [LOGIC_PASS];
+      if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
       if (r.tier === "moderate") return [`${LOGIC_MODERATE_TITLE}.`, ...(r.reason ? [r.reason] : []), LOGIC_WRITER];
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
@@ -173,23 +195,46 @@ export function StanceChat(props: Props) {
     handlers: h,
   } = props;
   useStopSpeechOnUnmount();
-  const [hint, setHint] = useState<string | null>(null);
+  const [hintState, setHintState] = useState<{ text: string; key: string } | null>(null);
+  const [checking, setChecking] = useState(false);
   const section = sections[active];
   if (!section) return null;
-  const paras = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger });
+  const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger });
   const pau = (text: string): LoopLine => ({ k: section.key, who: "pau", text });
   const you = (text: string): LoopLine => ({ k: section.key, who: "you", text });
-  const ask = paras.join(" ");
+  // A tapped choice is app text: a "Picked: …" chip, never the student's words.
+  const pick = (text: string): LoopLine => ({ k: section.key, who: "pick", text });
+  const ask = turnParas.join(" ");
   const r = section.logic?.result;
+  // Hints belong to this turn only; a new turn never shows an old hint.
+  const turnId = `${section.key}:${kind}:${transcript.length}`;
+  const hint = hintState?.key === turnId ? hintState.text : null;
+  const setHint = (text: string | null) => setHintState(text ? { text, key: turnId } : null);
+  const asideParas = props.aside && props.aside.k === section.key && props.aside.at === transcript.length ? props.aside.paras : [];
+  const paras = turnParas;
 
-  function send() {
+  async function send() {
     const text = idea.trim();
-    if (!text) return;
+    if (!text || checking) return;
     setHint(null);
+    const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "locked_in" || kind === "none";
+    if (choiceTurn && isPlainYes(text)) {
+      // handled below
+    } else {
+      // Content, or something said TO Pau Pau? Requests are never saved as notes.
+      setChecking(true);
+      const intent = await props.classify(text, ask);
+      setChecking(false);
+      if (intent !== "content") {
+        const turn: IntentTurn = choiceTurn ? "choice" : kind === "teach_card" || kind === "mirror" || kind === "probe" || kind === "name_lead" || kind === "pick_lead" ? kind : "probe";
+        props.onAside(intent, turn, [pau(ask), you(text)]);
+        return;
+      }
+    }
     switch (kind) {
       case "teach_card":
         // Their own words go on to the next question (the probe), unchanged.
-        h.teachAspect(SOMETHING_ELSE, [pau(card?.ask ?? ask), you(SOMETHING_ELSE)]);
+        h.teachAspect(SOMETHING_ELSE, [pau(card?.ask ?? ask), pick(SOMETHING_ELSE)]);
         return;
       case "mirror":
         h.mirrorSave([pau(ask), you(text)]);
@@ -241,24 +286,14 @@ export function StanceChat(props: Props) {
 
   const speak: SpeakItem[] = [
     { key: "s2:intro", text: `${intro.heading}. ${intro.body}` },
-    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: ask, turn: true },
+    { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...asideParas, ask].join(" "), turn: true },
   ];
-  const history = transcript.map((line, i) => {
-    const head = i === 0 || transcript[i - 1]!.k !== line.k ? sections.find((s) => s.key === line.k)?.title : null;
-    return (
-      <div key={i} className="space-y-4">
-        {head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
-        {line.who === "pau" ? <PauPauGroup bubbles={[line.text]} /> : <StudentBubble message={{ text: line.text, files: [], at: 0 }} />}
-      </div>
-    );
-  });
-
-  return (
-    <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
-      <SpeakNew scope={`${paperId}:stage2`} items={speak} />
-      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} />
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
-        <PauPauGroup showName bubbles={[`${intro.heading}.`.replace(/([?.!])\.$/, "$1"), intro.body]}>
+  // The opener: question, "one section at a time", edit link, prompt type and
+  // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
+  const introBubbles: ReactNode[] = [
+    `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
+    intro.body,
+    <div key="intro-controls" className="space-y-3">
           <p className="text-[13px] leading-[1.6] text-ds-muted">
             <a href={`/app/papers/${paperId}/stage/1`} className={dsLink}>
               Edit assignment
@@ -295,14 +330,53 @@ export function StanceChat(props: Props) {
               ))}
             </ol>
           </nav>
-        </PauPauGroup>
+    </div>,
+  ];
 
+  // History as replies: consecutive Pau Pau lines in one section are one reply;
+  // a tapped choice is a "Picked" chip; only typed words are student bubbles.
+  type Group = { k: string; who: LoopLine["who"]; texts: string[] };
+  const groups: Group[] = [];
+  for (const line of transcript) {
+    const last = groups[groups.length - 1];
+    if (last && line.who === "pau" && last.who === "pau" && last.k === line.k) last.texts.push(line.text);
+    else groups.push({ k: line.k, who: line.who, texts: [line.text] });
+  }
+  // Pau Pau lines at the very end belong to the current reply.
+  const trailing = groups.length && groups[groups.length - 1]!.who === "pau" && groups[groups.length - 1]!.k === section.key ? groups.pop()!.texts : [];
+  const introInCurrent = groups.length === 0;
+  const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
+  const history = groups.map((group, i) => {
+    const head = i === 0 || groups[i - 1]!.k !== group.k ? sections.find((item) => item.key === group.k)?.title : null;
+    const first = i === 0 && group.who === "pau";
+    return (
+      <div key={i} className="space-y-4">
+        {head && !(i === 0 && !first) ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
+        {i === 0 && !first ? <PauPauGroup showName bubbles={introBubbles} /> : null}
+        {i === 0 && !first && head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
+        {group.who === "pau" ? (
+          <PauPauGroup showName={first} bubbles={first ? [...introBubbles, ...group.texts] : group.texts} />
+        ) : group.who === "pick" ? (
+          <PickedChip label={group.texts[0]!} fullText={group.texts[0]!} />
+        ) : (
+          <StudentBubble message={{ text: group.texts[0]!, files: [], at: 0 }} />
+        )}
+      </div>
+    );
+  });
+
+  return (
+    <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
+      <SpeakNew scope={`${paperId}:stage2`} items={speak} />
+      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} />
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
         {history}
 
         {/* Pau Pau's current turn: ONE reply. */}
         <PauPauGroup
-          bubbles={paras}
-          headingIndex={Math.max(0, paras.length - 1)}
+          showName={introInCurrent}
+          bubbles={currentBubbles}
+          headingIndex={Math.max(0, currentBubbles.length - 1)}
           headingId="stance-question"
           live
         >
@@ -314,14 +388,14 @@ export function StanceChat(props: Props) {
             <>
               <Choices label="Pick one">
                 {card.qualities.map((quality) => (
-                  <DsButton key={quality} type="button" size="sm" variant="secondary" onClick={() => h.teachAspect(quality, [pau(card.ask), you(quality)])}>
+                  <DsButton key={quality} type="button" size="sm" variant="secondary" onClick={() => h.teachAspect(quality, [pau(card.ask), pick(quality)])}>
                     {quality}
                   </DsButton>
                 ))}
-                <DsButton type="button" size="sm" variant="secondary" onClick={() => h.teachAspect(SOMETHING_ELSE, [pau(card.ask), you(SOMETHING_ELSE)])}>
+                <DsButton type="button" size="sm" variant="secondary" onClick={() => h.teachAspect(SOMETHING_ELSE, [pau(card.ask), pick(SOMETHING_ELSE)])}>
                   {SOMETHING_ELSE}
                 </DsButton>
-                <DsButton type="button" size="sm" variant="ghost" onClick={() => h.teachSkip([pau(card.ask), you(KNOW_THIS_ONE)])}>
+                <DsButton type="button" size="sm" variant="ghost" onClick={() => h.teachSkip([pau(card.ask), pick(KNOW_THIS_ONE)])}>
                   {KNOW_THIS_ONE}
                 </DsButton>
               </Choices>
@@ -391,7 +465,7 @@ export function StanceChat(props: Props) {
                     <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">To verify</span>
                   </p>
                   <p className="text-ds-muted">{lead.whyFits}</p>
-                  <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0]!), you(lead.name)])}>
+                  <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0]!), pick(lead.name)])}>
                     Try this direction
                   </DsButton>
                 </li>
@@ -407,7 +481,7 @@ export function StanceChat(props: Props) {
                     size="sm"
                     variant="secondary"
                     className="mt-1"
-                    onClick={() => h.pickLead(props.batch!.wildcard!, [pau(paras[0]!), you(props.batch!.wildcard!.name)])}
+                    onClick={() => h.pickLead(props.batch!.wildcard!, [pau(paras[0]!), pick(props.batch!.wildcard!.name)])}
                   >
                     Try this stretch
                   </DsButton>
@@ -442,7 +516,7 @@ export function StanceChat(props: Props) {
                 </dl>
               ) : null}
               <Choices label="Lock it in">
-                <DsButton type="button" size="sm" onClick={() => h.confirm([pau(paras[0]!), you("Yes, lock it in")])}>
+                <DsButton type="button" size="sm" onClick={() => h.confirm([pau(paras[0]!), pick("Yes, lock it in")])}>
                   Yes, lock it in
                 </DsButton>
               </Choices>
@@ -451,10 +525,10 @@ export function StanceChat(props: Props) {
 
           {kind === "logic_opener" ? (
             <Choices label="Logic check">
-              <DsButton type="button" size="sm" onClick={() => h.logicOpener("yes", [pau(LOGIC_OPENER), you(LOGIC_YES)])}>
+              <DsButton type="button" size="sm" onClick={() => h.logicOpener("yes", [pau(LOGIC_OPENER), pick(LOGIC_YES)])}>
                 {LOGIC_YES}
               </DsButton>
-              <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicOpener("tweak", [pau(LOGIC_OPENER), you(LOGIC_TWEAK)])}>
+              <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicOpener("tweak", [pau(LOGIC_OPENER), pick(LOGIC_TWEAK)])}>
                 {LOGIC_TWEAK}
               </DsButton>
             </Choices>
@@ -473,30 +547,30 @@ export function StanceChat(props: Props) {
               ) : null}
               <Choices label="What next">
                 {r.tier === "pass" ? (
-                  <DsButton type="button" size="sm" onClick={() => h.logicResult("pass", [pau(LOGIC_PASS), you("Continue")])}>
+                  <DsButton type="button" size="sm" onClick={() => h.logicResult("pass", [pau(LOGIC_PASS), pick("Continue")])}>
                     Continue
                   </DsButton>
                 ) : r.tier === "moderate" ? (
                   <>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(`${LOGIC_MODERATE_TITLE}.`), you("Keep my angle")])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras[0]!), pick("Keep my angle")])}>
                       Keep my angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(`${LOGIC_MODERATE_TITLE}.`), you("Adjust it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(paras[0]!), pick("Adjust it")])}>
                       Adjust it
                     </DsButton>
                   </>
                 ) : (
                   <>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(LOGIC_STRONG_HEADLINE), you("Pick a new angle")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(paras[0]!), pick("Pick a new angle")])}>
                       Pick a new angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(LOGIC_STRONG_HEADLINE), you("Revise my claim")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(paras[0]!), pick("Revise my claim")])}>
                       Revise my claim
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(LOGIC_STRONG_HEADLINE), you("Reframe it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(paras[0]!), pick("Reframe it")])}>
                       Reframe it
                     </DsButton>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(LOGIC_STRONG_HEADLINE), you(LOGIC_CONTINUE)])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(paras[0]!), pick(LOGIC_CONTINUE)])}>
                       {LOGIC_CONTINUE}
                     </DsButton>
                   </>
@@ -538,7 +612,7 @@ export function StanceChat(props: Props) {
               <button
                 type="button"
                 className="ds-focus min-h-[48px] px-2 text-[13px] text-ds-muted underline-offset-4 hover:underline"
-                onClick={() => h.skipSection([you("Skip this section for now")])}
+                onClick={() => h.skipSection([pick("Skip this section for now")])}
               >
                 Skip this section for now
               </button>
@@ -561,7 +635,8 @@ export function StanceChat(props: Props) {
           inputProps={{ onDrop: props.onDrop }}
           minRows={1}
           placeholder={placeholder}
-          onSend={send}
+          sending={checking}
+          onSend={() => void send()}
         />
         <SaveStatus status={props.noteStatus} />
       </ComposerDock>
