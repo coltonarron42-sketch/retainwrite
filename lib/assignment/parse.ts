@@ -14,7 +14,7 @@ import {
   type AssignmentRequirements,
 } from "@/lib/assignment/schema";
 import { usableWordCount } from "@/lib/assignment/corpus";
-import { grokChatJson, hasGrokKey, MODEL_FAST } from "@/lib/ai/grok";
+import { grokChatJson, hasGrokKey, MODEL_FAST, MODEL_STRONG } from "@/lib/ai/grok";
 import { FLAT_ASSIGNMENT_SCHEMA, FLAT_PARSE_SYSTEM, flatToNested, looksFlat } from "@/lib/assignment/flat-parse";
 
 const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only one JSON object. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
@@ -32,7 +32,7 @@ export function isFormatOrLengthLine(value: string | null | undefined): boolean 
   return !/\b(how|why|should|affect|social|health|argue|explain|discuss)\b/i.test(text);
 }
 
-export type ModelReader = (input: { system: string; user: string; timeoutMs?: number }) => Promise<
+export type ModelReader = (input: { system: string; user: string; timeoutMs?: number; strong?: boolean }) => Promise<
   | { ok: true; text: string; model: string }
   | { ok: false; reason: string }
 >;
@@ -183,12 +183,14 @@ function acceptModelJson(text: string, corpus: string): AssignmentRequirements |
  * took 7-12s (and fell back to the rule parser on a timeout, which loses the
  * rubric and named sources). This is a copy-the-facts task, not reasoning.
  */
-const defaultModel: ModelReader = ({ user, timeoutMs }) =>
+const defaultModel: ModelReader = ({ user, timeoutMs, strong }) =>
   grokChatJson({
-    model: MODEL_FAST,
+    // The last retry goes to the strong model: when the fast model is out of
+    // capacity (xAI 429s during QA's runs), the strong pool usually is not.
+    model: strong ? MODEL_STRONG : MODEL_FAST,
     system: FLAT_PARSE_SYSTEM,
     user,
-    reasoningEffort: "none",
+    reasoningEffort: strong ? "low" : "none",
     jsonSchema: {
       name: "assignment_requirements",
       schema: FLAT_ASSIGNMENT_SCHEMA as unknown as Record<string, unknown>,
@@ -223,6 +225,7 @@ export function capFallbackConfidence(req: AssignmentRequirements): AssignmentRe
  */
 export const HEDGE_AFTER_MS = 6_000;
 export const PARSE_DEADLINE_MS = 22_000;
+export const RETRY_BACKOFF_MS = 700;
 
 async function askReliably(
   ask: ModelReader,
@@ -248,7 +251,12 @@ async function askReliably(
       if (remaining < 4_000) return;
       launched++;
       const attempt = launched;
-      void ask({ system: PARSE_SYSTEM, user, timeoutMs: Math.min(PARSE_TIMEOUT_MS + 4_000, remaining) })
+      void ask({
+        system: PARSE_SYSTEM,
+        user,
+        timeoutMs: Math.min(PARSE_TIMEOUT_MS + 4_000, remaining),
+        ...(attempt === 3 ? { strong: true } : {}),
+      })
         .then((res) => {
           finished++;
           if (res.ok) {
@@ -264,7 +272,9 @@ async function askReliably(
           }
           console.warn("[assignment/parse] attempt failed", { attempt, reason: lastReason, ms: Date.now() - started });
           if (lastReason === "missing_key") return done({ ok: false, reason: lastReason });
-          if (launched < 3) launch();
+          // A capacity error comes back in ~3s; retrying that same instant
+          // mostly gets another one, so wait a beat.
+          if (launched < 3) timers.push(setTimeout(launch, RETRY_BACKOFF_MS));
           else if (finished >= launched) done({ ok: false, reason: lastReason });
         })
         .catch(() => {

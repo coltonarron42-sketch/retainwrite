@@ -89,18 +89,87 @@ async function callMistralOcr(input: OcrInput): Promise<OcrPageResult> {
 }
 
 /**
- * Transcription is not a reasoning task: try the fast model first (the strong
- * model took 4-19s per photo), then the strong model if it errors or reads
- * nothing.
+ * Transcription is not a reasoning task: the fast model reads a page in 2-3s.
+ * But when it is out of capacity (xAI 429s) or queued, waiting 20s for it and
+ * then starting the strong model cost QA 30s on one scan. So hedge: if the fast
+ * read hasn't answered in OCR_HEDGE_MS, or fails, start the strong model in
+ * parallel (and one fast retry after a short backoff); first usable read wins.
  */
+export const OCR_HEDGE_MS = 6_000;
+const OCR_DEADLINE_MS = 30_000;
+
 async function callGrokVision(input: OcrInput): Promise<OcrPageResult> {
-  try {
-    const fast = await callGrokVisionWith(input, MODEL_FAST, "none", 20_000);
-    if (fast.text.trim().length >= 40) return fast;
-  } catch (err) {
-    console.info("[ocr] fast vision failed", { message: err instanceof Error ? err.message.slice(0, 120) : "error" });
-  }
-  return callGrokVisionWith(input, MODEL_STRONG, "low", VISION_TIMEOUT_MS);
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let strongStarted = false;
+    let fastRetried = false;
+    let retryPending = false;
+    let running = 0;
+    let lastError: unknown = new Error("no_text");
+    let lastEmpty: OcrPageResult | null = null;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      timers.forEach(clearTimeout);
+      fn();
+    };
+    const maybeGiveUp = () => {
+      if (running > 0 || retryPending || settled) return;
+      if (!strongStarted) return startStrong();
+      if (!fastRetried) return;
+      finish(() => (lastEmpty ? resolve(lastEmpty) : reject(lastError)));
+    };
+    const run = (model: string, effort: "none" | "low", label: string) => {
+      const remaining = OCR_DEADLINE_MS - (Date.now() - started);
+      if (settled || remaining < 3_000) return maybeGiveUp();
+      running++;
+      callGrokVisionWith(input, model, effort, remaining)
+        .then((res) => {
+          running--;
+          if (res.text.trim().length >= 40) return finish(() => resolve(res));
+          lastEmpty = res;
+          onFailure();
+        })
+        .catch((err) => {
+          running--;
+          lastError = err;
+          console.info("[ocr] vision attempt failed", {
+            attempt: label,
+            ms: Date.now() - started,
+            message: err instanceof Error ? err.message.slice(0, 120) : "error",
+          });
+          if (err instanceof Error && err.message === "missing_key") return finish(() => reject(err));
+          onFailure();
+        });
+    };
+    const startStrong = () => {
+      if (strongStarted || settled) return;
+      strongStarted = true;
+      run(MODEL_STRONG, "low", "strong");
+    };
+    const onFailure = () => {
+      startStrong();
+      if (!fastRetried) {
+        fastRetried = true;
+        retryPending = true;
+        timers.push(
+          setTimeout(() => {
+            retryPending = false;
+            run(MODEL_FAST, "none", "fast-retry");
+          }, 700),
+        );
+        return;
+      }
+      maybeGiveUp();
+    };
+    run(MODEL_FAST, "none", "fast");
+    timers.push(setTimeout(startStrong, OCR_HEDGE_MS));
+    timers.push(
+      setTimeout(() => finish(() => (lastEmpty ? resolve(lastEmpty) : reject(new Error("Request timed out.")))), OCR_DEADLINE_MS),
+    );
+  });
 }
 
 async function callGrokVisionWith(

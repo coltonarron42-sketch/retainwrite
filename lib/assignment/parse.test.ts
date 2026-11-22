@@ -159,4 +159,23 @@ ${"detail ".repeat(12)}`;
     expect(result.requirements.topic.value).toMatch(/social media/i);
     expect(result.needsConfirmation).toBe(false);
   });
+
+  it("after two capacity errors, the last try goes to the strong model and wins", async () => {
+    const seen: boolean[] = [];
+    const result = await parseAssignmentCorpus(SAMPLE, {
+      mode: "live",
+      askModel: async ({ strong }) => {
+        seen.push(Boolean(strong));
+        if (!strong) return { ok: false, reason: "request_failed" };
+        return {
+          ok: true,
+          text: JSON.stringify({ topic: "how social media affects teen mental health", citationStyle: "MLA", length: "5 pages" }),
+          model: "strong-test",
+        };
+      },
+    });
+    expect(seen).toEqual([false, false, true]);
+    expect(result.parseMeta.fallback).toBe(false);
+    expect(result.parseMeta.model).toBe("strong-test");
+  });
 });
