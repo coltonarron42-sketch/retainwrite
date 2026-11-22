@@ -29,10 +29,12 @@ import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
 import {
+  emptyField,
   emptyRequirements,
   type AssignmentRequirements,
   type CitationStyle,
   type Field,
+  type RequiredSourcesValue,
 } from "@/lib/assignment/schema";
 import {
   STAGE1_VOICE_MIN_WORDS,
@@ -132,6 +134,18 @@ const INTEREST_Qs = [
     text: "Is there a story, show, sport, job, or place that gets you talking?",
   },
 ];
+
+/** Types and named sources ("Must include: AAP 2014…") both show in the box. */
+function requiredSourcesText(value: RequiredSourcesValue | null | undefined): string {
+  if (!value) return "";
+  const parts: string[] = [];
+  const types = value.types?.trim();
+  if (types) parts.push(types);
+  else if (value.countMin) parts.push(`At least ${value.countMin} sources`);
+  const notes = value.notes?.trim();
+  if (notes && !parts.some((part) => part.includes(notes))) parts.push(notes);
+  return parts.join("\n");
+}
 
 function fieldNeedsAttention(field: Field<unknown>) {
   return field.confidence < 0.6 || field.source === "missing";
@@ -1334,6 +1348,25 @@ export function AssignmentIntake({
           </CardField>
 
           <CardField
+            label="Instructor"
+            attention={Boolean(requirements.instructor?.value) && fieldNeedsAttention(requirements.instructor ?? emptyField<string>())}
+            confirmed={Boolean(requirements.instructor?.confirmed)}
+          >
+            <Input
+              className={dsInput}
+              value={requirements.instructor?.value ?? ""}
+              onChange={(e) =>
+                updateField(
+                  "instructor",
+                  markFieldConfirmed(requirements.instructor ?? emptyField<string>(), {
+                    value: e.target.value || null,
+                  }),
+                )
+              }
+            />
+          </CardField>
+
+          <CardField
             label="Topic / prompt question"
             attention={
               fieldNeedsAttention(requirements.topic) ||
@@ -1580,18 +1613,17 @@ export function AssignmentIntake({
             <Textarea
               className={dsTextarea}
               rows={2}
-              value={
-                requirements.requiredSources.value?.types ||
-                requirements.requiredSources.value?.notes ||
-                ""
-              }
+              value={requiredSourcesText(requirements.requiredSources.value)}
               onChange={(e) =>
                 updateField(
                   "requiredSources",
                   markFieldConfirmed(requirements.requiredSources, {
+                    // The box shows count, types and named sources together;
+                    // what the student types replaces all of it.
                     value: {
                       ...(requirements.requiredSources.value ?? {}),
                       types: e.target.value,
+                      notes: undefined,
                     },
                   }),
                 )

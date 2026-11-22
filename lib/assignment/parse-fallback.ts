@@ -305,6 +305,13 @@ export function parseAssignmentFallback(
     req.providedSources = field;
   }
 
+  const instructor =
+    text.match(/^[ \t]*(?:instructor|professor|teacher|lecturer)[ \t]*:[ \t]*([^\n]{2,80})$/im) ??
+    text.match(/\b((?:Prof\.|Professor|Dr\.|Mr\.|Ms\.|Mrs\.)[ \t]+[A-Z][A-Za-z'’-]+(?:[ \t]+[A-Z][A-Za-z'’-]+)?)/);
+  if (instructor) {
+    req.instructor = extractedField(instructor[1].trim(), 0.7, instructor[0].trim());
+  }
+
   // Strip invalid evidence
   for (const key of Object.keys(req) as (keyof AssignmentRequirements)[]) {
     const field = req[key];

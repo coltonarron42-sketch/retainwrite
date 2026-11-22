@@ -13,7 +13,8 @@ import {
   type AssignmentRequirements,
 } from "@/lib/assignment/schema";
 import { usableWordCount } from "@/lib/assignment/corpus";
-import { grokChatJson, hasGrokKey, MODEL_STRONG } from "@/lib/ai/grok";
+import { grokChatJson, hasGrokKey, MODEL_FAST } from "@/lib/ai/grok";
+import { FLAT_ASSIGNMENT_SCHEMA, FLAT_PARSE_SYSTEM, flatToNested, looksFlat } from "@/lib/assignment/flat-parse";
 
 const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only one JSON object. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
 
@@ -112,6 +113,7 @@ export function fillEmptyRequirements(
   const next = { ...primary };
   const keys = [
     "course",
+    "instructor",
     "paperType",
     "topic",
     "promptQuestion",
@@ -164,7 +166,9 @@ function acceptModelJson(text: string, corpus: string): AssignmentRequirements |
     console.error("[assignment/parse] schema mismatch", { issues: [{ path: "", code: "invalid_json" }] });
     return null;
   }
-  const validated = assignmentRequirementsSchema.safeParse(coerceRequirements(json));
+  const validated = assignmentRequirementsSchema.safeParse(
+    coerceRequirements(looksFlat(json) ? flatToNested(json) : json),
+  );
   if (!validated.success) {
     console.error("[assignment/parse] schema mismatch", { issues: schemaIssueLog(validated.error) });
     return null;
@@ -173,15 +177,20 @@ function acceptModelJson(text: string, corpus: string): AssignmentRequirements |
   return scrubEvidence(validated.data, corpus);
 }
 
-const defaultModel: ModelReader = ({ system, user }) =>
+/**
+ * The fast model with no reasoning and a flat named schema: the strong model
+ * took 7-12s (and fell back to the rule parser on a timeout, which loses the
+ * rubric and named sources). This is a copy-the-facts task, not reasoning.
+ */
+const defaultModel: ModelReader = ({ user }) =>
   grokChatJson({
-    model: MODEL_STRONG,
-    system,
+    model: MODEL_FAST,
+    system: FLAT_PARSE_SYSTEM,
     user,
-    reasoningEffort: "low",
+    reasoningEffort: "none",
     jsonSchema: {
       name: "assignment_requirements",
-      schema: { type: "object", additionalProperties: true },
+      schema: FLAT_ASSIGNMENT_SCHEMA as unknown as Record<string, unknown>,
     },
     timeoutMs: PARSE_TIMEOUT_MS,
   });
