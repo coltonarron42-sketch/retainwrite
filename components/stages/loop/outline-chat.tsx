@@ -12,7 +12,7 @@ import { draftPointer } from "@/lib/papers/draft-resume";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { nextOutlineIndex, type LoopLine } from "@/lib/stages/stance-turn";
 import type { SpeakItem } from "@/lib/voice/speech";
-import type { StanceIntent } from "@/lib/stages/stance-intent";
+import { OUTLINE_FOLLOW_UP, type StanceIntent } from "@/lib/stages/stance-intent";
 
 export type OutlineSectionView = { key: string; title: string; needs: string; ideas: string[] };
 
@@ -23,7 +23,7 @@ type Props = {
   done: string[];
   transcript: LoopLine[];
   /** Her answer to a request/question, inside the current turn only. */
-  aside: { k: string; at: number; paras: string[] } | null;
+  aside: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, key: string, lines: LoopLine[]) => void;
   /** Sections flagged in Stance where the student chose "Continue anyway": key → reason. */
@@ -87,26 +87,34 @@ export function OutlineChat(props: Props) {
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });
   const pick = (k: string, t: string): LoopLine => ({ k, who: "pick", text: t });
   const [checking, setChecking] = useState(false);
-  const asideParas = current && props.aside && props.aside.k === current.key && props.aside.at === transcript.length ? props.aside.paras : [];
+  const asideHere = Boolean(current && props.aside && props.aside.k === current.key && props.aside.at === transcript.length);
+  const asideParas = asideHere ? props.aside!.paras : [];
   const flag = current ? props.flags[current.key] : undefined;
-  const turnParas = [...asideParas, ...paras];
+  // Her answers at the end of the transcript (append-only) are the top of this reply.
+  let tail = transcript.length;
+  while (current && tail > 0 && transcript[tail - 1]!.who === "pau" && transcript[tail - 1]!.k === current.key) tail -= 1;
+  const trailing = transcript.slice(tail).map((line) => line.text);
+  const shown = transcript.slice(0, tail);
+  // After an answer she doesn't re-ask the whole opener.
+  const ask = asideHere ? [OUTLINE_FOLLOW_UP] : paras;
+  const turnParas = [...trailing, ...asideParas, ...ask];
 
   /** A tap keeps the Stance notes (a "Picked" chip); typed words are checked first. */
   async function submit(value: string, tapped: boolean) {
     if (!current || props.saving || checking) return;
-    const ask = paras.slice(-2).join(" ");
+    const askText = ask.slice(-2).join(" ");
     if (!tapped && value.trim() && value.trim() !== notes.trim()) {
       setChecking(true);
-      const intent = await props.classify(value, ask);
+      const intent = await props.classify(value, askText);
       setChecking(false);
       if (intent !== "content") {
         // Never saved as the outline: answer it and put their notes back in the box.
-        props.onAside(intent, current.key, [pau(current.key, ask), you(current.key, value.trim())]);
+        props.onAside(intent, current.key, [pau(current.key, askText), you(current.key, value.trim())]);
         setText(notes);
         return;
       }
     }
-    props.onSend(current.key, value, [pau(current.key, ask), tapped ? pick(current.key, notes ? "Keep my notes" : "Skip for now") : you(current.key, value.trim() || "Keep my notes")]);
+    props.onSend(current.key, value, [pau(current.key, askText), tapped ? pick(current.key, notes ? "Keep my notes" : "Skip for now") : you(current.key, value.trim() || "Keep my notes")]);
   }
 
   const speak: SpeakItem[] = [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
@@ -121,7 +129,7 @@ export function OutlineChat(props: Props) {
       <SpeakNew scope={`${paperId}:stage3`} items={speak} />
       <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} />
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
-        {transcript.map((line, i) => {
+        {shown.map((line, i) => {
           const head = i === 0 || transcript[i - 1]!.k !== line.k ? sections.find((s) => s.key === line.k)?.title : null;
           const isLastAnswer = line.who === "you" && isLastPick(i);
           return (
@@ -155,7 +163,7 @@ export function OutlineChat(props: Props) {
         })}
 
         <PauPauGroup
-          showName={transcript.length === 0}
+          showName={shown.length === 0}
           bubbles={turnParas}
           headingIndex={turnParas.length - 1}
           headingId="outline-question"

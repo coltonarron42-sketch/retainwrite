@@ -99,6 +99,15 @@ export function probingQuestions(section: { title: string; needs?: string | null
 /** Her ask under the probing questions she just gave (replaces the opening ask, so it isn't repeated). */
 export const ASIDE_FOLLOW_UP = "Answer one of those in your own words, or tell me the idea you already have.";
 
+/** Stage 3: her ask after an answer (the opener isn't repeated). */
+export const OUTLINE_FOLLOW_UP = "When you're ready, put your notes into short outline lines in the box, or tap Keep my notes.";
+
+/** Her next ask after any aside, so the opener question is never repeated. */
+export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: string): string {
+  if (intent === "request_probe" || intent === "request_help") return ASIDE_FOLLOW_UP;
+  return `When you're ready, tell me your idea for your ${sectionTitle.toLowerCase()} in your own words.`;
+}
+
 /** Pau Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null } }): string[] {
   const qs = probingQuestions(ctx.section);
