@@ -208,6 +208,10 @@ export function CoachingLoop({
 }: Props) {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
+  // False until the saved session (or the Stage 1 assignment) has been read.
+  // Before that, show a loading line, not the paste box: the confirmed
+  // assignment is on its way and must not be asked for again.
+  const [sessionLoaded, setSessionLoaded] = useState(false);
   const [idea, setIdea] = useState("");
   const replacingClaim = useRef(false);
   const outlineDrafts = useRef<Record<string, string>>({});
@@ -241,6 +245,7 @@ export function CoachingLoop({
       resume?: { stage?: number; screen?: string | null } | null,
     ) => {
       if (cancelled) return;
+      setSessionLoaded(true);
       if (!base?.sections) {
         const text = assignmentPrompt?.trim() || "";
         setSession(text ? freshSession(text) : null);
@@ -331,8 +336,16 @@ export function CoachingLoop({
   });
 
   if (!session) {
+    if (!sessionLoaded) {
+      return (
+        <p className="text-sm text-rw-ink/70" role="status">
+          Loading your confirmed assignment…
+        </p>
+      );
+    }
     return (
       <AssignmentSeed
+        paperId={paperId}
         onUse={(text) => {
           setSession(freshSession(text));
           setActive(0);
@@ -534,7 +547,13 @@ export function CoachingLoop({
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
           : subject === "your topic"
             ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-            : `This assignment teaches ${subject}.`}
+            : `This assignment teaches ${subject}.`}{" "}
+        <a
+          href={`/app/papers/${paperId}/stage/1`}
+          className="font-semibold text-rw-teal underline-offset-2 hover:underline"
+        >
+          Edit assignment
+        </a>
       </p>
         </>
       ) : (
@@ -1108,13 +1127,19 @@ export function CoachingLoop({
   );
 }
 
-function AssignmentSeed({ onUse }: { onUse: (text: string) => void }) {
+/** Only shown when no Stage 1 assignment text exists for this paper. */
+function AssignmentSeed({ paperId, onUse }: { paperId: string; onUse: (text: string) => void }) {
   const [text, setText] = useState("");
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="font-display text-3xl text-rw-ink">Confirmed assignment</h1>
+      <h1 className="font-display text-3xl text-rw-ink">Your assignment</h1>
       <p className="mt-2 text-sm text-rw-ink/70">
-        Paste the assignment you already confirmed. Coaching starts from that text.
+        We couldn&apos;t find the assignment text from Stage 1. Paste it here and coaching starts
+        from that text, or{" "}
+        <a href={`/app/papers/${paperId}/stage/1`} className="font-semibold text-rw-teal">
+          go back to Stage 1
+        </a>
+        .
       </p>
       <Textarea className="mt-4" value={text} onChange={(event) => setText(event.target.value)} />
       <Button type="button" className="mt-4" disabled={!text.trim()} onClick={() => onUse(text.trim())}>
