@@ -148,10 +148,10 @@ export function stanceTurnParas(
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
-      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note. Pick the one you want to try, or tell me your own.`];
+      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note. No crystal ball required. Pick the one you want to try, or tell me your own.`];
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
-      return [section.mode === "memory" ? MEMORY_CONFIRM : "Ready to move forward with this?", ...(link ? [link] : [])];
+      return [section.mode === "memory" ? MEMORY_CONFIRM : "Looking solid. Ready to move forward with this?", ...(link ? [link] : [])];
     }
     case "logic_opener":
       return [LOGIC_OPENER];

@@ -16,10 +16,13 @@ export function PauPauAvatar({ size = "md", alive = false }: { size?: "sm" | "md
   );
 }
 
-const BUBBLE =
-  "inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 shadow-ds-card sm:px-5 sm:py-4";
+// PLAN.md 9 (Nov 22, 2:43): Pau Pau's turns read as plain text beside her
+// avatar: no card border, shadow or box.
+const BUBBLE = "inline-block max-w-full pt-1";
+// The student's turns: a light right-aligned block with a thin rule.
+const STUDENT = "max-w-[85%] border-r-2 border-ds-border py-1 pr-3 text-right";
 
-/** Pau Pau's side of the chat: avatar, name on the first bubble, white card bubble. */
+/** Pau Pau's side of the chat: avatar, name on the first turn, plain text (no box). */
 export function PauPauBubble({
   children,
   id,
@@ -129,11 +132,11 @@ export function PauPauGroup({
 export type SentAttachment = { name: string; kind?: string };
 export type SentMessage = { text: string; files: SentAttachment[]; at: number };
 
-/** The student's side: right-aligned, warm page tone, their own words verbatim. */
+/** The student's side: right-aligned light text block, their own words verbatim. */
 export function StudentBubble({ message }: { message: SentMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] rounded-[12px] rounded-tr-[4px] bg-ds-border px-4 py-3">
+      <div className={STUDENT} data-student-turn>
         <p className="sr-only">You sent:</p>
         {message.files.length ? (
           <ul className="flex flex-wrap justify-end gap-2" aria-label="Attached files">
@@ -180,7 +183,7 @@ export function EchoBubble({
       <span className="sr-only">You said: </span>
       <span
         className={cn(
-          "block whitespace-pre-wrap break-words text-left text-[16px] leading-[1.6]",
+          "block whitespace-pre-wrap break-words text-right text-[16px] leading-[1.6]",
           muted ? "italic text-ds-muted" : "text-ds-ink",
         )}
       >
@@ -195,14 +198,14 @@ export function EchoBubble({
           type="button"
           onClick={onEdit}
           aria-label={editLabel}
-          className="ds-focus max-w-[85%] rounded-[12px] rounded-tr-[4px] bg-ds-border px-4 py-3 transition-colors duration-150 hover:brightness-[0.97]"
+          className={cn("ds-focus min-h-[48px] transition-colors duration-150 hover:border-ds-muted", STUDENT)}
         >
           {body}
         </button>
       ) : (
         <div
           className={cn(
-            "max-w-[85%] rounded-[12px] rounded-tr-[4px] bg-ds-border px-4 py-3",
+            STUDENT,
             editing && "ring-2 ring-ds-accent ring-offset-2 ring-offset-ds-page",
           )}
         >
@@ -243,7 +246,7 @@ export function ReadingBubble({ status, startedAt }: { status: string; startedAt
   return (
     <div className="flex items-start gap-2 sm:gap-3" role="status">
       <PauPauAvatar />
-      <div className="mt-1 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 shadow-ds-card">
+      <div className="mt-1 pt-1">
         <p className="flex items-center gap-2 text-[16px] leading-[1.6] text-ds-ink">
           <span aria-hidden className="flex gap-1">
             {[0, 1, 2].map((i) => (

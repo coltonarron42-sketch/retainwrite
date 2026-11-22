@@ -324,7 +324,7 @@ export function PauPauConfirm({
       {replying ? (
         <div className="flex items-start gap-2 sm:gap-3" role="status">
           <PauPauAvatar />
-          <p className="mt-1 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[16px] leading-[1.6] text-ds-muted shadow-ds-card">
+          <p className="mt-1 pt-1 text-[16px] leading-[1.6] text-ds-muted">
             Thinking…
           </p>
         </div>
