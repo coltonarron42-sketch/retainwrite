@@ -109,7 +109,8 @@ describe("QA 3:35 D: nits", () => {
   const sheet = "Write a 1,500-word argumentative essay on whether schools should start later.";
   it("adds no '.' inside the student's quote", () => {
     const b = exampleLeadBatch({ concept: null, assignmentText: sheet, studentIdea: "pizza is good", rubricRef: "prompt", section: { key: "body", title: "Body" } });
-    expect(b.candidates[0]!.name).toMatch(/^You wrote “pizza is good”\. /);
+    expect(b.candidates[0]!.name).toMatch(/^You wrote “pizza is good” — what /);
+    expect(b.candidates[0]!.name).not.toMatch(/”\./);
     expect(b.candidates[0]!.name).not.toContain("good.”");
   });
   it("one framing rule: only the first title quotes, later ones say 'your point'", () => {

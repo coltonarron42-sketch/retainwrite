@@ -7,6 +7,17 @@ import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useChatPrefs } from "@/lib/voice/prefs";
 import { markHeard, speak } from "@/lib/voice/speech";
 
+/** The stage in /app/papers/<id>/stage/<n> (1 when it isn't there). */
+export function stageFromPath(path: string): number {
+  const m = /\/stage\/(\d+)/.exec(path);
+  return m ? Number(m[1]) : 1;
+}
+
+/** Where the welcome-back cooldown lives: one per paper and stage. */
+export function welcomeStateName(paperId: string, stage: number): string {
+  return `welcome:${paperId}:s${stage}`;
+}
+
 /**
  * Decides ONCE per visit, when the restored history is ready, whether Pau Pau
  * says a welcome-back line (Colton 3:46 PM). Call it in the component that
@@ -22,7 +33,8 @@ export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: bool
     decided.current = true;
     // Any restored history opens at the bottom, welcome line or not.
     if (hasHistory) setRestored(true);
-    const name = `welcome:${paperId}`;
+    // Per paper AND stage (QA 4:42 #6a): a Stage 2 welcome never silences Stage 3.
+    const name = welcomeStateName(paperId, stageFromPath(window.location.pathname));
     const pick = welcomeBackLine({ hasHistory, last: parseWelcomeState(readScoped(name)), now: Date.now() });
     if (!pick) return;
     writeScoped(name, JSON.stringify(pick.next));

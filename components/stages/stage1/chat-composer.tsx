@@ -105,6 +105,9 @@ export type ChatComposerProps = {
   enterSends?: boolean;
 };
 
+/** 12px top padding + three 16px/1.6 lines: the phone composer never changes height. */
+export const PHONE_TEXTAREA_H = 90;
+
 /**
  * Chat-style input: one text field, + for attachments (camera roll, files, or
  * the camera), a mic that types the student's own spoken words into the field
@@ -173,7 +176,7 @@ export function ChatComposer({
   useEffect(() => setCanDictate(Boolean(speechRecognition())), []);
   useEffect(() => () => recRef.current?.abort(), []);
 
-  // Grow with the text, up to about eight lines.
+  // Grow with the text, up to about eight lines (fixed on phones).
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -181,6 +184,13 @@ export function ChatComposer({
     // caret at the start, so the next thing typed would land in front of it.
     // Keep the caret at the end unless the student is in the box.
     if (document.activeElement !== ta) ta.setSelectionRange(ta.value.length, ta.value.length);
+    // Phones: a fixed height (three lines, then it scrolls) so typing a long
+    // reply never moves the pinned composer (QA 4:42 #1). Wider screens grow.
+    if (window.matchMedia?.("(max-width: 639px)").matches) {
+      ta.style.height = `${PHONE_TEXTAREA_H}px`;
+      ta.style.overflowY = "auto";
+      return;
+    }
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
   }, [value]);
@@ -367,6 +377,12 @@ export function ChatComposer({
             : sending
               ? "off"
               : "listening";
+  // Mic trouble (blocked, error, no support) is a toast above the box, never a
+  // line inside the composer card (QA 4:42 #1); the row keeps live states only.
+  const troubleStatus = callStatus === "blocked" || callStatus === "error" || callStatus === "unsupported";
+  useEffect(() => {
+    if (callStatus === "blocked" || callStatus === "error" || callStatus === "unsupported") setMicNote(callStatusText(callStatus));
+  }, [callStatus]);
 
   function clearCallTimers() {
     if (silenceRef.current) clearTimeout(silenceRef.current);
@@ -656,7 +672,7 @@ export function ChatComposer({
               </button>
             ) : null}
             {listening ? <span className="text-[13px] text-ds-muted" role="status">Listening…</span> : null}
-            {callOn || callStatus === "unsupported" ? (
+            {callOn && !troubleStatus ? (
               <span
                 className="flex max-h-[40px] min-w-0 items-center gap-2 overflow-hidden px-2 text-[13px] leading-[1.4] text-ds-muted"
                 role="status"

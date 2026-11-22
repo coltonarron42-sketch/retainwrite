@@ -10,7 +10,7 @@ export const STAGE2_QUIPS = [
   "No crystal ball required.",
   "Painless, mostly.",
   "Rubrics love this stuff.",
-  "Future-self approved.",
+  "Teachers notice this stuff.",
   "Deadlines fear this energy.",
   "Look at us, being organized.",
   "Gold star energy.",
@@ -63,6 +63,7 @@ const KNOWN = [
   "Homework, my favorite genre.",
   "No pop quiz, I promise.",
   "This is totally doable.",
+  "Let's get into it.",
   "Scout's honor.",
   "Love a quick yes.",
 ];

@@ -44,8 +44,12 @@ export async function POST(request: Request) {
     });
   try {
     const voice = isTtsCandidate(body.voice) ? body.voice : ttsVoiceId();
+    let used = voice;
     let res = await call(voice);
-    if (!res.ok && res.status >= 400 && res.status < 500 && ttsFallbackVoice(voice) !== voice) res = await call(ttsFallbackVoice(voice));
+    if (!res.ok && res.status >= 400 && res.status < 500 && ttsFallbackVoice(voice) !== voice) {
+      used = ttsFallbackVoice(voice);
+      res = await call(used);
+    }
     if (!res.ok) {
       console.warn("[tts] upstream failed", { status: res.status });
       return NextResponse.json({ error: "tts_failed" }, { status: 502 });
@@ -54,6 +58,8 @@ export async function POST(request: Request) {
     return new NextResponse(audio, {
       status: 200,
       headers: {
+        // The voice that actually spoke (QA 4:42 #7), so QA can confirm iris.
+        "x-pau-voice": used,
         "Content-Type": res.headers.get("content-type")?.startsWith("audio/") ? res.headers.get("content-type")! : "audio/mpeg",
         "Cache-Control": "private, max-age=86400",
       },

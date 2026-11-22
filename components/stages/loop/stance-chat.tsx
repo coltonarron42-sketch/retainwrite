@@ -12,18 +12,17 @@ import { dsCaption, dsEyebrow, dsLink, dsSelect } from "@/lib/ds/classes";
 import type { PreparedLead } from "@/lib/coaching/leadBatch";
 import {
   LOGIC_ALERT_LABEL,
-  LOGIC_CONTINUE,
   LOGIC_MODERATE_TITLE,
-  LOGIC_OPENER,
   LOGIC_PASS,
+  LOGIC_WRITER,
+  LOGIC_CONTINUE,
   LOGIC_STRONG_DETAIL,
   LOGIC_STRONG_HEADLINE,
   LOGIC_TWEAK,
-  LOGIC_WRITER,
   LOGIC_YES,
 } from "@/lib/coaching/logicCheck";
-import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
 import { oneQuipParas, quipFor } from "@/lib/coach/quips";
+import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
@@ -89,6 +88,8 @@ type Props = {
   triggers: MemoryTrigger[] | null;
   activeTrigger: string | null;
   safetyNote: string;
+  /** Model search terms still on the way: show a placeholder, not keyword leads. */
+  leadsPending?: boolean;
   batch: { ranked: PreparedLead[]; wildcard: PreparedLead | null; capReached: boolean; searchPrompt: string | null } | null;
   transcript: LoopLine[];
   /** Her answer to a request/question; shown inside the current turn only. */
@@ -149,10 +150,16 @@ export function probeLead(index: number | undefined, title: string): string {
   return index === undefined || index <= 0 ? `Let's start with your ${part}.` : `On to your ${part}.`;
 }
 
-/** "Quick logic check. <quip> You feel good about this?" (quip optional). */
+/** "<lead> <quip> <ask>" from the paper's opener pool (quip optional). */
 export function logicOpenerText(seed?: string, index?: number): string {
+  const [lead, ask] = stockLine("logic_opener", seed, index).split("|") as [string, string];
   const q = quipFor(seed, index, "logic_opener");
-  return q ? LOGIC_OPENER.replace("Quick logic check. ", `Quick logic check. ${q} `) : LOGIC_OPENER;
+  return [lead, q, ask].filter(Boolean).join(" ");
+}
+
+/** The pass line for this section (rotates per paper). */
+export function logicPassText(seed?: string, index?: number): string {
+  return stockLine("logic_pass", seed, index);
 }
 
 function stanceTurnParasRaw(
@@ -168,25 +175,29 @@ function stanceTurnParasRaw(
       return [ctx.mirrorAsk];
     case "probe":
       return [
-        `${probeLead(ctx.index, section.title)} ${section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER}`,
+        `${probeLead(ctx.index, section.title)} ${stockLine(section.mode === "memory" ? "memory_probe" : "lesson_probe", ctx.seed, ctx.index)}`,
         ...(ctx.activeTrigger ? [SCRIPTED_MEMORY_FOLLOW_UP] : []),
       ];
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
-      return [`Okay, a few directions worth checking for your ${section.title.toLowerCase()}, built off your note.${(() => { const q = quipFor(ctx.seed, ctx.index, "pick_lead"); return q ? ` ${q}` : ""; })()} Pick one to try, or tell me your own.`];
+    {
+      const q = quipFor(ctx.seed, ctx.index, "pick_lead");
+      return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", section.title.toLowerCase()).replace("{q}", q ? ` ${q}` : "")];
+    }
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
-      return [section.mode === "memory" ? MEMORY_CONFIRM : "Looks solid. Ready to roll with it?", ...(link ? [link] : [])];
+      return [stockLine(section.mode === "memory" ? "memory_confirm" : "confirm", ctx.seed, ctx.index), ...(link ? [link] : [])];
     }
     case "logic_opener":
       return [logicOpenerText(ctx.seed, ctx.index)];
     case "logic_result": {
       const r = section.logic?.result;
       if (!r) return [];
-      if (r.tier === "pass") return [LOGIC_PASS];
+      if (r.tier === "pass") return [logicPassText(ctx.seed, ctx.index)];
       if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
-      if (r.tier === "moderate") return [`${LOGIC_MODERATE_TITLE}.`, ...(r.reason ? [r.reason] : []), LOGIC_WRITER];
+      if (r.tier === "moderate")
+        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}.`, ...(r.reason ? [r.reason] : []), stockLine("logic_writer", ctx.seed, ctx.index)];
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
     case "locked_in":
@@ -316,7 +327,7 @@ export function StanceChat(props: Props) {
       case "logic_result":
         if (r?.tier === "pass" && isPlainYes(text)) {
           props.onIdea("");
-          h.logicResult("pass", [pau(LOGIC_PASS), you(text)]);
+          h.logicResult("pass", [pau(logicPassText(paperId, active)), you(text)]);
           return;
         }
         break;
@@ -514,7 +525,12 @@ export function StanceChat(props: Props) {
           ) : null}
           {kind === "probe" && props.safetyNote ? <p className="border-t border-ds-border pt-3">{props.safetyNote}</p> : null}
 
-          {kind === "pick_lead" && props.batch ? (
+          {kind === "pick_lead" && props.batch && props.leadsPending ? (
+            <p className="flex min-h-[48px] items-center gap-2 text-[13px] leading-[1.6] text-ds-muted" role="status" data-search-pending>
+              <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-ds-border border-t-ds-accent motion-safe:animate-spin" />
+              Finding search ideas…
+            </p>
+          ) : kind === "pick_lead" && props.batch ? (
             <ul className="space-y-3" aria-label="Directions to check" data-lead-batch>
               {props.batch.ranked.map((lead) => (
                 <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
@@ -606,7 +622,7 @@ export function StanceChat(props: Props) {
               ) : null}
               <Choices label="What next">
                 {r.tier === "pass" ? (
-                  <DsButton type="button" size="sm" onClick={() => h.logicResult("pass", [pau(LOGIC_PASS), pick("Continue")])}>
+                  <DsButton type="button" size="sm" onClick={() => h.logicResult("pass", [pau(logicPassText(paperId, active)), pick("Continue")])}>
                     Continue
                   </DsButton>
                 ) : r.tier === "moderate" ? (
@@ -702,4 +718,140 @@ export function StanceChat(props: Props) {
       </ComposerDock>
     </div>
   );
+}
+
+/**
+ * Pau Pau's rotating stock lines (QA 4:42 #2): every line she says once per
+ * section (the probe ask, the leads intro, the confirm, the logic-check opener,
+ * the pass line, the "your call" line) comes from a per-paper pool. Section i
+ * gets pool[(offset + i) % n], so no stock line repeats verbatim inside one
+ * paper (up to n sections). The offset is stable per paper and slot, so a
+ * reload says the same thing. Without a seed she uses the first line.
+ */
+
+export const STOCK_POOLS = {
+  /** Probe ask (lesson path). The first section always gets the canonical line. */
+  lesson_probe: [
+    LESSON_PROBE_OPENER,
+    "Know where you want this part to go? Or should I ask a few questions to get the research started?",
+    "Have a direction for this one already? Or want some questions to help you find one?",
+    "Any thoughts on this part yet? Or want me to throw a few questions your way first?",
+    "Got a plan for this section? Or want me to poke around with some questions first?",
+    "Already know what goes here? Or want a few questions to point you at some research?",
+    "Got a hunch for this part? Or should I fire off a few questions to get you going?",
+    "Know what you want to say here? Or want some questions to shake loose a few ideas?",
+  ],
+  /** Probe ask (memory path). */
+  memory_probe: [
+    MEMORY_PROBE_OPENER,
+    "Any moment from your life that fits this part? Or want a few questions to jog your memory?",
+    "Got a memory in mind for this one? Or should I ask some questions to help you find one?",
+    "Is there a moment that fits here already? Or want me to help you dig one up?",
+    "Thinking of a moment for this part? Or want a few questions to get it going?",
+    "Something from your own life fit here? Or want me to ask around a little first?",
+    "Got a story for this section? Or want some questions to help you remember one?",
+    "Any moment come to mind for this part? Or should I nudge you with a few questions?",
+  ],
+  /** Leads intro; {x} is the section title, {q} the optional quip. */
+  pick_lead: [
+    "Okay, a few directions worth checking for your {x}, built off your note.{q} Pick one to try, or tell me your own.",
+    "Here are some research angles for your {x}, based on your note.{q} Try one, or name your own.",
+    "Got a few leads for your {x}, straight from your note.{q} Pick one, or point me somewhere else.",
+    "Your note gave me some places to dig for your {x}.{q} Grab one, or suggest your own.",
+    "A few paths to check for your {x}, built from what you wrote.{q} Choose one, or name a different one.",
+    "Okay, some leads for your {x} that fit your note.{q} Pick one to chase, or tell me yours.",
+    "Your note points a few ways for your {x}.{q} Want one of these? Or name your own.",
+    "Some starting points for your {x}, pulled from your note.{q} Take one, or tell me what you'd rather check.",
+  ],
+  /** Confirm after a lesson-path pick. */
+  confirm: [
+    "Looks solid. Ready to roll with it?",
+    "Nice. Want to lock this one in?",
+    "That works. Good to go with it?",
+    "Solid pick. Ready to run with it?",
+    "I like where this is going. Lock it in?",
+    "That'll hold up. Want to go with it?",
+    "Good call. Ready to move on with this?",
+    "This one's got legs. Keep it?",
+  ],
+  /** Confirm after a memory-path pick. */
+  memory_confirm: [
+    MEMORY_CONFIRM,
+    "That's a good one. Go with this moment?",
+    "This moment works. Want to use it?",
+    "Nice memory. Ready to build on it?",
+    "That'll make a good example. Keep it?",
+    "Good pick. Want to stick with this moment?",
+    "I can see this one working. Use it?",
+    "Solid moment. Lock it in?",
+  ],
+  /** Logic-check opener: [lead, ask]; a quip may sit between them. */
+  logic_opener: [
+    "Quick logic check.|You feel good about this?",
+    "Let's pressure-test it.|Does it hold up for you?",
+    "Before we lock it, a fast logic pass.|Happy with it?",
+    "One sanity check.|Does this make sense to you as is?",
+    "Time for a quick gut check.|You good with it?",
+    "Let's poke at the logic real quick.|Feel solid?",
+    "Fast logic pass before we move on.|Confident in this one?",
+    "Let's make sure it holds together.|Feel good about it?",
+  ],
+  /** Logic check passed. */
+  logic_pass: [
+    LOGIC_PASS,
+    "Logic check ✓ It holds together.",
+    "Logic check ✓ No holes I can see.",
+    "Logic check ✓ That tracks.",
+    "Logic check ✓ It hangs together nicely.",
+    "Logic check ✓ Nothing's wobbling.",
+    "Logic check ✓ It makes sense start to finish.",
+    "Logic check ✓ Clean.",
+  ],
+  /** Moderate flag title (no end mark; the turn adds "."). */
+  logic_moderate: [
+    LOGIC_MODERATE_TITLE,
+    "Something to chew on before you keep going",
+    "One thing worth a second look",
+    "Small thing before you move on",
+    "Quick thought on this one",
+    "Worth a look before you lock it",
+    "Here's a wrinkle to think about",
+    "One thing that caught my eye",
+  ],
+  /** After a moderate flag: the choice is the student's. */
+  logic_writer: [
+    LOGIC_WRITER,
+    "Totally up to you. It's your paper.",
+    "You decide. You know this paper best.",
+    "Your paper, your call.",
+    "Up to you. I'm just the coach.",
+    "Keep it or change it. Either way, it's your call.",
+    "You've got the final say here.",
+    "Your move. You're the one writing it.",
+  ],
+} as const;
+
+export type StockSlot = keyof typeof STOCK_POOLS;
+
+/** Slots whose first section always gets the canonical first line. */
+const FIXED_START: ReadonlySet<StockSlot> = new Set(["lesson_probe", "memory_probe"]);
+
+function hash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  return h >>> 0;
+}
+
+/** The stock line for one slot in one section of one paper. */
+export function stockLine(slot: StockSlot, seed?: string, index?: number): string {
+  const pool = STOCK_POOLS[slot] as readonly string[];
+  if (!seed || index === undefined || index < 0) return pool[0]!;
+  const offset = FIXED_START.has(slot) ? 0 : hash(`${seed}:${slot}`) % pool.length;
+  return pool[(offset + index) % pool.length]!;
 }

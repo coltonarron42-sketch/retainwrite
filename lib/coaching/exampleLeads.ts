@@ -228,9 +228,11 @@ function sectionLeadBatch(ctx: {
   // can't turn it into one (QA 2:31 #3a). One framing rule for every section:
   // the first title opens with "You wrote “…”" and every later mention of the
   // note says "your point".
-  const quoted = focus ? `“${focus}”${/[.!?…]$/.test(focus) ? "" : "."}` : "";
+  // No mark is added after the closing quote either (QA 4:42 #4): a dash joins
+  // the quote to the question instead of a stray "”.".
+  const quoted = focus ? `“${focus}”` : "";
   const about = focus ? "your point" : question ? "your question" : subject;
-  const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} ${ask}` : ask);
+  const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} — ${ask.charAt(0).toLowerCase()}${ask.slice(1)}` : ask);
   // Keywords only: never the student's raw sentence in a search box.
   const topicTerm = searchPhrase(ctx.search);
   const extra = idea ? noteKeywords(idea, topicTerm) : [];

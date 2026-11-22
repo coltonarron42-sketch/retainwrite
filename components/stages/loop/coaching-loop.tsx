@@ -224,6 +224,9 @@ function freshSession(assignmentText: string): Session {
   };
 }
 
+/** How long leads wait for the model search terms before the keyword fallback. */
+const TERMS_WAIT_MS = 15000;
+
 export function CoachingLoop({
   paperId,
   stage,
@@ -389,6 +392,10 @@ export function CoachingLoop({
   const termCacheKey = termTopic && termSections.length ? `${termTopic}\u0001${termSections.map((s) => s.key).join(",")}` : "";
   const [searchTerms, setSearchTerms] = useState<{ key: string; map: Record<string, string> }>({ key: "", map: {} });
   const termsAsked = useRef("");
+  // While the model's search terms are on the way (up to ~15s), leads wait
+  // behind a quiet placeholder instead of showing keyword terms that swap
+  // later (QA 4:42 #3). After that, the keyword fallback shows.
+  const [termsWait, setTermsWait] = useState("");
   useEffect(() => {
     if (stage < 2 || !termCacheKey || termsAsked.current === termCacheKey || signedOut()) return;
     termsAsked.current = termCacheKey;
@@ -404,6 +411,8 @@ export function CoachingLoop({
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 22000);
+    setTermsWait(termCacheKey);
+    const giveUp = setTimeout(() => setTermsWait((k) => (k === termCacheKey ? "" : k)), TERMS_WAIT_MS);
     void fetch(`/api/papers/${paperId}/stance/search-term`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -419,7 +428,11 @@ export function CoachingLoop({
         writeScoped(cacheName, JSON.stringify({ key: termCacheKey, map }));
       })
       .catch(() => undefined)
-      .finally(() => clearTimeout(timer));
+      .finally(() => {
+        clearTimeout(timer);
+        clearTimeout(giveUp);
+        setTermsWait((k) => (k === termCacheKey ? "" : k));
+      });
   }, [stage, termCacheKey, termTopic, termSections, paperId]);
   const voice = voiceNoteForStage(stage, {
     naturalWords: totals.naturalWords,
@@ -1135,6 +1148,7 @@ export function CoachingLoop({
           }
           activeTrigger={session.activeTrigger}
           safetyNote={session.safetyNote}
+          leadsPending={Boolean(termCacheKey) && termsWait === termCacheKey && !(searchTerms.key === termCacheKey && searchTerms.map[section.key])}
           batch={
             batch
               ? {
