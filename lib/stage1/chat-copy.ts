@@ -26,3 +26,9 @@ export function moreWordsNote(_have: number, _need: number, what: string): strin
   return `Give me a little more — a couple more sentences? ${what} is almost there. Add to it below.`;
 }
 
+
+/**
+ * Pau Pau's first words in Stage 1, above "What's the assignment…". It is read
+ * aloud too, so the student hears how the name sounds ("Pow pow").
+ */
+export const ASSIGNMENT_GREETING = "Hi, I'm Pau Pau.";
