@@ -107,7 +107,7 @@ describe("C: natural replies instead of Fix something", () => {
     const next = applyConfirmUpdates(card(), { ...emptyUpdates(), wordsMin: 1500, dueDate: "Dec 3" });
     expect(next.length.value?.wordsMin).toBe(1500);
     expect(next.length.confirmed).toBe(true);
-    expect(next.dueDate.value).toBe("Dec 3");
+    expect(next.dueDate.value).toMatch(/^Dec 3, 20\d\d$/);
     const paras = reconfirmParas(next, null);
     expect(paras.join(" ")).toMatch(/1,500/);
     expect(paras.at(-1)).toMatch(/look right now/);

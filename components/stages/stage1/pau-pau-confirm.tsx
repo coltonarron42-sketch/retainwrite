@@ -30,6 +30,8 @@ import {
   linkIn,
   type ConfirmResult,
   type ConfirmTurn,
+  clarifyingAsk,
+  rulesClassify,
 } from "@/lib/stage1/confirm-reply";
 
 type Props = {
@@ -198,11 +200,8 @@ export function PauPauConfirm({
           ),
         }),
       });
-      const result = (res.ok ? await res.json() : null) as ConfirmResult | null;
-      if (!result) {
-        push({ role: "pau", paras: ["Sorry, I didn't catch that. Could you say it another way?"] });
-        return;
-      }
+      // Offline or the server failed: the same rules the server falls back to.
+      const result = ((res.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, currentAsk);
 
       const skip = result.skipAsk && currentAsk ? currentAsk : undefined;
       const after = skip ? new Set(dismissed).add(skip) : dismissed;
@@ -245,10 +244,10 @@ export function PauPauConfirm({
         push({ role: "pau", paras: [result.reply, followUp(after)], skip });
         return;
       }
-      // Ambiguous: ask, never move on.
-      push({ role: "pau", paras: [result.reply], skip });
+      // Ambiguous: a real clarifying question, never move on.
+      push({ role: "pau", paras: [result.reply?.trim() || clarifyingAsk(currentAsk)], skip });
     } catch {
-      push({ role: "pau", paras: ["Sorry, I didn't catch that. Could you say it another way?"] });
+      push({ role: "pau", paras: [clarifyingAsk(currentAsk)] });
     } finally {
       setReplying(false);
     }

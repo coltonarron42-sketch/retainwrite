@@ -18,7 +18,7 @@ describe("Pau Pau bubble", () => {
   it("says back the assignment conversationally", () => {
     const text = pauPauSummary(req());
     expect(text).toBe(
-      "Okay, let's see here… looks like STAT 101 and Mr. Nelson's class: a 5–7 page paper in APA format. You'll need a conclusion and a title page. Formatting: double-spaced. You'll be writing about how sampling bias affects survey results. This is totally doable. You ready to get rolling?",
+      "Okay, I've read it. This is for STAT 101 with Mr. Nelson: a 5–7 page paper in APA 7 format. You'll need a conclusion and a title page. Formatting: double-spaced. You'll be writing about how sampling bias affects survey results. This is totally doable. You ready to get rolling?",
     );
   });
   it("asks for sources one thing at a time when the sheet requires them", () => {
@@ -29,7 +29,7 @@ describe("Pau Pau bubble", () => {
     expect(pauPauNextAsk(r, new Set(["sources"]))).toBe(null);
     const text = pauPauSummary(r, { pendingAsk: "sources" });
     expect(text).toContain("It calls for at least three scholarly sources, including AAP (2014) policy statement.");
-    expect(text).toContain("Looks good so far.");
+    expect(text).toContain("That covers most of it.");
   });
   it("topic is asked first and cannot be skipped", () => {
     const r = req();
@@ -77,7 +77,7 @@ describe("Pau Pau bubble", () => {
     r.topic = extractedField("Should high schools start later?", 0.9);
     const text = pauPauSummary(r);
     expect(text).not.toMatch(/\ba address\b|\ba a\b|\ba an\b/);
-    expect(text).toContain("ENG 102 and Prof. Dana Ruiz's class: a 1,200–1,500 word argumentative essay in MLA format.");
+    expect(text).toContain("This is for ENG 102 with Prof. Dana Ruiz: a 1,200–1,500 word argumentative essay in MLA 9 format.");
     expect(text).toContain("You'll need a clear thesis in your introduction, a counterargument you answer, and a Works Cited page.");
     expect(text).toContain("including the American Academy of Pediatrics' “School Start Times for Adolescents” (2014)");
     expect(text).toContain("Formatting: Times New Roman 12 pt, double-spaced, and 1-inch margins.");
