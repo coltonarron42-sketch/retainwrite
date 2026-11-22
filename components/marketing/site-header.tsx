@@ -17,7 +17,7 @@ export async function SiteHeader({ minimal = false, tone = "default" }: Props = 
   if (editorial) {
     return (
       <header className="border-b border-ds-border px-6 py-4 md:px-16">
-        <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <Link
             href="/"
             className="ds-focus rounded-[8px] font-display text-[20px] font-semibold leading-[1.2] text-ds-ink"
@@ -25,35 +25,35 @@ export async function SiteHeader({ minimal = false, tone = "default" }: Props = 
             RetainWrite
           </Link>
           {minimal ? null : (
-            <nav className="flex items-center gap-2 md:gap-4">
+            <nav className="flex flex-wrap items-center gap-x-2 gap-y-2 md:gap-x-4">
               <Link
                 href="/ai-checker"
-                className="ds-focus hidden rounded-[8px] px-2 py-2 text-[16px] text-ds-muted transition-colors duration-150 hover:text-ds-ink sm:inline"
+                className="ds-focus hidden whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] text-ds-muted transition-colors duration-150 hover:text-ds-ink sm:inline"
               >
                 AI checker
               </Link>
               <Link
                 href="/pricing"
-                className="ds-focus hidden rounded-[8px] px-2 py-2 text-[16px] text-ds-muted transition-colors duration-150 hover:text-ds-ink sm:inline"
+                className="ds-focus hidden whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] text-ds-muted transition-colors duration-150 hover:text-ds-ink sm:inline"
               >
                 Pricing
               </Link>
               {signedIn ? (
                 <>
-                  <Link href="/app" className="ds-btn-primary">
+                  <Link href="/app" className="ds-btn-primary whitespace-nowrap">
                     My papers
                   </Link>
-                  <LogOutButton className="ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted" />
+                  <LogOutButton className="ds-focus whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted" />
                 </>
               ) : (
                 <>
                   <Link
                     href="/login"
-                    className="ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted"
+                    className="ds-focus whitespace-nowrap rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted"
                   >
                     Log in
                   </Link>
-                  <Link href="/signup" className="ds-btn-primary">
+                  <Link href="/signup" className="ds-btn-primary whitespace-nowrap">
                     Sign up
                   </Link>
                 </>
