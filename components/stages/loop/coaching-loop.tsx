@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { CoachEyebrow, CoachSays } from "@/components/coaching/pau-pau";
-import { isQuestionTopic } from "@/lib/copy/topic-phrase";
+import { asHeading, isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
 import { LogicCheckpoint } from "@/components/coaching/logic-checkpoint";
@@ -1192,11 +1192,21 @@ function ConfirmPanel({
   const notes = keptIdeas(section.ideas).at(-1) ?? "";
   return (
     <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
-      <CoachSays>
-        {memory
-          ? MEMORY_CONFIRM
-          : `Are you comfortable moving forward with ${section.chosenLead ?? "your lead"} and ${section.teachAspect ?? section.concept ?? "this angle"}?`}
-      </CoachSays>
+      <CoachSays>{memory ? MEMORY_CONFIRM : "Ready to move forward with this?"}</CoachSays>
+      {!memory ? (
+        <dl className="mt-3 space-y-1 text-[16px] leading-[1.6] text-ds-ink">
+          <div>
+            <dt className="inline font-semibold">Lead: </dt>
+            <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
+          </div>
+          {section.teachAspect || section.concept ? (
+            <div>
+              <dt className="inline font-semibold">Angle: </dt>
+              <dd className="inline">{asHeading(section.teachAspect ?? section.concept)}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
       {section.concept ? <p className="mt-2 text-sm">Lesson link: {lessonLinkFor(section.concept)}</p> : null}
       <Button type="button" className="mt-3" onClick={() => onConfirm(notes)}>
         Yes, lock it in

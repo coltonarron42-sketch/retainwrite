@@ -14,6 +14,7 @@
  * The file type comes from the file's own bytes, not its name or browser MIME.
  */
 
+import { mergeTileTexts } from "@/lib/assignment/tile-merge";
 import {
   KIND_LABEL,
   kindFromMime,
@@ -279,19 +280,35 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-async function photoToJpeg(file: Blob): Promise<Blob> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+function drawRegion(bitmap: ImageBitmap, sy: number, sh: number): HTMLCanvasElement {
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, sh));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.height = Math.max(1, Math.round(sh * scale));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no_canvas");
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return canvasToJpeg(canvas);
+  ctx.drawImage(bitmap, 0, sy, bitmap.width, sh, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/**
+ * The whole photo (kept as the stored copy) plus, for a tall page, two
+ * overlapping halves that OCR reads in parallel at higher detail.
+ */
+async function photoToJpeg(file: Blob): Promise<{ full: Blob; tiles: Blob[] }> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  try {
+    const full = await canvasToJpeg(drawRegion(bitmap, 0, bitmap.height));
+    if (bitmap.height < bitmap.width * 1.25 || bitmap.height < 1400) return { full, tiles: [full] };
+    const h = bitmap.height;
+    const top = await canvasToJpeg(drawRegion(bitmap, 0, Math.round(h * 0.55)));
+    const bottom = await canvasToJpeg(drawRegion(bitmap, Math.round(h * 0.45), h - Math.round(h * 0.45)));
+    return { full, tiles: [top, bottom] };
+  } finally {
+    bitmap.close();
+  }
 }
 
 /** Send page images to the server's vision OCR. Returns the joined text. */
@@ -384,14 +401,14 @@ async function readPdf(paperId: string, data: Uint8Array): Promise<ClientExtract
 }
 
 async function readPhoto(paperId: string, file: Blob, kind: FileKind): Promise<ClientExtractResult> {
-  let jpeg: Blob;
+  let jpeg: { full: Blob; tiles: Blob[] };
   try {
     jpeg = await photoToJpeg(file);
   } catch {
     // Chrome and Firefox can't open HEIC/HEIF; convert it in the browser.
     try {
       const heic2any = (await import("heic2any")).default;
-      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 });
       jpeg = await photoToJpeg(Array.isArray(converted) ? converted[0]! : converted);
     } catch {
       return {
@@ -401,9 +418,10 @@ async function readPhoto(paperId: string, file: Blob, kind: FileKind): Promise<C
       };
     }
   }
-  const ocr = await ocrImages(paperId, [jpeg]);
+  const ocr = await ocrImages(paperId, jpeg.tiles);
   if (!ocr.ok) return { ok: false, kind, error: ocr.error };
-  return { ok: true, kind, text: ocr.text, method: "ocr_grok_vision", uploadBlob: jpeg };
+  const text = jpeg.tiles.length === 2 ? mergeTileTexts(ocr.pages[0] ?? "", ocr.pages[1] ?? "") : ocr.text;
+  return { ok: true, kind, text, method: "ocr_grok_vision", uploadBlob: jpeg.full };
 }
 
 async function readPages(paperId: string, file: File): Promise<ClientExtractResult> {

@@ -829,18 +829,19 @@ export function AssignmentIntake({
             },
           ]),
     ];
+    // Move on right away; the answer saves in the background (the device copy
+    // stays until the server has it). Waiting on the save made every question
+    // feel 1-6s slow.
     if (!demoMode && text) {
-      const saved = await persistField(paperId, {
-        fieldKey: `stage1:${q.id}`,
-        text,
-        submitted: true,
-        resume: { stage: 1, questionId: q.id, screen: "coaching" },
-      });
-      if (!saved) {
-        setError("Couldn't save that answer. It is still in the box.");
-        return;
-      }
-      clearLocalDraft(paperId, `stage1:${q.id}`);
+      const fieldKey = `stage1:${q.id}`;
+      const save = () =>
+        persistField(paperId, { fieldKey, text, submitted: true, resume: { stage: 1, questionId: q.id, screen: "coaching" } });
+      void save()
+        .then((ok) => ok || new Promise<boolean>((resolve) => setTimeout(() => void save().then(resolve), 1500)))
+        .then((ok) => {
+          if (ok) clearLocalDraft(paperId, fieldKey);
+          else setError("Couldn't save your last answer to the server yet. It's kept on this device; check your connection.");
+        });
     }
     setAnswers(nextAnswers);
     setDraftAnswer("");
@@ -883,7 +884,7 @@ export function AssignmentIntake({
       if (tags[0]) {
         suggested.push(
           createLead({
-            name: `A ${tags[0]}-adjacent example`,
+            name: `An example connected to ${tags[0]}`,
             whyAssignment: "Connects to the assignment's required angle.",
             whyInterest: `Touches on your interest in ${tags[0]}.`,
             steeredBy: "both",
@@ -1023,7 +1024,7 @@ export function AssignmentIntake({
         setError("Couldn't save that answer. It is still in the box.");
         return;
       }
-      await fetch(`/api/papers/${paperId}/intake/next-question`, {
+      void fetch(`/api/papers/${paperId}/intake/next-question`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1070,7 +1071,7 @@ export function AssignmentIntake({
       if (tags[0]) {
         suggested.push(
           createLead({
-            name: `A ${tags[0]}-adjacent example`,
+            name: `An example connected to ${tags[0]}`,
             whyAssignment: "Connects to the assignment's required angle.",
             whyInterest: `Touches on your interest in ${tags[0]}.`,
             steeredBy: "both",

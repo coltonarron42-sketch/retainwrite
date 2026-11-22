@@ -50,10 +50,12 @@ export function extractInterestTags(answers: string[]): string[] {
 
     // Prefer quoted interests / "I love X" / "into X"
     const love = trimmed.match(
-      /\b(?:i(?:'m| am)?\s+(?:into|interested in)|i love|i like|fan of)\s+([^,.!?]{3,40})/i,
+      /\b(?:i(?:'m| am)?\s+(?:into|interested in)|i (?:really )?(?:love|like|follow|play|watch)|fan of)\s+([^,.!?;:]{3,80})/i,
     );
     if (love) {
-      const tag = normalizeTag(love[1]);
+      // First item only, whole words: "soccer and baking sourdough with my cousin" → "soccer".
+      const first = love[1]!.split(/\s+(?:and|with|because|but|or|when|since|so)\s+/i)[0]!.trim();
+      const tag = normalizeTag(first.split(/\s+/).slice(0, 3).join(" "));
       if (tag) tags.add(tag);
       continue;
     }
