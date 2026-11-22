@@ -10,6 +10,7 @@ import {
   speechSupported,
   stopSpeech,
   subscribeSpeaking,
+  installSpeechUnlock,
   takeNew,
   unlockSpeech,
   type SpeakItem,
@@ -127,6 +128,7 @@ export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eye
 export function SpeakNew({ scope, items }: { scope: string; items: SpeakItem[] }) {
   const { voice } = useChatPrefs();
   const sig = items.map((i) => `${i.key}\u0001${i.text}`).join("\u0002");
+  useEffect(() => installSpeechUnlock(), []);
   useEffect(() => {
     const fresh = takeNew(scope, items);
     if (voice && fresh.length) speak(fresh.map((i) => i.text));

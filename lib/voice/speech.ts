@@ -76,12 +76,28 @@ function gestureSeen(): boolean {
   return Boolean(nav.userActivation.hasBeenActive);
 }
 
+let interacted = false;
+/** A real tap/click/key on this page load (not a reload's restored screen). */
+function interactedThisLoad(): boolean {
+  if (interacted) return true;
+  if (typeof window === "undefined") return true; // unit tests / server
+  const nav = navigator as Navigator & { userActivation?: { hasBeenActive?: boolean } };
+  return Boolean(nav.userActivation?.hasBeenActive);
+}
+/** Called from the gesture listeners (and the Voice toggle, itself a tap). */
+export function noteInteraction() {
+  interacted = true;
+}
+
 let installed = false;
 /** Listens once for the first tap or key and for late-loading voices. */
 export function installSpeechUnlock() {
   if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
   installed = true;
-  const onGesture = () => unlockSpeech();
+  const onGesture = () => {
+    interacted = true;
+    unlockSpeech();
+  };
   for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
     window.addEventListener(type, onGesture, { capture: true, passive: true });
   }
@@ -110,6 +126,7 @@ export function installSpeechUnlock() {
  * a network reply, then plays anything that was waiting.
  */
 export function unlockSpeech() {
+  interacted = true;
   if (!speechSupported()) return;
   const synth = window.speechSynthesis;
   try {
@@ -248,6 +265,14 @@ export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
   const turn = items.filter((i) => i.turn).map((i) => i.text);
   if (turn.length) latestTurn = turn;
   let set = seen.get(scope);
+  // Until the student taps or types on this page load, everything on screen is
+  // restored history (a reload can swap screens and redraw old bubbles), so
+  // nothing is read aloud and nothing is queued to play on the first tap.
+  if (!interactedThisLoad()) {
+    if (!set) seen.set(scope, (set = new Set()));
+    items.forEach((i) => set!.add(i.key));
+    return [];
+  }
   if (!set) {
     set = new Set(items.map((i) => i.key));
     seen.set(scope, set);
@@ -266,6 +291,7 @@ export function currentTurn(): string[] {
 /** Test helper. */
 export function __resetSpeech() {
   seen.clear();
+  interacted = false;
   latestTurn = [];
   queue = [];
   active = false;
