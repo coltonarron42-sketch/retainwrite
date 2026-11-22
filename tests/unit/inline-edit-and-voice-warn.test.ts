@@ -27,7 +27,9 @@ describe("voice minimum is a warning", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).toContain("function openQuestion");
     expect(intake).toContain("setDraftAnswer(savedAnswerText(target.id));");
-    expect(intake).toContain("Previous question");
+    // Earlier answers are edited by tapping their bubble in the thread.
+    expect(intake).toContain("function editAnswer");
+    expect(intake).toContain("Edit your answer to: ${item.text}");
     expect(intake).toContain("voiceWordsMet && readyVoiceLine");
     expect(intake).toContain("earlyStanceQuestion(");
   });
