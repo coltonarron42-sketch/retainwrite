@@ -16,7 +16,7 @@ import {
   exampleLeadBatch,
   sourceSearchDirections,
   stageLessonHeader,
-  subjectMidSentence,
+  assignmentPurposeLine,
   visibleSourceLead,
 } from "@/lib/coaching/exampleLeads";
 import {
@@ -243,6 +243,8 @@ export function CoachingLoop({
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
   const clearSent = (sent: string) => setIdea((cur) => (cur.trim() === sent.trim() ? "" : cur));
+  // The box empties on send; a note that wasn't saved goes back unless they typed something new.
+  const restore = (sent: string) => setIdea((cur) => (cur.trim() ? cur : sent));
   const replacingClaim = useRef(false);
   const outlineDrafts = useRef<Record<string, string>>({});
   // A thin-note hint belongs to the turn it was shown on (QA 10:38 #6).
@@ -595,6 +597,18 @@ export function CoachingLoop({
   function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[]) {
     if (!session || !section) return;
     const paras = intentReply(intent, { turn, section });
+    // Never the same answer twice in a row for the same words (QA 2:08 #4).
+    const prior = session.transcript ?? [];
+    const tail = prior.slice(-(more.length + paras.length));
+    const same =
+      tail.length === more.length + paras.length &&
+      [...more.filter((l) => l.who !== "pau"), ...paras.map((text) => ({ who: "pau" as const, text, k: section.key }))]
+        .map((l) => `${l.who}:${l.text}`)
+        .every((sig) => tail.some((l) => `${l.who}:${l.text}` === sig));
+    if (same) {
+      clearSent(idea);
+      return;
+    }
     // Append-only history: her answer is saved in the transcript (it survives
     // the next turn and a reload); the aside marker only shapes her next ask.
     const transcript = withLines([...more, ...paras.map((text): LoopLine => ({ k: section.key, who: "pau", text }))]);
@@ -638,6 +652,7 @@ export function CoachingLoop({
     const mirrorProbe = probeForThinNote(idea);
     if (mirrorProbe) {
       setThinNote(mirrorProbe);
+      restore(idea);
       return;
     }
     setThinNote(null);
@@ -650,7 +665,10 @@ export function CoachingLoop({
         item.key === section.key ? { ...item, ideas: step.ideas, loopStep: step.loopStep } : item,
       ),
     };
-    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) {
+      restore(idea);
+      return;
+    }
     const safety = safetyNoteFor(idea);
     const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
     updateSection(
@@ -686,6 +704,7 @@ export function CoachingLoop({
     const probe = probeForThinNote(idea);
     if (probe) {
       setThinNote(probe);
+      restore(idea);
       return;
     }
     setThinNote(null);
@@ -701,7 +720,10 @@ export function CoachingLoop({
         item.key === section.key ? { ...item, ...teach, ideas: step.ideas, loopStep: step.loopStep } : item,
       ),
     };
-    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) {
+      restore(idea);
+      return;
+    }
     const reel =
       section.mode === "lesson" && section.concept
         ? highlightReelFor({ answer: idea, concept: section.concept })
@@ -1031,7 +1053,7 @@ export function CoachingLoop({
                   ? "The assignment topic is still missing. Add it on the checklist before this lesson."
                   : isQuestionTopic(subject)
                     ? "This is the question your paper answers. We'll work through it one section at a time."
-                    : `This assignment teaches ${subjectMidSentence(subject)}.`,
+                    : assignmentPurposeLine(subject),
           }}
           promptType={session.extraction.promptType}
           sections={session.sections}
@@ -1096,8 +1118,8 @@ export function CoachingLoop({
           handlers={{
             teachAspect: onTeachAspect,
             teachSkip: onTeachSkip,
-            mirrorSave: (more) => void onMirrorSave(more),
-            probeSave: (more, opts) => void onProbeSave(more, opts),
+            mirrorSave: (more) => onMirrorSave(more),
+            probeSave: (more, opts) => onProbeSave(more, opts),
             followUpAspect: (aspect) => {
               if (!section) return;
               updateSection(section.key, { teachAspect: aspect, teachStatus: "explored" });

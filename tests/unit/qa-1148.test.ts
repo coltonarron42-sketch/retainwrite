@@ -133,7 +133,7 @@ describe("#3 history is append-only; the opener never re-asks", () => {
 describe("#4 typed text over chips is the student's reply, not a chip pick", () => {
   const src = read("components/stages/loop/stance-chat.tsx");
   it("teach card: typed words are saved as their note (no 'Picked: Something else')", () => {
-    expect(src).toMatch(/case "teach_card":\s*\/\/[^\n]*\n\s*h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true \}\);/);
+    expect(src).toMatch(/case "teach_card":\s*\/\/[^\n]*\n\s*(await )?h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true \}\);/);
   });
   it("choice turns: typed words are sent as a revised note, after classification", () => {
     expect(src).toMatch(/h\.probeSave\(\[pau\(paras\[0\] \?\? ask\), you\(text\)\], \{ replace: true \}\);/);
@@ -149,7 +149,8 @@ describe("#5 lead search terms, variety, punctuation", () => {
     const b = exampleLeadBatch({ ...base, studentIdea: idea, section: { key: "intro", title: "Introduction" } });
     const why = b.candidates[0]!.whyFits;
     expect(why).not.toMatch(/My sister|so I think/i);
-    expect(why).toContain("“high schools start later tired morning bell”");
+    // 2-6 clean words (QA 2:08 #7c).
+    expect(why).toContain("“high schools start later tired morning”");
   });
   it("the third direction differs by section", () => {
     const third = (key: string, title: string) => exampleLeadBatch({ ...base, studentIdea: idea, section: { key, title } }).candidates[2]!.name;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
@@ -56,9 +56,9 @@ export type StanceSectionView = {
 export type StanceHandlers = {
   teachAspect: (aspect: string, lines: LoopLine[]) => void;
   teachSkip: (lines: LoopLine[]) => void;
-  mirrorSave: (lines: LoopLine[]) => void;
+  mirrorSave: (lines: LoopLine[]) => void | Promise<unknown>;
   /** Typed words saved as the note. fromTeach: typed over the teach chips; replace: typed over a choice turn (a revised claim). */
-  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) => void;
+  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) => void | Promise<unknown>;
   followUpAspect: (aspect: string) => void;
   followUpSkip: () => void;
   triggerPick: (trigger: MemoryTrigger) => void;
@@ -200,6 +200,9 @@ export function StanceChat(props: Props) {
   useStopSpeechOnUnmount();
   const [hintState, setHintState] = useState<{ text: string; key: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  // One send at a time, set synchronously (state lags a tap): a second send
+  // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
+  const inFlight = useRef(false);
   const section = sections[active];
   if (!section) return null;
   const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger });
@@ -223,16 +226,29 @@ export function StanceChat(props: Props) {
 
   async function send() {
     const text = idea.trim();
-    if (!text || checking) return;
+    if (!text || checking || inFlight.current) return;
+    inFlight.current = true;
+    setChecking(true);
+    // The box empties the moment it's sent; anything typed next is its own message.
+    props.onIdea("");
+    try {
+      await sendNow(text);
+    } finally {
+      inFlight.current = false;
+      setChecking(false);
+    }
+  }
+
+  async function sendNow(text: string) {
+    // Put the words back only if nothing new was typed (a hint, a thin note).
+    const restore = () => props.onIdea(text);
     setHint(null);
     const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "locked_in" || kind === "none";
     if (choiceTurn && isPlainYes(text)) {
       // handled below
     } else {
       // Content, or something said TO Pau Pau? Requests are never saved as notes.
-      setChecking(true);
       const intent = await props.classify(text, ask);
-      setChecking(false);
       if (intent !== "content") {
         const turn: IntentTurn = choiceTurn ? "choice" : kind === "teach_card" || kind === "mirror" || kind === "probe" || kind === "name_lead" || kind === "pick_lead" ? kind : "probe";
         props.onAside(intent, turn, [pau(ask), you(text)]);
@@ -242,13 +258,13 @@ export function StanceChat(props: Props) {
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
-        h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true });
+        await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true });
         return;
       case "mirror":
-        h.mirrorSave([pau(ask), you(text)]);
+        await h.mirrorSave([pau(ask), you(text)]);
         return;
       case "probe":
-        h.probeSave([pau(paras[0]!), you(text)]);
+        await h.probeSave([pau(paras[0]!), you(text)]);
         return;
       case "name_lead":
       case "pick_lead":
@@ -278,9 +294,10 @@ export function StanceChat(props: Props) {
     }
     // Words typed over a choice are a revised note, sent as their reply.
     if (choiceTurn && kind !== "none" && kind !== "locked_in") {
-      h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true });
+      await h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true });
       return;
     }
+    restore();
     setHint(TAP_HINT);
   }
 
