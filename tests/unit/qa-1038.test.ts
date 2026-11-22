@@ -220,7 +220,7 @@ describe("#5 Continue anyway is acknowledged and stays flagged in Stage 3", () =
 describe("#6 thin note: kind copy, scoped to its turn", () => {
   it("'Sleep matters' gets the clear 'too short' message", () => {
     expect(probeForThinNote("Sleep matters")).toBe(THIN_NOTE);
-    expect(THIN_NOTE).toBe("That's a start. Mysterious, I like it. Give me a bit more: what's the one specific point this section should make?");
+    expect(THIN_NOTE).toBe("That's a start. Give me a bit more: what's the one specific point this section should make?");
   });
   it("the hint is keyed to the turn, so it never carries into later bubbles", () => {
     expect(loop).toContain("const thinNote = thinState && thinState.turn === turnKey ? thinState.text : null;");

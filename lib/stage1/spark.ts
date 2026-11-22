@@ -1,3 +1,4 @@
+import { oneQuipParas } from "@/lib/coach/quips";
 import { PAU_PERSONALITY } from "@/lib/coach/personality";
 /**
  * Hesitation "spark" questions: 2–3 short, open, Socratic questions about the
@@ -81,7 +82,9 @@ export function validateSparkQuestions(raw: unknown): string[] | null {
     out.push(q);
     if (out.length === 3) break;
   }
-  return out.length >= 2 ? out : null;
+  // One reply, one quip at most (QA 3:35 B).
+  const kept = oneQuipParas(out).filter((q) => q.endsWith("?"));
+  return kept.length >= 2 ? kept : null;
 }
 
 export const SPARK_SYSTEM = [
