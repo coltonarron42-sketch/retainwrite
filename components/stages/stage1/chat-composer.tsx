@@ -431,7 +431,7 @@ export function ChatComposer({
           id={menuId}
           role="menu"
           aria-label="Add a photo or file"
-          className="absolute bottom-full left-0 z-20 mb-2 w-[min(300px,100%)] rounded-[12px] border border-ds-border bg-ds-surface p-2 shadow-ds-card"
+          className="mt-2 w-full rounded-[12px] border border-ds-border bg-ds-surface p-2 shadow-ds-card sm:w-[320px]"
         >
           {MENU.map(([key, label, Icon]) => (
             <button
