@@ -295,6 +295,18 @@ export function ScrollToNewest({ signal }: { signal: string }) {
  */
 export function ComposerDock({ children }: { children: ReactNode }) {
   const [lift, setLift] = useState(0);
+  // Phones: the dock is fixed to the bottom (safe-area aware) and a spacer of
+  // the same height keeps the last reply clear of it, so replies, speech and
+  // status changes never move it (QA 3:35 A). Wider screens keep it sticky.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const [dockH, setDockH] = useState(0);
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setDockH(Math.ceil(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
@@ -311,13 +323,17 @@ export function ComposerDock({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <div
-      data-composer-dock
-      className="sticky z-10 -mx-4 bg-ds-page/95 px-4 pb-3 pt-3 backdrop-blur-sm sm:mx-0 sm:px-0"
-      style={{ bottom: lift }}
-    >
-      {children}
-    </div>
+    <>
+      <div aria-hidden data-composer-spacer className="sm:hidden" style={{ height: dockH }} />
+      <div
+        ref={dockRef}
+        data-composer-dock
+        className="fixed inset-x-0 z-20 bg-ds-page/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:sticky sm:inset-x-auto sm:z-10 sm:mx-0 sm:px-0 sm:pb-3"
+        style={{ bottom: lift }}
+      >
+        {children}
+      </div>
+    </>
   );
 }
 

@@ -58,11 +58,11 @@ export function callStatusText(status: CallStatus): string | null {
     case "muted":
       return "Your mic is muted. Type, or unmute to talk.";
     case "unsupported":
-      return "Voice replies aren't available in this browser. You'll still hear Pau Pau; type your reply.";
+      return "No voice replies in this browser; type your reply.";
     case "blocked":
-      return "The microphone is blocked. Allow it in your browser settings, or type your reply.";
+      return "Mic blocked. Allow it in your browser, or type.";
     case "error":
-      return "Voice replies stopped working here. Type your reply, or tap Unmute to try again.";
+      return "Voice replies stopped. Type, or tap Unmute to retry.";
     default:
       return null;
   }

@@ -140,6 +140,11 @@ export function ChatComposer({
   const [dragging, setDragging] = useState(false);
   const [listening, setListening] = useState(false);
   const [micNote, setMicNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!micNote) return;
+    const t = window.setTimeout(() => setMicNote(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [micNote]);
   const [canDictate, setCanDictate] = useState(false);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const baseRef = useRef("");
@@ -619,8 +624,9 @@ export function ChatComposer({
           {...inputProps}
         />
 
-        <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
-          <div className="flex items-center gap-1">
+        {/* Fixed-height row: status text changes never change the dock's height (QA 3:35 A). */}
+        <div className="flex h-[56px] items-center justify-between gap-2 px-2 pb-2 pt-1" data-composer-row>
+          <div className="flex min-w-0 items-center gap-1">
             {onFilesChange ? (
               <button
                 ref={plusRef}
@@ -652,7 +658,7 @@ export function ChatComposer({
             {listening ? <span className="text-[13px] text-ds-muted" role="status">Listening…</span> : null}
             {callOn || callStatus === "unsupported" ? (
               <span
-                className="flex min-h-[44px] items-center gap-2 px-2 text-[13px] leading-[1.4] text-ds-muted"
+                className="flex max-h-[40px] min-w-0 items-center gap-2 overflow-hidden px-2 text-[13px] leading-[1.4] text-ds-muted"
                 role="status"
                 data-call-status={callStatus}
               >
@@ -698,7 +704,8 @@ export function ChatComposer({
       </div>
 
       {queued ? (
-        <p className="mt-2 px-2 text-[13px] leading-[1.6] text-ds-muted" role="status" data-send-queued-note>
+        // Floats just above the box, so it never changes the dock's height.
+        <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note>
           Pau Pau is still replying. Your message sends as soon as she&apos;s done.
         </p>
       ) : null}
@@ -792,7 +799,12 @@ export function ChatComposer({
         </p>
       ) : null}
       {micNote ? (
-        <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="status">
+        // A toast above the box (QA 3:35 A): never inside the dock's height.
+        <p
+          className="absolute inset-x-0 bottom-full mb-1 rounded-[8px] border border-ds-border bg-ds-surface px-3 py-2 text-[13px] leading-[1.5] text-ds-ink shadow-ds-card"
+          role="status"
+          data-mic-toast
+        >
           {micNote}
         </p>
       ) : null}
