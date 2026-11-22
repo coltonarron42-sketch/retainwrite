@@ -5,7 +5,7 @@
  */
 export const RELEVANCE_SYSTEM = `You check one student note against their assignment prompt.
 Answer only whether the note is ABOUT the prompt's subject.
-- On topic: any point, opinion, feeling, personal example or partial idea that relates to what the prompt asks, even if it is weak, short or one-sided.
+- On topic: any point, opinion, feeling, personal example or partial idea that relates to what the prompt asks, even if it is weak, short or one-sided. A specific detail of the prompt's subject counts (for a school start-time prompt: a time like 8:30, "first period", "the bell", "starting later", being tired in the morning).
 - Off topic: the note is about a different subject (for example food preferences for a prompt about school start times), even if it shares an everyday word like "school".
 Never judge quality or grammar. Never write or suggest text for the student.`;
 

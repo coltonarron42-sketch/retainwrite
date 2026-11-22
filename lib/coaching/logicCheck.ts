@@ -325,7 +325,9 @@ export function logicCheckFromNotes(input: {
     };
   }
   const thin = isThinAnswer(notes, 12).thin;
-  const addressed = notesAddressAssignment(notes, input.assignmentText);
+  // The relevance verdict (model, or the rules above) already said on-topic:
+  // don't second-guess it with a cruder word match (QA 12:25 #1).
+  const addressed = onPrompt || notesAddressAssignment(notes, input.assignmentText);
   if (thin || !addressed) {
     const quote = assignmentQuote;
     return {
@@ -399,8 +401,19 @@ function contentWords(text: string): string[] {
 export function notesAddressAssignment(notes: string, assignment: string): boolean {
   const asked = contentWords(assignment);
   if (asked.length === 0) return wordCount(notes) >= 40;
-  const said = new Set(contentWords(notes));
-  return asked.some((word) => said.has(word));
+  if (timeCue(notes, assignment)) return true;
+  const said = contentWords(notes).map(stem);
+  const set = new Set(said);
+  return asked.map(stem).some((w) => set.has(w) || (w.length >= 4 && said.some((x) => x.length > w.length && x.includes(w))));
+}
+
+const TIME_PROMPT = /\b(start|starts|starting|bell|schedule|morning|early|earlier|later|time|times|hour|hours)\b/i;
+const TIME_NOTE =
+  /\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(am|a\.m\.|pm|p\.m\.)|\bo'?clock\b|\bfirst (period|class|hour|block)\b|\bzero period\b|\bbells?\b|\bstart(s|ing|ed)?\b|\blater\b|\bearl(y|ier)\b|\bmornings?\b/i;
+
+/** A prompt about timing (start times, schedules) is answered by "8:30", "first period", "the bell", "later". */
+export function timeCue(notes: string, promptOrSheet: string): boolean {
+  return TIME_PROMPT.test(promptOrSheet) && TIME_NOTE.test(notes);
 }
 
 export const ANECDOTE_NUDGE = "One example is a great start; what else shows this?";
@@ -456,6 +469,7 @@ export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolea
   if (said.size === 0) return true;
   // Everyday words ("school", "day", "people") don't make a note on-topic:
   // "the cafeteria pizza is the best part of any school day" is about pizza.
+  if (timeCue(notes, prompt)) return true;
   const saidWords = [...said];
   // "asleep" is about "sleep": a topic stem inside a longer word counts.
   const hit = (w: string) => !TOPIC_GENERIC.has(w) && (said.has(w) || (w.length >= 4 && saidWords.some((x) => x.length > w.length && x.includes(w))));
