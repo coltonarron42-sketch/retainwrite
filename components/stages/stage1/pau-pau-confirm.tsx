@@ -119,9 +119,23 @@ export function PauPauConfirm({
     }).catch(() => undefined);
   }
 
+  /** Asks Pau Pau already made once: she doesn't repeat them every turn (the topic is the exception). */
+  function askedBefore(): Set<PauPauAsk> {
+    const said = turnsRef.current.flatMap((t) => (t.role === "pau" ? t.paras : [])).join(" ");
+    const out = new Set<PauPauAsk>();
+    for (const key of ["sources", "length"] as const) if (said.includes(PAU_PAU_ASK_TEXT[key])) out.add(key);
+    return out;
+  }
+
+  /** The next missing thing Pau Pau hasn't asked yet, or null. */
+  function nextNewAsk(req: AssignmentRequirements, after: Set<PauPauAsk>): PauPauAsk | null {
+    const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]));
+    return next;
+  }
+
   /** What to ask after this reply: the next missing thing, else "does it look right?". */
   function followUp(after: Set<PauPauAsk>): string {
-    const next = pauPauNextAsk(reqRef.current, after);
+    const next = nextNewAsk(reqRef.current, after);
     return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
@@ -207,7 +221,7 @@ export function PauPauConfirm({
         onChange(next);
         push({
           role: "pau",
-          paras: [result.reply, ...reconfirmParas(next, pauPauNextAsk(next, after))],
+          paras: [result.reply, ...reconfirmParas(next, nextNewAsk(next, after))],
           apply: { updates: result.updates },
           skip,
         });

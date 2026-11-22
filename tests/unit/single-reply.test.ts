@@ -237,3 +237,12 @@ describe("D: mobile voice", () => {
     expect(voice).toMatch(/if \(next\) \{\s*\/\/[^\n]*\n\s*unlockSpeech\(\);/);
   });
 });
+
+describe("C: Pau Pau doesn't nag", () => {
+  it("an ask (sources/length) is made once; after that the re-confirm asks 'does that look right now?'", () => {
+    const src = read("components/stages/stage1/pau-pau-confirm.tsx");
+    expect(src).toContain("function askedBefore()");
+    expect(src).toContain("reconfirmParas(next, nextNewAsk(next, after))");
+    expect(read("lib/stage1/confirm-reply.ts")).toMatch(/Do not end with a question/);
+  });
+});
