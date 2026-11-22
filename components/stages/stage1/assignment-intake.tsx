@@ -187,7 +187,7 @@ export function AssignmentIntake({
   const [restoringDraft, setRestoringDraft] = useState(false);
   // Draft text for the resumed question, held until that question is open so
   // it is never shown (or autosaved) under a different question.
-  const draftRestore = useRef<{ questionId: string; text: string; opened: boolean } | null>(null);
+  const draftRestore = useRef<{ questionId: string; text: string; opened: boolean; serverDone: boolean } | null>(null);
   const [viewSource, setViewSource] = useState<{
     label: string;
     excerpt: string;
@@ -255,10 +255,14 @@ export function AssignmentIntake({
           // Show this browser's copy right away; the server copy replaces it
           // only if it is newer (for example, typed on another device).
           const local = readLocalDraft(paperId, `stage1:${questionId}`);
-          draftRestore.current = { questionId, text: local?.text ?? "", opened: false };
+          draftRestore.current = { questionId, text: local?.text ?? "", opened: false, serverDone: false };
           // Show "Restoring your draft…" until the text is in the box, even when
           // this browser has a copy (the question can open a beat before it).
           setRestoringDraft(true);
+          // Never leave the box read-only if the question somehow never opens.
+          window.setTimeout(() => {
+            if (!cancelled) setRestoringDraft(false);
+          }, 8000);
           void draftsRequest
             .then((saved) => {
               if (cancelled) return;
@@ -277,7 +281,12 @@ export function AssignmentIntake({
               if (target.opened) setDraftAnswer((current) => (current === shown ? text : current));
             })
             .finally(() => {
-              if (!cancelled) setRestoringDraft(false);
+              if (cancelled) return;
+              const target = draftRestore.current;
+              if (target) target.serverDone = true;
+              // Keep "Restoring your draft…" until the question has opened with
+              // its text; the resume step clears it then.
+              if (!target || target.opened) setRestoringDraft(false);
             });
         }
         setResumeReady(true);
@@ -336,12 +345,20 @@ export function AssignmentIntake({
       return;
     }
     resumedIntake.current = true;
+    // However the resume lands, the restore is settled after this pass.
+    const settleRestore = () => {
+      const restore = draftRestore.current;
+      if (!restore || restore.opened) return;
+      restore.opened = true;
+      if (restore.serverDone) setRestoringDraft(false);
+    };
     const resume = resumeIntake(
       coachingPlan.map((question) => question.id),
       answers.map((answer) => answer.questionId),
     );
     if (resume.skipInterest) setSkippedInterest(true);
     if (resume.screen === "gate") {
+      settleRestore();
       setScreen("gate");
       return;
     }
@@ -359,6 +376,7 @@ export function AssignmentIntake({
       // Every intake question answered: reopen Pick your story (or the early
       // stance if a story is already picked) instead of a blank "Loading…" step.
       if (allAnswered && (askedIndex < 0 || askedDone)) {
+        settleRestore();
         if (storyAngle) goToStanceOnStory();
         else finishCoaching(answers);
         return;
@@ -366,11 +384,11 @@ export function AssignmentIntake({
       setQIndex(index);
       setScreen("coaching");
       const restore = draftRestore.current;
-      if (restore && coachingPlan[index]?.id === restore.questionId) {
-        restore.opened = true;
-        if (restore.text) setDraftAnswer(restore.text);
+      if (restore && !restore.opened && coachingPlan[index]?.id === restore.questionId && restore.text) {
+        setDraftAnswer(restore.text);
       }
     }
+    settleRestore();
   }, [demoMode, answers, coachingPlan, storyAngle, needFallback]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
