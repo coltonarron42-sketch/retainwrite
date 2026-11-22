@@ -226,10 +226,11 @@ export function AssignmentIntake({
     if (!resumeReady || !initialRequirements) return;
     setRequirements(initialRequirements);
     setRawText(initialRawText);
-    if (initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed) {
-      setChecklistConfirmed(true);
-    }
-    setScreen((current) => (current === "upload" ? "card" : current));
+    const confirmed = Boolean(initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed);
+    if (confirmed) setChecklistConfirmed(true);
+    // Already confirmed with Pau Pau ("Let's go"): a reload goes on to the
+    // first question instead of showing the read-back again.
+    setScreen((current) => (current === "upload" ? (confirmed ? "coaching" : "card") : current));
   }, [paperId, accountPaper, initialRequirements, initialRawText, resumeReady]);
 
   useEffect(() => {
