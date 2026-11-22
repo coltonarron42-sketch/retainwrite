@@ -1,8 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import { assertCoachingOnly } from "@/lib/ai/guard";
-import { getGrokClient, hasGrokKey, MODEL_STRONG } from "@/lib/ai/grok";
+import { grokChatJson, hasGrokKey, MODEL_STRONG } from "@/lib/ai/grok";
 import { FEATURES, HIDDEN_DRAFT_MODE } from "@/lib/config";
 import { buildLedger, type LedgerInput } from "@/lib/drafting/ledger";
 import {
@@ -24,36 +23,14 @@ function logHidden(event: string, detail: Record<string, unknown>) {
 
 async function grokHiddenModel(system: string, user: string) {
   if (!hasGrokKey()) return { ok: false as const, reason: "missing_key" };
-  const grok = getGrokClient();
-  if (!grok) return { ok: false as const, reason: "missing_key" };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  // SOP: hidden scaffold — internal structure check only; never student-facing, never exported
+  // Low reasoning effort: the request ran at the default (high) effort and took ~20s.
+  const res = await grokChatJson({ model: MODEL_STRONG, system, user, reasoningEffort: "low", timeoutMs: 30_000 });
+  if (!res.ok) return { ok: false as const, reason: res.reason };
   try {
-    // SOP: hidden scaffold — internal structure check only; never student-facing, never exported
-    const response = await grok.chat.completions.create(
-      {
-        model: MODEL_STRONG,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: { type: "json_object" },
-      },
-      { signal: controller.signal },
-    );
-    const text = response.choices[0]?.message?.content?.trim() ?? "";
-    if (!text) return { ok: false as const, reason: "invalid_json" };
-    if (!assertCoachingOnly(text).ok) return { ok: false as const, reason: "guard" };
-    try {
-      return { ok: true as const, json: JSON.parse(text) as unknown };
-    } catch {
-      return { ok: false as const, reason: "invalid_json" };
-    }
-  } catch (err) {
-    const aborted = err instanceof Error && err.name === "AbortError";
-    return { ok: false as const, reason: aborted ? "timeout" : "request_failed" };
-  } finally {
-    clearTimeout(timer);
+    return { ok: true as const, json: JSON.parse(res.text) as unknown };
+  } catch {
+    return { ok: false as const, reason: "invalid_json" };
   }
 }
 

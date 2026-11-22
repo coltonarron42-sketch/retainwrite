@@ -9,8 +9,9 @@ export const HIDDEN_DRAFT_CAP = 15;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const hiddenDraftSignalsSchema = z.object({
-  version: z.number().int(),
-  ledgerHash: z.string().max(128),
+  // version and ledgerHash are overwritten by the server after parsing.
+  version: z.number().int().default(1),
+  ledgerHash: z.string().max(128).default(""),
   placement: z
     .array(
       z.object({
@@ -20,7 +21,8 @@ export const hiddenDraftSignalsSchema = z.object({
         confidence: z.number().min(0).max(1),
       }),
     )
-    .max(40),
+    .max(40)
+    .default([]),
   pacing: z
     .array(
       z.object({
@@ -31,7 +33,8 @@ export const hiddenDraftSignalsSchema = z.object({
         status: z.enum(["light", "ok", "heavy"]),
       }),
     )
-    .max(24),
+    .max(24)
+    .default([]),
   gaps: z
     .array(
       z.object({
@@ -39,11 +42,14 @@ export const hiddenDraftSignalsSchema = z.object({
         kind: z.enum(["no_idea", "no_evidence", "no_link_to_thesis", "no_landing"]),
       }),
     )
-    .max(24),
-  order: z.object({
-    suggested: z.array(z.string().max(120)).max(40).nullable(),
-    confidence: z.number().min(0).max(1),
-  }),
+    .max(24)
+    .default([]),
+  order: z
+    .object({
+      suggested: z.array(z.string().max(120)).max(40).nullable().default(null),
+      confidence: z.number().min(0).max(1).default(0),
+    })
+    .default({ suggested: null, confidence: 0 }),
   landing: z
     .array(
       z.object({
@@ -51,7 +57,8 @@ export const hiddenDraftSignalsSchema = z.object({
         lands: z.enum(["yes", "weak", "no"]),
       }),
     )
-    .max(40),
+    .max(40)
+    .default([]),
   sentenceWeight: z
     .array(
       z.object({
@@ -60,7 +67,8 @@ export const hiddenDraftSignalsSchema = z.object({
         weight: z.enum(["light", "ok", "heavy"]),
       }),
     )
-    .max(40),
+    .max(40)
+    .default([]),
 });
 
 export type HiddenDraftSignals = z.infer<typeof hiddenDraftSignalsSchema>;
@@ -85,7 +93,7 @@ const privateTextSchema = z.object({
 
 const modelSchema = z.object({
   text: privateTextSchema,
-  signals: hiddenDraftSignalsSchema,
+  signals: hiddenDraftSignalsSchema.prefault({}),
 });
 
 export type MilestoneStatus = "stored" | "unchanged" | "capped" | "skipped" | "failed";
@@ -143,6 +151,19 @@ export function purgeAfter(created: Date, draftingEndedAt: Date | null): Date {
   return afterDraft < max ? afterDraft : max;
 }
 
+/** The JSON shape the checker must return (enums spelled out). */
+export const HIDDEN_SHAPE = JSON.stringify({
+  text: { sections: [{ sectionKey: "<key>", paragraphs: [{ text: "<private pacing note>", usesIdeaIds: ["<id>"] }] }] },
+  signals: {
+    placement: [{ ideaId: "<id>", currentSection: "<key>", bestSection: "<key>", confidence: 0.8 }],
+    pacing: [{ sectionKey: "<key>", ideaCount: 1, estWords: 120, targetWords: 250, status: "light|ok|heavy" }],
+    gaps: [{ sectionKey: "<key>", kind: "no_idea|no_evidence|no_link_to_thesis|no_landing" }],
+    order: { suggested: ["<id>"], confidence: 0.5 },
+    landing: [{ ideaId: "<id>", lands: "yes|weak|no" }],
+    sentenceWeight: [{ sectionKey: "<key>", planRowId: "<id>", weight: "light|ok|heavy" }],
+  },
+});
+
 export function hiddenDraftPrompt(ledger: {
   thesis: string;
   storyAngle: string;
@@ -155,6 +176,8 @@ export function hiddenDraftPrompt(ledger: {
     "Do not address the student. Do not say you could say, here's a version, use this paragraph, or rewritten.",
     "signals hold ids, section keys, enums, and numbers only. No sentences.",
     "Use only the idea ids given. Do not invent ideas.",
+    // Without the shape every reply failed the schema check (QA 12:25 #5).
+    `Shape: ${HIDDEN_SHAPE}`,
   ].join(" ");
   const user = JSON.stringify({
     thesis: ledger.thesis,
