@@ -118,6 +118,8 @@ function exampleLeadBatchRaw(input: {
   rubricRef: string;
   /** Section-specific titles (QA 10:38 #7): built from the section and the student's note. */
   section?: { key: string; title: string } | null;
+  /** The model's natural library query for this section (QA 2:31 #3c); keywords are the fallback. */
+  searchTerm?: string | null;
 }): {
   personalized: boolean;
   candidates: LeadCandidate[];
@@ -136,7 +138,7 @@ function exampleLeadBatchRaw(input: {
   const ref = input.rubricRef;
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
-    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea, ref });
+    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea, ref, searchTerm: input.searchTerm ?? null });
   }
   const candidates: LeadCandidate[] = [
     {
@@ -189,16 +191,15 @@ function exampleLeadBatchRaw(input: {
 const NOTE_LEAD_IN = /^(i think( that)?|i believe( that)?|my point is( that)?|in my opinion,?|i feel( like)?|honestly,?|so,?|basically,?)\s+/i;
 
 /** The student's note as a short focus: “Social Security made the federal government…”. */
-export function noteFocus(idea: string, words = 9): string {
+export function noteFocus(idea: string, words = 24): string {
   const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
   if (!t) return "";
-  // A whole first clause reads better than a cut ("…morning, so I…").
-  const clause = t.split(/[,;:.!?—]/)[0]!.trim();
-  const n = clause.split(" ").length;
-  if (n >= 3 && n <= words + 2) return clause;
-  const parts = t.split(" ");
-  const cut = parts.slice(0, words).join(" ").replace(/[,;:.!?]+$/, "");
-  return parts.length > words ? `${cut}…` : cut;
+  // The whole first sentence, with the student's own end mark (QA 2:31 #3b):
+  // never cut at a comma mid-thought.
+  const sentence = (t.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? t).trim();
+  const parts = sentence.split(" ");
+  if (parts.length <= words) return sentence;
+  return `${parts.slice(0, words - 4).join(" ").replace(/[,;:]+$/, "")}…`;
 }
 
 function sectionRole(section: { key: string; title: string }): "intro" | "body" | "conclusion" | "other" {
@@ -216,24 +217,29 @@ function sectionLeadBatch(ctx: {
   search: string;
   idea: string;
   ref: string;
+  searchTerm?: string | null;
 }): { personalized: true; candidates: LeadCandidate[]; wildcard: LeadCandidate } {
   const { section, subject, question, idea, ref } = ctx;
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
   const focus = idea ? noteFocus(idea) : "";
-  const about = focus ? `“${focus}”` : question ? "your question" : subject;
+  // A student quote keeps their own punctuation and is never last in a
+  // question, so a template '?' can't turn it into one (QA 2:31 #3a).
+  const quoted = focus ? `“${/[.!?…]$/.test(focus) ? focus : `${focus}.`}”` : "";
+  const about = focus ? "your point" : question ? "your question" : subject;
+  const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} ${ask}` : ask);
   // Keywords only: never the student's raw sentence in a search box.
   const topicTerm = searchPhrase(ctx.search);
   const extra = idea ? noteKeywords(idea, topicTerm) : [];
-  const term = cleanSearchTerm([topicTerm, ...extra].filter(Boolean).join(" "), ctx.search);
+  const term = ctx.searchTerm?.trim() || cleanSearchTerm([topicTerm, ...extra].filter(Boolean).join(" "), ctx.search);
   const first =
     role === "intro"
-      ? `What background should your introduction set up before ${about}?`
+      ? youWrote(`What background should your introduction set up before ${about}?`)
       : role === "conclusion"
-        ? `What bigger stakes could your conclusion draw from ${about}?`
+        ? youWrote(`What bigger stakes could your conclusion draw from ${about}?`)
         : role === "body"
-          ? `What evidence would back up ${about} in your ${part}?`
-          : `What should your ${part} look up first about ${about}?`;
+          ? youWrote(`What evidence would back up ${about} in your ${part}?`)
+          : youWrote(`What should your ${part} look up first about ${about}?`);
   const second =
     role === "intro"
       ? `What fact or moment could open your introduction on ${question ? "your question" : subject}?`
@@ -282,7 +288,7 @@ function sectionLeadBatch(ctx: {
       },
     ],
     wildcard: {
-      name: `Outside this class: where else ${focus ? `an idea like ${about}` : question ? "a question like yours" : subject} comes up`,
+      name: `Outside this class: where else ${focus ? "an idea like yours" : question ? "a question like yours" : subject} comes up`,
       rubricMatch: 0.22,
       rubricRef: ref,
       lessonLink: `Same pattern as your ${part}`,
@@ -321,11 +327,13 @@ export function noteKeywords(idea: string, topicTerm = "", max = 3): string[] {
   return out;
 }
 
+const TAIL_FILLER = new Set(["about", "part", "parts", "best", "worst", "first", "last", "teen", "teens", "student", "students", "people", "ever", "greatest", "day", "days"]);
+
 // Words that make a search term read like a sentence fragment.
 const FRAGMENT_STOP = new Set([
   "should", "would", "could", "can", "will", "shall", "may", "might", "must", "do", "does", "did", "is", "are", "was", "were", "be", "been",
   "has", "have", "had", "not", "no", "so", "because", "but", "if", "then", "when", "while", "which", "who", "what", "why", "how", "whether",
-  "improve", "improves", "help", "helps", "helping", "need", "needs", "show", "shows", "learn", "means", "mean", "give", "gives", "take", "takes",
+  "about", "part", "best", "ever", "greatest", "improve", "improves", "help", "helps", "helping", "need", "needs", "show", "shows", "learn", "means", "mean", "give", "gives", "take", "takes",
   "keep", "keeps", "let", "lets", "make", "makes", "get", "gets", "think", "feel", "want", "would", "us", "we", "our", "my", "i",
 ]);
 
@@ -346,9 +354,15 @@ export function cleanSearchTerm(term: string, fallback = ""): string {
     }
     return out;
   };
-  let words = pick(term);
-  if (words.length < 2) words = pick(`${term} ${fallback}`);
-  return words.slice(0, 6).join(" ");
+  // No filler tails ("…about sleep", "…best part", "…times teen").
+  const trimTail = (list: string[]) => {
+    const out = list.slice(0, 6);
+    while (out.length > 2 && TAIL_FILLER.has(out[out.length - 1]!)) out.pop();
+    return out;
+  };
+  let words = trimTail(pick(term));
+  if (words.length < 2) words = trimTail(pick(`${term} ${fallback}`));
+  return words.join(" ");
 }
 
 const SEARCH_STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "be", "it", "its", "their", "they", "them", "this", "that", "with", "by", "from", "as", "into", "more", "most", "than", "really", "actually"]);
