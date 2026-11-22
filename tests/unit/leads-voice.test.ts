@@ -23,5 +23,8 @@ describe("F: Pau Pau introduces leads in her own voice, then links", () => {
     expect(src).not.toMatch(/key: `lead:/);
     expect(src).toContain('target="_blank"');
     expect(src).toContain("(opens in a new tab)");
+    // Leads arrive with the stance answer, when the screen moves to the gate: shown there, before the gate question.
+    expect(src).toContain('{leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode ? (');
+    expect(src.indexOf("<PauPauGroup bubbles={[LEADS_INTRO]}>")).toBeLessThan(src.indexOf('{screen === "gate" ? (\n'));
   });
 });

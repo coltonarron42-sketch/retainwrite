@@ -2314,13 +2314,13 @@ export function AssignmentIntake({
       ...(screen === "story" && editing
         ? [{ key: `edit:${editSeq}:story`, text: "Here are a few directions your paper could take, built from what you told me.", turn: true }]
         : []),
+      // Leads: voice reads only Pau Pau's intro, never the links or lead cards.
+      ...(leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode ? [{ key: "leads:intro", text: LEADS_INTRO }] : []),
       ...(screen === "gate" ? [{ key: "gate", text: currentTurnTexts.join(" "), turn: true }] : []),
       ...(sparkHere ? [{ key: `spark-offer:${sparkHere.qid}`, text: SPARK_OFFER }] : []),
       ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_DECLINED }] : []),
       ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_OFF }] : []),
       ...(sparkHere?.questions ?? []).map((text, i) => ({ key: `spark:${sparkHere!.qid}:${i}`, text })),
-      // Leads: voice reads only Pau Pau's intro, never the links or lead cards.
-      ...(leads.length > 0 && screen === "coaching" && !stanceMode ? [{ key: "leads:intro", text: LEADS_INTRO }] : []),
       ...(error && /^(Give me a little more|Tell me a little)/.test(error) ? [{ key: `err:${error}`, text: error }] : []),
     ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
 
@@ -2499,6 +2499,40 @@ export function AssignmentIntake({
             />
           ) : null}
 
+          {leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode ? (
+            // Pau Pau introduces the leads in her own words; the links follow in the same reply.
+            <PauPauGroup bubbles={[LEADS_INTRO]}>
+              <ul className="space-y-3" aria-label="Research leads" data-leads>
+                {leads.map((lead) => (
+                  <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
+                    <p className="font-semibold">{lead.name}</p>
+                    <p className="text-ds-muted">{lead.whyAssignment}</p>
+                    {lead.whyInterest ? <p className="text-ds-muted">{lead.whyInterest}</p> : null}
+                    <ul className="mt-1 flex flex-wrap gap-x-4" aria-label={`Look for: ${lead.name}`}>
+                      {leadLinks(lead, requirements?.topic.value || requirements?.promptQuestion.value).map((link) => (
+                        <li key={link.kind}>
+                          <a
+                            href={link.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-lead-link={link.kind}
+                            className={`inline-flex min-h-[48px] items-center ${dsLink}`}
+                          >
+                            {link.label}
+                            <span className="sr-only"> (opens in a new tab)</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                    <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => acceptLead(lead)}>
+                      Add as a lead
+                    </DsButton>
+                  </li>
+                ))}
+              </ul>
+            </PauPauGroup>
+          ) : null}
+
           {screen === "gate" ? (
             <PauPauGroup
               bubbles={[
@@ -2542,40 +2576,6 @@ export function AssignmentIntake({
                   Want to change something? Tap any of your answers above.
                 </p>
               </div>
-            </PauPauGroup>
-          ) : null}
-
-          {leads.length > 0 && screen === "coaching" && !stanceMode ? (
-            // Pau Pau introduces the leads in her own words; the links follow in the same reply.
-            <PauPauGroup bubbles={[LEADS_INTRO]}>
-              <ul className="space-y-3" aria-label="Research leads" data-leads>
-                {leads.map((lead) => (
-                  <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
-                    <p className="font-semibold">{lead.name}</p>
-                    <p className="text-ds-muted">{lead.whyAssignment}</p>
-                    {lead.whyInterest ? <p className="text-ds-muted">{lead.whyInterest}</p> : null}
-                    <ul className="mt-1 flex flex-wrap gap-x-4" aria-label={`Look for: ${lead.name}`}>
-                      {leadLinks(lead, requirements?.topic.value || requirements?.promptQuestion.value).map((link) => (
-                        <li key={link.kind}>
-                          <a
-                            href={link.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            data-lead-link={link.kind}
-                            className={`inline-flex min-h-[48px] items-center ${dsLink}`}
-                          >
-                            {link.label}
-                            <span className="sr-only"> (opens in a new tab)</span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                    <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => acceptLead(lead)}>
-                      Add as a lead
-                    </DsButton>
-                  </li>
-                ))}
-              </ul>
             </PauPauGroup>
           ) : null}
 
