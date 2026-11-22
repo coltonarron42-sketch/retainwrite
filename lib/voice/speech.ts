@@ -31,6 +31,24 @@ function setSpeaking(v: boolean) {
   listeners.forEach((l) => l());
 }
 
+/* The sentence the browser is actually saying right now: set from the
+   utterance's own start event, cleared on its end/error and on stop. Drives
+   Pau Pau's speaking waves (never shown when nothing is audible). */
+let audible: string | null = null;
+const audibleListeners = new Set<() => void>();
+function setAudible(text: string | null) {
+  if (audible === text) return;
+  audible = text;
+  audibleListeners.forEach((l) => l());
+}
+export function subscribeAudible(listener: () => void) {
+  audibleListeners.add(listener);
+  return () => audibleListeners.delete(listener);
+}
+export function audibleSentence(): string | null {
+  return audible;
+}
+
 export function subscribeSpeaking(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -204,8 +222,12 @@ function pump() {
     if (watchdog) clearTimeout(watchdog);
     watchdog = null;
     if (gen !== generation) return;
+    setAudible(null);
     active = false;
     pump();
+  };
+  u.onstart = () => {
+    if (gen === generation && !finished) setAudible(next);
   };
   u.onend = done;
   u.onerror = done;
@@ -243,6 +265,7 @@ export function stopSpeech() {
   if (watchdog) clearTimeout(watchdog);
   watchdog = null;
   setSpeaking(false);
+  setAudible(null);
   if (speechSupported()) {
     lastCancelAt = Date.now();
     window.speechSynthesis.cancel();
