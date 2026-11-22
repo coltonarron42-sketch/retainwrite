@@ -29,7 +29,7 @@ export default async function ResetPasswordPage() {
         <p className={dsError} role="alert">
           That reset link has expired or was opened somewhere else.{" "}
           <Link href="/forgot-password" className={dsLink}>
-            Send a new link
+            Send&nbsp;a&nbsp;new&nbsp;link
           </Link>
         </p>
       )}

@@ -88,7 +88,7 @@ export function SignupForm({ nextPath = "/app" }: Props) {
             </Link>{" "}
             and{" "}
             <Link href="/privacy" className={dsLink}>
-              Privacy Policy
+              Privacy&nbsp;Policy
             </Link>
             . I confirm I am 13 or older.
           </span>
