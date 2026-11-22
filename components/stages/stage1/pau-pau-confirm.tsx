@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,14 +8,13 @@ import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
 import { dsCaption, dsInput, dsTextarea } from "@/lib/ds/classes";
 import { PauPauAvatar } from "@/components/stages/stage1/chat-bubbles";
+import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
 import {
   COACH_NAME,
-  COACH_NAME_SPOKEN,
   PAU_PAU_ASK_TEXT,
   lengthFromAnswer,
   pauPauNextAsk,
-  pauPauSummary,
   pauPauSummaryBubbles,
   type PauPauAsk,
 } from "@/lib/stage1/pau-pau";
@@ -57,39 +56,12 @@ export function PauPauConfirm({
   const [checking, setChecking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [thanks, setThanks] = useState<string | null>(null);
-  const [canSpeak, setCanSpeak] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const ask = pauPauNextAsk(requirements, dismissed);
   // Same paper → same opener, so a reload reads the same.
-  const summary = pauPauSummary(requirements, { pendingAsk: ask, seed: paperId });
   const bubbles = pauPauSummaryBubbles(requirements, { pendingAsk: ask, seed: paperId });
   const askText = ask ? PAU_PAU_ASK_TEXT[ask] : null;
-
-  useEffect(() => {
-    setCanSpeak(typeof window !== "undefined" && "speechSynthesis" in window);
-    return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
-    };
-  }, []);
-
-  function readAloud() {
-    const synth = window.speechSynthesis;
-    if (speaking) {
-      synth.cancel();
-      setSpeaking(false);
-      return;
-    }
-    const text = [summary, askText].filter(Boolean).join(" ").replaceAll(COACH_NAME, COACH_NAME_SPOKEN).replace(/…/g, ",");
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1;
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    synth.cancel();
-    synth.speak(utterance);
-    setSpeaking(true);
-  }
 
   function nextAsk(after: PauPauAsk, note: string | null) {
     setAnswer("");
@@ -210,11 +182,18 @@ export function PauPauConfirm({
             ) : null}
           </div>
 
-          {canSpeak ? (
-            <DsButton type="button" size="sm" variant="ghost" className="mt-2" onClick={readAloud} aria-pressed={speaking}>
-              {speaking ? "Stop reading" : "Read aloud"}
-            </DsButton>
-          ) : null}
+          <SpeakNew
+            scope={paperId}
+            items={[
+              ...bubbles.map((text, i) => ({ key: `sum:${i}`, text, turn: true })),
+              ...(thanks ? [{ key: `thanks:${thanks}`, text: thanks, turn: true }] : []),
+              ...(askText && ask ? [{ key: `ask:${ask}`, text: askText, turn: true }] : []),
+            ]}
+          />
+          <ReplayButton
+            className="mt-1 -ml-2"
+            texts={[...bubbles, thanks, askText].filter((t): t is string => Boolean(t))}
+          />
 
           {ask === "topic" ? (
             <div className="mt-4 space-y-2">

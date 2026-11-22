@@ -18,6 +18,8 @@ import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import {
   ComposerDock,
   EchoBubble,
+  PickedChip,
+  shortLabel,
   PauPauBubble,
   PauPauGroup,
   ReadingBubble,
@@ -90,6 +92,11 @@ import {
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
 import { Check } from "lucide-react";
+import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
+import { markOffered, useHesitation, wasOffered } from "@/components/stages/stage1/hesitation";
+import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
+import { SPARK_OFFER } from "@/lib/stage1/spark";
+import type { SpeakItem } from "@/lib/voice/speech";
 import { dsEyebrow, dsH1, dsInput, dsSelect, dsTextarea } from "@/lib/ds/classes";
 
 type Screen =
@@ -208,6 +215,8 @@ export function AssignmentIntake({
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A too-short answer still shows as a student bubble above the nudge.
+  const [shortEcho, setShortEcho] = useState<string | null>(null);
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
@@ -585,6 +594,34 @@ export function AssignmentIntake({
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
 
+  // Step 4: read-aloud and hesitation help (both optional, saved per user).
+  useStopSpeechOnUnmount();
+  const chatPrefs = useChatPrefs();
+  const [spark, setSpark] = useState<{
+    qid: string;
+    status: "offer" | "loading" | "shown" | "declined" | "off";
+    questions?: string[];
+  } | null>(null);
+  const hesitationKey =
+    screen === "coaching" && editReturn === null
+      ? qIndex < 0
+        ? "stance_early"
+        : coachingPlan[qIndex] && coachingPlan[qIndex].kind !== "background"
+          ? coachingPlan[qIndex].id
+          : null
+      : null;
+  useHesitation({
+    questionKey: hesitationKey,
+    text: draftAnswer,
+    enabled:
+      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(spark && spark.qid === hesitationKey),
+    onHesitate: (key) => {
+      if (wasOffered(paperId, key)) return;
+      markOffered(paperId, key);
+      setSpark({ qid: key, status: "offer" });
+    },
+  });
+
   if (!paper || resumePending) {
     return (
       <div className="mx-auto max-w-2xl py-16" role="status" aria-live="polite">
@@ -894,12 +931,14 @@ export function AssignmentIntake({
       }
       return;
     }
+    setShortEcho(null);
     const text = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Tell me a little, even a sentence, or tap skip.");
       return;
     }
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
+      setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take"));
       return;
     }
@@ -1108,8 +1147,10 @@ export function AssignmentIntake({
   }
 
   async function submitOwnStory() {
+    setShortEcho(null);
     const text = ownStory.trim();
     if (wordCount(text) < 15) {
+      setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 15, "Your own angle"));
       return;
     }
@@ -1139,8 +1180,10 @@ export function AssignmentIntake({
   }
 
   async function submitStanceAnswer() {
+    setShortEcho(null);
     const text = draftAnswer.trim();
     if (wordCount(text) < 25) {
+      setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take"));
       return;
     }
@@ -1379,9 +1422,14 @@ export function AssignmentIntake({
 
   if (screen === "upload") {
     const hasFiles = stagedFiles.length > 0;
+    const uploadSpeak: SpeakItem[] = [
+      { key: "ask", text: "What's the assignment we're working on?", turn: !error },
+      ...(error && /^(Tell me|Give me|I couldn)/.test(error) ? [{ key: `err:${error}`, text: error, turn: true }] : []),
+    ];
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <SpeakNew scope={paperId} items={uploadSpeak} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
           <PauPauBubble as="h1" id="assignment-ask">
             What&apos;s the assignment we&apos;re working on?
@@ -1404,7 +1452,7 @@ export function AssignmentIntake({
               onRetryFile={(id) => void retryFile(id)}
               onError={setError}
               onSend={() => void runParse()}
-              sendLabel="Send to Pau Pau"
+              sendLabel="Send"
               sendBlocked={hasFiles && !rightsOk}
             />
             {hasFiles ? (
@@ -1441,7 +1489,7 @@ export function AssignmentIntake({
   if (screen === "parsing") {
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
           <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -1501,7 +1549,7 @@ export function AssignmentIntake({
   if (screen === "card" && requirements && !editingDetails) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
           <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -2090,10 +2138,14 @@ export function AssignmentIntake({
     const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
     const minNote =
       stanceMode && draftWords > 0 && draftWords < 25
-        ? `A couple more sentences and your early take is ready (about 25 words; ${draftWords} so far).`
+        ? "A couple more sentences and your early take is ready."
         : screen === "story" && draftWords > 0 && draftWords < 15
-          ? `A little more for your own angle (about 15 words; ${draftWords} so far).`
+          ? "A little more and your own angle is ready."
           : null;
+    // Exact counts stay available to screen readers only.
+    const minNoteSr = minNote
+      ? ` (about ${stanceMode ? 25 : 15} words needed; ${draftWords} so far)`
+      : null;
     const isVoiceQuestion = Boolean(q && q.kind !== "background");
     const send = (text?: string) => {
       if (submitting) return;
@@ -2103,10 +2155,67 @@ export function AssignmentIntake({
       );
     };
     const summary = pauPauSummaryBubbles(requirements, { seed: paperId });
+    const sparkHere = spark && q && spark.qid === q.id ? spark : null;
+    const answerSpark = async () => {
+      if (!q) return;
+      setSpark({ qid: q.id, status: "loading" });
+      let questions: string[] | undefined;
+      try {
+        const res = await fetch(`/api/papers/${paperId}/intake/spark`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            questionId: q.id,
+            questionText: q.text.slice(0, 600),
+            questionKind: q.kind,
+            topic: (requirements.promptQuestion.value || requirements.topic.value || "").slice(0, 500) || undefined,
+            interests: ["interest_1", "interest_2"]
+              .map((id) => answerFor(id).slice(0, 200))
+              .filter(Boolean),
+          }),
+        });
+        if (res.ok) questions = ((await res.json()) as { questions?: string[] }).questions;
+      } catch {
+        /* fall through */
+      }
+      setSpark({
+        qid: q.id,
+        status: "shown",
+        questions: questions?.length
+          ? questions
+          : ["What's the first thing that comes to mind when you think about this topic?", "Where have you run into this in your own life?"],
+      });
+    };
+    // Only Pau Pau's own spoken sentences go to read-aloud.
+    const currentTurnTexts: string[] = q
+      ? [stanceMode && !editing ? `Last one before the stance interview. ${q.text}` : q.text]
+      : screen === "story"
+        ? ["Here are a few directions your paper could take, built from what you told me."]
+        : screen === "gate"
+          ? [
+              "That's everything for Stage 1. Ready for the stance interview?",
+              ...(metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? [readyVoiceLine(voiceEval.totalWords) as string] : []),
+            ]
+          : [];
+    const threadSpeak: SpeakItem[] = [
+      ...INTRO_BUBBLES.map((text, i) => ({ key: `intro:${i}`, text })),
+      ...coachingPlan.slice(0, reach).map((item) => ({ key: `q:${item.id}`, text: item.text })),
+      ...(storyAngle || screen === "story"
+        ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
+        : []),
+      ...(q ? [{ key: `q:${q.id}`, text: currentTurnTexts[0]!, turn: true }] : []),
+      ...(screen === "gate" ? [{ key: "gate", text: currentTurnTexts.join(" "), turn: true }] : []),
+      ...(sparkHere ? [{ key: `spark-offer:${sparkHere.qid}`, text: SPARK_OFFER }] : []),
+      ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: "No problem. Take your time." }] : []),
+      ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: "Got it. I won't offer again." }] : []),
+      ...(sparkHere?.questions ?? []).map((text, i) => ({ key: `spark:${sparkHere!.qid}:${i}`, text })),
+      ...(error && /^(Give me a little more|Tell me a little)/.test(error) ? [{ key: `err:${error}`, text: error }] : []),
+    ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <SpeakNew scope={paperId} items={threadSpeak} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
           {/* The start of the chat, rebuilt from what's saved. */}
           <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
@@ -2137,11 +2246,20 @@ export function AssignmentIntake({
           {storyAngle && screen !== "story" ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
-              <EchoBubble
-                text={storyAngle.text}
-                onEdit={() => editAnswer("story")}
-                editLabel="Change your story angle"
-              />
+              {storyAngle.source === "student" ? (
+                <EchoBubble
+                  text={storyAngle.text}
+                  onEdit={() => editAnswer("story")}
+                  editLabel="Change your story angle"
+                />
+              ) : (
+                <PickedChip
+                  label={shortLabel(storyAngle.text)}
+                  fullText={storyAngle.text}
+                  onEdit={() => editAnswer("story")}
+                  editLabel="Change your story angle"
+                />
+              )}
             </div>
           ) : null}
           {stanceAnswer && !(stanceMode && !editing) ? (
@@ -2189,7 +2307,65 @@ export function AssignmentIntake({
                 </p>
               ) : null}
               {stanceMode ? <p className="text-[13px] leading-[1.6] text-ds-muted">{EARLY_STANCE_MIN_NOTE}</p> : null}
+              <ReplayButton texts={currentTurnTexts} className="-ml-2" />
             </PauPauGroup>
+          ) : null}
+
+          {sparkHere ? (
+            <div className="space-y-4" data-spark>
+              <PauPauGroup bubbles={[SPARK_OFFER]}>
+                {sparkHere.status === "offer" ? (
+                  <div className="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Want some questions?">
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => void answerSpark()}>
+                      Yes
+                    </DsButton>
+                    <DsButton
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSpark({ qid: sparkHere.qid, status: "declined" })}
+                    >
+                      No thanks
+                    </DsButton>
+                    <button
+                      type="button"
+                      className="ds-focus min-h-[48px] px-2 text-[13px] text-ds-muted underline-offset-4 hover:underline"
+                      onClick={() => {
+                        setChatPref("sparkOff", true);
+                        setSpark({ qid: sparkHere.qid, status: "off" });
+                      }}
+                    >
+                      Don&apos;t offer again
+                    </button>
+                  </div>
+                ) : null}
+              </PauPauGroup>
+              {sparkHere.status !== "offer" ? (
+                <EchoBubble
+                  text={
+                    sparkHere.status === "declined" ? "No thanks" : sparkHere.status === "off" ? "Don't offer again" : "Yes"
+                  }
+                />
+              ) : null}
+              {sparkHere.status === "loading" ? (
+                <PauPauBubble showName={false} live>
+                  <span role="status">Thinking of a couple of questions…</span>
+                </PauPauBubble>
+              ) : null}
+              {sparkHere.status === "declined" ? (
+                <PauPauBubble showName={false}>No problem. Take your time.</PauPauBubble>
+              ) : null}
+              {sparkHere.status === "off" ? (
+                <PauPauBubble showName={false}>Got it. I won&apos;t offer again.</PauPauBubble>
+              ) : null}
+              {sparkHere.status === "shown" && sparkHere.questions ? (
+                <PauPauGroup bubbles={sparkHere.questions} live label="questions to think about">
+                  <p className="text-[13px] leading-[1.6] text-ds-muted">
+                    No need to answer these. Write whatever comes to you, in your own words.
+                  </p>
+                </PauPauGroup>
+              ) : null}
+            </div>
           ) : null}
 
           {screen === "story" ? (
@@ -2237,8 +2413,12 @@ export function AssignmentIntake({
                   <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
                   <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
                   <li>
-                    {voiceWordsMet ? "✓" : "·"} Voice sample ({voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
-                    {voiceWordsMet ? "" : ", optional: more helps Pau Pau match your voice"})
+                    {voiceWordsMet
+                      ? "✓ Voice sample: plenty to match your voice"
+                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
+                    <span className="sr-only">
+                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
+                    </span>
                   </li>
                   <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
                 </ul>,
@@ -2288,6 +2468,7 @@ export function AssignmentIntake({
             />
           ) : null}
 
+          {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
             <PauPauBubble showName={false} live>
               <span role="alert">{error}</span>
@@ -2308,7 +2489,6 @@ export function AssignmentIntake({
                 }}
                 onPaste={pasteMeta.onPaste}
                 inputProps={{ onDrop: pasteMeta.onDrop, onBeforeInput: pasteMeta.onBeforeInput }}
-                enterSends={false}
                 minRows={1}
                 sending={pickingStory === "own"}
                 sendLabel="Send"
@@ -2331,7 +2511,6 @@ export function AssignmentIntake({
                   readOnly: restoringDraft && !draftAnswer,
                   "aria-busy": restoringDraft || undefined,
                 }}
-                enterSends={false}
                 minRows={1}
                 sending={submitting}
                 sendLabel="Send"
@@ -2346,6 +2525,7 @@ export function AssignmentIntake({
             {minNote ? (
               <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="note">
                 {minNote}
+                <span className="sr-only">{minNoteSr}</span>
               </p>
             ) : null}
             <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 text-[13px] leading-[1.6] text-ds-muted">
@@ -2404,7 +2584,7 @@ export function AssignmentIntake({
           </ComposerDock>
         )}
         <ScrollToNewest
-          signal={`${screen}:${qIndex}:${answers.length}:${storyAngles.length}:${editing ? 1 : 0}:${error ?? ""}`}
+          signal={`${screen}:${qIndex}:${answers.length}:${storyAngles.length}:${editing ? 1 : 0}:${error ?? ""}:${sparkHere?.status ?? ""}`}
         />
       </div>
     );
