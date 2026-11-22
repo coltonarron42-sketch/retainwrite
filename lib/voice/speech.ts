@@ -29,10 +29,12 @@ export function isSpeaking() {
 }
 
 export function speechSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
   return (
-    typeof window !== "undefined" &&
-    "speechSynthesis" in window &&
-    typeof window.SpeechSynthesisUtterance !== "undefined"
+    Boolean(synth) &&
+    typeof synth?.speak === "function" &&
+    typeof window.SpeechSynthesisUtterance === "function"
   );
 }
 
