@@ -223,7 +223,9 @@ export function capFallbackConfidence(req: AssignmentRequirements): AssignmentRe
  * a third if both fail early. First accepted answer wins; overall deadline
  * PARSE_DEADLINE_MS.
  */
-export const HEDGE_AFTER_MS = 6_000;
+// Normal fast-model reads take 3-6.5s (measured Nov 22); hedge only past that, so a
+// healthy read is not paid for twice.
+export const HEDGE_AFTER_MS = 8_000;
 export const PARSE_DEADLINE_MS = 22_000;
 export const RETRY_BACKOFF_MS = 700;
 

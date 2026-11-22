@@ -95,7 +95,7 @@ async function callMistralOcr(input: OcrInput): Promise<OcrPageResult> {
  * read hasn't answered in OCR_HEDGE_MS, or fails, start the strong model in
  * parallel (and one fast retry after a short backoff); first usable read wins.
  */
-export const OCR_HEDGE_MS = 6_000;
+export const OCR_HEDGE_MS = 8_000;
 const OCR_DEADLINE_MS = 30_000;
 
 async function callGrokVision(input: OcrInput): Promise<OcrPageResult> {

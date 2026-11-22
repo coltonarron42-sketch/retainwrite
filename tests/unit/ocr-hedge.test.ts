@@ -33,7 +33,7 @@ describe("OCR hedging when the fast model is out of capacity", () => {
       body.model === MODEL_FAST ? new Promise(() => {}) : Promise.resolve(reply(PAGE)),
     );
     const pending = transcribePage({ imageUrl: "data:image/png;base64,AA", page: 1 });
-    await vi.advanceTimersByTimeAsync(6_100);
+    await vi.advanceTimersByTimeAsync(8_100);
     const res = await pending;
     expect(res.text).toContain("MLA");
     expect(create).toHaveBeenCalledTimes(2);
