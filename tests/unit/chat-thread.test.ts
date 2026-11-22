@@ -82,3 +82,41 @@ describe("read-back copy", () => {
     for (const part of parts) expect(part.split(/\s+/).length).toBeLessThanOrEqual(30);
   });
 });
+
+describe("opener spread", () => {
+  it("random paper ids spread evenly over all openers", async () => {
+    const { randomUUID } = await import("node:crypto");
+    const counts = new Array(SUMMARY_OPENERS.length).fill(0);
+    for (let i = 0; i < 4000; i++) counts[openerIndex(randomUUID())]++;
+    const expected = 4000 / SUMMARY_OPENERS.length;
+    for (const c of counts) expect(Math.abs(c - expected)).toBeLessThan(expected * 0.25);
+    expect(SUMMARY_OPENERS.length).toBeGreaterThanOrEqual(8);
+  });
+  it("QA's four retest papers now get four different openers", () => {
+    const qa = ["907d9e36-003c-4f45-b2b3-ad3ceee75b73", "ffb41414-6470-4e5e-b44c-1000a0325f09", "f3e92236-444d-4188-8e6c-36915e30c81a", "1352eb68-9314-4d71-9a19-8cbbfbdcef91"];
+    expect(new Set(qa.map(openerIndex)).size).toBe(4);
+  });
+});
+
+describe("step 3 leftovers", () => {
+  const intakeSrc = () => readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+  it("story pick shows a neutral Picked chip, not a student-voice echo", () => {
+    expect(intakeSrc()).toContain("<PickedChip");
+    expect(intakeSrc()).toContain('storyAngle.source === "student" ?');
+  });
+  it("too-short answers are echoed as a student bubble", () => {
+    expect(intakeSrc()).toContain("error && shortEcho ? <StudentBubble");
+  });
+  it("hides counts in visible copy but keeps them for screen readers", () => {
+    const s = intakeSrc();
+    expect(s).not.toMatch(/\$\{draftWords\} so far\)\.`/);
+    expect(s).not.toContain("Voice sample ({voiceEval.totalWords}");
+    expect(s).toContain("{minNoteSr}");
+    expect(moreWordsNote(8, 25, "Your early take")).not.toMatch(/\d/);
+  });
+  it("no 'Send to Pau Pau' label; Enter-to-send stays on (composer limits it to fine pointers)", () => {
+    expect(intakeSrc()).not.toContain("Send to Pau Pau");
+    expect(intakeSrc()).not.toContain("enterSends={false}");
+    expect(readFileSync("components/stages/stage1/chat-composer.tsx", "utf8")).toContain('matchMedia("(pointer: fine)")');
+  });
+});

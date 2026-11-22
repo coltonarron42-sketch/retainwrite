@@ -341,3 +341,45 @@ export function readSentMessage(paperId: string): SentMessage | null {
     return null;
   }
 }
+
+/** First few words of a longer label, for compact chips. */
+export function shortLabel(text: string, maxWords = 6): string {
+  const words = text.trim().replace(/[?.!]+$/, "").split(/\s+/).filter(Boolean);
+  return words.length <= maxWords ? words.join(" ") : `${words.slice(0, maxWords).join(" ")}…`;
+}
+
+/**
+ * Neutral record of a choice the student tapped, e.g. a suggested story
+ * angle. Not a speech bubble: the app never writes the student's words.
+ */
+export function PickedChip({
+  label,
+  fullText,
+  onEdit,
+  editLabel,
+}: {
+  label: string;
+  fullText: string;
+  onEdit?: () => void;
+  editLabel?: string;
+}) {
+  const body = (
+    <>
+      <span className="text-ds-muted">Picked:</span> <span className="text-ds-ink">{label}</span>
+      <span className="sr-only"> ({fullText})</span>
+    </>
+  );
+  const cls =
+    "inline-flex min-h-[48px] max-w-[85%] items-center gap-1 rounded-full border border-ds-border bg-ds-surface px-4 py-2 text-left text-[14px] leading-[1.4]";
+  return (
+    <div className="flex justify-end" data-picked-chip>
+      {onEdit ? (
+        <button type="button" onClick={onEdit} aria-label={`${editLabel ?? "Change"}: picked ${fullText}`} className={cn("ds-focus transition-colors duration-150 hover:brightness-[0.97]", cls)}>
+          {body}
+        </button>
+      ) : (
+        <p className={cls}>{body}</p>
+      )}
+    </div>
+  );
+}

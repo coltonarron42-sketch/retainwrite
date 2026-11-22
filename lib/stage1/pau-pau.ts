@@ -246,15 +246,29 @@ export const SUMMARY_OPENERS: ReadonlyArray<readonly [string, string]> = [
   ["Alright, I read it.", "This is"],
   ["Thanks, that helps.", "So this is"],
   ["Okay, here's what I'm seeing.", "It's"],
+  ["Okay, I've read it through.", "Sounds like"],
+  ["Alright, here's the gist.", "It's"],
+  ["Great, I've got it.", "This one is"],
 ];
 
-/** Stable small hash so the same paper always gets the same opener. */
+/**
+ * Stable, well-mixed hash (FNV-1a + a final avalanche) so paper ids spread
+ * evenly over the openers; the same paper always gets the same one.
+ */
 export function openerIndex(seed: string | number | undefined): number {
   if (seed == null) return 0;
   if (typeof seed === "number") return Math.abs(Math.trunc(seed)) % SUMMARY_OPENERS.length;
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return h % SUMMARY_OPENERS.length;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return (h >>> 0) % SUMMARY_OPENERS.length;
 }
 
 export type SummaryOptions = { pendingAsk?: PauPauAsk | null; seed?: string | number };

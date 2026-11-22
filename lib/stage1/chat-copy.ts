@@ -21,7 +21,8 @@ export const INTRO_BUBBLES = [
 ];
 
 /** Pau Pau's nudge when an answer is under its minimum. */
-export function moreWordsNote(have: number, need: number, what: string): string {
-  return `Give me a little more — a couple more sentences? ${what} needs about ${need} words; you're at ${have}.`;
+export function moreWordsNote(_have: number, _need: number, what: string): string {
+  // No counts in the visible copy; keep it a nudge, not a meter.
+  return `Give me a little more — a couple more sentences? ${what} is almost there. Add to it below.`;
 }
 
