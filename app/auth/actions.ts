@@ -1,10 +1,11 @@
 "use server";
 
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { formatAuthError } from "@/lib/auth/messages";
 import { getAuthSiteUrl, getEmailConfirmRedirectTo } from "@/lib/auth/site-url";
 import { clearDemoSession, setDemoSession } from "@/lib/demo/session-server";
-import { hasSupabaseConfig } from "@/lib/env";
+import { getPublicEnv, hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
 export type AuthActionState = {
@@ -130,15 +131,42 @@ export async function requestPasswordResetAction(
   if (!email) return { error: "Enter your email." };
   if (!hasSupabaseConfig()) return { error: "Password reset is unavailable right now." };
 
-  const supabase = await createClient();
+  // Not the cookie-bound server client: that one uses PKCE, so the link only
+  // worked in the browser that asked for it. Phones open mail links in a
+  // different browser. Implicit flow puts the session in the link itself.
+  const env = getPublicEnv();
+  const supabase = createSupabaseJsClient(
+    env.NEXT_PUBLIC_SUPABASE_URL!,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { flowType: "implicit", persistSession: false, autoRefreshToken: false } },
+  );
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getAuthSiteUrl()}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+    redirectTo: `${getAuthSiteUrl()}/auth/reset`,
   });
   if (error) return { error: formatAuthError(error.message) };
   return {
     notice:
-      "If that email has an account, a reset link is on its way. Open it in this same browser.",
+      "If that email has an account, a reset link is on its way. You can open it on any device.",
   };
+}
+
+/** Turn the tokens from a reset link into this browser's cookie session. */
+export async function establishRecoverySessionAction(
+  accessToken: string,
+  refreshToken: string,
+): Promise<{ ok: boolean }> {
+  if (!accessToken || !refreshToken || !hasSupabaseConfig()) return { ok: false };
+  const supabase = await createClient();
+  const { error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+  if (error) {
+    console.error("[auth/reset] setSession", error.message);
+    return { ok: false };
+  }
+  await clearDemoSession();
+  return { ok: true };
 }
 
 export async function updatePasswordAction(
