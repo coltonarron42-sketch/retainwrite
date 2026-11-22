@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Mic, MicOff, Volume2, VolumeX } from "lucide-react";
+import { PauFace } from "@/components/stages/stage1/pau-presence";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import {
   currentTurn,
@@ -112,7 +113,11 @@ export function MicMuteButton({ className }: { className?: string }) {
 export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eyebrowClassName: string }) {
   return (
     <div className="flex min-h-[48px] items-center justify-between gap-2">
-      <p className={eyebrowClassName}>{eyebrow}</p>
+      <div className="flex min-w-0 items-center gap-2" data-pau-presence>
+        {/* Her small face at the top of the chat: an occasional glance and blink. */}
+        <PauFace alive className="h-7 w-7" />
+        <p className={eyebrowClassName}>{eyebrow}</p>
+      </div>
       <div className="flex items-center gap-1">
         <MicMuteButton />
         <VoiceToggle />
