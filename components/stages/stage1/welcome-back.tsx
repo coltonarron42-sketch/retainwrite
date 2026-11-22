@@ -34,7 +34,13 @@ export function WelcomeBack({ line, scope }: { line: string | null; scope: strin
   const shownAt = useRef(0);
   const spoken = useRef<string | null>(null);
   useEffect(() => {
-    if (line && !shownAt.current) shownAt.current = Date.now();
+    if (!line) return;
+    if (!shownAt.current) shownAt.current = Date.now();
+    // Restored history opens at the bottom, with this line in view above the
+    // pinned composer (the thread's spacer leaves room for it).
+    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    const timers = [0, 300, 1000].map((ms) => window.setTimeout(toBottom, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
   }, [line]);
   useEffect(() => {
     // Voice prefs can load a moment late; after that, the Voice switch reads it.

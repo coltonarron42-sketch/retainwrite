@@ -9,7 +9,7 @@ export const WELCOME_BACK_LINES = [
   "Look who's back. Want to keep going from here?",
   "Welcome back. Your notes waited patiently. Ready to keep going?",
   "Hey, you're back. Pick up right where we stopped?",
-  "Welcome back. Homework missed you, oddly. Shall we keep going?",
+  "Welcome back. Homework missed you, oddly. Want to keep going?",
 ] as const;
 
 export const WELCOME_BACK_GAP_MS = 2 * 60 * 1000;

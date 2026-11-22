@@ -149,10 +149,10 @@ export function probeLead(index: number | undefined, title: string): string {
   return index === undefined || index <= 0 ? `Let's start with your ${part}.` : `On to your ${part}.`;
 }
 
-/** "Time for a logic check. <quip> Do you feel good about this?" (quip optional). */
+/** "Quick logic check. <quip> You feel good about this?" (quip optional). */
 export function logicOpenerText(seed?: string, index?: number): string {
   const q = quipFor(seed, index, "logic_opener");
-  return q ? LOGIC_OPENER.replace("Time for a logic check. ", `Time for a logic check. ${q} `) : LOGIC_OPENER;
+  return q ? LOGIC_OPENER.replace("Quick logic check. ", `Quick logic check. ${q} `) : LOGIC_OPENER;
 }
 
 function stanceTurnParasRaw(
@@ -174,10 +174,10 @@ function stanceTurnParasRaw(
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
-      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note.${(() => { const q = quipFor(ctx.seed, ctx.index, "pick_lead"); return q ? ` ${q}` : ""; })()} Pick the one you want to try, or tell me your own.`];
+      return [`Okay, a few directions worth checking for your ${section.title.toLowerCase()}, built off your note.${(() => { const q = quipFor(ctx.seed, ctx.index, "pick_lead"); return q ? ` ${q}` : ""; })()} Pick one to try, or tell me your own.`];
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
-      return [section.mode === "memory" ? MEMORY_CONFIRM : "Looking solid. Ready to move forward with this?", ...(link ? [link] : [])];
+      return [section.mode === "memory" ? MEMORY_CONFIRM : "Looks solid. Ready to roll with it?", ...(link ? [link] : [])];
     }
     case "logic_opener":
       return [logicOpenerText(ctx.seed, ctx.index)];
