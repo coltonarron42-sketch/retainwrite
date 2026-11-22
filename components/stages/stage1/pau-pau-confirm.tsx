@@ -63,6 +63,7 @@ export function PauPauConfirm({
   const [answer, setAnswer] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [thanks, setThanks] = useState<string | null>(null);
   const [canSpeak, setCanSpeak] = useState(false);
@@ -109,6 +110,12 @@ export function PauPauConfirm({
     const list = [...(requirements.providedReadings.value ?? []), reading];
     const field = markFieldConfirmed(requirements.providedReadings, { value: list });
     onChange({ ...requirements, providedReadings: field, providedSources: field });
+    // Keep it on the saved assignment so a reload doesn't ask again.
+    void fetch(`/api/papers/${paperId}/assignment/readings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", readings: list }),
+    }).catch(() => undefined);
   }
 
   function saveTopic() {
@@ -121,10 +128,28 @@ export function PauPauConfirm({
     nextAsk("topic", "Got it, thanks.");
   }
 
-  function saveLink() {
+  async function saveLink() {
     const url = answer.trim();
     if (!/^https?:\/\/\S+\.\S+/i.test(url)) {
       setAskError("That doesn't look like a web link. It should start with http:// or https://.");
+      return;
+    }
+    setChecking(true);
+    setAskError(null);
+    const check = (await fetch(`/api/papers/${paperId}/assignment/readings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "check", url }),
+    })
+      .then((res) => res.json())
+      .catch(() => null)) as { ok?: boolean; reason?: string } | null;
+    setChecking(false);
+    if (!check?.ok) {
+      setAskError(
+        check?.reason === "not_found"
+          ? "I couldn't open that link: the page says it doesn't exist. Double-check it and try again, or upload the PDF instead."
+          : "I couldn't open that link. Double-check it and try again, or upload the PDF instead.",
+      );
       return;
     }
     addReading({ url, origin: "manual" });
@@ -210,11 +235,11 @@ export function PauPauConfirm({
                     value={answer}
                     onChange={(e) => setAnswer(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") saveLink();
+                      if (e.key === "Enter" && !checking) void saveLink();
                     }}
                   />
-                  <DsButton type="button" variant="secondary" onClick={saveLink}>
-                    Add link
+                  <DsButton type="button" variant="secondary" disabled={checking} onClick={() => void saveLink()}>
+                    {checking ? "Checking…" : askError ? "Try again" : "Add link"}
                   </DsButton>
                 </div>
               ) : null}

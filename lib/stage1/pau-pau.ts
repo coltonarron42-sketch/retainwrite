@@ -5,6 +5,7 @@
  * SOP: coaching only. These lines summarize the assignment sheet only; they
  * never contain paper content, theses or outlines.
  */
+import { indefiniteArticle, withArticle } from "@/lib/copy/articles";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
@@ -52,8 +53,8 @@ function lengthPhrase(req: AssignmentRequirements): string | null {
   const words = range(length.wordsMin, length.wordsMax);
   const pages = range(length.pagesMin, length.pagesMax);
   const type = paperNoun(req);
-  if (pages) return `a ${pages} page ${type}`;
-  if (words) return `a ${words} word ${type}`;
+  if (pages) return `${indefiniteArticle(pages)} ${pages} page ${type}`;
+  if (words) return `${indefiniteArticle(words)} ${words} word ${type}`;
   return null;
 }
 
@@ -65,40 +66,113 @@ function paperNoun(req: AssignmentRequirements): string {
   return "paper";
 }
 
-function structurePhrases(req: AssignmentRequirements): string[] {
+const CITATION_PAGE = /works cited|references? (page|list)|bibliography/i;
+
+/** Required parts of the paper as short noun phrases (both lists: sheets file them either way). */
+export function structurePhrases(req: AssignmentRequirements): string[] {
+  const items = [...(req.structuralRequirements.value ?? []), ...(req.formattingRules.value ?? [])].map((item) =>
+    item.replace(/\s+/g, " ").trim().replace(/[.;:]+$/, ""),
+  );
   const out: string[] = [];
-  const rules = (req.formattingRules.value ?? []).join(" ").toLowerCase();
-  if (/title page|cover page/.test(rules)) out.push("a title page");
-  for (const item of req.structuralRequirements.value ?? []) {
-    const text = item
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/[.;:]+$/, "")
-      .replace(/^(include|includes|including|add|write|have)\s+/i, "");
-    // Short noun phrases only; full instructions ("a thesis should appear…") read badly here.
-    if (!text || text.length > 70 || text.split(" ").length > 8) continue;
-    if (/\b(should|must|will|needs? to|has to|have to|is|are)\b/i.test(text)) continue;
-    const lower = text.charAt(0).toLowerCase() + text.slice(1);
-    out.push(/^(a|an|the|one|two|three|include|use|each|every)\b/i.test(lower) ? lower : `a ${lower}`);
-    if (out.length >= 3) break;
+  const push = (phrase: string) => {
+    if (!out.some((have) => have.toLowerCase() === phrase.toLowerCase())) out.push(phrase);
+  };
+  for (const item of items) {
+    if (!item) continue;
+    if (/title page|cover page/i.test(item)) push("a title page");
+    else if (/\babstract\b/i.test(item)) push("an abstract");
+    else if (/\bthesis\b/i.test(item))
+      push(/intro|first paragraph|opening/i.test(item) ? "a clear thesis in your introduction" : "a clear thesis");
+    else if (/counter-?argument|opposing view|other side/i.test(item)) push("a counterargument you answer");
+    else if (/works cited/i.test(item)) push("a Works Cited page");
+    else if (/bibliography/i.test(item)) push("a bibliography");
+    else if (/references? (page|list)/i.test(item)) push("a References page");
+    else if (/\bconclusion\b/i.test(item) && item.split(" ").length <= 4) push("a conclusion");
   }
-  return out;
+  // Other short structural items that are already noun phrases ("an annotated outline").
+  for (const item of req.structuralRequirements.value ?? []) {
+    if (out.length >= 5) break;
+    const text = item.replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "").replace(/^(include|includes|including|add|write|have)\s+/i, "");
+    if (!text || text.length > 60 || text.split(" ").length > 7) continue;
+    if (/thesis|counter-?argument|works cited|references?|title page|abstract|conclusion|bibliography/i.test(text)) continue;
+    if (/\b(should|must|will|needs? to|has to|have to|is|are)\b/i.test(text)) continue;
+    const phrase = withArticle(text);
+    if (phrase) push(phrase);
+  }
+  return out.slice(0, 5);
+}
+
+/** Key formatting worth saying out loud: spacing, font, margins (not the citation page). */
+function formattingPhrase(req: AssignmentRequirements): string | null {
+  const keep: string[] = [];
+  for (const raw of req.formattingRules.value ?? []) {
+    const item = raw.replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "");
+    if (!item || CITATION_PAGE.test(item) || /title page|cover page|abstract|citation style|\b(mla|apa|chicago)\b/i.test(item)) continue;
+    if (!/spac|font|pt\b|point|margin|times|arial|calibri|header|heading|page number|indent/i.test(item)) continue;
+    if (item.length > 60) continue;
+    keep.push(/^[A-Z][a-z]+\s+[A-Z]|^[A-Z]{2,}/.test(item) ? item : item.charAt(0).toLowerCase() + item.slice(1));
+    if (keep.length >= 3) break;
+  }
+  return keep.length ? `Formatting: ${joinList(keep)}.` : null;
+}
+
+/** "Thesis & Argument (30%)", "Use of evidence" → "graded on thesis and argument, use of evidence…". */
+function rubricPhrase(req: AssignmentRequirements): string | null {
+  const names = (req.rubricCriteria.value ?? [])
+    .map((c) =>
+      c.name
+        .replace(/\s*\(?\d+\s*(%|pts?|points)\)?/gi, "")
+        .replace(/\s*[&/]\s*/g, " and ")
+        .replace(/[:.\-–]+$/, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((name) => name && name.length <= 40)
+    .map((name) => name.split(" ").map((w) => (/^[A-Z]{2,}$/.test(w) ? w : w.toLowerCase())).join(" "))
+    .map((name) => name.replace(/\b(mla|apa|chicago)\b/gi, (m) => (m.toLowerCase() === "chicago" ? "Chicago" : m.toUpperCase())));
+  if (!names.length) return null;
+  return `You'll be graded on ${joinList(names.slice(0, 4))}.`;
+}
+
+/**
+ * The named required source, shortened: `American Academy of Pediatrics. "School
+ * Start Times for Adolescents." Pediatrics, 2014…` → `the American Academy of
+ * Pediatrics' “School Start Times for Adolescents” (2014)`.
+ */
+export function namedSource(req: AssignmentRequirements): string | null {
+  const sources = req.requiredSources.value;
+  if (!sources) return null;
+  const fromNotes = sources.notes?.replace(/^\s*must (include|use|cite):?\s*/i, "").trim();
+  const fromTypes = sources.types?.match(/(?:including|one must be|must include)\s+(?:the\s+)?(.+)$/i)?.[1]?.trim();
+  const raw = fromNotes || fromTypes;
+  if (!raw) return null;
+  const title = raw.match(/[“"]([^”"]{4,90})[”"]/)?.[1]?.replace(/[.,]+$/, "");
+  const year = raw.match(/\b(19|20)\d{2}\b/)?.[0];
+  const author = raw.split(/[.(“"]/)[0]?.trim().replace(/,$/, "");
+  if (title && author && author.length <= 60) {
+    const owner = `${/^the\b/i.test(author) ? "" : "the "}${author}${/s$/.test(author) ? "'" : "'s"}`;
+    const lead = /^[A-Z][a-z]+,\s+[A-Z]/.test(author) ? `${author}'s` : owner; // "Smith, J." stays as is
+    return `${lead} “${title}”${year ? ` (${year})` : ""}`;
+  }
+  const short = raw.split(/;\s*/)[0].replace(/\s+/g, " ").trim();
+  if (short.length <= 90) return /^(the|a|an)\b/i.test(short) || /^[A-Z]/.test(short) ? short : `the ${short}`;
+  return short.slice(0, 80).replace(/\s+\S*$/, "") + "…";
 }
 
 function sourcesPhrase(req: AssignmentRequirements): string | null {
   const sources = req.requiredSources.value;
   if (!sources) return null;
-  const named = sources.notes?.replace(/^must include:\s*/i, "").split(/;\s*/)[0]?.trim();
+  const named = namedSource(req);
   const n = sources.countMin;
   let base: string | null = null;
   if (n) {
-    const kind = /scholarly|peer/i.test(sources.types ?? "") ? "scholarly sources" : "sources";
+    const kind = /scholarly|peer/i.test(sources.types ?? "") || sources.scholarlyRequired ? "scholarly sources" : "sources";
     base = `at least ${count(n)} ${n === 1 ? kind.replace(/s$/, "") : kind}`;
-  } else if (sources.types?.trim() && sources.types.length <= 80) {
+  } else if (sources.types?.trim() && sources.types.length <= 80 && !named) {
     base = sources.types.trim().replace(/^use\s+/i, "").replace(/\.$/, "");
     base = base.charAt(0).toLowerCase() + base.slice(1);
   }
-  if (named && named.length <= 90) return base ? `${base}, including ${named}` : `sources including ${named}`;
+  if (named) return base ? `${base}, including ${named}` : `${named} as a source`;
   return base;
 }
 
@@ -118,24 +192,29 @@ function joinList(items: string[]): string {
 
 /** What Pau Pau understood, as one conversational paragraph. */
 export function pauPauSummary(req: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null } = {}): string {
-  const first = [citationPhrase(req), coursePhrase(req), instructorPhrase(req)].filter(
-    (item): item is string => Boolean(item),
-  );
-  const shape = [lengthPhrase(req), ...structurePhrases(req)].filter((item): item is string => Boolean(item));
-  const sources = sourcesPhrase(req);
-  const due = req.dueDate.value?.trim();
-
-  const all = [...first, ...shape];
+  const where = [coursePhrase(req), instructorPhrase(req)].filter((item): item is string => Boolean(item));
+  const length = lengthPhrase(req);
+  const citation = citationPhrase(req);
   let opener = "Okay, let's see here…";
-  if (all.length && sources) opener += ` looks like ${all.join(", ")}, and ${sources}.`;
-  else if (all.length) opener += ` looks like ${joinList(all)}.`;
-  else if (sources) opener += ` looks like you'll need ${sources}.`;
+  const what = length ? `${length}${citation ? ` in ${citation}` : ""}` : citation;
+  if (where.length && what) opener += ` looks like ${joinList(where)}: ${what}.`;
+  else if (where.length) opener += ` looks like ${joinList(where)}.`;
+  else if (what) opener += ` looks like ${what}.`;
   const parts = [opener];
+  const shape = structurePhrases(req);
+  if (shape.length) parts.push(`You'll need ${joinList(shape)}.`);
+  const sources = sourcesPhrase(req);
+  if (sources) parts.push(`It calls for ${sources}.`);
+  const formatting = formattingPhrase(req);
+  if (formatting) parts.push(formatting);
+  const rubric = rubricPhrase(req);
+  if (rubric) parts.push(rubric);
+  const due = req.dueDate.value?.trim();
   if (due && due.length <= 60) parts.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
   const topic = topicLine(req);
   if (topic) parts.push(topic);
   parts.push(opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?");
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  return parts.join(" ").replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
 }
 
 /** True when the sheet asks for sources the student has not given us yet. */

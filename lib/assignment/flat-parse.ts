@@ -109,7 +109,7 @@ Fields:
 - sourcesCountMin and sourceTypes: the source requirement (e.g. 3, "scholarly sources, one peer-reviewed").
 - specificRequiredSources: each named source the student must use, as written (e.g. "American Academy of Pediatrics (2014) policy statement on school start times").
 - providedReadings: readings or links supplied in the materials.
-- structuralRequirements: required parts/sections (e.g. counterargument paragraph, thesis in the introduction).
+- structuralRequirements: every required part of the paper as a short phrase, one per item, wherever the sheet mentions it (even inside a paragraph): e.g. "thesis in the introduction", "counterargument paragraph", "Works Cited page", "title page", "conclusion". Always include the Works Cited/References page here when the sheet asks for one.
 - dueDate: as written.
 - rubricCriteria: every criterion of the rubric or grading table, even under a heading like "Grading" or "How you'll be graded"; weight as a number (points or percent) when shown; description = the short criterion text.
 - otherInstructions: any remaining instructions (submission, drafts, peer review), short.

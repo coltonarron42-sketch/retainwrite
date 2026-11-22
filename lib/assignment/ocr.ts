@@ -15,9 +15,9 @@ import { MODEL_FAST, MODEL_STRONG } from "@/lib/config";
 const VISION_TIMEOUT_MS = 30_000;
 const VISION_PROMPT =
   "This is a photo or scan of a student's assignment sheet. Transcribe all readable text exactly as written, " +
-  "keeping line breaks, labels, lists and point values. Include handwriting if readable. Do not summarize, explain, " +
+  "keeping line breaks, labels, lists and point values. Write tables as plain lines, one row per line (no Markdown). Include handwriting if readable. Do not summarize, explain, " +
   "or add anything. The photo may be sideways or upside down: read it in its correct orientation and transcribe the whole page, " +
-  "top to bottom. Output only the transcription. If there is no readable text, output exactly NO_TEXT.";
+  "top to bottom, including lines cut off at the edges. Output only the transcription. If there is no readable text, output exactly NO_TEXT.";
 
 export type OcrPageResult = {
   text: string;
