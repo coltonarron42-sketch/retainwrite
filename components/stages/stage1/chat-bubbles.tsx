@@ -1,5 +1,6 @@
 "use client";
 
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { cn } from "@/lib/utils";
@@ -308,13 +309,14 @@ export function ComposerDock({ children }: { children: ReactNode }) {
   );
 }
 
-const SENT_KEY = (paperId: string) => `rw:sent:${paperId}`;
+const SENT_NAME = (paperId: string) => `sent:${paperId}`;
+const SENT_LEGACY = (paperId: string) => `rw:sent:${paperId}`;
 /** The same message on the server (autosave row), so another device rebuilds the thread. */
 export const SENT_FIELD_KEY = "intake:sent";
 
 export function saveSentMessage(paperId: string, message: SentMessage) {
   try {
-    window.localStorage.setItem(SENT_KEY(paperId), JSON.stringify(trimSent(message)));
+    writeScoped(SENT_NAME(paperId), JSON.stringify(trimSent(message)));
   } catch {
     /* private mode */
   }
@@ -336,7 +338,7 @@ export function parseSentMessage(raw: string | null | undefined): SentMessage | 
 
 export function readSentMessage(paperId: string): SentMessage | null {
   try {
-    return parseSentMessage(window.localStorage.getItem(SENT_KEY(paperId)));
+    return parseSentMessage(readScoped(SENT_NAME(paperId), SENT_LEGACY(paperId)));
   } catch {
     return null;
   }

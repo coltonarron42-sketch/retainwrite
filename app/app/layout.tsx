@@ -3,6 +3,7 @@ import { AppNavLink } from "@/components/app/app-nav-link";
 import { DemoLossBanner } from "@/components/app/demo-loss-banner";
 import { LogOutButton } from "@/components/auth/log-out-button";
 import { requireUser } from "@/lib/auth/require-user";
+import { LocalUserScope } from "@/components/app/local-user-scope";
 
 /**
  * Signed-in shell, PLAN.md section 8 (Editorial-Warm). Only the frame (page
@@ -43,7 +44,11 @@ export default async function AppLayout({
           </nav>
         </div>
       </header>
-      {children}
+      <LocalUserScope
+        userId={access.kind === "user" ? access.session.id : access.kind === "demo" ? "demo" : null}
+      >
+        {children}
+      </LocalUserScope>
     </div>
   );
 }

@@ -1,8 +1,14 @@
+"use client";
+
 import { signOutAction } from "@/app/auth/actions";
+import { clearAppLocalData } from "@/lib/local/user-scope";
+import { resetChatPrefs } from "@/lib/voice/prefs";
+import { stopSpeech } from "@/lib/voice/speech";
 
 /**
  * Server-side sign out: clears the auth cookies and the demo-session cookie,
- * then goes to the home page. Demo sessions show it as "Exit demo".
+ * then goes to the home page. Demo sessions show it as "Exit demo". This
+ * browser's RetainWrite data (drafts, settings) is removed first.
  */
 export function LogOutButton({
   className,
@@ -12,7 +18,14 @@ export function LogOutButton({
   label?: string;
 }) {
   return (
-    <form action={signOutAction}>
+    <form
+      action={signOutAction}
+      onSubmit={() => {
+        stopSpeech();
+        clearAppLocalData();
+        resetChatPrefs();
+      }}
+    >
       <button type="submit" className={className}>
         {label}
       </button>
