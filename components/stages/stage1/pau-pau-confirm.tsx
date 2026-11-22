@@ -1,0 +1,306 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { DsButton } from "@/components/ui/ds-button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { extractFileText } from "@/lib/assignment/client-extract";
+import { markFieldConfirmed } from "@/lib/assignment/confirm";
+import { dsCaption, dsInput, dsTextarea } from "@/lib/ds/classes";
+import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
+import {
+  COACH_NAME,
+  COACH_NAME_SPOKEN,
+  PAU_PAU_ASK_TEXT,
+  lengthFromAnswer,
+  pauPauNextAsk,
+  pauPauSummary,
+  type PauPauAsk,
+} from "@/lib/stage1/pau-pau";
+
+type Props = {
+  paperId: string;
+  requirements: AssignmentRequirements;
+  onChange: (next: AssignmentRequirements) => void;
+  onConfirm: () => void;
+  onEditDetails: () => void;
+  onStartOver: () => void;
+  confirming: boolean;
+  error: string | null;
+};
+
+/** Small round mark for the coach; Design System colors only. */
+export function PauPauAvatar() {
+  return (
+    <span
+      aria-hidden
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[13px] font-semibold tracking-wide text-white"
+    >
+      PP
+    </span>
+  );
+}
+
+/**
+ * After the read: Pau Pau says back what it understood, asks for the one most
+ * important missing thing, and "Let's go" confirms the same structured card.
+ */
+export function PauPauConfirm({
+  paperId,
+  requirements,
+  onChange,
+  onConfirm,
+  onEditDetails,
+  onStartOver,
+  confirming,
+  error,
+}: Props) {
+  const [dismissed, setDismissed] = useState<Set<PauPauAsk>>(new Set());
+  const [answer, setAnswer] = useState("");
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [thanks, setThanks] = useState<string | null>(null);
+  const [canSpeak, setCanSpeak] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const ask = pauPauNextAsk(requirements, dismissed);
+  const summary = pauPauSummary(requirements, { pendingAsk: ask });
+  const askText = ask ? PAU_PAU_ASK_TEXT[ask] : null;
+
+  useEffect(() => {
+    setCanSpeak(typeof window !== "undefined" && "speechSynthesis" in window);
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  function readAloud() {
+    const synth = window.speechSynthesis;
+    if (speaking) {
+      synth.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const text = [summary, askText].filter(Boolean).join(" ").replaceAll(COACH_NAME, COACH_NAME_SPOKEN).replace(/…/g, ",");
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    synth.cancel();
+    synth.speak(utterance);
+    setSpeaking(true);
+  }
+
+  function nextAsk(after: PauPauAsk, note: string | null) {
+    setAnswer("");
+    setLinkOpen(false);
+    setAskError(null);
+    setThanks(note);
+    setDismissed((prev) => new Set(prev).add(after));
+  }
+
+  function addReading(reading: ProvidedReading) {
+    const list = [...(requirements.providedReadings.value ?? []), reading];
+    const field = markFieldConfirmed(requirements.providedReadings, { value: list });
+    onChange({ ...requirements, providedReadings: field, providedSources: field });
+  }
+
+  function saveTopic() {
+    const text = answer.replace(/\s+/g, " ").trim();
+    if (text.split(" ").length < 3) {
+      setAskError("A few words is enough, but I need at least that much.");
+      return;
+    }
+    onChange({ ...requirements, topic: markFieldConfirmed(requirements.topic, { value: text }) });
+    nextAsk("topic", "Got it, thanks.");
+  }
+
+  function saveLink() {
+    const url = answer.trim();
+    if (!/^https?:\/\/\S+\.\S+/i.test(url)) {
+      setAskError("That doesn't look like a web link. It should start with http:// or https://.");
+      return;
+    }
+    addReading({ url, origin: "manual" });
+    nextAsk("sources", "Nice, I've got that source.");
+  }
+
+  async function uploadSource(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setAskError(null);
+    // Title from the file's own first line; the student's file name otherwise.
+    const read = await extractFileText(paperId, file).catch(() => null);
+    const firstLine = read && read.ok ? read.text.split(/\n/).map((l) => l.trim()).find((l) => l.length >= 6) : null;
+    addReading({
+      title: (firstLine && firstLine.length <= 140 ? firstLine : file.name).slice(0, 300),
+      notes: `Uploaded file: ${file.name}`,
+      origin: "manual",
+    });
+    setBusy(false);
+    nextAsk("sources", `Nice, I've got ${file.name}.`);
+  }
+
+  function saveLength() {
+    const value = lengthFromAnswer(answer);
+    if (!value || (!value.wordsMin && !value.pagesMin)) {
+      setAskError("Try a number, like 1,200 words or 5 pages.");
+      return;
+    }
+    onChange({ ...requirements, length: markFieldConfirmed(requirements.length, { value }) });
+    nextAsk("length", "Perfect.");
+  }
+
+  return (
+    <div className="mx-auto max-w-[680px]">
+      <div className="flex items-start gap-3">
+        <PauPauAvatar />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+            {COACH_NAME} <span className="font-normal normal-case tracking-normal">· your writing coach</span>
+          </p>
+          <div
+            className="mt-2 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface p-5 shadow-ds-card"
+            aria-live="polite"
+          >
+            <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
+            {thanks ? <p className="mb-2 text-[16px] leading-[1.6] text-ds-muted">{thanks}</p> : null}
+            <p className="text-[18px] leading-[1.6] text-ds-ink">{summary}</p>
+            {askText ? <p className="mt-3 text-[18px] leading-[1.6] text-ds-ink">{askText}</p> : null}
+          </div>
+
+          {canSpeak ? (
+            <DsButton type="button" size="sm" variant="ghost" className="mt-2" onClick={readAloud} aria-pressed={speaking}>
+              {speaking ? "Stop reading" : "Read aloud"}
+            </DsButton>
+          ) : null}
+
+          {ask === "topic" ? (
+            <div className="mt-4 space-y-2">
+              <Textarea
+                className={dsTextarea}
+                rows={3}
+                aria-label="The prompt or topic"
+                placeholder="Paste the prompt, or describe the topic"
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+              />
+              <DsButton type="button" variant="secondary" onClick={saveTopic}>
+                Save the topic
+              </DsButton>
+            </div>
+          ) : null}
+
+          {ask === "sources" ? (
+            <div className="mt-4 space-y-3">
+              {linkOpen ? (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    className={`${dsInput} flex-1`}
+                    type="url"
+                    inputMode="url"
+                    aria-label="Source link"
+                    placeholder="https://"
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveLink();
+                    }}
+                  />
+                  <DsButton type="button" variant="secondary" onClick={saveLink}>
+                    Add link
+                  </DsButton>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {!linkOpen ? (
+                  <DsButton type="button" size="sm" variant="secondary" onClick={() => setLinkOpen(true)}>
+                    Add a link
+                  </DsButton>
+                ) : null}
+                <DsButton
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {busy ? "Reading the file…" : "Upload a PDF"}
+                </DsButton>
+                <DsButton type="button" size="sm" variant="ghost" onClick={() => nextAsk("sources", null)}>
+                  Not now
+                </DsButton>
+              </div>
+              <input
+                ref={fileInput}
+                type="file"
+                className="hidden"
+                accept=".pdf,.docx,.txt,.md,.html,application/pdf"
+                onChange={(e) => {
+                  void uploadSource(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          ) : null}
+
+          {ask === "length" ? (
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <Input
+                className={`${dsInput} flex-1`}
+                aria-label="Paper length"
+                placeholder="e.g. 1,200 words or 5 pages"
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveLength();
+                }}
+              />
+              <div className="flex gap-2">
+                <DsButton type="button" variant="secondary" onClick={saveLength}>
+                  Save
+                </DsButton>
+                <DsButton type="button" size="sm" variant="ghost" onClick={() => nextAsk("length", null)}>
+                  Skip
+                </DsButton>
+              </div>
+            </div>
+          ) : null}
+
+          {askError ? (
+            <p className="mt-2 text-[16px] leading-[1.6] text-ds-error" role="alert">
+              {askError}
+            </p>
+          ) : null}
+          {error ? (
+            <p id="confirm-error" className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <DsButton
+              type="button"
+              variant="primary"
+              disabled={confirming || ask === "topic"}
+              onClick={onConfirm}
+            >
+              {confirming ? "Saving…" : "Let's go"}
+            </DsButton>
+            <DsButton type="button" size="sm" variant="ghost" onClick={onEditDetails}>
+              Fix something
+            </DsButton>
+          </div>
+          <p className={`mt-6 ${dsCaption}`}>
+            Wrong file?{" "}
+            <button type="button" className="font-semibold text-ds-ink underline underline-offset-4" onClick={onStartOver}>
+              Upload a different one
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

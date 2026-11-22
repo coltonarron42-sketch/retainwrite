@@ -45,6 +45,7 @@ export function confirmAllFields(
 ): AssignmentRequirements {
   const keys = [
     "course",
+    "instructor",
     "paperType",
     "topic",
     "promptQuestion",
