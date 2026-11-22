@@ -94,6 +94,8 @@ export function exampleLeadBatch(input: {
   assignmentText: string;
   studentIdea: string;
   rubricRef: string;
+  /** Section-specific titles (QA 10:38 #7): built from the section and the student's note. */
+  section?: { key: string; title: string } | null;
 }): {
   personalized: boolean;
   candidates: LeadCandidate[];
@@ -110,6 +112,9 @@ export function exampleLeadBatch(input: {
   const search = topicSearchTerms(rawSubject) || subject;
 
   const ref = input.rubricRef;
+  if (input.section) {
+    return sectionLeadBatch({ section: input.section, subject, question, search, idea, ref });
+  }
   const candidates: LeadCandidate[] = [
     {
       name: `What should you look up first about ${subject}?`,
@@ -152,6 +157,98 @@ export function exampleLeadBatch(input: {
       whyFits: "A stretch. The directions above stay closer to the assignment.",
       isWildcard: true,
       wildcardWhy: `Same pattern as ${question ? "your question" : subject}, in a field this assignment does not name.`,
+      familyFriendly: true,
+      controversyNote: null,
+    },
+  };
+}
+
+const NOTE_LEAD_IN = /^(i think( that)?|i believe( that)?|my point is( that)?|in my opinion,?|i feel( like)?|honestly,?|so,?|basically,?)\s+/i;
+
+/** The student's note as a short focus: “Social Security made the federal government…”. */
+export function noteFocus(idea: string, words = 9): string {
+  const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
+  if (!t) return "";
+  const parts = t.split(" ");
+  const cut = parts.slice(0, words).join(" ").replace(/[,;:.!?]+$/, "");
+  return parts.length > words ? `${cut}…` : cut;
+}
+
+function sectionRole(section: { key: string; title: string }): "intro" | "body" | "conclusion" | "other" {
+  const t = `${section.key} ${section.title}`.toLowerCase();
+  if (/intro/.test(t)) return "intro";
+  if (/conclu/.test(t)) return "conclusion";
+  if (/body|main|example|evidence|point|argument|analysis/.test(t)) return "body";
+  return "other";
+}
+
+function sectionLeadBatch(ctx: {
+  section: { key: string; title: string };
+  subject: string;
+  question: boolean;
+  search: string;
+  idea: string;
+  ref: string;
+}): { personalized: true; candidates: LeadCandidate[]; wildcard: LeadCandidate } {
+  const { section, subject, question, idea, ref } = ctx;
+  const part = section.title.toLowerCase();
+  const role = sectionRole(section);
+  const focus = idea ? noteFocus(idea) : "";
+  const about = focus ? `“${focus}”` : question ? "your question" : subject;
+  const term = [searchPhrase(ctx.search), idea ? searchPhrase(noteFocus(idea, 12)) : ""].filter(Boolean).join(" ");
+  const first =
+    role === "intro"
+      ? `What background should your introduction set up before ${about}?`
+      : role === "conclusion"
+        ? `What bigger stakes could your conclusion draw from ${about}?`
+        : role === "body"
+          ? `What evidence would back up ${about} in your ${part}?`
+          : `What should your ${part} look up first about ${about}?`;
+  const second =
+    role === "intro"
+      ? `What fact or moment could open your introduction on ${question ? "your question" : subject}?`
+      : role === "conclusion"
+        ? `What recent report shows why ${question ? "your question" : subject} still matters?`
+        : `What real case could show ${about} in action?`;
+  const third = idea
+    ? `Which part of your ${part} note still needs a source you can open?`
+    : `What would a reader expect your ${part} to verify?`;
+  return {
+    personalized: true,
+    candidates: [
+      {
+        name: first,
+        rubricMatch: 0.9,
+        rubricRef: ref,
+        lessonLink: `For your ${part}`,
+        whyFits: `Try searching JSTOR or your school library for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
+      },
+      {
+        name: second,
+        rubricMatch: 0.78,
+        rubricRef: ref,
+        lessonLink: `Shows your ${part} in a real case`,
+        whyFits: "Look for a report, study or news story you can open. Check the author and the date yourself before you rely on it.",
+      },
+      {
+        name: third,
+        rubricMatch: idea ? 0.7 : 0.66,
+        rubricRef: ref,
+        lessonLink: `Fits your ${part}`,
+        whyFits: idea
+          ? "Find one source that speaks to the claim you are least sure about, then explain that connection in your own words."
+          : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+        ...(idea ? { studentNamed: true } : {}),
+      },
+    ],
+    wildcard: {
+      name: `Outside this class: where else ${focus ? `an idea like ${about}` : question ? "a question like yours" : subject} comes up`,
+      rubricMatch: 0.22,
+      rubricRef: ref,
+      lessonLink: `Same pattern as your ${part}`,
+      whyFits: "A stretch. The directions above stay closer to the assignment.",
+      isWildcard: true,
+      wildcardWhy: `Same pattern as your ${part}, in a field this assignment does not name.`,
       familyFriendly: true,
       controversyNote: null,
     },

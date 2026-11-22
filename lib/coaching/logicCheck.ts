@@ -272,6 +272,23 @@ export function logicCheckFromNotes(input: {
       reframeAvailable: false,
     };
   }
+  // Relevance first (QA 10:38 #4): a claim that doesn't touch the prompt is
+  // named as off-prompt before any critique of how it reasons.
+  const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
+  if (input.mode === "lesson" && promptText && notes.trim() && !notesOnPrompt(notes, promptText, input.assignmentText)) {
+    const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
+    return {
+      tier: "strong",
+      basis: "contradicts_assignment",
+      confidence: 0.9,
+      reason: `This doesn't answer the question your prompt asks: “${asked}”`,
+      citedTerm: { rubricRef: "prompt", quote: asked },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
+      logicFailure: null,
+      alternativeAngles: [{ question: `How does this connect to “${asked}”?`.slice(0, 160), rubricRef: "prompt" }],
+      reframeAvailable: true,
+    };
+  }
   const overgeneral = /\b(all|every|always|everyone|never)\b/i.test(notes);
   const anecdotal = /\b(my friend|my mom|my dad|someone i know|i know someone)\b/i.test(notes);
   if (overgeneral || anecdotal) {
@@ -374,4 +391,34 @@ export function notesAddressAssignment(notes: string, assignment: string): boole
   if (asked.length === 0) return wordCount(notes) >= 40;
   const said = new Set(contentWords(notes));
   return asked.some((word) => said.has(word));
+}
+
+const SHEET_GENERIC = new Set([
+  "student", "students", "source", "sources", "research", "page", "pages", "essay", "format", "cite", "citation",
+  "words", "word", "include", "must", "should", "class", "grade", "graded", "due", "date", "paper", "argument",
+  "evidence", "claim", "thesis", "example", "examples", "question", "prompt", "answer", "explain", "describe",
+  "discuss", "analyze", "your", "least", "peer", "reviewed", "double", "spaced", "font", "points", "rubric",
+  "draft", "final", "submit", "introduction", "conclusion", "body", "section", "sections", "best", "good", "make",
+]);
+
+function stem(word: string): string {
+  return word.replace(/(ing|ed|es|s)$/, "");
+}
+
+function stems(text: string, skip?: Set<string>): Set<string> {
+  return new Set(
+    contentWords(text)
+      .filter((w) => !skip?.has(w) && !/^(should|does|did|how|why|whether|which)$/.test(w))
+      .map(stem)
+      .filter((w) => w.length > 2),
+  );
+}
+
+/** Does the note touch the confirmed prompt (or, failing that, the sheet's own topic words)? */
+export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolean {
+  const said = stems(notes);
+  if (said.size === 0) return true;
+  for (const w of stems(prompt)) if (said.has(w)) return true;
+  for (const w of stems(sheet, SHEET_GENERIC)) if (said.has(w)) return true;
+  return false;
 }
