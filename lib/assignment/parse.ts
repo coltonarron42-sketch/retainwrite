@@ -20,6 +20,8 @@ import { FLAT_ASSIGNMENT_SCHEMA, FLAT_PARSE_SYSTEM, flatToNested, looksFlat } fr
 const PARSE_SYSTEM = `You extract assignment requirements from teacher materials. The input is an ordered corpus of files and pages, each labeled with file name and page number. Return only one JSON object. Quote short evidence spans from the text, verbatim, and cite fileId + page in provenance. If a field is not present, value is null and confidence is 0. Never invent due dates, page counts, citation styles, rubric weights, source counts, or URLs. Never write essay text, theses, or outlines. Topic is the subject the student must address, never a length, spacing, or citation-format line. promptQuestion is the assignment's actual question. If the text forbids or restricts AI tools, set aiPolicy and quote the line. Include provided readings and links that appear in the materials or the student's URL list; do not invent links.`;
 
 /** One model read, then the rule parser. Two 30s calls were blowing past 15s. */
+/** A described assignment ("5 page MLA essay on teen sleep, due Friday") is short. */
+export const DESCRIBED_MIN_WORDS = 4;
 export const PARSE_TIMEOUT_MS = 12_000;
 
 /** Length and format instructions are not a topic or a prompt question. */
@@ -293,7 +295,7 @@ async function askReliably(
 
 export async function parseAssignmentCorpus(
   corpus: string,
-  options?: { mode?: "live" | "demo"; askModel?: ModelReader },
+  options?: { mode?: "live" | "demo"; askModel?: ModelReader; minWords?: number },
 ): Promise<ParseResult> {
   const mode = options?.mode ?? "demo";
   const rawText = corpus.trim();
@@ -301,7 +303,7 @@ export async function parseAssignmentCorpus(
   const live = mode === "live";
   const allowTopicAndDueDateGuess = live ? false : process.env.NODE_ENV !== "production";
 
-  if (words < 20) {
+  if (words < (options?.minWords ?? 20)) {
     if (live) return liveFailure(rawText, words, "too_short");
     return {
       requirements: parseAssignmentFallback("", { allowTopicAndDueDateGuess }),

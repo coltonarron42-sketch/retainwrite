@@ -96,7 +96,7 @@ export const FLAT_ASSIGNMENT_SCHEMA = {
   },
 } as const;
 
-export const FLAT_PARSE_SYSTEM = `You read teacher assignment materials and fill one JSON object that matches the schema. Copy facts from the text; never invent them. Use null (or []) when the text does not say. Never write essay text, theses or outlines.
+export const FLAT_PARSE_SYSTEM = `You read teacher assignment materials and fill one JSON object that matches the schema. Copy facts from the text; never invent them. The text may be the student's own short description of the assignment (\"a 5 page APA paper on teen sleep, due Friday\"); read its facts the same way. Use null (or []) when the text does not say. Never write essay text, theses or outlines.
 Fields:
 - course: course name/code as written (e.g. "ENG 102 – Composition II"). Never a date.
 - instructor: the teacher/professor's name as written (e.g. "Dr. Maria Lopez"), or null.

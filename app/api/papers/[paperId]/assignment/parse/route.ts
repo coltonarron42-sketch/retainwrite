@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { mergeCorpus, type CorpusSegment } from "@/lib/assignment/corpus";
-import { parseAssignmentCorpus } from "@/lib/assignment/parse";
+import { DESCRIBED_MIN_WORDS, parseAssignmentCorpus } from "@/lib/assignment/parse";
 import { resolveReaderMode } from "@/lib/auth/reader-mode";
 import { clearDemoSession, getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -24,6 +24,8 @@ const bodySchema = z.object({
   /** Pre-merged corpus (demo / client extract). */
   corpusText: z.string().max(500_000).optional(),
   segments: z.array(segmentSchema).max(200).optional(),
+  /** Typed or spoken in the chat box, no file: a short description is enough. */
+  described: z.boolean().optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -74,7 +76,7 @@ export async function POST(request: Request, ctx: Ctx) {
       }
 
       const started = Date.now();
-      const parsed = await parseAssignmentCorpus(corpus, { mode: "live" });
+      const parsed = await parseAssignmentCorpus(corpus, { mode: "live", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined });
       console.info("[assignment/parse] timing", {
         ms: Date.now() - started,
         model: parsed.parseMeta.model,
@@ -151,7 +153,7 @@ export async function POST(request: Request, ctx: Ctx) {
   }
 
   const started = Date.now();
-  const parsed = await parseAssignmentCorpus(corpus, { mode: "demo" });
+  const parsed = await parseAssignmentCorpus(corpus, { mode: "demo", minWords: body.described ? DESCRIBED_MIN_WORDS : undefined });
   console.info("[assignment/parse] timing", {
     ms: Date.now() - started,
     model: parsed.parseMeta.model,
