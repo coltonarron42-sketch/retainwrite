@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { CoachEyebrow, CoachSays } from "@/components/coaching/pau-pau";
-import { asQuestion, isQuestionTopic } from "@/lib/copy/topic-phrase";
+import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
 import { LogicCheckpoint } from "@/components/coaching/logic-checkpoint";
@@ -551,7 +551,7 @@ export function CoachingLoop({
           : subject === "your topic"
             ? "The assignment topic is still missing. Add it on the checklist before this lesson."
             : isQuestionTopic(subject)
-              ? `This assignment asks: ${asQuestion(subject)}`
+              ? "This is the question your paper answers. We'll work through it one section at a time."
               : `This assignment teaches ${subjectMidSentence(subject)}.`}{" "}
         <a
           href={`/app/papers/${paperId}/stage/1`}
@@ -1238,7 +1238,8 @@ function OutlineDraft({
   return (
     <>
       <Textarea
-        className={`mt-3 w-full ${dsTextarea}`}
+        className={`mt-3 min-h-[160px] w-full ${dsTextarea}`}
+        rows={6}
         aria-label={`Outline notes for ${label}`}
         value={text}
         onChange={(event) => {
