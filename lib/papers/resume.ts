@@ -3,6 +3,8 @@ export type ResumePointer = {
   sectionKey?: string | null;
   questionId?: string | null;
   screen?: string | null;
+  /** Client clock (ms) when this position was reached. */
+  at?: number;
 };
 
 export function continueHref(paper: {
