@@ -174,18 +174,37 @@ export async function updatePasswordAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const password = readPassword(formData);
+  const confirm = String(formData.get("confirm_password") ?? "");
   if (password.length < 6) return { error: "Password must be at least 6 characters." };
+  if (password !== confirm) return { error: "The two passwords don't match. Type the same one twice." };
   if (!hasSupabaseConfig()) return { error: "Password reset is unavailable right now." };
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
+  if (!user?.email) {
     return { error: "That reset link has expired. Request a new one from Forgot password." };
   }
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: formatAuthError(error.message) };
+
+  // Prove the new password works for a fresh login before saying it saved.
+  const env = getPublicEnv();
+  const probe = createSupabaseJsClient(
+    env.NEXT_PUBLIC_SUPABASE_URL!,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const { error: loginError } = await probe.auth.signInWithPassword({
+    email: user.email,
+    password,
+  });
+  if (loginError) {
+    console.error("[auth/reset] new password failed verification", loginError.message);
+    return { error: "Your new password didn't save. Try again, or request a new reset link." };
+  }
+  await probe.auth.signOut({ scope: "local" });
   await clearDemoSession();
   redirect("/app");
 }

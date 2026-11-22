@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import {
   requestPasswordResetAction,
@@ -46,25 +46,53 @@ export function ForgotPasswordForm() {
   );
 }
 
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ email }: { email: string }) {
   const [state, action, pending] = useActionState(updatePasswordAction, initialState);
+  const [show, setShow] = useState(false);
   return (
     <form action={action} className="mt-8 space-y-4">
+      {/* Lets password managers save the new password under this account. */}
+      <input
+        type="email"
+        name="username"
+        autoComplete="username"
+        value={email}
+        readOnly
+        hidden
+      />
+      <p className="text-sm text-rw-ink/70">
+        Account: <span className="font-semibold text-rw-ink">{email}</span>
+      </p>
       <div className="space-y-2">
         <Label htmlFor="password">New password</Label>
         <Input
           id="password"
           name="password"
-          type="password"
+          type={show ? "text" : "password"}
           required
           minLength={6}
           autoComplete="new-password"
         />
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="confirm_password">Type it again</Label>
+        <Input
+          id="confirm_password"
+          name="confirm_password"
+          type={show ? "text" : "password"}
+          required
+          minLength={6}
+          autoComplete="new-password"
+        />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-rw-ink/70">
+        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+        Show password
+      </label>
       {state.error ? (
         <p className="text-sm text-red-700" role="alert">
           {state.error}{" "}
-          {state.error.includes("expired") ? (
+          {state.error.includes("expired") || state.error.includes("reset link") ? (
             <Link href="/forgot-password" className="font-semibold underline">
               Forgot password
             </Link>

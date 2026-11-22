@@ -37,7 +37,7 @@ export function LoginForm({ nextPath = "/app" }: Props) {
             id="email"
             name="email"
             type="email"
-            autoComplete="email"
+            autoComplete="username"
             required
           />
         </div>
