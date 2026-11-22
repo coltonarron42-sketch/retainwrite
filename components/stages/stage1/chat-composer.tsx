@@ -651,7 +651,7 @@ export function ChatComposer({
                 type="button"
                 data-barge-in
                 aria-label="Interrupt Pau Pau and talk"
-                className="ds-focus flex min-h-[48px] items-center gap-1 rounded-full px-3 text-[13px] font-semibold text-ds-ink hover:bg-ds-page"
+                className="ds-focus flex min-h-[48px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold text-ds-ink hover:bg-ds-page"
                 onClick={() => {
                   unlockSpeech();
                   stopSpeech();

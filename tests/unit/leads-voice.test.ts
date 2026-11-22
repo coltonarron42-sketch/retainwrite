@@ -65,7 +65,7 @@ describe("QA 9:53 Stage 1 follow-ups", () => {
   });
   it("the example lead has a concrete reason, not 'Connects to the assignment's required angle'", () => {
     expect(src).not.toContain("Connects to the assignment's required angle.");
-    expect(exampleLeadWhy("soccer", "Should schools start later?")).toBe('A real case from soccer you can test your take on "Should schools start later" against.');
+    expect(exampleLeadWhy("soccer", "Should schools start later?")).toBe("A real case from soccer you can test your take on “Should schools start later?” against.");
     // Long prompts are not cut mid-sentence.
     expect(exampleLeadWhy("soccer", "How did the New Deal change the relationship between Americans and the federal government?")).toBe(
       "A real case from soccer you can test your answer to the prompt's question against.",

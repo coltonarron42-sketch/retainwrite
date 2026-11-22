@@ -196,7 +196,10 @@ function sectionLeadBatch(ctx: {
   const role = sectionRole(section);
   const focus = idea ? noteFocus(idea) : "";
   const about = focus ? `“${focus}”` : question ? "your question" : subject;
-  const term = [searchPhrase(ctx.search), idea ? searchPhrase(noteFocus(idea, 12)) : ""].filter(Boolean).join(" ");
+  // Keywords only: never the student's raw sentence in a search box.
+  const topicTerm = searchPhrase(ctx.search);
+  const extra = idea ? noteKeywords(idea, topicTerm) : [];
+  const term = [topicTerm, ...extra].filter(Boolean).join(" ");
   const first =
     role === "intro"
       ? `What background should your introduction set up before ${about}?`
@@ -211,9 +214,19 @@ function sectionLeadBatch(ctx: {
       : role === "conclusion"
         ? `What recent report shows why ${question ? "your question" : subject} still matters?`
         : `What real case could show ${about} in action?`;
-  const third = idea
-    ? `Which part of your ${part} note still needs a source you can open?`
-    : `What would a reader expect your ${part} to verify?`;
+  // Each section gets its own third direction (not one shared template).
+  const third =
+    role === "intro"
+      ? idea
+        ? `What would surprise a reader about ${about}?`
+        : "What would surprise a reader who has never thought about this?"
+      : role === "conclusion"
+        ? idea
+          ? `Who should act on ${about}, and what source backs that up?`
+          : "Who should act on your answer, and what source backs that up?"
+        : idea
+          ? `Which part of ${about} still needs a source you can open?`
+          : `What would a reader expect your ${part} to verify?`;
   return {
     personalized: true,
     candidates: [
@@ -258,6 +271,28 @@ function sectionLeadBatch(ctx: {
 
 export function leadCopyIsTemplate(name: string): boolean {
   return GENERIC_TITLES.includes(name.trim().toLowerCase());
+}
+
+/** Words that make a note personal or chatty, not searchable. */
+const NOTE_STOP = new Set([
+  "i", "im", "i'm", "me", "my", "mine", "we", "our", "us", "you", "your", "he", "she", "his", "her", "him", "is", "are", "was", "were", "am",
+  "so", "because", "but", "if", "then", "think", "feel", "believe", "know", "want", "guess", "should", "would", "could", "can", "will",
+  "let", "make", "makes", "get", "gets", "go", "goes", "move", "every", "all", "always", "never", "just", "very", "really", "also",
+  "sister", "brother", "mom", "mother", "dad", "father", "friend", "friends", "cousin", "family", "parents", "little", "older", "own",
+  "honestly", "thing", "things", "something", "lot", "kind", "way", "point", "idea", "section", "paper",
+]);
+
+/** Up to three keywords from a note that the topic search doesn't already have. */
+export function noteKeywords(idea: string, topicTerm = "", max = 3): string[] {
+  const have = new Set(topicTerm.toLowerCase().split(/\s+/).map((w) => w.replace(/s$/, "")));
+  const out: string[] = [];
+  for (const raw of idea.toLowerCase().replace(/[^a-z'\s-]/g, " ").split(/\s+/)) {
+    const w = raw.replace(/^'+|'+$/g, "");
+    if (w.length < 4 || NOTE_STOP.has(w) || SEARCH_STOP.has(w) || have.has(w.replace(/s$/, "")) || out.includes(w)) continue;
+    out.push(w);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 const SEARCH_STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "be", "it", "its", "their", "they", "them", "this", "that", "with", "by", "from", "as", "into", "more", "most", "than", "really", "actually"]);

@@ -170,7 +170,9 @@ export function exampleLeadWhy(interest: string, topic: string | null | undefine
   const full = (topic ?? "").replace(/[?.!]+$/, "").replace(/\s+/g, " ").trim();
   const lead = d.media ? `Something from ${d.name}` : `A real case from ${d.name}`;
   // Long prompts are never cut mid-sentence: name "the prompt's question" instead.
+  // Keep the prompt's own "?" inside the quote.
+  const quoted = /\?\s*$/.test(topic ?? "") ? `${t}?` : t;
   return t && full.length <= 60
-    ? `${lead} you can test your take on "${t}" against.`
+    ? `${lead} you can test your take on “${quoted}” against.`
     : `${lead} you can test your answer to the prompt's question against.`;
 }
