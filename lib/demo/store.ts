@@ -1,3 +1,4 @@
+import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
 import type { ResumePointer } from "@/lib/papers/resume";
 import { initialStageProgress } from "@/lib/stages/assert";
 import type { StyleMetrics } from "@/lib/style/metrics";
@@ -38,9 +39,23 @@ export type DemoPurchase = {
   created_at: string;
 };
 
-const PROFILE_KEY = "rw_demo_profile";
-const PAPERS_KEY = "rw_demo_papers";
-const PURCHASES_KEY = "rw_demo_purchases";
+// Scoped per user like all local data (lib/local/user-scope). Only the demo
+// session may adopt the old browser-wide copies; a signed-in account never does.
+const PROFILE_KEY = "demo-profile";
+const PAPERS_KEY = "demo-papers";
+const PURCHASES_KEY = "demo-purchases";
+const LEGACY: Record<string, string> = {
+  [PROFILE_KEY]: "rw_demo_profile",
+  [PAPERS_KEY]: "rw_demo_papers",
+  [PURCHASES_KEY]: "rw_demo_purchases",
+};
+function getItem(name: string): string | null {
+  const u = localUser();
+  return readScoped(name, u === "demo" || u === "anon" ? LEGACY[name] : undefined);
+}
+function setItem(name: string, value: string) {
+  writeScoped(name, value);
+}
 
 function canUseStorage() {
   return typeof window !== "undefined";
@@ -55,7 +70,7 @@ export function getDemoProfile(): DemoProfile {
       display_name: "Demo Student",
     };
   }
-  const raw = localStorage.getItem(PROFILE_KEY);
+  const raw = getItem(PROFILE_KEY);
   if (!raw) {
     const profile: DemoProfile = {
       free_paper_used: false,
@@ -63,7 +78,7 @@ export function getDemoProfile(): DemoProfile {
       email: "demo@retainwrite.com",
       display_name: "Demo Student",
     };
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    setItem(PROFILE_KEY, JSON.stringify(profile));
     return profile;
   }
   return JSON.parse(raw) as DemoProfile;
@@ -71,18 +86,18 @@ export function getDemoProfile(): DemoProfile {
 
 export function saveDemoProfile(profile: DemoProfile) {
   if (!canUseStorage()) return;
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  setItem(PROFILE_KEY, JSON.stringify(profile));
 }
 
 export function listDemoPapers(): DemoPaper[] {
   if (!canUseStorage()) return [];
-  const raw = localStorage.getItem(PAPERS_KEY);
+  const raw = getItem(PAPERS_KEY);
   return raw ? (JSON.parse(raw) as DemoPaper[]) : [];
 }
 
 export function saveDemoPapers(papers: DemoPaper[]) {
   if (!canUseStorage()) return;
-  localStorage.setItem(PAPERS_KEY, JSON.stringify(papers));
+  setItem(PAPERS_KEY, JSON.stringify(papers));
 }
 
 export function getDemoPaper(id: string): DemoPaper | undefined {
@@ -125,7 +140,7 @@ export function createDemoPaper(opts?: {
 
 export function listDemoPurchases(): DemoPurchase[] {
   if (!canUseStorage()) return [];
-  const raw = localStorage.getItem(PURCHASES_KEY);
+  const raw = getItem(PURCHASES_KEY);
   return raw ? (JSON.parse(raw) as DemoPurchase[]) : [];
 }
 
@@ -133,5 +148,5 @@ export function addDemoPurchase(purchase: DemoPurchase) {
   if (!canUseStorage()) return;
   const list = listDemoPurchases();
   list.unshift(purchase);
-  localStorage.setItem(PURCHASES_KEY, JSON.stringify(list));
+  setItem(PURCHASES_KEY, JSON.stringify(list));
 }
