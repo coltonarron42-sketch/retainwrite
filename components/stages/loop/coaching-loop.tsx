@@ -248,6 +248,7 @@ export function CoachingLoop({
   // The shell passes a fresh stageProgress array on every render. Read it from
   // a ref so a parent re-render does not reload the saved session over the
   // student's live progress (it reset Stance to the first section's leads).
+  const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   const stageProgressRef = useRef(stageProgress);
   useEffect(() => {
     stageProgressRef.current = stageProgress;
@@ -388,13 +389,30 @@ export function CoachingLoop({
     setSession(next);
   }
 
+  // Taps in Stance (teach pick, lead pick, lock-in, logic check) used to live only
+  // on this device, so a reload fell back to the last typed note. Each one now
+  // saves the session too, in order, so the server copy is never older.
+  function syncSession(next: Session, sectionKey: string) {
+    if (!persist || stage !== 2) return;
+    syncChain.current = syncChain.current.then(() =>
+      persistField(paperId, {
+        fieldKey: "stance:step",
+        text: sectionKey,
+        resume: { stage: 2, sectionKey, screen: "stance" },
+        session: next,
+      }),
+    );
+  }
+
   function updateSection(key: string, patch: Partial<RuntimeSection>, extra?: Partial<Session>) {
     if (!session) return;
-    commit({
+    const next: Session = {
       ...session,
       ...extra,
       sections: session.sections.map((item) => (item.key === key ? { ...item, ...patch } : item)),
-    });
+    };
+    commit(next);
+    syncSession(next, key);
   }
 
   function log(event: string) {
@@ -406,6 +424,7 @@ export function CoachingLoop({
 
   async function saveLoop(next: Session, fieldKey: string, text: string, resume: { stage: number; sectionKey?: string }) {
     if (!persist) return true;
+    await syncChain.current;
     const ok = await persistField(paperId, {
       fieldKey,
       text,
@@ -464,6 +483,7 @@ export function CoachingLoop({
     if (persist) {
       // Save on every confirm so a reload resumes at the next section.
       const savedSession = { ...session, sections, transcript, activeIndex: nextIndex };
+      await syncChain.current;
       await persistField(paperId, {
         fieldKey: "loop_session",
         text: JSON.stringify(savedSession),

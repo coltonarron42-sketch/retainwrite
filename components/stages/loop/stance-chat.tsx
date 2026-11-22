@@ -388,9 +388,9 @@ export function StanceChat(props: Props) {
                   <p className="font-semibold">
                     {lead.rank === 1 ? <span className="mr-2 text-[13px] uppercase text-ds-accent">Best fit</span> : null}
                     {lead.name}
+                    <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">To verify</span>
                   </p>
                   <p className="text-ds-muted">{lead.whyFits}</p>
-                  <p className="text-[13px] font-semibold uppercase text-ds-muted">To verify</p>
                   <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0]!), you(lead.name)])}>
                     Try this direction
                   </DsButton>

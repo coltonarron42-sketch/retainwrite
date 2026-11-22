@@ -188,5 +188,10 @@ describe("E: chat model, persistence and the student's words", () => {
     expect(probe).toMatch(/const nextSession: Session = \{\s*\.\.\.session,\s*transcript,/);
     expect(loop).toContain("transcript={session.transcript ?? []}");
     expect(loop).toContain("outlineTranscript: appendLines(session.outlineTranscript, more)");
+    // Stance taps (teach pick, lead pick, lock-in, logic) save the session too, in order, before any later save.
+    const upd = loop.slice(loop.indexOf("function updateSection"), loop.indexOf("function log("));
+    expect(upd).toContain("syncSession(next, key);");
+    expect(loop).toMatch(/function syncSession[\s\S]*?if \(!persist \|\| stage !== 2\) return;[\s\S]*?syncChain\.current = syncChain\.current\.then/);
+    expect(loop.match(/await syncChain\.current;/g)!.length).toBeGreaterThanOrEqual(2);
   });
 });
