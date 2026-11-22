@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed-test-users": "node scripts/seed-test-users.mjs"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.17",
