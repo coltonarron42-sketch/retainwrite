@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseAssignmentCorpus } from "@/lib/assignment/parse";
-import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
+import { isPlaceholderTopic, parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 
 const QA_TXT = `English 101 - Argument Essay
 Prompt: Should high schools start later in the morning? Write a 3-page argumentative essay (MLA format, 12 pt Times New Roman, double-spaced) taking a clear position on this question. Use at least three credible sources, including one peer-reviewed study. Address at least one counterargument.
@@ -45,5 +45,23 @@ describe("rule read of a labeled .txt assignment (model timed out)", () => {
       askModel: async () => ({ ok: false, reason: "timeout" }),
     });
     expect(r.requirements.dueDate.value).toBeNull();
+  });
+});
+
+describe("fallback list headings", () => {
+  const sheet = `BIO 150 - Intro to Ecology\nPrompt: How does road salt runoff affect\nfreshwater invertebrates in local streams?\n\nLength: 4-5 pages, double-spaced\nCitation style: APA 7\nSources: at least four peer-reviewed articles\nDue: April 22\n\nRubric:\n  Hypothesis and methods - 30 pts\n  Data and figures - 30 pts\n  Discussion - 25 pts\n  APA formatting - 15 pts`;
+  it("reads a rubric listed under its heading", () => {
+    const r = parseAssignmentFallback(sheet, {});
+    expect(r.rubricCriteria.value?.map((c) => c.name)).toEqual([
+      "Hypothesis and methods",
+      "Data and figures",
+      "Discussion",
+      "APA formatting",
+    ]);
+  });
+  it("does not run a sources count across lines", () => {
+    const r = parseAssignmentFallback(sheet, {});
+    expect(r.requiredSources.value?.countMin).toBe(4);
+    expect(r.requiredSources.value?.types).not.toMatch(/\n/);
   });
 });

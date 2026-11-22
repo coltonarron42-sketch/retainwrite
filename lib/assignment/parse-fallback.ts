@@ -29,6 +29,33 @@ const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
 };
 
+/**
+ * Items after a "Label:" heading: the rest of that line split as a list, or
+ * when it is empty, the following lines until a blank line or another label.
+ */
+function labeledList(text: string, label: RegExp): { items: string[]; evidence: string } | null {
+  const lines = text.split(/\r?\n/);
+  const head = new RegExp(`^[ \\t]*${label.source}[ \\t]*:[ \\t]*(.*)$`, "i");
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]!.match(head);
+    if (!match) continue;
+    const rest = match[1]!.trim();
+    if (rest) return { items: splitInlineList(rest), evidence: lines[i]!.trim().slice(0, 200) };
+    const items: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j]!.trim();
+      if (!line) {
+        if (items.length) break;
+        continue;
+      }
+      if (/^[A-Za-z][A-Za-z /]{1,30}:\s*\S/.test(line) && !/^[-•*]/.test(line)) break;
+      items.push(line.replace(/^[-•*\d.)\s]+/, "").trim());
+    }
+    if (items.length) return { items, evidence: [lines[i]!.trim(), ...items].join("\n").slice(0, 200) };
+  }
+  return null;
+}
+
 function numberWord(value: string): number | undefined {
   const n = Number(value);
   if (Number.isFinite(n)) return n;
@@ -195,7 +222,7 @@ export function parseAssignmentFallback(
 
   // Required sources
   const sources = text.match(
-    /\b(?:at least\s+|a minimum of\s+|minimum of\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:credible|scholarly|academic|peer[- ]reviewed|reliable|outside|primary|secondary)\s+)*(?:sources|references|citations|leaders)\b[^.\n]*/i,
+    /\b(?:at least[ \t]+|a minimum of[ \t]+|minimum of[ \t]+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)[ \t]+(?:(?:credible|scholarly|academic|peer[- ]reviewed|reliable|outside|primary|secondary)[ \t]+)*(?:sources|references|citations|articles|studies|works|leaders)\b[^.\n]*/i,
   );
   if (sources) {
     const types = sources[0].trim();
@@ -216,28 +243,29 @@ export function parseAssignmentFallback(
     );
   }
 
-  // Rubric line: "Rubric: Thesis (25 pts), Evidence (30 pts)".
-  const rubricLine = text.match(/^\s*(?:rubric|grading(?: criteria)?|criteria)\s*:\s*(.+)$/im);
-  if (rubricLine) {
-    const criteria = splitInlineList(rubricLine[1])
+  // Rubric: "Rubric: Thesis (25 pts), Evidence (30 pts)" on one line, or a
+  // "Rubric:" heading followed by one criterion per line.
+  const rubric = labeledList(text, /(?:rubric|grading(?: criteria)?|criteria)/);
+  if (rubric) {
+    const criteria = rubric.items
       .map((item) => {
         const weight = item.match(/\(?\s*(\d{1,3})\s*(?:pts?|points?|%)\s*\)?/i);
-        const name = item.replace(/\(?\s*\d{1,3}\s*(?:pts?|points?|%)\s*\)?/i, "").replace(/[-–:]\s*$/, "").trim();
+        const name = item
+          .replace(/\(?\s*\d{1,3}\s*(?:pts?|points?|%)\s*\)?/i, "")
+          .replace(/\s*[-–:]\s*$/, "")
+          .trim();
         return name ? { name, ...(weight ? { weight: Number(weight[1]) } : {}) } : null;
       })
       .filter((c): c is { name: string; weight?: number } => Boolean(c));
     if (criteria.length) {
-      req.rubricCriteria = extractedField(criteria, 0.75, rubricLine[0].trim().slice(0, 200));
+      req.rubricCriteria = extractedField(criteria, 0.75, rubric.evidence);
     }
   }
 
-  // Sections / structure line: "Sections: Introduction; Body; Conclusion".
-  const sectionsLine = text.match(/^\s*(?:sections?|structure|organization|outline)\s*:\s*(.+)$/im);
-  if (sectionsLine) {
-    const parts = splitInlineList(sectionsLine[1]);
-    if (parts.length) {
-      req.structuralRequirements = extractedField(parts, 0.75, sectionsLine[0].trim().slice(0, 200));
-    }
+  // Sections / structure: "Sections: Introduction; Body; Conclusion" or a list.
+  const sections = labeledList(text, /(?:sections?|structure|organization|outline)/);
+  if (sections?.items.length) {
+    req.structuralRequirements = extractedField(sections.items, 0.75, sections.evidence);
   }
 
   // Formatting rules written in the text.
