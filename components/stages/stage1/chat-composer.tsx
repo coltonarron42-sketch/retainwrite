@@ -254,16 +254,17 @@ export function ChatComposer({
     rec.continuous = true;
     dropRecognizer();
     baseRef.current = valueRef.current;
-    const finals: string[] = [];
     rec.onresult = (event) => {
       if (recRef.current !== rec) return;
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      // Rebuild from every result each time. Some Android builds resend old
+      // phrases with resultIndex 0, and appending would repeat them.
+      const finals: string[] = [];
+      const interims: string[] = [];
+      for (let i = 0; i < event.results.length; i++) {
         const r = event.results[i]!;
-        if (r.isFinal) finals.push(r[0].transcript);
-        else interim = joinTranscript(interim, [r[0].transcript]);
+        (r.isFinal ? finals : interims).push(r[0].transcript);
       }
-      const next = joinTranscript(baseRef.current, finals, interim);
+      const next = joinTranscript(baseRef.current, finals, joinTranscript("", interims));
       lastEmittedRef.current = next;
       onChange(next);
     };

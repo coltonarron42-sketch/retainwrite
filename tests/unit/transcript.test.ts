@@ -61,3 +61,11 @@ describe("caret after a restored draft", () => {
     expect(src).toMatch(/document\.activeElement !== ta\) ta\.setSelectionRange\(ta\.value\.length, ta\.value\.length\)/);
   });
 });
+
+describe("voice typing never repeats a phrase", () => {
+  const src = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
+  it("rebuilds from all results instead of appending from resultIndex", () => {
+    expect(src).toMatch(/for \(let i = 0; i < event\.results\.length; i\+\+\)/);
+    expect(src).not.toContain("finals.push(r[0].transcript);\n        else");
+  });
+});
