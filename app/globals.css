@@ -147,8 +147,7 @@ body {
 /* Pau Pau presence (PLAN.md 9): an occasional glance and blink, and soft
    waves while her voice plays. Nothing moves under reduced motion. */
 .pp-blink,
-.pp-glance,
-.pp-tilt {
+.pp-glance {
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -164,9 +163,6 @@ body {
   }
   .pp-glance {
     animation: pp-glance 11s ease-in-out infinite;
-  }
-  .pp-tilt {
-    animation: pp-tilt 17s ease-in-out infinite;
   }
   .pp-wave {
     transform-origin: center;
@@ -200,11 +196,6 @@ body {
 @keyframes pp-wave {
   0%, 100% { opacity: 0.25; transform: scaleY(0.55); }
   50% { opacity: 0.6; transform: scaleY(1); }
-}
-@keyframes pp-tilt {
-  0%, 30%, 40%, 72%, 82%, 100% { transform: rotate(0deg); }
-  33%, 37% { transform: rotate(-3deg); }
-  75%, 79% { transform: rotate(3deg); }
 }
 @keyframes pp-fade-out {
   from { opacity: 1; }
