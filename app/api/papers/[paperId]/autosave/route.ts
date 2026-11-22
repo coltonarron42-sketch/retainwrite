@@ -22,22 +22,33 @@ const bodySchema = z.object({
 
 type Ctx = { params: Promise<{ paperId: string }> };
 
+/**
+ * Who is saving, and do they own this paper. getClaims verifies the session
+ * JWT signature locally when the project uses asymmetric signing keys (and
+ * falls back to the Auth server otherwise), so a save no longer pays for an
+ * extra network round trip. The paper read also returns current_stage so the
+ * resume update does not need its own read.
+ */
 async function owner(paperId: string) {
   if (!z.string().uuid().safeParse(paperId).success) return null;
   if (!hasSupabaseConfig()) return null;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const userId = !claimsError && typeof claimsData?.claims?.sub === "string" ? claimsData.claims.sub : null;
+  if (!userId) return null;
   const { data: paper } = await supabase
     .from("papers")
-    .select("id")
+    .select("id, current_stage, resume")
     .eq("id", paperId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
   if (!paper) return null;
-  return { supabase, userId: user.id };
+  return {
+    supabase,
+    userId,
+    currentStage: (paper.current_stage as number | null) ?? 1,
+    resume: paper.resume ?? null,
+  };
 }
 
 export async function GET(_request: Request, ctx: Ctx) {
@@ -46,7 +57,7 @@ export async function GET(_request: Request, ctx: Ctx) {
   if (!auth) return NextResponse.json({ drafts: [], resume: null, session: null });
   const { data, error } = await auth.supabase
     .from("paper_autosaves")
-    .select("field_key, draft_text, submitted")
+    .select("field_key, draft_text, submitted, updated_at")
     .eq("paper_id", paperId)
     .eq("user_id", auth.userId);
   if (error) {
@@ -63,17 +74,16 @@ export async function GET(_request: Request, ctx: Ctx) {
       session = null;
     }
   }
-  const { data: paper } = await auth.supabase
-    .from("papers")
-    .select("resume")
-    .eq("id", paperId)
-    .eq("user_id", auth.userId)
-    .maybeSingle();
   return NextResponse.json({
     drafts: rows
       .filter((row) => row.field_key !== "loop_session")
-      .map((row) => ({ fieldKey: row.field_key, text: row.draft_text, submitted: row.submitted })),
-    resume: paper?.resume ?? null,
+      .map((row) => ({
+        fieldKey: row.field_key,
+        text: row.draft_text,
+        submitted: row.submitted,
+        updatedAt: row.updated_at,
+      })),
+    resume: auth.resume,
     session,
   });
 }
@@ -89,59 +99,62 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const now = new Date().toISOString();
-  const { error } = await auth.supabase.from("paper_autosaves").upsert(
-    {
-      paper_id: paperId,
-      user_id: auth.userId,
-      field_key: body.fieldKey,
-      draft_text: body.text,
-      submitted: Boolean(body.submitted),
-      updated_at: now,
-    },
-    { onConflict: "paper_id,field_key" },
-  );
-  if (error) {
-    console.error("[autosave] write failed", { code: error.code, message: error.message });
-    return NextResponse.json({ error: "Could not save." }, { status: 500 });
-  }
+  // The draft row, the session row and the resume pointer are independent
+  // writes, so run them together instead of one after another. Any failure
+  // still returns 500, so the client keeps the text and does not move on.
+  const writes: PromiseLike<{ label: string; error: { code?: string; message: string } | null }>[] = [
+    auth.supabase
+      .from("paper_autosaves")
+      .upsert(
+        {
+          paper_id: paperId,
+          user_id: auth.userId,
+          field_key: body.fieldKey,
+          draft_text: body.text,
+          submitted: Boolean(body.submitted),
+          updated_at: now,
+        },
+        { onConflict: "paper_id,field_key" },
+      )
+      .then(({ error }) => ({ label: "write", error })),
+  ];
   if (body.session !== undefined) {
-    const { error: sessionError } = await auth.supabase.from("paper_autosaves").upsert(
-      {
-        paper_id: paperId,
-        user_id: auth.userId,
-        field_key: "loop_session",
-        draft_text: JSON.stringify(body.session),
-        submitted: true,
-        updated_at: now,
-      },
-      { onConflict: "paper_id,field_key" },
+    writes.push(
+      auth.supabase
+        .from("paper_autosaves")
+        .upsert(
+          {
+            paper_id: paperId,
+            user_id: auth.userId,
+            field_key: "loop_session",
+            draft_text: JSON.stringify(body.session),
+            submitted: true,
+            updated_at: now,
+          },
+          { onConflict: "paper_id,field_key" },
+        )
+        .then(({ error }) => ({ label: "session", error })),
     );
-    if (sessionError) {
-      console.error("[autosave] session failed", { code: sessionError.code, message: sessionError.message });
-      return NextResponse.json({ error: "Could not save." }, { status: 500 });
-    }
   }
   if (body.resume) {
-    const { data: existing } = await auth.supabase
-      .from("papers")
-      .select("current_stage")
-      .eq("id", paperId)
-      .eq("user_id", auth.userId)
-      .maybeSingle();
-    const currentStage = existing?.current_stage ?? 1;
-    const resumeMovesForward = body.resume.stage >= currentStage;
-    const { error: resumeError } = await auth.supabase
-      .from("papers")
-      .update({
-        ...(resumeMovesForward ? { resume: body.resume, current_stage: body.resume.stage } : {}),
-        updated_at: now,
-      })
-      .eq("id", paperId)
-      .eq("user_id", auth.userId);
-    if (resumeError) {
-      console.error("[autosave] resume failed", { code: resumeError.code, message: resumeError.message });
-      return NextResponse.json({ error: "Could not save." }, { status: 500 });
-    }
+    const resumeMovesForward = body.resume.stage >= auth.currentStage;
+    writes.push(
+      auth.supabase
+        .from("papers")
+        .update({
+          ...(resumeMovesForward ? { resume: body.resume, current_stage: body.resume.stage } : {}),
+          updated_at: now,
+        })
+        .eq("id", paperId)
+        .eq("user_id", auth.userId)
+        .then(({ error }) => ({ label: "resume", error })),
+    );
+  }
+  const results = await Promise.all(writes);
+  const failed = results.find((result) => result.error);
+  if (failed?.error) {
+    console.error(`[autosave] ${failed.label} failed`, { code: failed.error.code, message: failed.error.message });
+    return NextResponse.json({ error: "Could not save." }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }
