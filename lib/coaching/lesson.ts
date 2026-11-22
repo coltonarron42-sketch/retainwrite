@@ -1,5 +1,6 @@
 // SOP: coaching only, never generate submission text
 
+import { firstSentenceOf } from "@/lib/copy/sentences";
 import { clipWords } from "@/lib/copy/clip";
 import { z } from "zod";
 
@@ -92,8 +93,7 @@ export function guardLesson(
 }
 
 function firstSentence(prompt: string): string {
-  const match = prompt.match(/^[\s\S]{1,200}?[.!](?=\s|$)/);
-  return clipWords(match?.[0] ?? prompt, 200);
+  return clipWords(firstSentenceOf(prompt) || prompt, 200);
 }
 
 export function fallbackLesson(

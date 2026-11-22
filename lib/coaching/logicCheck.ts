@@ -1,3 +1,4 @@
+import { firstSentenceOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
@@ -210,7 +211,7 @@ export function assignmentAlertQuote(input: {
     .map((value) => value?.replace(/\s+/g, " ").trim() ?? "")
     .find((value) => value && !formatLine.test(value));
   const source = preferred || input.raw?.replace(/\s+/g, " ").trim() || "this assignment";
-  const sentence = source.split(/(?<=[.!?])\s+/)[0] ?? source;
+  const sentence = firstSentenceOf(source) || source;
   return quoteOnWordBoundary(sentence, 140);
 }
 
