@@ -1,13 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import {
   requestPasswordResetAction,
   updatePasswordAction,
   type AuthActionState,
 } from "@/app/auth/actions";
-import { announcePasswordUpdated } from "@/lib/auth/password-updated-signal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,29 +53,10 @@ export function ResetPasswordForm({ email }: { email: string }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [mismatchShown, setMismatchShown] = useState(false);
-  const updatedFor = state.passwordUpdatedFor;
   const MISMATCH = "The two passwords don't match. Type the same one twice.";
   const matches = password === confirm;
   const serverError = state.error && !(state.error === MISMATCH && matches) ? state.error : null;
   const error = mismatchShown && !matches ? MISMATCH : serverError;
-
-  useEffect(() => {
-    if (updatedFor) announcePasswordUpdated(updatedFor);
-  }, [updatedFor]);
-
-  if (updatedFor) {
-    return (
-      <div className="mt-8 space-y-4" role="status" data-testid="password-updated">
-        <p className="text-lg font-semibold text-rw-ink">Password updated.</p>
-        <p className="text-sm text-rw-ink/70">
-          Please return to your original browser and log in with your new password.
-        </p>
-        <Button asChild variant="secondary" className="w-full">
-          <Link href={`/login?email=${encodeURIComponent(updatedFor)}`}>Log in here instead</Link>
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <form

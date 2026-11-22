@@ -11,8 +11,6 @@ import { createClient } from "@/lib/supabase/server";
 export type AuthActionState = {
   error?: string;
   notice?: string;
-  /** Set after a verified password change; the email-window session is already signed out. */
-  passwordUpdatedFor?: string;
 };
 
 function safeNext(raw: FormDataEntryValue | null): string {
@@ -211,7 +209,7 @@ export async function updatePasswordAction(
   // They log in again where they started, with the password they just set.
   await supabase.auth.signOut({ scope: "local" });
   await clearDemoSession();
-  return { passwordUpdatedFor: user.email };
+  redirect(`/password-updated?email=${encodeURIComponent(user.email)}`);
 }
 
 /** Sign out this browser (clears the auth cookies) and go home. */
