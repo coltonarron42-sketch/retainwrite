@@ -144,3 +144,12 @@ describe("5: a reload never re-reads old bubbles", () => {
     expect(fresh.map((f) => f.key)).toEqual(["confirm:2"]);
   });
 });
+
+describe("1b: the clarifying ask matches what Pau Pau last asked", () => {
+  it("only treats sources/length as pending when her last reply ended with that ask", () => {
+    const src = read("components/stages/stage1/pau-pau-confirm.tsx");
+    expect(src).toContain('(lastPau.paras.at(-1) ?? "").includes(PAU_PAU_ASK_TEXT[ask])');
+    expect(src).toContain("pendingAsk: liveAsk,");
+    expect(src).toContain("clarifyingAsk(liveAsk)");
+  });
+});

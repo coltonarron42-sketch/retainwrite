@@ -145,6 +145,11 @@ export function PauPauConfirm({
     const text = draft.replace(/\s+$/, "");
     if (!text.trim() || replying || confirming) return;
     setDraft("");
+    // The ask Pau Pau is actually waiting on: only if her last reply ended with it
+    // (sources/length are asked once; after that she's asking "does it look right?").
+    const lastPau = [...turnsRef.current].reverse().find((t) => t.role === "pau");
+    const liveAsk: PauPauAsk | null =
+      ask === "topic" || (ask && lastPau?.role === "pau" && (lastPau.paras.at(-1) ?? "").includes(PAU_PAU_ASK_TEXT[ask])) ? ask : null;
     push({ role: "student", text });
     const currentAsk = ask;
 
@@ -192,7 +197,7 @@ export function PauPauConfirm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text.slice(0, 2000),
-          pendingAsk: currentAsk,
+          pendingAsk: liveAsk,
           requirements: reqRef.current,
           sheetExcerpt: sheetText?.slice(0, 8000) || undefined,
           history: turnsRef.current.slice(-8).map((t) =>
@@ -201,7 +206,7 @@ export function PauPauConfirm({
         }),
       });
       // Offline or the server failed: the same rules the server falls back to.
-      const result = ((res.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, currentAsk);
+      const result = ((res.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, liveAsk);
 
       const skip = result.skipAsk && currentAsk ? currentAsk : undefined;
       const after = skip ? new Set(dismissed).add(skip) : dismissed;
@@ -245,9 +250,9 @@ export function PauPauConfirm({
         return;
       }
       // Ambiguous: a real clarifying question, never move on.
-      push({ role: "pau", paras: [result.reply?.trim() || clarifyingAsk(currentAsk)], skip });
+      push({ role: "pau", paras: [result.reply?.trim() || clarifyingAsk(liveAsk)], skip });
     } catch {
-      push({ role: "pau", paras: [clarifyingAsk(currentAsk)] });
+      push({ role: "pau", paras: [clarifyingAsk(liveAsk)] });
     } finally {
       setReplying(false);
     }
