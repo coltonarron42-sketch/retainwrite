@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { bubbleIsSpeaking } from "@/lib/voice/presence";
 import { useChatPrefs } from "@/lib/voice/prefs";
-import { audibleSentence, subscribeAudible } from "@/lib/voice/speech";
+import { audibleEndedForGood, audibleSentence, subscribeAudible } from "@/lib/voice/speech";
 
 /**
  * Pau Pau's presence (PLAN.md 9): a small flat face, Design System ink with
@@ -64,8 +64,9 @@ export function useAudibleSentence(): string | null {
       setHeld(now);
       return;
     }
-    // Between two sentences the engine is silent for a moment; don't flicker.
-    const t = window.setTimeout(() => setHeld(null), 450);
+    // A real stop fades right away; between two sentences the engine is
+    // silent for a moment, so hold briefly and don't flicker.
+    const t = window.setTimeout(() => setHeld(null), audibleEndedForGood() ? 0 : 450);
     return () => window.clearTimeout(t);
   }, [now]);
   return now ?? held;

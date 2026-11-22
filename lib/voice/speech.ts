@@ -45,6 +45,12 @@ export function subscribeAudible(listener: () => void) {
   audibleListeners.add(listener);
   return () => audibleListeners.delete(listener);
 }
+/** True when the last silence is a real stop (Stop reading, barge-in, last
+    sentence done), not the gap between two sentences: the waves fade at once. */
+let audibleEnded = true;
+export function audibleEndedForGood(): boolean {
+  return audibleEnded;
+}
 export function audibleSentence(): string | null {
   return audible;
 }
@@ -222,12 +228,16 @@ function pump() {
     if (watchdog) clearTimeout(watchdog);
     watchdog = null;
     if (gen !== generation) return;
+    audibleEnded = queue.length === 0;
     setAudible(null);
     active = false;
     pump();
   };
   u.onstart = () => {
-    if (gen === generation && !finished) setAudible(next);
+    if (gen === generation && !finished) {
+      audibleEnded = false;
+      setAudible(next);
+    }
   };
   u.onend = done;
   u.onerror = done;
@@ -265,6 +275,7 @@ export function stopSpeech() {
   if (watchdog) clearTimeout(watchdog);
   watchdog = null;
   setSpeaking(false);
+  audibleEnded = true;
   setAudible(null);
   if (speechSupported()) {
     lastCancelAt = Date.now();

@@ -98,6 +98,8 @@ describe("QA 2:31 #5 + design: waves fade out, brows, tilt", () => {
     expect(css).toMatch(/\.pp-waves-out\s*\{\s*animation: pp-fade-out 0\.4s/);
     expect(tsx).toMatch(/pp-waves-out/);
     expect(tsx).toMatch(/setMounted\(false\), 450/);
+    // A real stop skips the between-sentence hold, so the fade starts at once.
+    expect(tsx).toMatch(/audibleEndedForGood\(\) \? 0 : 450/);
   });
   it("reduced motion: no exit animation, no tilt", () => {
     const reduce = css.slice(css.indexOf(".pp-waves-out {\n    animation: none") - 200);
@@ -107,5 +109,14 @@ describe("QA 2:31 #5 + design: waves fade out, brows, tilt", () => {
   });
   it("brows are visible at 40px", () => {
     expect(tsx).toMatch(/strokeOpacity="0\.92" strokeWidth="1\.8"/);
+  });
+});
+
+describe("QA 2:31 #5: stop is a real end", () => {
+  it("stopSpeech marks the silence as final", async () => {
+    const m = await import("@/lib/voice/speech");
+    m.stopSpeech();
+    expect(m.audibleEndedForGood()).toBe(true);
+    expect(m.audibleSentence()).toBeNull();
   });
 });
