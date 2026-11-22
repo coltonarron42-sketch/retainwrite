@@ -1,3 +1,4 @@
+import { splitSentences } from "@/lib/text/sentences";
 import { isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 /**
  * Rule-based story angle fallback (INTD600 Phase 2).
@@ -20,7 +21,7 @@ const DANGLING =
 export function clipToClause(raw: string, max = 72): string | null {
   const text = raw.replace(/…+/g, " ").replace(/\s+/g, " ").replace(/\?+/g, "").trim();
   if (!text || /^(paper|essay|assignment)$/i.test(text)) return null;
-  const sentence = text.split(/(?<=[.!])\s+/)[0] ?? text;
+  const sentence = splitSentences(text)[0] ?? text;
   let clause = (sentence.split(/[,;:]/)[0] ?? sentence).replace(/[.!?]+$/g, "").trim();
   if (clause.length > max) {
     const cut = clause.slice(0, max);

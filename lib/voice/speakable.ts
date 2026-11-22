@@ -3,6 +3,8 @@
  * assignment text, instructions and anything the student wrote are never
  * passed in, and quoted fragments that slip through are dropped here.
  */
+import { splitSentences } from "@/lib/text/sentences";
+
 export const COACH_NAME_SPOKEN_FORM = "Pow pow";
 
 const QUOTE = /[“”"]/;
@@ -15,10 +17,7 @@ export function speakableSentences(text: string): string[] {
   // "the question “Should schools…?”" → "this question"
   s = s.replace(/\bthe (question|prompt)\s*[“"][^”"]*[”"]/gi, "this $1");
   s = s.replace(/\(at least \d+ words\)/gi, "");
-  const sentences = s
-    .split(/(?<=[.?!][”")\]]*)\s+/)
-    .map((x) => x.trim())
-    .filter(Boolean)
+  const sentences = splitSentences(s)
     .filter((x) => !QUOTE.test(x))
     .filter((x) => !/^the big question\b/i.test(x))
     // Restating the topic repeats the student's own words; Pau Pau skips it.

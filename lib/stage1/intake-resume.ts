@@ -68,7 +68,7 @@ export function stanceStartBlockers(input: {
   if (!input.checklistConfirmed) reasons.push("Confirm the assignment card first.");
   if (!input.hasStory) reasons.push("Pick a story angle first.");
   // Voice length is a warning, never a hard stop (PLAN.md): see voiceShortNote.
-  if (!input.stanceOk) reasons.push("Save an early stance of at least 25 words.");
+  if (!input.stanceOk) reasons.push("Add a couple more sentences to your early take.");
   return reasons;
 }
 

@@ -22,4 +22,4 @@ export function earlyStanceQuestion(input: {
   return "What's your early take on this assignment?";
 }
 
-export const EARLY_STANCE_MIN_NOTE = "(at least 25 words)";
+export const EARLY_STANCE_MIN_NOTE = "A few sentences is perfect.";
