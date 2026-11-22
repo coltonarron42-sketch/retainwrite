@@ -1,5 +1,6 @@
 "use client";
 
+import { joinTranscript } from "@/lib/stage1/transcript";
 import { stopSpeech } from "@/lib/voice/speech";
 
 import {
@@ -130,8 +131,16 @@ export function ChatComposer({
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const baseRef = useRef("");
   const valueRef = useRef(value);
+  // What voice typing last put in the box. If the box changes any other way
+  // (typing, Send, the next question, a restored draft) the recognizer is
+  // dropped, so a late phrase can't bring back old text.
+  const lastEmittedRef = useRef<string | null>(null);
   useEffect(() => {
     valueRef.current = value;
+    if (recRef.current && lastEmittedRef.current !== null && value !== lastEmittedRef.current) {
+      dropRecognizer();
+      stopListening();
+    }
   }, [value]);
 
   const attachments = useMemo(() => files ?? [], [files]);
@@ -147,6 +156,10 @@ export function ChatComposer({
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
+    // Text put in from outside (a restored draft, voice typing) leaves the
+    // caret at the start, so the next thing typed would land in front of it.
+    // Keep the caret at the end unless the student is in the box.
+    if (document.activeElement !== ta) ta.setSelectionRange(ta.value.length, ta.value.length);
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
   }, [value]);
@@ -219,8 +232,16 @@ export function ChatComposer({
   }
 
   function stopListening() {
+    // stop() lets the last phrase finish; dropRecognizer() throws it away.
     recRef.current?.stop();
     setListening(false);
+  }
+
+  function dropRecognizer() {
+    const rec = recRef.current;
+    recRef.current = null;
+    lastEmittedRef.current = null;
+    rec?.abort();
   }
 
   function toggleMic() {
@@ -231,17 +252,20 @@ export function ChatComposer({
     rec.lang = navigator.language || "en-US";
     rec.interimResults = true;
     rec.continuous = true;
-    baseRef.current = valueRef.current.replace(/\s+$/, "");
-    let finalText = "";
+    dropRecognizer();
+    baseRef.current = valueRef.current;
+    const finals: string[] = [];
     rec.onresult = (event) => {
+      if (recRef.current !== rec) return;
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const r = event.results[i]!;
-        if (r.isFinal) finalText += r[0].transcript;
-        else interim += r[0].transcript;
+        if (r.isFinal) finals.push(r[0].transcript);
+        else interim = joinTranscript(interim, [r[0].transcript]);
       }
-      const spoken = `${finalText}${interim}`.replace(/\s+/g, " ").trim();
-      onChange([baseRef.current, spoken].filter(Boolean).join(" "));
+      const next = joinTranscript(baseRef.current, finals, interim);
+      lastEmittedRef.current = next;
+      onChange(next);
     };
     rec.onerror = (event) => {
       setMicNote(
@@ -253,7 +277,13 @@ export function ChatComposer({
       );
       setListening(false);
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      if (recRef.current === rec) {
+        recRef.current = null;
+        lastEmittedRef.current = null;
+      }
+      setListening(false);
+    };
     setMicNote(null);
     recRef.current = rec;
     // Pau Pau stops talking while the student talks.
@@ -275,7 +305,9 @@ export function ChatComposer({
 
   function send() {
     if (sendDisabled) return;
-    if (listening) stopListening();
+    // The sent text is final; nothing heard after this goes back in the box.
+    dropRecognizer();
+    setListening(false);
     onSend();
   }
 

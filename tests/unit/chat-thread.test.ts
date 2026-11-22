@@ -43,7 +43,7 @@ describe("Stage 1 is one chat thread", () => {
     expect(intake).not.toContain("Write or say it in your own words");
     expect(intake).toContain("Skip the get-to-know-you questions");
     expect(intake).toContain("Cancel edit");
-    expect(intake).toContain("aria-label={`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}");
+    expect(intake).toContain('<span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>');
     expect(moreWordsNote(12, 25, "Your early take")).toMatch(/^Give me a little more — a couple more sentences\?/);
   });
 

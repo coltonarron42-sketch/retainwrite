@@ -33,7 +33,7 @@ import {
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
 import { pauPauSummaryBubbles } from "@/lib/stage1/pau-pau";
-import { INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -1443,7 +1443,7 @@ export function AssignmentIntake({
   if (screen === "upload") {
     const hasFiles = stagedFiles.length > 0;
     const uploadSpeak: SpeakItem[] = [
-      { key: "ask", text: "What's the assignment we're working on?", turn: !error },
+      { key: "ask", text: `${ASSIGNMENT_GREETING} What's the assignment we're working on?`, turn: !error },
       ...(error && /^(Tell me|Give me|I couldn)/.test(error) ? [{ key: `err:${error}`, text: error, turn: true }] : []),
     ];
     return (
@@ -1451,7 +1451,8 @@ export function AssignmentIntake({
         <SpeakNew scope={paperId} items={uploadSpeak} />
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble as="h1" id="assignment-ask">
+          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
+          <PauPauBubble as="h1" id="assignment-ask" showName={false}>
             What&apos;s the assignment we&apos;re working on?
           </PauPauBubble>
           {error && sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -1511,7 +1512,8 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-[680px]">
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
+          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
           <ReadingBubble status={parseStatus} startedAt={parseStartedAt} />
         </div>
@@ -1571,7 +1573,8 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-[680px]">
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
+          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
           <ScrollIntoViewOnMount>
       <PauPauConfirm
@@ -2250,7 +2253,8 @@ export function AssignmentIntake({
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
           {/* The start of the chat, rebuilt from what's saved. */}
-          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
+          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
           <PauPauGroup bubbles={summary} />
           <EchoBubble text="Let's go" />
@@ -2557,8 +2561,8 @@ export function AssignmentIntake({
                   <span
                     className="inline-flex items-center gap-1"
                     title="Your voice sample: how much of your own writing Pau Pau has so far"
-                    aria-label={`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}
                   >
+                    <span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>
                     <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-ds-border">
                       <span
                         className="block h-full bg-ds-sage"
