@@ -215,7 +215,7 @@ export function OutlineChat(props: Props) {
           ) : null}
           <ReplayButton texts={[turnParas.join(" ")]} className="-ml-2" />
         </PauPauGroup>
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} />
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} />
         <ScrollToNewest signal={`${transcript.length}:${current?.key ?? "done"}:${props.error ?? ""}`} />
       </div>
 

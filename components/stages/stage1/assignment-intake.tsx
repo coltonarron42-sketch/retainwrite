@@ -1671,7 +1671,7 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
-              welcome={<WelcomeBack line={welcomeLine} scope={paperId} />}
+              welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />}
             />
           ) : (
             <ReadingBubble status="Getting your conversation back…" startedAt={Date.now()} />
@@ -2592,7 +2592,7 @@ export function AssignmentIntake({
             </PauPauGroup>
           ) : null}
 
-          <WelcomeBack line={welcomeLine} scope={paperId} />
+          <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
             <PauPauBubble showName={false} live>

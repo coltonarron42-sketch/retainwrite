@@ -678,7 +678,7 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} />
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} />
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}`} />
       </div>
 

@@ -29,7 +29,13 @@ export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: bool
 }
 
 /** The welcome-back turn at the end of the restored chat. Only this line is spoken. */
-export function WelcomeBack({ line, scope }: { line: string | null; scope: string }) {
+export function WelcomeBack({ line, scope, signal }: { line: string | null; scope: string; signal: string | number }) {
+  // It greets the return, then steps aside: once the chat moves on (a reply, a
+  // new turn), it's gone, so it never sits under newer turns.
+  const [atSignal, setAtSignal] = useState<string | number | null>(null);
+  useEffect(() => {
+    if (line && atSignal === null) setAtSignal(signal);
+  }, [line, signal, atSignal]);
   const { voice } = useChatPrefs();
   const shownAt = useRef(0);
   const spoken = useRef<string | null>(null);
@@ -49,7 +55,7 @@ export function WelcomeBack({ line, scope }: { line: string | null; scope: strin
     markHeard(scope, [line]);
     speak([line]);
   }, [line, voice, scope]);
-  if (!line) return null;
+  if (!line || (atSignal !== null && atSignal !== signal)) return null;
   return (
     <div data-welcome-back>
       <PauPauGroup bubbles={[line]} />
