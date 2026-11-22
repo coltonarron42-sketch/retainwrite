@@ -205,9 +205,10 @@ export async function updatePasswordAction(
     return { error: "Your new password didn't save. Try again, or request a new reset link." };
   }
   await probe.auth.signOut({ scope: "local" });
-  // Don't keep the student signed in inside the email app's browser.
+  // Global sign-out: ends every session for this user (other browsers and
+  // devices that may know the old password) and this email-window session.
   // They log in again where they started, with the password they just set.
-  await supabase.auth.signOut({ scope: "local" });
+  await supabase.auth.signOut({ scope: "global" });
   await clearDemoSession();
   redirect(`/password-updated?email=${encodeURIComponent(user.email)}`);
 }

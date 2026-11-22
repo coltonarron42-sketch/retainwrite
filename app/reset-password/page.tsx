@@ -18,7 +18,7 @@ export default async function ResetPasswordPage() {
   }
   return (
     <main className="min-h-screen bg-rw-paper">
-      <SiteHeader />
+      <SiteHeader minimal />
       <div className="mx-auto max-w-md px-5 pb-20 pt-28">
         <h1 className="font-display text-4xl text-rw-ink">Set a new password</h1>
         <p className="mt-2 text-sm text-rw-ink/60">
