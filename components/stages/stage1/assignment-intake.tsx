@@ -76,7 +76,7 @@ import {
 import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-stance";
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
-import { createLead, LEADS_INTRO, leadLinks, leadSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
+import { createLead, exampleLeadWhy, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
 import {
   evaluateStage1VoiceMinimum,
@@ -1125,14 +1125,14 @@ export function AssignmentIntake({
           whyAssignment:
             "Someone who has written or spoken about the same question your prompt asks.",
           scholarlyRequired: scholarly,
-          searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
         }),
       ];
       if (tags[0]) {
         suggested.push(
           createLead({
             name: `An example connected to ${tags[0]}`,
-            whyAssignment: "Connects to the assignment's required angle.",
+            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value),
             whyInterest: `Touches on your interest in ${tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
@@ -1326,14 +1326,14 @@ export function AssignmentIntake({
           whyAssignment:
             "Someone who has written or spoken about the same question your prompt asks.",
           scholarlyRequired: scholarly,
-          searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
         }),
       ];
       if (tags[0]) {
         suggested.push(
           createLead({
             name: `An example connected to ${tags[0]}`,
-            whyAssignment: "Connects to the assignment's required angle.",
+            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value),
             whyInterest: `Touches on your interest in ${tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
@@ -2304,18 +2304,51 @@ export function AssignmentIntake({
               ...(metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? [readyVoiceLine(voiceEval.totalWords) as string] : []),
             ]
           : [];
+    // Leads fold into Pau Pau's CURRENT turn (PLAN.md 9): her intro, the links, then the question. Never a separate bubble.
+    const leadsShown = leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode;
+    const leadsList = leadsShown ? (
+      <ul key="leads" className="space-y-3" aria-label="Research leads" data-leads>
+                {leads.map((lead) => (
+                  <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
+                    <p className="font-semibold">{lead.name}</p>
+                    <p className="text-ds-muted">{lead.whyAssignment}</p>
+                    {lead.whyInterest ? <p className="text-ds-muted">{lead.whyInterest}</p> : null}
+                    <ul className="mt-1 flex flex-wrap gap-x-4" aria-label={`Look for: ${lead.name}`}>
+                      {leadLinks(lead, requirements?.topic.value || requirements?.promptQuestion.value).map((link) => (
+                        <li key={link.kind}>
+                          <a
+                            href={link.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-lead-link={link.kind}
+                            className={`inline-flex min-h-[48px] items-center ${dsLink}`}
+                          >
+                            {link.label}
+                            <span className="sr-only"> (opens in a new tab)</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                    <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => acceptLead(lead)}>
+                      Add as a lead
+                    </DsButton>
+                  </li>
+                ))}
+              </ul>
+    ) : null;
+    const leadsBubbles = leadsShown ? [LEADS_INTRO, leadsList] : [];
     const threadSpeak: SpeakItem[] = [
       ...INTRO_BUBBLES.map((text, i) => ({ key: `intro:${i}`, text })),
       ...coachingPlan.slice(0, reach).map((item) => ({ key: `q:${item.id}`, text: item.text })),
       ...(storyAngle || screen === "story"
         ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
         : []),
+      // Leads: voice reads only Pau Pau's intro, never the links or lead cards; spoken before the question it rides with.
+      ...(leadsShown ? [{ key: "leads:intro", text: LEADS_INTRO }] : []),
       ...(q ? [{ key: editing ? `edit:${editSeq}:${q.id}` : `q:${q.id}`, text: currentTurnTexts[0]!, turn: true }] : []),
       ...(screen === "story" && editing
         ? [{ key: `edit:${editSeq}:story`, text: "Here are a few directions your paper could take, built from what you told me.", turn: true }]
         : []),
-      // Leads: voice reads only Pau Pau's intro, never the links or lead cards.
-      ...(leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode ? [{ key: "leads:intro", text: LEADS_INTRO }] : []),
       ...(screen === "gate" ? [{ key: "gate", text: currentTurnTexts.join(" "), turn: true }] : []),
       ...(sparkHere ? [{ key: `spark-offer:${sparkHere.qid}`, text: SPARK_OFFER }] : []),
       ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_DECLINED }] : []),
@@ -2403,12 +2436,14 @@ export function AssignmentIntake({
               bubbles={[
                 ...(!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES : []),
                 editing ? "Sure, change anything and send it again." : null,
+                ...leadsBubbles,
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
-              ].filter((b): b is string => Boolean(b))}
+              ].filter((b) => Boolean(b))}
               headingIndex={
                 (!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES.length : 0) +
                 (editing ? 1 : 0) +
+                leadsBubbles.length +
                 (stanceMode && !editing ? 1 : 0)
               }
               headingId="coach-question"
@@ -2451,6 +2486,8 @@ export function AssignmentIntake({
               <ReplayButton texts={currentTurnTexts} className="-ml-2" />
             </PauPauGroup>
           ) : null}
+
+          {leadsShown && screen === "coaching" && !q ? <PauPauGroup bubbles={leadsBubbles} /> : null}
 
           {sparkHere && !q ? (
             <SparkExchange
@@ -2499,43 +2536,11 @@ export function AssignmentIntake({
             />
           ) : null}
 
-          {leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode ? (
-            // Pau Pau introduces the leads in her own words; the links follow in the same reply.
-            <PauPauGroup bubbles={[LEADS_INTRO]}>
-              <ul className="space-y-3" aria-label="Research leads" data-leads>
-                {leads.map((lead) => (
-                  <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
-                    <p className="font-semibold">{lead.name}</p>
-                    <p className="text-ds-muted">{lead.whyAssignment}</p>
-                    {lead.whyInterest ? <p className="text-ds-muted">{lead.whyInterest}</p> : null}
-                    <ul className="mt-1 flex flex-wrap gap-x-4" aria-label={`Look for: ${lead.name}`}>
-                      {leadLinks(lead, requirements?.topic.value || requirements?.promptQuestion.value).map((link) => (
-                        <li key={link.kind}>
-                          <a
-                            href={link.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            data-lead-link={link.kind}
-                            className={`inline-flex min-h-[48px] items-center ${dsLink}`}
-                          >
-                            {link.label}
-                            <span className="sr-only"> (opens in a new tab)</span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                    <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => acceptLead(lead)}>
-                      Add as a lead
-                    </DsButton>
-                  </li>
-                ))}
-              </ul>
-            </PauPauGroup>
-          ) : null}
 
           {screen === "gate" ? (
             <PauPauGroup
               bubbles={[
+                ...leadsBubbles,
                 "That's everything for Stage 1. Ready for the stance interview?",
                 metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords)
                   ? readyVoiceLine(voiceEval.totalWords)
@@ -2555,7 +2560,7 @@ export function AssignmentIntake({
                 </ul>,
                 voiceShortNote({ voiceOk: voiceWordsMet }) || null,
               ].filter((b) => b !== null)}
-              headingIndex={0}
+              headingIndex={leadsBubbles.length}
               headingId="gate-ask"
             >
               <div className="pt-2">

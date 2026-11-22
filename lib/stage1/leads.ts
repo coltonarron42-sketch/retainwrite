@@ -89,3 +89,26 @@ export function leadSearchTerms(topic: string | null | undefined, extra?: string
   const out = [extra?.trim(), t].filter(Boolean).join(" ");
   return out || undefined;
 }
+
+function shortTopic(topic: string | null | undefined): string {
+  return (topic ?? "").replace(/[?.!]+$/, "").replace(/\s+/g, " ").trim().slice(0, 70);
+}
+
+/**
+ * The practitioner lead gets its own search: people who work on the topic
+ * (interviews, case studies), plus the student's interest when there is one,
+ * so it never repeats the plain topic search.
+ */
+export function practitionerSearchTerms(topic: string | null | undefined, interest?: string | null): string | undefined {
+  const t = shortTopic(topic);
+  if (!t) return undefined;
+  return [t, "practitioner interview case study", interest?.trim()].filter(Boolean).join(" ");
+}
+
+/** A concrete one-line reason for the interest-steered example lead. */
+export function exampleLeadWhy(interest: string, topic: string | null | undefined): string {
+  const t = shortTopic(topic);
+  return t
+    ? `A real case from ${interest} you can test your take on "${t}" against.`
+    : `A real case from ${interest} you can test your take against.`;
+}

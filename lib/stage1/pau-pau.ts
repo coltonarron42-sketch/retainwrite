@@ -244,14 +244,15 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
 
 /**
  * A small set of natural openers so the read-back doesn't always start the
- * same way. Picked by a stable seed (the paper id) so a reload says the same thing.
+ * same way. Every one fits a file upload as well as a pasted prompt (no
+ * "Thanks, that helps.", which answers a reply, not a document). Picked by a stable seed (the paper id) so a reload says the same thing.
  * [lead-in, verb phrase before "<course>: <length>"].
  */
 export const SUMMARY_OPENERS: ReadonlyArray<string> = [
   "Okay, I've read it.",
   "Got it.",
   "Alright, I read it through.",
-  "Thanks, that helps.",
+  "Okay, I've gone through it.",
   "Okay, here's what I'm seeing.",
   "Okay, I've read it through.",
   "Alright, here's the gist.",
