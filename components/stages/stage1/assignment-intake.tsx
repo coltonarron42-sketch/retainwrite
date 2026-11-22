@@ -93,7 +93,15 @@ import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
 import { Check } from "lucide-react";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
-import { markOffered, useHesitation, wasOffered } from "@/components/stages/stage1/hesitation";
+import {
+  SPARK_DECLINED,
+  SPARK_OFF,
+  SparkExchange,
+  loadSparks,
+  saveSparks,
+  useHesitation,
+  type SparkTurn,
+} from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
 import type { SpeakItem } from "@/lib/voice/speech";
@@ -217,6 +225,8 @@ export function AssignmentIntake({
   const [error, setError] = useState<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
   const [shortEcho, setShortEcho] = useState<string | null>(null);
+  // Bumps on every edit so read-aloud treats the re-asked question as new.
+  const [editSeq, setEditSeq] = useState(0);
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
@@ -597,11 +607,21 @@ export function AssignmentIntake({
   // Step 4: read-aloud and hesitation help (both optional, saved per user).
   useStopSpeechOnUnmount();
   const chatPrefs = useChatPrefs();
-  const [spark, setSpark] = useState<{
-    qid: string;
-    status: "offer" | "loading" | "shown" | "declined" | "off";
-    questions?: string[];
-  } | null>(null);
+  // Spark exchanges by question id, kept for this user + paper so they stay in
+  // the thread and each question is offered at most once (also after reload).
+  const [sparks, setSparks] = useState<Record<string, SparkTurn>>({});
+  const sparksRef = useRef(sparks);
+  useEffect(() => {
+    const loaded = loadSparks(paperId);
+    sparksRef.current = loaded;
+    setSparks(loaded);
+  }, [paperId]);
+  const updateSpark = (qid: string, turn: SparkTurn) => {
+    const next = { ...sparksRef.current, [qid]: turn };
+    sparksRef.current = next;
+    setSparks(next);
+    saveSparks(paperId, next);
+  };
   const hesitationKey =
     screen === "coaching" && editReturn === null
       ? qIndex < 0
@@ -614,11 +634,10 @@ export function AssignmentIntake({
     questionKey: hesitationKey,
     text: draftAnswer,
     enabled:
-      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(spark && spark.qid === hesitationKey),
+      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]),
     onHesitate: (key) => {
-      if (wasOffered(paperId, key)) return;
-      markOffered(paperId, key);
-      setSpark({ qid: key, status: "offer" });
+      if (sparksRef.current[key] || chatPrefs.sparkOff) return;
+      updateSpark(key, { status: "offer" });
     },
   });
 
@@ -1288,6 +1307,7 @@ export function AssignmentIntake({
   /** Tap an earlier answer's bubble: reopen that question with the answer in the box. */
   function editAnswer(target: number | "story" | "stance") {
     if (submitting || pickingStory) return;
+    setEditSeq((n) => n + 1);
     if (!editReturn) {
       setEditReturn({
         at: screen === "story" ? "story" : screen === "gate" ? "gate" : qIndex < 0 ? "stance" : qIndex,
@@ -1352,7 +1372,7 @@ export function AssignmentIntake({
       return;
     }
     if (!stanceOk) {
-      setError("Save an early stance of at least 25 words.");
+      setError("Add a couple more sentences to your early take.");
       return;
     }
     setStartingStance(true);
@@ -2155,10 +2175,14 @@ export function AssignmentIntake({
       );
     };
     const summary = pauPauSummaryBubbles(requirements, { seed: paperId });
-    const sparkHere = spark && q && spark.qid === q.id ? spark : null;
+    const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
+    const sparkFor = (qid: string) =>
+      sparks[qid] ? (
+        <SparkExchange turn={sparks[qid]!} active={false} onYes={() => {}} onNo={() => {}} onOff={() => {}} />
+      ) : null;
     const answerSpark = async () => {
       if (!q) return;
-      setSpark({ qid: q.id, status: "loading" });
+      updateSpark(q.id, { status: "loading" });
       let questions: string[] | undefined;
       try {
         const res = await fetch(`/api/papers/${paperId}/intake/spark`, {
@@ -2178,8 +2202,7 @@ export function AssignmentIntake({
       } catch {
         /* fall through */
       }
-      setSpark({
-        qid: q.id,
+      updateSpark(q.id, {
         status: "shown",
         questions: questions?.length
           ? questions
@@ -2188,7 +2211,13 @@ export function AssignmentIntake({
     };
     // Only Pau Pau's own spoken sentences go to read-aloud.
     const currentTurnTexts: string[] = q
-      ? [stanceMode && !editing ? `Last one before the stance interview. ${q.text}` : q.text]
+      ? [
+          editing
+            ? `Sure, change anything and send it again. ${q.text}`
+            : stanceMode
+              ? `Last one before the stance interview. ${q.text}`
+              : q.text,
+        ]
       : screen === "story"
         ? ["Here are a few directions your paper could take, built from what you told me."]
         : screen === "gate"
@@ -2203,11 +2232,14 @@ export function AssignmentIntake({
       ...(storyAngle || screen === "story"
         ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
         : []),
-      ...(q ? [{ key: `q:${q.id}`, text: currentTurnTexts[0]!, turn: true }] : []),
+      ...(q ? [{ key: editing ? `edit:${editSeq}:${q.id}` : `q:${q.id}`, text: currentTurnTexts[0]!, turn: true }] : []),
+      ...(screen === "story" && editing
+        ? [{ key: `edit:${editSeq}:story`, text: "Here are a few directions your paper could take, built from what you told me.", turn: true }]
+        : []),
       ...(screen === "gate" ? [{ key: "gate", text: currentTurnTexts.join(" "), turn: true }] : []),
       ...(sparkHere ? [{ key: `spark-offer:${sparkHere.qid}`, text: SPARK_OFFER }] : []),
-      ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: "No problem. Take your time." }] : []),
-      ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: "Got it. I won't offer again." }] : []),
+      ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_DECLINED }] : []),
+      ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_OFF }] : []),
       ...(sparkHere?.questions ?? []).map((text, i) => ({ key: `spark:${sparkHere!.qid}:${i}`, text })),
       ...(error && /^(Give me a little more|Tell me a little)/.test(error) ? [{ key: `err:${error}`, text: error }] : []),
     ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
@@ -2232,6 +2264,7 @@ export function AssignmentIntake({
             return (
               <div key={item.id} className="space-y-4">
                 <PauPauBubble showName={false}>{item.text}</PauPauBubble>
+                {isCurrent ? null : sparkFor(item.id)}
                 <EchoBubble
                   text={said || "Skipped"}
                   muted={!said}
@@ -2265,6 +2298,7 @@ export function AssignmentIntake({
           {stanceAnswer && !(stanceMode && !editing) ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>{stanceText}</PauPauBubble>
+              {stanceMode ? null : sparkFor("stance_early")}
               <EchoBubble
                 text={stanceAnswer}
                 editing={stanceMode}
@@ -2312,60 +2346,16 @@ export function AssignmentIntake({
           ) : null}
 
           {sparkHere ? (
-            <div className="space-y-4" data-spark>
-              <PauPauGroup bubbles={[SPARK_OFFER]}>
-                {sparkHere.status === "offer" ? (
-                  <div className="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Want some questions?">
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => void answerSpark()}>
-                      Yes
-                    </DsButton>
-                    <DsButton
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setSpark({ qid: sparkHere.qid, status: "declined" })}
-                    >
-                      No thanks
-                    </DsButton>
-                    <button
-                      type="button"
-                      className="ds-focus min-h-[48px] px-2 text-[13px] text-ds-muted underline-offset-4 hover:underline"
-                      onClick={() => {
-                        setChatPref("sparkOff", true);
-                        setSpark({ qid: sparkHere.qid, status: "off" });
-                      }}
-                    >
-                      Don&apos;t offer again
-                    </button>
-                  </div>
-                ) : null}
-              </PauPauGroup>
-              {sparkHere.status !== "offer" ? (
-                <EchoBubble
-                  text={
-                    sparkHere.status === "declined" ? "No thanks" : sparkHere.status === "off" ? "Don't offer again" : "Yes"
-                  }
-                />
-              ) : null}
-              {sparkHere.status === "loading" ? (
-                <PauPauBubble showName={false} live>
-                  <span role="status">Thinking of a couple of questions…</span>
-                </PauPauBubble>
-              ) : null}
-              {sparkHere.status === "declined" ? (
-                <PauPauBubble showName={false}>No problem. Take your time.</PauPauBubble>
-              ) : null}
-              {sparkHere.status === "off" ? (
-                <PauPauBubble showName={false}>Got it. I won&apos;t offer again.</PauPauBubble>
-              ) : null}
-              {sparkHere.status === "shown" && sparkHere.questions ? (
-                <PauPauGroup bubbles={sparkHere.questions} live label="questions to think about">
-                  <p className="text-[13px] leading-[1.6] text-ds-muted">
-                    No need to answer these. Write whatever comes to you, in your own words.
-                  </p>
-                </PauPauGroup>
-              ) : null}
-            </div>
+            <SparkExchange
+              turn={sparkHere}
+              active
+              onYes={() => void answerSpark()}
+              onNo={() => updateSpark(sparkHere.qid, { status: "declined" })}
+              onOff={() => {
+                setChatPref("sparkOff", true);
+                updateSpark(sparkHere.qid, { status: "off" });
+              }}
+            />
           ) : null}
 
           {screen === "story" ? (
@@ -2420,7 +2410,7 @@ export function AssignmentIntake({
                       {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
                     </span>
                   </li>
-                  <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
+                  <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
                 </ul>,
                 voiceShortNote({ voiceOk: voiceWordsMet }) || null,
               ].filter((b) => b !== null)}

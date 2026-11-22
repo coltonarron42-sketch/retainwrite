@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { DsButton } from "@/components/ui/ds-button";
+import { PauPauBubble, PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
+import { SPARK_OFFER } from "@/lib/stage1/spark";
 import { HESITATION_DELETE_SETTLE_MS, HESITATION_IDLE_MS, isHeavyDelete } from "@/lib/stage1/spark";
 
 /**
@@ -48,23 +52,85 @@ export function useHesitation({
   }, [questionKey, text, enabled, idleMs]);
 }
 
-const OFFERED_PREFIX = "rw:spark-offered:";
+export type SparkTurn = {
+  status: "offer" | "loading" | "shown" | "declined" | "off";
+  questions?: string[];
+};
 
-export function wasOffered(paperId: string, questionKey: string): boolean {
+/** One record per question, scoped to this user and paper. Present = already offered. */
+const name = (paperId: string) => `spark:${paperId}`;
+
+export function loadSparks(paperId: string): Record<string, SparkTurn> {
   try {
-    const list = JSON.parse(window.localStorage.getItem(OFFERED_PREFIX + paperId) ?? "[]") as string[];
-    return list.includes(questionKey);
+    const raw = readScoped(name(paperId));
+    const parsed = raw ? (JSON.parse(raw) as Record<string, SparkTurn>) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    return false;
+    return {};
   }
 }
 
-export function markOffered(paperId: string, questionKey: string) {
-  try {
-    const list = JSON.parse(window.localStorage.getItem(OFFERED_PREFIX + paperId) ?? "[]") as string[];
-    if (!list.includes(questionKey)) list.push(questionKey);
-    window.localStorage.setItem(OFFERED_PREFIX + paperId, JSON.stringify(list));
-  } catch {
-    /* ignore */
-  }
+export function saveSparks(paperId: string, sparks: Record<string, SparkTurn>) {
+  writeScoped(name(paperId), JSON.stringify(sparks));
 }
+
+/**
+ * The spark exchange as Pau Pau's bubbles only. The student's tap is not shown
+ * as a speech bubble (they didn't write it); the buttons simply go away.
+ */
+export function SparkExchange({
+  turn,
+  active,
+  onYes,
+  onNo,
+  onOff,
+}: {
+  turn: SparkTurn;
+  active: boolean;
+  onYes: () => void;
+  onNo: () => void;
+  onOff: () => void;
+}) {
+  return (
+    <div className="space-y-4" data-spark data-spark-status={turn.status}>
+      <PauPauGroup bubbles={[SPARK_OFFER]}>
+        {turn.status === "offer" && active ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Want some questions?">
+            <DsButton type="button" size="sm" variant="secondary" onClick={onYes}>
+              Yes
+            </DsButton>
+            <DsButton type="button" size="sm" variant="ghost" onClick={onNo}>
+              No thanks
+            </DsButton>
+            <button
+              type="button"
+              className="ds-focus min-h-[48px] px-2 text-[13px] text-ds-muted underline-offset-4 hover:underline"
+              onClick={onOff}
+            >
+              Don&apos;t offer again
+            </button>
+          </div>
+        ) : null}
+      </PauPauGroup>
+      {turn.status === "loading" ? (
+        <PauPauBubble showName={false} live>
+          <span role="status">Thinking of a couple of questions…</span>
+        </PauPauBubble>
+      ) : null}
+      {turn.status === "declined" ? <PauPauBubble showName={false}>{SPARK_DECLINED}</PauPauBubble> : null}
+      {turn.status === "off" ? <PauPauBubble showName={false}>{SPARK_OFF}</PauPauBubble> : null}
+      {turn.status === "shown" && turn.questions?.length ? (
+        <PauPauGroup bubbles={turn.questions} live={active} label="questions to think about">
+          {active ? (
+            <p className="text-[13px] leading-[1.6] text-ds-muted">
+              No need to answer these. Write whatever comes to you, in your own words.
+            </p>
+          ) : null}
+        </PauPauGroup>
+      ) : null}
+    </div>
+  );
+}
+
+export const SPARK_DECLINED = "No problem. Take your time.";
+export const SPARK_OFF = "Got it. I won't offer again.";

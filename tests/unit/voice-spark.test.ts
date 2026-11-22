@@ -72,13 +72,90 @@ describe("hesitation spark", () => {
   });
   it("intake offers once per question, with Yes / No thanks / Don't offer again, and never for background", () => {
     const s = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(s).toContain("wasOffered(paperId, key)");
+    expect(s).toContain("if (sparksRef.current[key] || chatPrefs.sparkOff) return;");
     expect(s).toContain('coachingPlan[qIndex].kind !== "background"');
-    expect(s).toContain("No thanks");
-    expect(s).toContain("Don&apos;t offer again");
+    const h = readFileSync("components/stages/stage1/hesitation.tsx", "utf8");
+    expect(h).toContain("No thanks");
+    expect(h).toContain("Don&apos;t offer again");
     expect(s).toContain('setChatPref("sparkOff", true)');
   });
   it("mic stops speech", () => {
     expect(readFileSync("components/stages/stage1/chat-composer.tsx", "utf8")).toContain("stopSpeech();");
+  });
+});
+
+describe("sentence splitting keeps abbreviations together", () => {
+  it("does not break at Prof., Dr., U.S., e.g., etc.", async () => {
+    const { splitSentences } = await import("@/lib/text/sentences");
+    expect(splitSentences("Sounds like ENG 101 and Prof. Dana Ruiz: a 5 page essay. It's due Friday.")).toEqual([
+      "Sounds like ENG 101 and Prof. Dana Ruiz: a 5 page essay.",
+      "It's due Friday.",
+    ]);
+    expect(splitSentences("Ask Dr. Kim or Mr. Lee. Mrs. Ortiz and Ms. Park too.")).toEqual([
+      "Ask Dr. Kim or Mr. Lee.",
+      "Mrs. Ortiz and Ms. Park too.",
+    ]);
+    expect(splitSentences("It covers the U.S. Senate, e.g. filibusters, i.e. delays, etc. and more. Then St. Louis vs. Chicago.")).toEqual([
+      "It covers the U.S. Senate, e.g. filibusters, i.e. delays, etc. and more.",
+      "Then St. Louis vs. Chicago.",
+    ]);
+    expect(speakableSentences("Looks like a paper for Prof. Dana Ruiz. It's due Friday.")).toEqual([
+      "Looks like a paper for Prof. Dana Ruiz.",
+      "It's due Friday.",
+    ]);
+  });
+});
+
+describe("what actually reaches speechSynthesis", () => {
+  it("'Pau Pau' is handed to the speech engine as 'Pow pow', one sentence per utterance, in order", async () => {
+    const spoken: string[] = [];
+    class FakeUtterance {
+      text: string;
+      voice: unknown = null;
+      lang = "";
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(t: string) {
+        this.text = t;
+      }
+    }
+    const synth = {
+      speak(u: FakeUtterance) {
+        spoken.push(u.text);
+        setTimeout(() => u.onend?.(), 0);
+      },
+      cancel() {},
+      getVoices: () => [],
+    };
+    const g = globalThis as Record<string, unknown>;
+    g.window = { speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance };
+    g.SpeechSynthesisUtterance = FakeUtterance;
+    const { speak, stopSpeech } = await import("@/lib/voice/speech");
+    speak(["Hi, I'm Pau Pau. Pau Pau will ask a few questions."]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spoken).toEqual(["Hi, I'm Pow pow.", "Pow pow will ask a few questions."]);
+    expect(spoken.join(" ")).not.toContain("Pau");
+    stopSpeech();
+    delete g.window;
+    delete g.SpeechSynthesisUtterance;
+  });
+});
+
+describe("QA retest fixes", () => {
+  const intake = () => readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+  it("no visible word-count numbers for the early take", async () => {
+    const { EARLY_STANCE_MIN_NOTE } = await import("@/lib/stage1/early-stance");
+    expect(EARLY_STANCE_MIN_NOTE).not.toMatch(/\d/);
+    expect(intake()).not.toContain("≥ 25 words");
+    expect(intake()).not.toContain("at least 25 words");
+  });
+  it("spark exchange never invents student bubbles", () => {
+    const s = intake();
+    expect(s).not.toMatch(/EchoBubble[\s\S]{0,200}"No thanks"/);
+    expect(readFileSync("components/stages/stage1/hesitation.tsx", "utf8")).not.toContain("EchoBubble");
+  });
+  it("edit mode re-asks aloud (fresh read-aloud key per edit)", () => {
+    expect(intake()).toContain("edit:${editSeq}:${q.id}");
   });
 });
