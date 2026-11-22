@@ -139,6 +139,8 @@ type Props = {
   ) => void | boolean | Promise<void | boolean>;
 };
 
+const PLACEHOLDER_CONCEPT = /^(the )?(assigned )?concept$/i;
+
 function storageKey(paperId: string) {
   return `rw_loop_${paperId}`;
 }
@@ -1190,6 +1192,7 @@ function ConfirmPanel({
   onConfirm: (notes: string) => void;
 }) {
   const notes = keptIdeas(section.ideas).at(-1) ?? "";
+  const angle = [section.teachAspect, section.concept].find((item) => item && !PLACEHOLDER_CONCEPT.test(item)) ?? null;
   return (
     <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
       <CoachSays>{memory ? MEMORY_CONFIRM : "Ready to move forward with this?"}</CoachSays>
@@ -1199,15 +1202,17 @@ function ConfirmPanel({
             <dt className="inline font-semibold">Lead: </dt>
             <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
           </div>
-          {section.teachAspect || section.concept ? (
+          {angle ? (
             <div>
               <dt className="inline font-semibold">Angle: </dt>
-              <dd className="inline">{asHeading(section.teachAspect ?? section.concept)}</dd>
+              <dd className="inline">{asHeading(angle)}</dd>
             </div>
           ) : null}
         </dl>
       ) : null}
-      {section.concept ? <p className="mt-2 text-sm">Lesson link: {lessonLinkFor(section.concept)}</p> : null}
+      {section.concept && !PLACEHOLDER_CONCEPT.test(section.concept) ? (
+        <p className="mt-2 text-sm">Lesson link: {lessonLinkFor(section.concept)}</p>
+      ) : null}
       <Button type="button" className="mt-3" onClick={() => onConfirm(notes)}>
         Yes, lock it in
       </Button>
