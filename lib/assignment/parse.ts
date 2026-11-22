@@ -155,6 +155,11 @@ export function sanitizeParsedRequirements(
   ) {
     next.promptQuestion = emptyRequirements().promptQuestion;
   }
+  // "other" with nothing named is not a style: it dead-ends the confirm gate
+  // ("Describe the other citation style"). Let the sheet's own words fill it.
+  if (next.citationStyle.value === "other" && !next.citationStyleOther?.trim()) {
+    next.citationStyle = emptyRequirements().citationStyle;
+  }
   const filled = fillEmptyRequirements(next, extra);
   if (typeof filled.topic.value === "string" && isFormatOrLengthLine(filled.topic.value)) {
     filled.topic = emptyRequirements().topic;
