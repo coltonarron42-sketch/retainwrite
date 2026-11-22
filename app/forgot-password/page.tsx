@@ -1,9 +1,14 @@
 import { SiteHeader } from "@/components/marketing/site-header";
 import { ForgotPasswordForm } from "@/components/auth/password-reset-forms";
+import { resetErrorMessage } from "@/lib/auth/reset";
 
 export const metadata = { title: "Reset password" };
 
-export default function ForgotPasswordPage() {
+type Props = { searchParams?: Promise<{ error?: string }> };
+
+export default async function ForgotPasswordPage({ searchParams }: Props) {
+  const params = searchParams ? await searchParams : {};
+  const linkError = resetErrorMessage(params.error);
   return (
     <main className="min-h-screen bg-rw-paper">
       <SiteHeader />
@@ -12,6 +17,11 @@ export default function ForgotPasswordPage() {
         <p className="mt-2 text-sm text-rw-ink/60">
           Enter the email you signed up with. We&apos;ll send a link to set a new password.
         </p>
+        {linkError ? (
+          <p className="mt-4 text-sm text-red-700" role="alert">
+            {linkError}
+          </p>
+        ) : null}
         <ForgotPasswordForm />
       </div>
     </main>

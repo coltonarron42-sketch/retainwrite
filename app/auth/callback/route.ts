@@ -18,13 +18,16 @@ export async function GET(request: Request) {
     searchParams.get("error") || searchParams.get("error_code") || searchParams.get("error_description");
   const next = safeInternalPath(searchParams.get("next"));
 
+  const isRecovery = type === "recovery" || next.startsWith("/reset-password");
   const fail = (code: string) =>
     NextResponse.redirect(
-      `${origin}/login?error=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`,
+      isRecovery
+        ? `${origin}/forgot-password?error=${encodeURIComponent(code)}`
+        : `${origin}/login?error=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`,
     );
 
   if (errorParam) {
-    return fail("access_denied");
+    return fail(searchParams.get("error_code") === "otp_expired" ? "otp_expired" : "access_denied");
   }
 
   if (!hasSupabaseConfig()) {
