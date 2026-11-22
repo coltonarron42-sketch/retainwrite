@@ -476,6 +476,8 @@ export function ChatComposer({
     if (sendDisabled) return;
     // A tap on Send unlocks speech on phones, so Pau Pau's answer can play.
     unlockSpeech();
+    // Barge-in: Send while Pau Pau is talking stops her and takes the reply.
+    if (isSpeaking()) stopSpeech();
     // The sent text is final; nothing heard after this goes back in the box.
     dropRecognizer();
     setListening(false);
@@ -641,6 +643,23 @@ export function ChatComposer({
                 ) : null}
                 {callStatusText(callStatus)}
               </span>
+            ) : null}
+            {callOn && callStatus === "paused" ? (
+              // Barge-in: listening stays paused while she talks (echo protection)
+              // unless the student taps here; then she stops and the mic opens.
+              <button
+                type="button"
+                data-barge-in
+                aria-label="Interrupt Pau Pau and talk"
+                className="ds-focus flex min-h-[48px] items-center gap-1 rounded-full px-3 text-[13px] font-semibold text-ds-ink hover:bg-ds-page"
+                onClick={() => {
+                  unlockSpeech();
+                  stopSpeech();
+                }}
+              >
+                <Mic aria-hidden className="h-4 w-4" />
+                Talk now
+              </button>
             ) : null}
           </div>
           <button
