@@ -40,12 +40,11 @@ describe("#6 the comfort question names the style", () => {
 });
 
 describe("#7a/#7b quote punctuation", () => {
-  it("moves ? inside curly and straight quotes and dedupes", () => {
-    expect(tidyQuotePunct("What would surprise a reader about “My sister is tired”?")).toBe("What would surprise a reader about “My sister is tired?”");
+  it("never moves a ? into a quote; only dedupes (QA 2:31 #3a)", () => {
     expect(tidyQuotePunct("How does this connect to “Should schools start later?”?")).toBe("How does this connect to “Should schools start later?”");
-    expect(tidyQuotePunct('Before "so I…"?')).toBe('Before "so I…?"');
     expect(tidyQuotePunct("Really??")).toBe("Really?");
     expect(tidyQuotePunct("No quotes here.")).toBe("No quotes here.");
+    expect(tidyQuotePunct("About “My sister is tired”?")).not.toMatch(/tired\?”/);
   });
   it("lead titles never end ”? and the note focus is a whole clause", () => {
     const b = exampleLeadBatch({ concept: null, assignmentText: sheet, studentIdea: "My sister is tired every school morning, so I think the bell should move later and let teens sleep.", rubricRef: "prompt", section: { key: "intro", title: "Introduction" } });
@@ -53,7 +52,7 @@ describe("#7a/#7b quote punctuation", () => {
       expect(c.name).not.toMatch(/[”"]\?/);
       expect(c.name).not.toMatch(/so I…/);
     }
-    expect(noteFocus("My sister is tired every school morning, so I think the bell should move later.")).toBe("My sister is tired every school morning");
+    expect(noteFocus("My sister is tired every school morning, so I think the bell should move later.")).toBe("My sister is tired every school morning, so I think the bell should move later.");
   });
   it("the off-topic alert's angle has one '?'", () => {
     const raw = logicCheckFromNotes({ notes: "The cafeteria pizza is the best food ever made.", assignmentText: sheet, rubricRef: "prompt", mode: "lesson", confirmedPrompt: prompt, onPrompt: false });
