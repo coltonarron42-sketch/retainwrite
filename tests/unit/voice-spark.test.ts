@@ -16,7 +16,7 @@ describe("speakable text", () => {
     const s = speakableSentences(
       "It calls for at least three scholarly sources, including the American Academy of Pediatrics' “School Start Times for Adolescents” (2014). The big question: “Should schools start later?” You'll be writing about sleep.",
     );
-    expect(s).toEqual(["It calls for at least three scholarly sources.", "You'll be writing about sleep."]);
+    expect(s).toEqual(["It calls for at least three scholarly sources."]);
   });
   it("rewrites 'the question “…”' to 'this question'", () => {
     expect(
