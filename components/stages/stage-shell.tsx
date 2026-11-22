@@ -84,7 +84,7 @@ export function StageShell({
         </div>
         <div className="min-w-0 flex-1 px-6 pb-12 pt-4 md:px-16">
           <h1 className="font-display text-3xl text-rw-ink">Stage locked</h1>
-          <p className="mt-3 text-rw-ink/65">{gate.reason}</p>
+          <p className="mt-3 text-rw-ink/75">{gate.reason}</p>
           <Button
             className="mt-6"
             variant="secondary"

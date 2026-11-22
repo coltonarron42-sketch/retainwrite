@@ -475,10 +475,10 @@ export function DraftingStage({
                 placeholder="Start here. It doesn't need to be perfect."
               />
               <SaveStatus status={draftStatus} />
-              <p className="text-xs text-rw-ink/50">{wordCount([...sentences, draft].join(" "))} words</p>
+              <p className="text-xs text-rw-ink/75">{wordCount([...sentences, draft].join(" "))} words</p>
               {sentences.length > 0 ? (
                 <div>
-                  <p className="text-xs text-rw-ink/60">Words that can help connect this:</p>
+                  <p className="text-xs text-rw-ink/75">Words that can help connect this:</p>
                   <div className="mt-1 flex flex-wrap gap-2">
                     {connectorChips(relation).map((chip) => (
                       <span key={chip} className="rounded-full border border-rw-ink/15 px-2 py-1 text-xs">
@@ -552,7 +552,7 @@ export function DraftingStage({
                     {(saved[row.key] ?? []).join(" ")}
                   </button>
                 ) : (
-                  <p className="mt-2 text-rw-ink/60">{row.notes.slice(0, 1).join(" ").split(/\s+/).slice(0, 12).join(" ") || "Not drafted yet"}</p>
+                  <p className="mt-2 text-rw-ink/75">{row.notes.slice(0, 1).join(" ").split(/\s+/).slice(0, 12).join(" ") || "Not drafted yet"}</p>
                 )}
               </article>
             );
