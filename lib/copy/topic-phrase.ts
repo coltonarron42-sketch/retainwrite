@@ -37,7 +37,12 @@ export function asQuestion(text: string | null | undefined): string {
 /** The topic as a heading: capitalized, keeps a question mark only for questions. */
 export function asHeading(text: string | null | undefined): string {
   if (isQuestionTopic(text)) return asQuestion(text);
-  const topic = cleanTopic(text).replace(/[\s?]+$/, "");
+  const topic = cleanTopic(text).replace(/[\s?.]+$/, "");
+  // "whether high schools should start later" is a question, not a title
+  // fragment: "Should high schools start later?" (QA 2:31 #4).
+  const w = topic.match(/^whether\s+(?:or not\s+)?(.+?)\s+(should|can|could|would|will|must|do|does|did|is|are|was|were|has|have)\s+(.+)$/i);
+  if (w) return `${w[2]!.charAt(0).toUpperCase()}${w[2]!.slice(1).toLowerCase()} ${w[1]} ${w[3]}?`;
+  if (/^whether\s/i.test(topic)) return `The question of ${topic.charAt(0).toLowerCase()}${topic.slice(1)}`;
   return topic ? `${topic.charAt(0).toUpperCase()}${topic.slice(1)}` : "";
 }
 

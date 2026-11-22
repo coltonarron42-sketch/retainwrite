@@ -62,6 +62,8 @@ import {
   VOICE_NUDGE_EVENTS,
 } from "@/lib/coaching/voiceNudge";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
+import { isCleanQuery } from "@/lib/coaching/searchTerm";
+import { signedOut } from "@/lib/session/signedOut";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { evaluateMismatch } from "@/lib/style/mismatch";
 import {
@@ -374,6 +376,35 @@ export function CoachingLoop({
     () => summarizeCountedAnswers(session?.answers ?? []),
     [session?.answers],
   );
+  // A natural library query per section from the model (QA 2:31 #3c). The
+  // keyword builder fills in until it answers, or if it can't.
+  const [searchTerms, setSearchTerms] = useState<Record<string, string | null>>({});
+  const termNote = section && section.mode === "lesson" ? keptIdeas(section.ideas).join(" ").trim() : "";
+  const termKey = section && termNote ? `${section.key}\u0001${termNote}` : "";
+  const termTopic = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+  useEffect(() => {
+    if (stage !== 2 || !termKey || !termTopic || termKey in searchTerms || signedOut()) return;
+    setSearchTerms((m) => ({ ...m, [termKey]: null }));
+    const [key, note] = termKey.split("\u0001");
+    const title = session?.sections.find((s) => s.key === key)?.title ?? key ?? "";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    void fetch(`/api/papers/${paperId}/stance/search-term`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: termTopic.slice(0, 500), section: title.slice(0, 80), note: (note ?? "").slice(0, 1200) }),
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<{ query?: string | null }>) : null))
+      .then((data) => {
+        const q = typeof data?.query === "string" && isCleanQuery(data.query) ? data.query : null;
+        if (q) setSearchTerms((m) => ({ ...m, [termKey]: q }));
+      })
+      .catch(() => undefined)
+      .finally(() => clearTimeout(timer));
+    // searchTerms is read only to skip repeats
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, termKey, termTopic, paperId]);
   const voice = voiceNoteForStage(stage, {
     naturalWords: totals.naturalWords,
     pastedShare: totals.pastedShare,
@@ -1006,6 +1037,7 @@ export function CoachingLoop({
           studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
           section: { key: section.key, title: section.title },
+          searchTerm: termKey ? searchTerms[termKey] ?? null : null,
         })
       : null;
   const batch =
