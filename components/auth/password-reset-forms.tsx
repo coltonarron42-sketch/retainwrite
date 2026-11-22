@@ -7,38 +7,61 @@ import {
   updatePasswordAction,
   type AuthActionState,
 } from "@/app/auth/actions";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  dsBody,
+  dsError,
+  dsInput,
+  dsLabel,
+  dsLink,
+  dsStatus,
+} from "@/lib/ds/classes";
 
 const initialState: AuthActionState = {};
 
 export function ForgotPasswordForm() {
-  const [state, action, pending] = useActionState(requestPasswordResetAction, initialState);
+  const [state, action, pending] = useActionState(
+    requestPasswordResetAction,
+    initialState,
+  );
   if (state.notice) {
     return (
-      <p className="mt-8 text-sm text-rw-teal" role="status">
+      <p className={dsStatus} role="status">
         {state.notice}
       </p>
     );
   }
   return (
-    <form action={action} className="mt-8 space-y-4">
+    <form action={action} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" required autoComplete="email" />
+        <Label className={dsLabel} htmlFor="email">
+          Email
+        </Label>
+        <Input
+          className={dsInput}
+          id="email"
+          name="email"
+          type="email"
+          required
+          autoComplete="email"
+        />
       </div>
       {state.error ? (
-        <p className="text-sm text-red-700" role="alert">
+        <p className={dsError} role="alert">
           {state.error}
         </p>
       ) : null}
-      <Button type="submit" className="w-full" variant="secondary" disabled={pending}>
+      <button
+        type="submit"
+        className="ds-btn-primary w-full disabled:opacity-60"
+        disabled={pending}
+      >
         {pending ? "Sending…" : "Email me a reset link"}
-      </Button>
-      <p className="text-sm text-rw-ink/60">
+      </button>
+      <p className={dsBody}>
         Remembered it?{" "}
-        <Link href="/login" className="font-semibold text-rw-teal">
+        <Link href="/login" className={dsLink}>
           Log in
         </Link>
       </p>
@@ -47,7 +70,10 @@ export function ForgotPasswordForm() {
 }
 
 export function ResetPasswordForm({ email }: { email: string }) {
-  const [state, action, pending] = useActionState(updatePasswordAction, initialState);
+  const [state, action, pending] = useActionState(
+    updatePasswordAction,
+    initialState,
+  );
   const [show, setShow] = useState(false);
   // Controlled so a failed submit doesn't wipe what the student typed.
   const [password, setPassword] = useState("");
@@ -55,13 +81,14 @@ export function ResetPasswordForm({ email }: { email: string }) {
   const [mismatchShown, setMismatchShown] = useState(false);
   const MISMATCH = "The two passwords don't match. Type the same one twice.";
   const matches = password === confirm;
-  const serverError = state.error && !(state.error === MISMATCH && matches) ? state.error : null;
+  const serverError =
+    state.error && !(state.error === MISMATCH && matches) ? state.error : null;
   const error = mismatchShown && !matches ? MISMATCH : serverError;
 
   return (
     <form
       action={action}
-      className="mt-8 space-y-4"
+      className="space-y-4"
       onSubmit={(event) => {
         if (!matches) {
           event.preventDefault();
@@ -78,12 +105,15 @@ export function ResetPasswordForm({ email }: { email: string }) {
         readOnly
         hidden
       />
-      <p className="text-sm text-rw-ink/70">
-        Account: <span className="font-semibold text-rw-ink">{email}</span>
+      <p className={dsBody}>
+        Account: <span className="font-semibold text-ds-ink">{email}</span>
       </p>
       <div className="space-y-2">
-        <Label htmlFor="password">New password</Label>
+        <Label className={dsLabel} htmlFor="password">
+          New password
+        </Label>
         <Input
+          className={dsInput}
           id="password"
           name="password"
           type={show ? "text" : "password"}
@@ -95,8 +125,11 @@ export function ResetPasswordForm({ email }: { email: string }) {
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="confirm_password">Type it again</Label>
+        <Label className={dsLabel} htmlFor="confirm_password">
+          Type it again
+        </Label>
         <Input
+          className={dsInput}
           id="confirm_password"
           name="confirm_password"
           type={show ? "text" : "password"}
@@ -107,23 +140,32 @@ export function ResetPasswordForm({ email }: { email: string }) {
           onChange={(e) => setConfirm(e.target.value)}
         />
       </div>
-      <label className="flex items-center gap-2 text-sm text-rw-ink/70">
-        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+      <label className="flex items-center gap-2 text-[16px] leading-[1.6] text-ds-muted">
+        <input
+          type="checkbox"
+          className="ds-focus h-4 w-4 accent-[var(--ds-accent)]"
+          checked={show}
+          onChange={(e) => setShow(e.target.checked)}
+        />
         Show password
       </label>
       {error ? (
-        <p className="text-sm text-red-700" role="alert">
+        <p className={dsError} role="alert">
           {error}{" "}
           {error.includes("expired") || error.includes("reset link") ? (
-            <Link href="/forgot-password" className="font-semibold underline">
+            <Link href="/forgot-password" className={dsLink}>
               Forgot password
             </Link>
           ) : null}
         </p>
       ) : null}
-      <Button type="submit" className="w-full" variant="secondary" disabled={pending}>
+      <button
+        type="submit"
+        className="ds-btn-primary w-full disabled:opacity-60"
+        disabled={pending}
+      >
         {pending ? "Saving…" : "Save new password"}
-      </Button>
+      </button>
     </form>
   );
 }
