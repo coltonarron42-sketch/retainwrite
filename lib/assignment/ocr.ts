@@ -10,13 +10,14 @@
 import type OpenAI from "openai";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { getGrokClient } from "@/lib/ai/grok";
-import { MODEL_STRONG } from "@/lib/config";
+import { MODEL_FAST, MODEL_STRONG } from "@/lib/config";
 
 const VISION_TIMEOUT_MS = 30_000;
 const VISION_PROMPT =
   "This is a photo or scan of a student's assignment sheet. Transcribe all readable text exactly as written, " +
   "keeping line breaks, labels, lists and point values. Include handwriting if readable. Do not summarize, explain, " +
-  "or add anything. Output only the transcription. If there is no readable text, output exactly NO_TEXT.";
+  "or add anything. The photo may be sideways or upside down: read it in its correct orientation and transcribe the whole page, " +
+  "top to bottom. Output only the transcription. If there is no readable text, output exactly NO_TEXT.";
 
 export type OcrPageResult = {
   text: string;
@@ -87,14 +88,34 @@ async function callMistralOcr(input: OcrInput): Promise<OcrPageResult> {
   throw new Error("Mistral OCR not configured for this environment");
 }
 
+/**
+ * Transcription is not a reasoning task: try the fast model first (the strong
+ * model took 4-19s per photo), then the strong model if it errors or reads
+ * nothing.
+ */
 async function callGrokVision(input: OcrInput): Promise<OcrPageResult> {
+  try {
+    const fast = await callGrokVisionWith(input, MODEL_FAST, "none", 20_000);
+    if (fast.text.trim().length >= 40) return fast;
+  } catch (err) {
+    console.info("[ocr] fast vision failed", { message: err instanceof Error ? err.message.slice(0, 120) : "error" });
+  }
+  return callGrokVisionWith(input, MODEL_STRONG, "low", VISION_TIMEOUT_MS);
+}
+
+async function callGrokVisionWith(
+  input: OcrInput,
+  model: string,
+  effort: "none" | "low",
+  timeout: number,
+): Promise<OcrPageResult> {
   // // SOP: coaching only, never generate submission text (transcription only)
   const grok = getGrokClient();
   if (!grok) throw new Error("missing_key");
   const started = Date.now();
   const response = await grok.chat.completions.create(
     {
-      model: MODEL_STRONG,
+      model,
       messages: [
         {
           role: "user",
@@ -104,12 +125,12 @@ async function callGrokVision(input: OcrInput): Promise<OcrPageResult> {
           ],
         },
       ],
-      reasoning_effort: "low",
+      reasoning_effort: effort,
     } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
-    { timeout: VISION_TIMEOUT_MS, maxRetries: 1 },
+    { timeout, maxRetries: 0 },
   );
   const raw = response.choices[0]?.message?.content?.trim() ?? "";
-  console.info("[ocr] vision finished", { ms: Date.now() - started, page: input.page ?? null, chars: raw.length });
+  console.info("[ocr] vision finished", { model, ms: Date.now() - started, page: input.page ?? null, chars: raw.length });
   const text = raw === "NO_TEXT" ? "" : raw;
   if (!assertCoachingOnly(text).ok) throw new Error("guard");
   return {
