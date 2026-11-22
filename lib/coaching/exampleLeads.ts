@@ -223,9 +223,12 @@ function sectionLeadBatch(ctx: {
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
   const focus = idea ? noteFocus(idea) : "";
-  // A student quote keeps their own punctuation and is never last in a
-  // question, so a template '?' can't turn it into one (QA 2:31 #3a).
-  const quoted = focus ? `“${/[.!?…]$/.test(focus) ? focus : `${focus}.`}”` : "";
+  // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
+  // added inside the marks) and is never last in a question, so a template '?'
+  // can't turn it into one (QA 2:31 #3a). One framing rule for every section:
+  // the first title opens with "You wrote “…”" and every later mention of the
+  // note says "your point".
+  const quoted = focus ? `“${focus}”${/[.!?…]$/.test(focus) ? "" : "."}` : "";
   const about = focus ? "your point" : question ? "your question" : subject;
   const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} ${ask}` : ask);
   // Keywords only: never the student's raw sentence in a search box.

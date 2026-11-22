@@ -13,8 +13,8 @@
   --ds-page: #faf7f2;
   --ds-surface: #ffffff;
   --ds-ink: #1c2b2d;
-  --ds-muted: #5c6b6e;
-  --ds-faint: #9aa5a8;
+  --ds-muted: #4f5d60; /* QA 3:35 D: >= 5.9:1 on cream #F7EFE0 */
+  --ds-faint: #5f6b6e; /* readable as text: >= 4.8:1 on cream */
   --ds-accent: #c4785a;
   --ds-sage: #7a9e7e;
   --ds-amber: #d4a017;

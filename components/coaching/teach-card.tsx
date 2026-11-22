@@ -41,7 +41,7 @@ export function TeachCardView({ card, onAspect, onSkipKnown }: Props) {
           <li key={item}>{item}</li>
         ))}
       </ul>
-      <p className="mt-4 text-xs text-rw-ink/60">{TEACH_FOOTER}</p>
+      <p className="mt-4 text-xs text-rw-ink/75">{TEACH_FOOTER}</p>
     </section>
   );
 }
