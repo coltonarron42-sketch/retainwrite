@@ -18,7 +18,7 @@ describe("Pau Pau bubble", () => {
   it("says back the assignment conversationally", () => {
     const text = pauPauSummary(req());
     expect(text).toBe(
-      "Okay, let's see here… looks like APA format, STAT 101, Mr. Nelson's class, a 5–7 page paper, a title page, and a conclusion. You'll be writing about how sampling bias affects survey results. This is totally doable. You ready to get rolling?",
+      "Okay, let's see here… looks like STAT 101 and Mr. Nelson's class: a 5–7 page paper in APA format. You'll need a conclusion and a title page. Formatting: double-spaced. You'll be writing about how sampling bias affects survey results. This is totally doable. You ready to get rolling?",
     );
   });
   it("asks for sources one thing at a time when the sheet requires them", () => {
@@ -28,7 +28,7 @@ describe("Pau Pau bubble", () => {
     expect(pauPauNextAsk(r, new Set())).toBe("sources");
     expect(pauPauNextAsk(r, new Set(["sources"]))).toBe(null);
     const text = pauPauSummary(r, { pendingAsk: "sources" });
-    expect(text).toContain("at least three scholarly sources, including AAP (2014) policy statement");
+    expect(text).toContain("It calls for at least three scholarly sources, including AAP (2014) policy statement.");
     expect(text).toContain("Looks good so far.");
   });
   it("topic is asked first and cannot be skipped", () => {
@@ -48,6 +48,39 @@ describe("Pau Pau bubble", () => {
     );
     const text = pauPauSummary(r);
     expect(text).not.toMatch(/should appear/);
-    expect(text).toContain("one paragraph that answers a counterargument");
+    expect(text).toContain("You'll need a clear thesis in your introduction, a counterargument you answer, and a title page.");
+  });
+  it("covers the real QA sheet: Works Cited, thesis, named AAP source, rubric, formatting", () => {
+    const r = emptyRequirements();
+    r.course = extractedField("ENG 102 – Composition II", 0.9);
+    r.instructor = extractedField("Prof. Dana Ruiz", 0.9);
+    r.paperType = extractedField("argumentative essay", 0.9);
+    r.citationStyle = extractedField("MLA 9" as const, 0.9);
+    r.length = extractedField({ wordsMin: 1200, wordsMax: 1500 }, 0.9);
+    r.structuralRequirements = extractedField(
+      ["thesis should appear in the introduction", "address at least one serious counterargument", "include a Works Cited page (not counted in the word range)"],
+      0.9,
+    );
+    r.formattingRules = extractedField(["Times New Roman 12 pt", "double-spaced", "1-inch margins", "Works Cited page"], 0.9);
+    r.requiredSources = extractedField(
+      {
+        countMin: 3,
+        types: "scholarly sources; one must be the American Academy of Pediatrics 2014 policy statement",
+        notes: 'Must include: American Academy of Pediatrics. "School Start Times for Adolescents." Pediatrics, vol. 134, no. 3, 2014, pp. 642–649.',
+      },
+      0.9,
+    );
+    r.rubricCriteria = extractedField(
+      [{ name: "Thesis & Argument (30%)" }, { name: "Use of Evidence (30%)" }, { name: "Organization (20%)" }, { name: "MLA Formatting & Mechanics (20%)" }],
+      0.9,
+    );
+    r.topic = extractedField("Should high schools start later?", 0.9);
+    const text = pauPauSummary(r);
+    expect(text).not.toMatch(/\ba address\b|\ba a\b|\ba an\b/);
+    expect(text).toContain("ENG 102 and Prof. Dana Ruiz's class: a 1,200–1,500 word argumentative essay in MLA format.");
+    expect(text).toContain("You'll need a clear thesis in your introduction, a counterargument you answer, and a Works Cited page.");
+    expect(text).toContain("including the American Academy of Pediatrics' “School Start Times for Adolescents” (2014)");
+    expect(text).toContain("Formatting: Times New Roman 12 pt, double-spaced, and 1-inch margins.");
+    expect(text).toContain("You'll be graded on thesis and argument, use of evidence, organization, and MLA formatting and mechanics.");
   });
 });
