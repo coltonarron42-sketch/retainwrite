@@ -2062,7 +2062,9 @@ export function AssignmentIntake({
           : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
     const editing = editReturn !== null;
-    const answerFor = (id: string) => answers.find((a) => a.questionId === id && a.answerText.trim())?.answerText ?? "";
+    // Latest answer wins (an edit replaces the earlier one).
+    const answerFor = (id: string) =>
+      [...answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText ?? "";
     const stanceAnswer = answerFor("stance_early");
     const beyondPlan = screen !== "coaching" || stanceMode;
     const lastAnswered = coachingPlan.reduce((last, item, i) => (answerFor(item.id) ? i : last), -1);

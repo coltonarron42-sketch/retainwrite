@@ -37,7 +37,8 @@ export async function GET(_request: Request, ctx: Ctx) {
       .select("question_id, question_text, question_kind, answer_text, is_voice_sample, paste_ratio")
       .eq("paper_id", paperId)
       .eq("user_id", user.id)
-      .order("sequence", { ascending: true }),
+      .order("sequence", { ascending: true })
+      .order("created_at", { ascending: true }),
     supabase
       .from("assignments")
       .select("story_angle")
@@ -51,8 +52,14 @@ export async function GET(_request: Request, ctx: Ctx) {
     return NextResponse.json({ answers: [] });
   }
 
-  const answers = (data ?? [])
-    .filter((row) => KINDS.has(row.question_kind) && row.answer_text.trim())
+  // An edited answer is a new row for the same question: keep only the latest
+  // (in the question's place), so a reload shows what the student last sent.
+  const latest = new Map<string, NonNullable<typeof data>[number]>();
+  for (const row of data ?? []) {
+    if (!KINDS.has(row.question_kind) || !row.answer_text.trim()) continue;
+    latest.set(row.question_id, row);
+  }
+  const answers = [...latest.values()]
     .map((row) => ({
       questionId: row.question_id,
       questionText: row.question_text,
