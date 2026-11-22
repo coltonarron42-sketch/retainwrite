@@ -105,11 +105,12 @@ describe("presence tweaks", () => {
     expect(p).toMatch(/strokeWidth="1"/);
     expect(p).not.toMatch(/strokeWidth="1\.5"/);
   });
-  it("face: bigger eyes with highlights, calm mouth", async () => {
-    const { PauFace } = await import("@/components/stages/stage1/pau-presence");
+  it("face: the locked character (blob head, pink cat-eye glasses, dark eyes, tiny smile)", async () => {
+    const { PauFace, PAU_COLORS } = await import("@/components/stages/stage1/pau-presence");
     const html = renderToStaticMarkup(createElement(PauFace, {}));
-    expect(html).toContain('rx="4.2"');
-    expect((html.match(/r="0.8"/g) ?? []).length).toBe(2);
-    expect(html).toContain("M16 27 Q20 28.2 24 27");
+    expect(html).toContain('data-pau-character="blob-glasses"');
+    expect(html).toContain(PAU_COLORS.frame);
+    expect(html).toContain(PAU_COLORS.head);
+    expect((html.match(/r="0.9"/g) ?? []).length).toBe(2);
   });
 });
