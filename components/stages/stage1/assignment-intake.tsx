@@ -13,6 +13,7 @@ import {
   type ConfirmTurn,
 } from "@/lib/stage1/confirm-reply";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
+import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
@@ -665,6 +666,13 @@ export function AssignmentIntake({
     };
   }, [answers]);
 
+  // Coming back to a conversation with turns: one welcome-back line, decided
+  // once when the restore settles (Colton 3:46 PM). Nothing old is re-run.
+  const welcomeLine = useWelcomeBack(
+    paperId,
+    !resumePending && confirmReady,
+    screen !== "upload" || Boolean(sentMessage) || answers.length > 0 || confirmTurns.length > 0,
+  );
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
@@ -1663,6 +1671,7 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
+              welcome={<WelcomeBack line={welcomeLine} scope={paperId} />}
             />
           ) : (
             <ReadingBubble status="Getting your conversation back…" startedAt={Date.now()} />
@@ -2583,6 +2592,7 @@ export function AssignmentIntake({
             </PauPauGroup>
           ) : null}
 
+          <WelcomeBack line={welcomeLine} scope={paperId} />
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
             <PauPauBubble showName={false} live>
