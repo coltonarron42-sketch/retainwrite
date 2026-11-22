@@ -51,6 +51,7 @@ import {
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
+import { clearLocalDraft, newerDraftText, readLocalDraft } from "@/lib/papers/local-draft";
 import { draftPointer, restoreDraftText } from "@/lib/papers/draft-resume";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
@@ -180,6 +181,11 @@ export function AssignmentIntake({
   const [writingOwnStory, setWritingOwnStory] = useState(false);
   /** Which story is being saved: an angle id, "own", or null. Shown right away. */
   const [pickingStory, setPickingStory] = useState<string | null>(null);
+  /** True while a reload is still fetching the saved draft for the open question. */
+  const [restoringDraft, setRestoringDraft] = useState(false);
+  // Draft text for the resumed question, held until that question is open so
+  // it is never shown (or autosaved) under a different question.
+  const draftRestore = useRef<{ questionId: string; text: string; opened: boolean } | null>(null);
   const [viewSource, setViewSource] = useState<{
     label: string;
     excerpt: string;
@@ -206,6 +212,12 @@ export function AssignmentIntake({
     resumedIntake.current = false;
     if (demoMode) return;
     let cancelled = false;
+    // Start the draft read alongside the answers read instead of after it.
+    const draftsRequest: Promise<{
+      drafts?: { fieldKey: string; text: string; updatedAt?: string | null }[];
+    } | null> = fetch(`/api/papers/${paperId}/autosave`)
+      .then(async (res) => (res.ok ? res.json() : null))
+      .catch(() => null);
     void fetch(`/api/papers/${paperId}/intake/answers`)
       .then(async (res) => (res.ok ? res.json() : null))
       .then((data: {
@@ -238,13 +250,31 @@ export function AssignmentIntake({
         const questionId = data.resume?.questionId ?? null;
         pendingQuestion.current = questionId;
         if (questionId && nextScreen === "coaching") {
-          void fetch(`/api/papers/${paperId}/autosave`)
-            .then(async (res) => (res.ok ? res.json() : null))
-            .then((saved: { drafts?: { fieldKey: string; text: string }[] } | null) => {
-              const text = restoreDraftText(saved?.drafts ?? [], questionId);
-              if (text) setDraftAnswer(text);
+          // Show this browser's copy right away; the server copy replaces it
+          // only if it is newer (for example, typed on another device).
+          const local = readLocalDraft(paperId, `stage1:${questionId}`);
+          draftRestore.current = { questionId, text: local?.text ?? "", opened: false };
+          if (!local) setRestoringDraft(true);
+          void draftsRequest
+            .then((saved) => {
+              if (cancelled) return;
+              const drafts = saved?.drafts ?? [];
+              const serverText = restoreDraftText(drafts, questionId);
+              const serverRow = drafts.find((row) => row.fieldKey === `stage1:${questionId}`);
+              const text = newerDraftText(
+                local,
+                serverText ? { text: serverText, updatedAt: serverRow?.updatedAt ?? null } : null,
+              );
+              const target = draftRestore.current;
+              if (!text || target?.questionId !== questionId || text === target.text) return;
+              const shown = target.text;
+              target.text = text;
+              // Never replace anything the student typed since the page opened.
+              if (target.opened) setDraftAnswer((current) => (current === shown ? text : current));
             })
-            .catch(() => undefined);
+            .finally(() => {
+              if (!cancelled) setRestoringDraft(false);
+            });
         }
         setResumeReady(true);
       })
@@ -331,6 +361,11 @@ export function AssignmentIntake({
       }
       setQIndex(index);
       setScreen("coaching");
+      const restore = draftRestore.current;
+      if (restore && coachingPlan[index]?.id === restore.questionId) {
+        restore.opened = true;
+        if (restore.text) setDraftAnswer(restore.text);
+      }
     }
   }, [demoMode, answers, coachingPlan, storyAngle, needFallback]);
 
@@ -339,8 +374,9 @@ export function AssignmentIntake({
     paperId,
     fieldKey: `stage1:${draftQuestionId}`,
     text: draftAnswer,
-    enabled: !demoMode && screen === "coaching",
+    enabled: !demoMode && screen === "coaching" && !restoringDraft,
     resume: draftPointer({ stage: 1, questionId: draftQuestionId }),
+    localCopy: true,
   });
 
   const voiceEval = useMemo(() => {
@@ -687,6 +723,7 @@ export function AssignmentIntake({
         setError("Couldn't save that answer. It is still in the box.");
         return;
       }
+      clearLocalDraft(paperId, `stage1:${q.id}`);
     }
     setAnswers(nextAnswers);
     setDraftAnswer("");
@@ -1705,6 +1742,8 @@ export function AssignmentIntake({
             className={dsTextarea}
             rows={q?.kind === "background" ? 3 : 8}
             value={draftAnswer}
+            readOnly={restoringDraft && !draftAnswer}
+            aria-busy={restoringDraft || undefined}
             onPaste={pasteMeta.onPaste}
             onDrop={pasteMeta.onDrop}
             onBeforeInput={pasteMeta.onBeforeInput}
@@ -1713,12 +1752,17 @@ export function AssignmentIntake({
               setDraftAnswer(e.target.value);
             }}
             placeholder={
-              q?.kind === "background"
-                ? "A short answer is fine."
-                : "Write in your own words — paste is fine too."
+              restoringDraft && !draftAnswer
+                ? "Restoring your draft…"
+                : q?.kind === "background"
+                  ? "A short answer is fine."
+                  : "Write in your own words — paste is fine too."
             }
           />
           <p className="text-[13px] leading-[1.6] text-ds-muted">
+            {restoringDraft && !draftAnswer ? (
+              <span role="status">Restoring your draft… </span>
+            ) : null}
             {wordCount(draftAnswer)} words
             {q?.kind && q.kind !== "background"
               ? " · counts toward your voice sample after you continue"

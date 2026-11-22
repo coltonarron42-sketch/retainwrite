@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { writeLocalDraft } from "@/lib/papers/local-draft";
 import { persistField } from "@/lib/papers/persist";
 import { DRAFT_SAVE_DELAY_MS, type ResumePointer } from "@/lib/papers/resume";
 
@@ -13,6 +14,8 @@ export function useDraftSave(input: {
   text: string;
   enabled: boolean;
   resume?: ResumePointer;
+  /** Also keep a same-browser copy on every change (instant reload restore). */
+  localCopy?: boolean;
 }): SaveStatusValue {
   const [status, setStatus] = useState<SaveStatusValue>("idle");
   // Text already known for this field (loaded, prefilled, or saved). Moving
@@ -31,9 +34,13 @@ export function useDraftSave(input: {
       return;
     }
     if (baseline.current.text === input.text) return;
-    setStatus("saving");
+    if (latest.current.localCopy) writeLocalDraft(input.paperId, input.fieldKey, input.text);
+    // Only say "Saving…" while the request is in flight. During the typing
+    // pause the text is not saved yet, so drop a stale "Saved" instead.
+    setStatus("idle");
     const timer = window.setTimeout(() => {
       const current = latest.current;
+      setStatus("saving");
       void persistField(current.paperId, {
         fieldKey: current.fieldKey,
         text: current.text,
