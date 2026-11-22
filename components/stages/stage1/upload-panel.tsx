@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { extractTextFromFile } from "@/lib/assignment/local-extract";
+import { extractFileText, KIND_LABEL, type FileKind } from "@/lib/assignment/client-extract";
 import {
   assertUploadBatch,
   guessMimeFromFilename,
@@ -21,15 +21,61 @@ export type StagedAssignmentFile = {
   byteSize: number;
   previewUrl?: string;
   extractedText: string;
-  extractNote?: string;
+  /** One state at a time: reading (spinner), ready, or failed (with Retry). */
+  status: "reading" | "ready" | "failed";
+  kind?: FileKind;
+  error?: string;
   method: string;
-  pending?: boolean;
-  failed?: boolean;
+  /** Photos: the re-encoded JPEG (EXIF dropped) used for the storage copy. */
+  uploadBlob?: Blob;
 };
 
+/** Read one staged file and write its result back into the list. */
+export async function extractStagedFile(
+  paperId: string,
+  id: string,
+  file: File,
+  setFiles: Dispatch<SetStateAction<StagedAssignmentFile[]>>,
+) {
+  setFiles((prev) =>
+    prev.map((f) => (f.id === id ? { ...f, status: "reading", error: undefined } : f)),
+  );
+  const result = await extractFileText(paperId, file);
+  setFiles((prev) =>
+    prev.map((f) => {
+      if (f.id !== id) return f;
+      if (!result.ok) {
+        return { ...f, kind: result.kind, status: "failed", error: result.error, extractedText: "" };
+      }
+      return {
+        ...f,
+        kind: result.kind,
+        status: "ready",
+        error: undefined,
+        extractedText: result.text,
+        method: result.method,
+        uploadBlob: result.uploadBlob,
+      };
+    }),
+  );
+}
+
+function statusLine(f: StagedAssignmentFile): string {
+  const label = KIND_LABEL[f.kind ?? "unknown"];
+  if (f.status === "reading") {
+    return f.kind === "photo" || f.method === "ocr_grok_vision"
+      ? `Reading this ${label}… this can take up to 30 seconds`
+      : `Reading this ${label}…`;
+  }
+  if (f.status === "failed") return f.error ?? `We couldn't read this ${label}.`;
+  const words = f.extractedText.split(/\s+/).filter(Boolean).length;
+  return `Read · ${words} words from this ${label}`;
+}
+
 type Props = {
+  paperId: string;
   files: StagedAssignmentFile[];
-  onFilesChange: (files: StagedAssignmentFile[]) => void;
+  onFilesChange: Dispatch<SetStateAction<StagedAssignmentFile[]>>;
   paste: string;
   onPasteChange: (value: string) => void;
   links: string;
@@ -49,6 +95,7 @@ function newId() {
 }
 
 export function UploadPanel({
+  paperId,
   files,
   onFilesChange,
   paste,
@@ -94,33 +141,27 @@ export function UploadPanel({
       }
 
       setBusy(true);
-      try {
-        const staged: StagedAssignmentFile[] = [];
-        for (const file of incoming) {
-          const extracted = await extractTextFromFile(file);
-          const mime =
-            file.type || guessMimeFromFilename(file.name) || "application/octet-stream";
-          const isImage = mime.startsWith("image/");
-          staged.push({
-            id: newId(),
-            file,
-            filename: file.name,
-            mime,
-            byteSize: file.size,
-            previewUrl: isImage ? URL.createObjectURL(file) : undefined,
-            extractedText: extracted.text,
-            extractNote: extracted.note,
-            method: extracted.method,
-            pending: extracted.pending,
-            failed: extracted.method === "unsupported",
-          });
-        }
-        onFilesChange([...files, ...staged]);
-      } finally {
-        setBusy(false);
-      }
+      const staged: StagedAssignmentFile[] = incoming.map((file) => {
+        const mime = file.type || guessMimeFromFilename(file.name) || "application/octet-stream";
+        return {
+          id: newId(),
+          file,
+          filename: file.name,
+          mime,
+          byteSize: file.size,
+          previewUrl: mime.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+          extractedText: "",
+          status: "reading",
+          method: "manual",
+        };
+      });
+      onFilesChange((prev) => [...prev, ...staged]);
+      setBusy(false);
+      await Promise.all(
+        staged.map((item) => extractStagedFile(paperId, item.id, item.file, onFilesChange)),
+      );
     },
-    [files, onError, onFilesChange],
+    [files, onError, onFilesChange, paperId],
   );
 
   function removeFile(id: string) {
@@ -262,13 +303,26 @@ export function UploadPanel({
                 <p className="truncate text-[16px] font-medium text-ds-ink">
                   {f.filename}
                 </p>
-                <p className="text-[13px] leading-[1.6] text-ds-muted">
-                  {(f.byteSize / 1024).toFixed(0)} KB
-                  {f.extractNote ? ` · ${f.extractNote}` : null}
+                <p
+                  className={cn(
+                    "flex items-center gap-2 text-[13px] leading-[1.6]",
+                    f.status === "failed" ? "text-ds-error" : "text-ds-muted",
+                  )}
+                  role={f.status === "failed" ? "alert" : "status"}
+                >
+                  {f.status === "reading" ? (
+                    <span
+                      aria-hidden
+                      className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-ds-border border-t-ds-accent"
+                    />
+                  ) : null}
+                  <span>
+                    {(f.byteSize / 1024).toFixed(0)} KB · {statusLine(f)}
+                  </span>
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                {(f.failed || (f.pending && !f.extractedText)) && onRetryFile ? (
+                {f.status === "failed" && onRetryFile ? (
                   <DsButton
                     type="button"
                     size="sm"

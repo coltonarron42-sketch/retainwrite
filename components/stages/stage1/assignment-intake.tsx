@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   UploadPanel,
+  extractStagedFile,
   type StagedAssignmentFile,
 } from "@/components/stages/stage1/upload-panel";
 import {
@@ -19,7 +20,8 @@ import {
   AI_POLICY_NOTICE,
   needsAiPolicyAck,
 } from "@/lib/assignment/ai-policy-notice";
-import { extractTextFromFile } from "@/lib/assignment/local-extract";
+import { requirementsHaveFacts } from "@/lib/assignment/coerce";
+import { storeOriginals } from "@/lib/assignment/store-originals";
 import { canStartAssignmentParse } from "@/lib/assignment/can-start-parse";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
@@ -422,26 +424,13 @@ export function AssignmentIntake({
     const target = stagedFiles.find((f) => f.id === id);
     if (!target) return;
     setError(null);
-    const extracted = await extractTextFromFile(target.file);
-    setStagedFiles((prev) =>
-      prev.map((f) =>
-        f.id === id
-          ? {
-              ...f,
-              extractedText: extracted.text,
-              extractNote: extracted.note,
-              method: extracted.method,
-              pending: extracted.pending,
-              failed: extracted.method === "unsupported" || (!extracted.text && !extracted.pending),
-            }
-          : f,
-      ),
-    );
-    if (!extracted.text && extracted.pending) {
-      setError(
-        `We couldn't read ${target.filename} yet. Try again, or retake the photo in brighter light.`,
-      );
-    }
+    await extractStagedFile(paperId, id, target.file, setStagedFiles);
+  }
+
+  /** Back to the upload screen with an honest message; never an empty card. */
+  function failRead(message: string) {
+    setError(message);
+    setScreen("upload");
   }
 
   async function runParse() {
@@ -452,9 +441,23 @@ export function AssignmentIntake({
       return;
     }
     const hasFiles = stagedFiles.length > 0;
+    if (stagedFiles.some((f) => f.status === "reading")) {
+      setError("Your files are still being read. Read my assignment unlocks when they finish.");
+      return;
+    }
     const fileTexts = stagedFiles
+      .filter((f) => f.status === "ready")
       .map((f) => f.extractedText.trim())
       .filter(Boolean);
+    const failedFiles = stagedFiles.filter((f) => f.status === "failed");
+    if (failedFiles.length && !fileTexts.length && !paste.trim()) {
+      setError(
+        failedFiles.length === 1
+          ? `We couldn't read ${failedFiles[0]!.filename}. Retry it, remove it, or add the assignment text below.`
+          : "We couldn't read your files. Retry them, remove them, or add the assignment text below.",
+      );
+      return;
+    }
     // Paste / links are optional. Files alone are enough to continue.
     if (!hasFiles && !paste.trim() && linkList.length === 0) {
       setError("Upload a file, add optional text, or add at least one link.");
@@ -464,25 +467,21 @@ export function AssignmentIntake({
     setParseSeconds(0);
     setScreen("parsing");
     setParseStatus(
-      stagedFiles.some((f) => f.method === "ocr_pending" || f.pending)
-        ? "Reading your photos…"
-        : "Reading the assignment…",
+      "Reading the assignment…",
     );
 
-    void fetch(`/api/papers/${paperId}/assignment/finalize`, {
+    if (paste.trim() || linkList.length) {
+      void fetch(`/api/papers/${paperId}/assignment/finalize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pasteText: paste.trim() || undefined,
           links: linkList.length ? linkList : undefined,
-          extractedText: fileTexts.join("\n\n") || undefined,
-          extractionMethod: fileTexts.length
-            ? "txt"
-            : paste.trim()
-              ? "paste"
-              : "manual",
+          extractionMethod: paste.trim() ? "paste" : "manual",
         }),
       }).catch(() => undefined);
+    }
+    if (!demoMode) void storeOriginals(paperId, stagedFiles);
 
     const combined = [
       ...fileTexts,
@@ -509,42 +508,49 @@ export function AssignmentIntake({
           error?: string;
           saved?: boolean;
         };
-        if (data.needsConfirmation) {
+        if (!data.requirements || !requirementsHaveFacts(data.requirements)) {
+          if (!demoMode || !res.ok) {
+            failRead(
+              data.message ??
+                data.error ??
+                "We read your file but couldn't find the assignment details in it. Check it's the assignment sheet, or add the text below.",
+            );
+            return;
+          }
+        } else if (data.needsConfirmation) {
           setError(data.message ?? UNREADABLE_ASSIGNMENT);
-          openChecklist(data.requirements ?? emptyRequirements(), data.rawText ?? combined);
+          openChecklist(data.requirements, data.rawText ?? combined);
           return;
-        }
-        if (data.requirements) {
+        } else {
           if (data.error || data.saved === false) {
             setError(data.error ?? "We read the assignment but couldn't store it. Please try again.");
           }
           openChecklist(data.requirements, data.rawText ?? combined);
           return;
         }
-        if (!demoMode) {
-          setError(data.error ?? UNREADABLE_ASSIGNMENT);
-          openChecklist(emptyRequirements(), combined);
-          return;
-        }
       } catch {
         if (!demoMode) {
-          setError(UNREADABLE_ASSIGNMENT);
-          openChecklist(emptyRequirements(), combined);
+          failRead("We couldn't reach the server to read your assignment. Check your connection and try again.");
           return;
         }
       }
-      openChecklist(
-        parseAssignmentFallback(combined, {
-          allowTopicAndDueDateGuess: process.env.NODE_ENV !== "production",
-        }),
-        combined,
-      );
+      const fallback = parseAssignmentFallback(combined, {
+        allowTopicAndDueDateGuess: process.env.NODE_ENV !== "production",
+      });
+      if (!requirementsHaveFacts(fallback)) {
+        failRead("We couldn't find the assignment details. Check it's the assignment sheet, or add the text below.");
+        return;
+      }
+      openChecklist(fallback, combined);
       return;
     }
 
-    // Photos/PDF uploaded but no local text yet — still open the checklist.
-    // Per-file Retry stays on the upload screen if they go back.
-    openChecklist(emptyRequirements(), "");
+    // Links only: nothing to read yet, so the student fills the checklist.
+    if (linkList.length && !hasFiles) {
+      openChecklist(emptyRequirements(), "");
+      return;
+    }
+    failRead("We couldn't find any text to read. Add a file or the assignment text.");
   }
 
   function updateField<K extends keyof AssignmentRequirements>(
@@ -1068,6 +1074,7 @@ export function AssignmentIntake({
       linkCount: parseLinkField(links).length,
       rightsOk,
     });
+    const filesReading = stagedFiles.some((f) => f.status === "reading");
 
     return (
       <div className="mx-auto max-w-[680px]">
@@ -1085,6 +1092,7 @@ export function AssignmentIntake({
 
         <div className="mt-8 space-y-6">
           <UploadPanel
+            paperId={paperId}
             files={stagedFiles}
             onFilesChange={setStagedFiles}
             paste={paste}
@@ -1100,16 +1108,16 @@ export function AssignmentIntake({
           <DsButton
             type="button"
             variant="primary"
-            disabled={!canSubmit}
+            disabled={!canSubmit || filesReading}
+            aria-busy={filesReading || undefined}
             onClick={() => void runParse()}
           >
-            Read my assignment
+            {filesReading ? "Reading your files…" : "Read my assignment"}
           </DsButton>
         </div>
         {demoMode ? (
           <p className="mt-6 text-[13px] leading-[1.6] text-ds-muted">
-            Demo mode reads text files locally and uses a rule-based parser when
-            Grok / OCR are offline.
+            Demo mode reads your files the same way, but nothing is saved.
           </p>
         ) : null}
       </div>
