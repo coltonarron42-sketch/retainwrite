@@ -19,7 +19,7 @@ export default async function LoginPage({ searchParams }: Props) {
   return (
     <AuthShell
       title="Log in"
-      subtitle="Sign in with email and password, or continue in demo mode to walk the intake flow without an account."
+      subtitle="Log in with your email and password. Or choose Continue in demo to try it without an account."
       notices={
         <>
           {errorMessage ? (

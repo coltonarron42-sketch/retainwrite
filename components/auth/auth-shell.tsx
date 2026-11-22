@@ -21,7 +21,7 @@ export function AuthShell({
   return (
     <div className="min-h-screen bg-ds-page font-ds-sans text-ds-ink">
       <SiteHeader tone="editorial" minimal={minimal} />
-      <main className="px-6 py-12 md:px-16">
+      <main className="px-6 py-8 md:px-16 md:py-12">
         <div className="mx-auto max-w-[480px]">
           {title ? (
             <h1 className="font-display text-[32px] font-semibold leading-[1.2] text-ds-ink">
@@ -29,12 +29,12 @@ export function AuthShell({
             </h1>
           ) : null}
           {subtitle ? (
-            <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
+            <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted md:mt-4">
               {subtitle}
             </p>
           ) : null}
           {notices}
-          <div className="mt-8 rounded-[12px] border border-ds-border bg-ds-surface p-8 shadow-ds-card">
+          <div className="mt-6 rounded-[12px] border border-ds-border bg-ds-surface p-6 shadow-ds-card md:mt-8 md:p-8">
             {children}
           </div>
         </div>

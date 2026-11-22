@@ -41,7 +41,7 @@ export function LoginForm({ nextPath = "/app", defaultEmail = "" }: Props) {
   const pending = signInPending || demoPending;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <form action={signIn} className="space-y-4">
         <input type="hidden" name="next" value={nextPath} />
         <div className="space-y-2">
