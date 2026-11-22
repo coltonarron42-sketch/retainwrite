@@ -12,7 +12,10 @@ export const TTS_CANDIDATES = {
   ara: "Warm and friendly",
 } as const;
 export type TtsCandidate = keyof typeof TTS_CANDIDATES;
-export const TTS_DEFAULT_VOICE: TtsCandidate = "ara";
+// iris: the most casual of the female-register voices (median F0 ~208 Hz in the
+// audition; castor/sirius read ~120-136 Hz, which doesn't fit her). Samples:
+// /workspace/voice-samples/pau-{castor,sirius,iris,ara}.mp3 (Nov 22 4:09 PM).
+export const TTS_DEFAULT_VOICE: TtsCandidate = "iris";
 /** A second voice if xAI rejects the first (e.g. a retired id). */
 export function ttsFallbackVoice(voice: string): string {
   return voice === "ara" ? "eve" : "ara";
