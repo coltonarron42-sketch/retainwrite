@@ -509,6 +509,33 @@ export function AssignmentIntake({
         else finishCoaching(answers);
         return;
       }
+      // The reopened question is already answered (a reload right after Send,
+      // before the server had the next position): move on, as the chat did,
+      // instead of asking it again. Skipped questions stay skipped.
+      if (askedDone && askedIndex >= 0) {
+        let next = askedIndex + 1;
+        while (next < coachingPlan.length && answers.some((answer) => answer.questionId === coachingPlan[next]?.id)) next++;
+        if (next >= coachingPlan.length) {
+          settleRestore();
+          const voice = evaluateStage1VoiceMinimum({
+            answers: answers.map((a) => ({ text: a.answerText, isVoiceSample: a.isVoiceSample, kind: a.kind, pasteRatio: a.pasteRatio })),
+          });
+          if (voice.needsFallback && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
+            setNeedFallback(true);
+            setQIndex(coachingPlan.length);
+            setScreen("coaching");
+            return;
+          }
+          if (storyAngle) goToStanceOnStory();
+          else finishCoaching(answers);
+          return;
+        }
+        settleRestore();
+        setQIndex(next);
+        setScreen("coaching");
+        setDraftAnswer("");
+        return;
+      }
       setQIndex(index);
       setScreen("coaching");
       const restore = draftRestore.current;
