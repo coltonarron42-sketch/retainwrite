@@ -81,12 +81,14 @@ export async function grokChatJson(opts: GrokChatOpts): Promise<
                 },
               }
             : { type: "json_object" },
-        },
+          // xAI reads reasoning effort from the request body. It was only sent as
+          // a header before, which the API ignores, so grok-4.7 ran at its
+          // default "high" effort and every assignment read hit the timeout.
+          reasoning_effort: effort,
+        } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
         {
           signal: controller.signal,
           timeout: opts.timeoutMs ?? (opts.model === MODEL_STRONG ? 30_000 : 8_000),
-          // xAI-specific reasoning effort
-          headers: { "X-Reasoning-Effort": effort },
         },
       ),
       new Promise<never>((_, reject) => {
