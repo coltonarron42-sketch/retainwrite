@@ -83,7 +83,7 @@ describe("logic revision from the QA claim", () => {
         validRubricRefs: ["prompt"],
       },
     );
-    expect(stuck.result.tier).toBe("strong");
+    expect(stuck.result.tier).toBe("moderate"); // QA 11:48: an overclaim is a nudge, not severe
     const refreshed = refreshStoredLogic(
       {
         ideas: [REVISED],
@@ -93,6 +93,7 @@ describe("logic revision from the QA claim", () => {
       { assignmentText: ASSIGNMENT, rubricRef: "prompt", mode: "lesson" },
     );
     expect(refreshed.logic?.result.tier).not.toBe("strong");
+    expect(refreshed.logic?.result.reason ?? "").not.toBe(stuck.result.reason);
     expect(refreshed.logic?.result.reason ?? "").not.toMatch(/everyone/);
     expect(refreshed.ideas).toEqual([REVISED]);
   });

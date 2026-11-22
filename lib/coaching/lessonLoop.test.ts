@@ -319,8 +319,10 @@ describe("memory path and logic checkpoint", () => {
       rubricRequiresCounterargument: false,
       validRubricRefs: ["lesson_concept"],
     });
-    expect(finalized.result.tier).toBe("strong");
-    expect(finalized.result.reason.toLowerCase()).toMatch(/everyone|one person/);
+    // QA 11:48: severe is only for off-topic or self-contradictory claims; an
+    // overclaim from one example gets the gentle nudge.
+    expect(finalized.result.tier).toBe("moderate");
+    expect(finalized.result.reason).toMatch(/One example is a great start|Claims about everyone/);
     expect(finalized.blocks).toBe(false);
   });
 

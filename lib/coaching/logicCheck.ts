@@ -222,6 +222,8 @@ export function logicCheckFromNotes(input: {
   mode: "lesson" | "memory";
   confirmedPrompt?: string | null;
   confirmedTopic?: string | null;
+  /** The model's relevance verdict when it answered; rules decide otherwise. */
+  onPrompt?: boolean | null;
 }): LogicCheckResult {
   const assignmentQuote = assignmentAlertQuote({
     confirmedPrompt: input.confirmedPrompt,
@@ -229,6 +231,24 @@ export function logicCheckFromNotes(input: {
     raw: input.assignmentText,
   });
   const notes = input.notes;
+  // Relevance first (QA 10:38 #4): a claim that doesn't touch the prompt is
+  // named as off-prompt before any critique of how it reasons.
+  const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
+  const onPrompt = typeof input.onPrompt === "boolean" ? input.onPrompt : notesOnPrompt(notes, promptText, input.assignmentText);
+  if (promptText && notes.trim() && !onPrompt) {
+    const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
+    return {
+      tier: "strong",
+      basis: "contradicts_assignment",
+      confidence: 0.9,
+      reason: `This doesn't answer the question your prompt asks: “${asked}”`,
+      citedTerm: { rubricRef: "prompt", quote: asked },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
+      logicFailure: null,
+      alternativeAngles: [{ question: `How does this connect to “${asked}”?`.slice(0, 160), rubricRef: "prompt" }],
+      reframeAvailable: true,
+    };
+  }
   const cautious = /cautionary|warning|critically|without ethics/i.test(notes);
   const hitlerMoral = /hitler/i.test(notes) && /objectively moral|moral leader/i.test(notes);
   if (hitlerMoral && !cautious) {
@@ -272,46 +292,36 @@ export function logicCheckFromNotes(input: {
       reframeAvailable: false,
     };
   }
-  // Relevance first (QA 10:38 #4): a claim that doesn't touch the prompt is
-  // named as off-prompt before any critique of how it reasons.
-  const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
-  if (input.mode === "lesson" && promptText && notes.trim() && !notesOnPrompt(notes, promptText, input.assignmentText)) {
-    const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
-    return {
-      tier: "strong",
-      basis: "contradicts_assignment",
-      confidence: 0.9,
-      reason: `This doesn't answer the question your prompt asks: “${asked}”`,
-      citedTerm: { rubricRef: "prompt", quote: asked },
-      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
-      logicFailure: null,
-      alternativeAngles: [{ question: `How does this connect to “${asked}”?`.slice(0, 160), rubricRef: "prompt" }],
-      reframeAvailable: true,
-    };
-  }
-  const overgeneral = /\b(all|every|always|everyone|never)\b/i.test(notes);
-  const anecdotal = /\b(my friend|my mom|my dad|someone i know|i know someone)\b/i.test(notes);
-  if (overgeneral || anecdotal) {
+  // Severe is only for off-topic (above) or self-contradictory claims. A
+  // personal example backing an opinion is normal: at most a gentle nudge.
+  if (selfContradicts(notes)) {
     return {
       tier: "strong",
       basis: "defies_logic",
-      confidence: 0.9,
-      reason:
-        overgeneral && anecdotal
-          ? "One person's story cannot show that this happens to everyone."
-          : overgeneral
-            ? "A claim about everyone needs more than a single pattern."
-            : "One example cannot carry the whole claim.",
+      confidence: 0.85,
+      reason: "This note argues both sides of the same point, so a reader can't tell what you think.",
       citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
-      logicFailure: "One example does not prove a claim about everyone.",
-      alternativeAngles: [
-        {
-          question: "What would count as evidence beyond one person's experience?",
-          rubricRef: input.rubricRef,
-        },
-      ],
+      logicFailure: "The claim contradicts itself.",
+      alternativeAngles: [{ question: "Which side do you actually want this section to argue?", rubricRef: input.rubricRef }],
       reframeAvailable: true,
+    };
+  }
+  const universal = UNIVERSAL.test(notes);
+  const anecdotal = ANECDOTE.test(notes) && !EVIDENCE_WORDS.test(notes);
+  if (universal || anecdotal) {
+    return {
+      tier: "moderate",
+      basis: "weak_support",
+      confidence: 0.7,
+      reason: anecdotal ? ANECDOTE_NUDGE : UNIVERSAL_NUDGE,
+      citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
+      logicFailure: null,
+      alternativeAngles: [
+        { question: anecdotal ? "What else (a study, a number, another case) shows the same thing?" : "What evidence could show how widely this holds?", rubricRef: input.rubricRef },
+      ],
+      reframeAvailable: false,
     };
   }
   const thin = isThinAnswer(notes, 12).thin;
@@ -393,6 +403,32 @@ export function notesAddressAssignment(notes: string, assignment: string): boole
   return asked.some((word) => said.has(word));
 }
 
+export const ANECDOTE_NUDGE = "One example is a great start; what else shows this?";
+export const UNIVERSAL_NUDGE = "Claims about everyone are hard to back up. What else would show how widely this holds?";
+/** A claim about all people, not "every school morning". */
+const UNIVERSAL = /\b(everyone|everybody|no one|nobody|all (people|students|teens|teenagers|kids|children|americans|humans|parents|teachers))\b/i;
+const ANECDOTE =
+  /\b(my (little |older |big |younger )?(sister|brother|mom|mother|dad|father|friend|friends|cousin|family|parents|aunt|uncle|grandma|grandpa|grandmother|grandfather|neighbor|teacher|coach)|someone i know|i know someone|i (noticed|saw|remember)|in my (school|town|class|family)|my own)\b/i;
+const EVIDENCE_WORDS = /\b(stud(y|ies)|research|data|survey|report|statistic|percent|%|scientists?|experts?|according to)\b/i;
+
+/** "X should Y … X should not Y" (same verb after both), "is good … is not good". */
+export function selfContradicts(notes: string): boolean {
+  const t = notes.toLowerCase().replace(/n't\b/g, " not");
+  for (const aux of ["should", "must", "is", "are", "will", "can", "does", "do"]) {
+    const yes = new Set([...t.matchAll(new RegExp(`\\b${aux} (?!not\\b)(\\w{3,})`, "g"))].map((m) => m[1]));
+    const no = [...t.matchAll(new RegExp(`\\b${aux} not (\\w{3,})`, "g"))].map((m) => m[1]);
+    if (no.some((w) => yes.has(w))) return true;
+  }
+  return false;
+}
+
+/** Stems too common to show a note is about the prompt. */
+const TOPIC_GENERIC = new Set([
+  "school", "day", "time", "people", "person", "high", "good", "great", "best", "thing", "way", "life", "world",
+  "year", "made", "make", "part", "lot", "really", "honest", "honestly", "every", "everyone", "think", "know", "want",
+  "even", "ever", "much", "many", "most", "other", "only", "same", "real",
+]);
+
 const SHEET_GENERIC = new Set([
   "student", "students", "source", "sources", "research", "page", "pages", "essay", "format", "cite", "citation",
   "words", "word", "include", "must", "should", "class", "grade", "graded", "due", "date", "paper", "argument",
@@ -418,7 +454,12 @@ function stems(text: string, skip?: Set<string>): Set<string> {
 export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolean {
   const said = stems(notes);
   if (said.size === 0) return true;
-  for (const w of stems(prompt)) if (said.has(w)) return true;
-  for (const w of stems(sheet, SHEET_GENERIC)) if (said.has(w)) return true;
+  // Everyday words ("school", "day", "people") don't make a note on-topic:
+  // "the cafeteria pizza is the best part of any school day" is about pizza.
+  const saidWords = [...said];
+  // "asleep" is about "sleep": a topic stem inside a longer word counts.
+  const hit = (w: string) => !TOPIC_GENERIC.has(w) && (said.has(w) || (w.length >= 4 && saidWords.some((x) => x.length > w.length && x.includes(w))));
+  for (const w of stems(prompt)) if (hit(w)) return true;
+  for (const w of stems(sheet, SHEET_GENERIC)) if (hit(w)) return true;
   return false;
 }
