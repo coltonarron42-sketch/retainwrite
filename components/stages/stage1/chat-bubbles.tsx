@@ -285,7 +285,7 @@ export function ScrollToNewest({ signal }: { signal: string }) {
     const id = window.requestAnimationFrame(() => el.scrollIntoView({ block: "end", behavior }));
     return () => window.cancelAnimationFrame(id);
   }, [signal]);
-  return <div ref={ref} aria-hidden className="h-px scroll-mb-4" />;
+  return <div ref={ref} aria-hidden data-scroll-newest className="h-px" style={{ scrollMarginBottom: "calc(var(--rw-dock-h, 0px) + 16px)" }} />;
 }
 
 /**
@@ -307,6 +307,16 @@ export function ComposerDock({ children }: { children: ReactNode }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // The newest-turn anchor keeps clear of the fixed phone dock (restore and
+  // replies land above the composer, never under it).
+  useEffect(() => {
+    const root = document.documentElement;
+    const phone = window.matchMedia?.("(max-width: 639px)").matches ?? false;
+    root.style.setProperty("--rw-dock-h", `${phone ? dockH : 0}px`);
+    return () => {
+      root.style.removeProperty("--rw-dock-h");
+    };
+  }, [dockH]);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
