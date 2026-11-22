@@ -64,8 +64,10 @@ export function PauPauBubble({
 }
 
 /**
- * Several short Pau Pau messages in a row: one avatar, one idea per bubble.
- * Items can be strings or rich content (buttons inside a bubble).
+ * One Pau Pau turn: a single message block, like one chat reply. Items are
+ * paragraphs inside the same bubble (strings or rich content such as a list
+ * of choices); `children` (buttons, captions) sit in the same bubble too.
+ * PLAN.md 9: one reply per turn, never stacked bubbles saying one thing.
  */
 export function PauPauGroup({
   bubbles,
@@ -75,43 +77,46 @@ export function PauPauGroup({
   headingId,
   live = false,
   children,
+  className,
 }: {
   bubbles: ReactNode[];
   showName?: boolean;
   label?: string;
-  /** Which bubble is the screen's heading (the current question). */
+  /** Which paragraph is the screen's heading (the current question). */
   headingIndex?: number;
   headingId?: string;
   live?: boolean;
-  /** Extra content under the bubbles (buttons, captions), in Pau Pau's column. */
+  /** Extra content at the end of the same reply (buttons, captions). */
   children?: ReactNode;
+  className?: string;
 }) {
-  const shown = bubbles.filter((b) => b !== null && b !== undefined && b !== "");
+  const shown = bubbles
+    .map((b, i) => ({ b, i }))
+    .filter(({ b }) => b !== null && b !== undefined && b !== "" && b !== false);
   return (
-    <div className="flex items-start gap-2 sm:gap-3">
+    <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn>
       <PauPauAvatar />
-      <div className="min-w-0 flex-1 space-y-2" aria-live={live ? "polite" : undefined}>
+      <div className="min-w-0 flex-1">
         {showName ? (
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
             {COACH_NAME} <span className="font-normal normal-case tracking-normal">· {label}</span>
           </p>
         ) : null}
-        {shown.map((bubble, i) => {
-          const Tag = i === headingIndex ? "h1" : typeof bubble === "string" ? "p" : "div";
-          return (
-            <div key={i}>
-              <div className={BUBBLE}>
-                <Tag
-                  id={i === headingIndex ? headingId : undefined}
-                  className="font-ds-sans text-[18px] font-normal leading-[1.6] text-ds-ink"
-                >
-                  {bubble}
-                </Tag>
-              </div>
-            </div>
-          );
-        })}
-        {children}
+        <div className={cn(BUBBLE, "block w-fit space-y-3")} aria-live={live ? "polite" : undefined}>
+          {shown.map(({ b, i }) => {
+            const Tag = i === headingIndex ? "h1" : typeof b === "string" ? "p" : "div";
+            return (
+              <Tag
+                key={i}
+                id={i === headingIndex ? headingId : undefined}
+                className="font-ds-sans text-[18px] font-normal leading-[1.6] text-ds-ink"
+              >
+                {b}
+              </Tag>
+            );
+          })}
+          {children ? <div className="space-y-2">{children}</div> : null}
+        </div>
       </div>
     </div>
   );

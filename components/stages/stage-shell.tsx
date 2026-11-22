@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
 import { CoachingLoop } from "@/components/stages/loop/coaching-loop";
-import { StageRail } from "@/components/stages/stage-rail";
+import { StageProgress } from "@/components/stages/stage-progress";
 import { assertStageUnlocked, type StageProgressRow } from "@/lib/stages/assert";
 import { getDemoPaper, upsertDemoPaper, type DemoPaper } from "@/lib/demo/store";
 import { Button } from "@/components/ui/button";
@@ -78,13 +78,11 @@ export function StageShell({
   const gate = loopStageAccess(paper.stage_progress, stage);
   if (!gate.ok) {
     return (
-      <div className="flex min-h-[70vh] flex-1 flex-col md:flex-row">
-        <StageRail
-          paperId={paperId}
-          current={stage}
-          statuses={statuses}
-        />
-        <div className="min-w-0 flex-1 px-6 py-12 md:px-16">
+      <div className="flex min-h-[70vh] flex-1 flex-col">
+        <div className="px-6 pt-2 md:px-16">
+          <StageProgress paperId={paperId} current={stage} statuses={statuses} />
+        </div>
+        <div className="min-w-0 flex-1 px-6 pb-12 pt-4 md:px-16">
           <h1 className="font-display text-3xl text-rw-ink">Stage locked</h1>
           <p className="mt-3 text-rw-ink/65">{gate.reason}</p>
           <Button
@@ -102,9 +100,12 @@ export function StageShell({
   }
 
   return (
-    <div className="flex min-h-[70vh] flex-1 flex-col md:flex-row">
-      <StageRail paperId={paperId} current={stage} statuses={statuses} />
-      <div className="min-w-0 flex-1 px-6 py-12 md:px-16">
+    <div className="flex min-h-[70vh] flex-1 flex-col">
+      {/* PLAN.md 9: a slim progress row, not a stage sidebar. */}
+      <div className={stage === 1 ? "mx-auto w-full max-w-[728px] px-6 pt-2" : "px-6 pt-2 md:px-16"}>
+        <StageProgress paperId={paperId} current={stage} statuses={statuses} />
+      </div>
+      <div className="min-w-0 flex-1 px-6 pb-12 pt-2 md:px-16">
         {stage === 1 ? (
           // Stage 1 is on the PLAN.md 8 Editorial-Warm system; later stages are not yet.
           <div className="font-ds-sans text-ds-ink">

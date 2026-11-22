@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { DsButton } from "@/components/ui/ds-button";
-import { PauPauBubble, PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
+import { PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
 import { HESITATION_DELETE_SETTLE_MS, HESITATION_IDLE_MS, isHeavyDelete } from "@/lib/stage1/spark";
@@ -91,9 +91,25 @@ export function SparkExchange({
   onNo: () => void;
   onOff: () => void;
 }) {
+  // One reply (PLAN.md 9): the offer, its choices, and Pau Pau's answer to the
+  // choice all live in the same message block.
+  const reply =
+    turn.status === "loading" ? (
+      <span key="loading" role="status">Thinking of a couple of questions…</span>
+    ) : turn.status === "declined" ? (
+      SPARK_DECLINED
+    ) : turn.status === "off" ? (
+      SPARK_OFF
+    ) : turn.status === "shown" && turn.questions?.length ? (
+      <ul key="qs" className="list-disc space-y-2 pl-5" aria-label="Questions to think about">
+        {turn.questions.map((q) => (
+          <li key={q}>{q}</li>
+        ))}
+      </ul>
+    ) : null;
   return (
-    <div className="space-y-4" data-spark data-spark-status={turn.status}>
-      <PauPauGroup bubbles={[SPARK_OFFER]}>
+    <div data-spark data-spark-status={turn.status}>
+      <PauPauGroup bubbles={[SPARK_OFFER, reply]} live={active && turn.status !== "offer"}>
         {turn.status === "offer" && active ? (
           <div className="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Want some questions?">
             <DsButton type="button" size="sm" variant="secondary" onClick={onYes}>
@@ -111,23 +127,12 @@ export function SparkExchange({
             </button>
           </div>
         ) : null}
+        {turn.status === "shown" && turn.questions?.length && active ? (
+          <p className="text-[13px] leading-[1.6] text-ds-muted">
+            No need to answer these. Write whatever comes to you, in your own words.
+          </p>
+        ) : null}
       </PauPauGroup>
-      {turn.status === "loading" ? (
-        <PauPauBubble showName={false} live>
-          <span role="status">Thinking of a couple of questions…</span>
-        </PauPauBubble>
-      ) : null}
-      {turn.status === "declined" ? <PauPauBubble showName={false}>{SPARK_DECLINED}</PauPauBubble> : null}
-      {turn.status === "off" ? <PauPauBubble showName={false}>{SPARK_OFF}</PauPauBubble> : null}
-      {turn.status === "shown" && turn.questions?.length ? (
-        <PauPauGroup bubbles={turn.questions} live={active} label="questions to think about">
-          {active ? (
-            <p className="text-[13px] leading-[1.6] text-ds-muted">
-              No need to answer these. Write whatever comes to you, in your own words.
-            </p>
-          ) : null}
-        </PauPauGroup>
-      ) : null}
     </div>
   );
 }
