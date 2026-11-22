@@ -1,3 +1,5 @@
+import { rulesStanceIntent } from "@/lib/stages/stance-intent";
+
 /** Overlay saved outline fields onto section notes. Later drafts replace the stance text. */
 export function applyOutlineDrafts<T extends { key: string; ideas: string[] }>(
   sections: T[],
@@ -10,8 +12,9 @@ export function applyOutlineDrafts<T extends { key: string; ideas: string[] }>(
   );
   return sections.map((section) => {
     const text = (byKey.get(section.key) ?? "").trim();
-    // An empty saved draft must not wipe the Stance notes.
-    if (!text) return section;
+    // An empty saved draft must not wipe the Stance notes, and a request to
+    // the coach ("ask me questions") is never an outline.
+    if (!text || rulesStanceIntent(text) !== "content") return section;
     return { ...section, ideas: [text] };
   });
 }
