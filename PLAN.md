@@ -130,3 +130,7 @@ Land → Start free paper → Sign up or demo → Upload assignment → Confirm 
 
 ---
 Last updated: 2026-11-21
+
+## Future: Pau Pau Bot (do not start until Stage 3 is solid and coaching rules are locked)
+
+Build a standalone Pau Pau Grok Bot that delivers the same RetainWrite coaching workflow in conversational form for people already using Grok. It will be sold, advertised and backlinked from retainwrite.com. Same core rules: the student owns every sentence and stages gate progress. Added Nov 21, 2026 per Colton.

@@ -43,3 +43,26 @@ describe("topic phrasing", () => {
     );
   });
 });
+
+describe("question topics in Stage 2 templates", () => {
+  const q = "Should high schools start later in the morning?";
+  it("never splices a question mid-sentence", async () => {
+    const { exampleLeadBatch, sourceSearchDirections } = await import("@/lib/coaching/exampleLeads");
+    const { askForConcept, defaultTeachCard } = await import("@/lib/coaching/teach");
+    const { lessonLinkFor } = await import("@/lib/coaching/sourceCard");
+    const batch = exampleLeadBatch({ concept: q, assignmentText: "", studentIdea: "", rubricRef: "r" });
+    const all = [
+      ...batch.candidates.flatMap((c) => [c.name, c.lessonLink, c.whyFits]),
+      batch.wildcard!.name,
+      batch.wildcard!.wildcardWhy ?? "",
+      askForConcept(q),
+      defaultTeachCard(q, "r").definition,
+      lessonLinkFor(q),
+      sourceSearchDirections(q),
+    ].join(" | ");
+    expect(all).not.toMatch(/\?”\?|\?\.|about Should|of Should|part of Should|with What/);
+    expect(all).toContain("What should you look up first about your question?");
+    expect(all).toContain("“high schools start later in the morning”");
+    expect(askForConcept(q)).toBe("Which part of this question interests you most: “Should high schools start later in the morning?”");
+  });
+});
