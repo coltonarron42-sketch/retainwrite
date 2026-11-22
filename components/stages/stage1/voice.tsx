@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { PauFace } from "@/components/stages/stage1/pau-presence";
+import { TapToHear } from "@/components/stages/stage1/tap-to-hear";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import {
   currentTurn,
@@ -12,6 +13,8 @@ import {
   stopSpeech,
   subscribeSpeaking,
   installSpeechUnlock,
+  needsTap,
+  subscribeNeedsTap,
   takeNew,
   unlockSpeech,
   type SpeakItem,
@@ -147,7 +150,11 @@ export function SpeakNew({ scope, items }: { scope: string; items: SpeakItem[] }
 export function ReplayButton({ texts, className }: { texts: string[]; className?: string }) {
   const supported = useSupported();
   const speaking = useSpeaking();
+  const blocked = useSyncExternalStore(subscribeNeedsTap, needsTap, () => false);
+  const { voice } = useChatPrefs();
   if (!supported || !texts.length) return null;
+  // Audio couldn't start (PLAN.md 9): the same spot becomes "Tap to hear Pau Pau".
+  if (voice && blocked) return <TapToHear className={className} />;
   return (
     <button
       type="button"

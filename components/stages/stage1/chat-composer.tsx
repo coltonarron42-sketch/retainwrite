@@ -14,7 +14,6 @@ import {
 } from "@/lib/voice/call";
 import { useChatPrefs } from "@/lib/voice/prefs";
 import { audibleSentence, isSpeaking, speechSupported, stopSpeech, subscribeAudible, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
-import { TapToHear } from "@/components/stages/stage1/tap-to-hear";
 
 import {
   useCallback,
@@ -666,7 +665,6 @@ export function ChatComposer({
                 {callStatusText(callStatus)}
               </span>
             ) : null}
-            <TapToHear />
             {callOn && callStatus === "paused" ? (
               // Barge-in: listening stays paused while she talks (echo protection)
               // unless the student taps here; then she stops and the mic opens.

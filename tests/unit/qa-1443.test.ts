@@ -178,7 +178,7 @@ describe("2:43 #3 mobile audio", () => {
     expect(callStatusText("starting")).not.toMatch(/talking/i);
     const composer = read("components/stages/stage1/chat-composer.tsx");
     expect(composer).toMatch(/speaking\s*\?\s*audible\s*\?\s*"paused"\s*:\s*"starting"/);
-    expect(composer).toMatch(/<TapToHear \/>/);
+    expect(read("components/stages/stage1/voice.tsx")).toMatch(/if \(voice && blocked\) return <TapToHear/);
   });
   it("the TTS route uses xAI text to speech with the existing key and never logs it", () => {
     const route = read("app/api/voice/tts/route.ts");
