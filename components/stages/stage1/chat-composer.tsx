@@ -1,7 +1,19 @@
 "use client";
 
 import { joinTranscript } from "@/lib/stage1/transcript";
-import { stopSpeech } from "@/lib/voice/speech";
+import {
+  SILENCE_INTERIM_MS,
+  SILENCE_SEND_MS,
+  callOwner,
+  callStatusText,
+  claimCall,
+  releaseCall,
+  restartDelayMs,
+  subscribeCall,
+  type CallStatus,
+} from "@/lib/voice/call";
+import { useChatPrefs } from "@/lib/voice/prefs";
+import { isSpeaking, speechSupported, stopSpeech, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
 
 import {
   useCallback,
@@ -10,6 +22,7 @@ import {
   useId,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type SetStateAction,
 } from "react";
@@ -297,6 +310,161 @@ export function ChatComposer({
     }
   }
 
+  /* ---- Voice call: listen between Pau Pau's turns, send after a pause ---- */
+  const { voice, micMuted } = useChatPrefs();
+  const speaking = useSyncExternalStore(subscribeSpeaking, isSpeaking, () => false);
+  const [callId, setCallId] = useState(0);
+  const owner = useSyncExternalStore(subscribeCall, callOwner, () => 0);
+  const [callTrouble, setCallTrouble] = useState<"blocked" | "error" | null>(null);
+  const [callHearing, setCallHearing] = useState(false);
+  const callRecRef = useRef<SpeechRecognitionLike | null>(null);
+  const callEmittedRef = useRef<string | null>(null);
+  const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartsRef = useRef<number[]>([]);
+  const sendRef = useRef<() => void>(() => undefined);
+  const wantRef = useRef(false);
+
+  useEffect(() => {
+    if (!voice) return;
+    const id = claimCall();
+    setCallId(id);
+    return () => releaseCall(id);
+  }, [voice]);
+
+  // A tap on Unmute (prefs change) clears an earlier "blocked"/"error".
+  useEffect(() => {
+    if (!micMuted) setCallTrouble(null);
+  }, [micMuted]);
+
+  const callOn = voice && canDictate;
+  const wantListen =
+    callOn && !micMuted && !speaking && !sending && !listening && owner === callId && callId !== 0 && !callTrouble;
+  const callStatus: CallStatus = !voice
+    ? "off"
+    : !canDictate
+      ? speechSupported()
+        ? "unsupported"
+        : "off"
+      : callTrouble
+        ? callTrouble
+        : micMuted
+          ? "muted"
+          : speaking
+            ? "paused"
+            : sending
+              ? "off"
+              : "listening";
+
+  function clearCallTimers() {
+    if (silenceRef.current) clearTimeout(silenceRef.current);
+    if (restartRef.current) clearTimeout(restartRef.current);
+    silenceRef.current = null;
+    restartRef.current = null;
+  }
+
+  function dropCallRecognizer() {
+    const rec = callRecRef.current;
+    callRecRef.current = null;
+    callEmittedRef.current = null;
+    setCallHearing(false);
+    rec?.abort();
+  }
+
+  function startCallSession() {
+    const Rec = speechRecognition();
+    if (!Rec) return;
+    dropCallRecognizer();
+    const rec = new Rec();
+    rec.lang = navigator.language || "en-US";
+    rec.interimResults = true;
+    rec.continuous = true;
+    const base = valueRef.current;
+    rec.onresult = (event) => {
+      if (callRecRef.current !== rec) return;
+      const finals: string[] = [];
+      const interims: string[] = [];
+      for (let i = 0; i < event.results.length; i++) {
+        const r = event.results[i]!;
+        (r.isFinal ? finals : interims).push(r[0].transcript);
+      }
+      const next = joinTranscript(base, finals, joinTranscript("", interims));
+      callEmittedRef.current = next;
+      setCallHearing(true);
+      onChange(next);
+      if (silenceRef.current) clearTimeout(silenceRef.current);
+      silenceRef.current = setTimeout(
+        () => {
+          if (callRecRef.current !== rec) return;
+          // A short pause after speaking: send it, like talking on a call.
+          dropCallRecognizer();
+          sendRef.current();
+        },
+        interims.some((t) => t.trim()) ? SILENCE_INTERIM_MS : SILENCE_SEND_MS,
+      );
+    };
+    rec.onerror = (event) => {
+      if (callRecRef.current !== rec) return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        dropCallRecognizer();
+        setCallTrouble("blocked");
+      }
+      // "no-speech", "aborted", "network": onend follows and restarts.
+    };
+    rec.onend = () => {
+      if (callRecRef.current !== rec) return;
+      // Chrome Android ends sessions after each phrase or a few seconds of quiet.
+      callRecRef.current = null;
+      setCallHearing(false);
+      if (!wantRef.current) return;
+      const now = Date.now();
+      restartsRef.current = restartsRef.current.filter((t) => now - t < 30_000).concat(now);
+      if (restartsRef.current.length > 12) {
+        setCallTrouble("error");
+        return;
+      }
+      restartRef.current = setTimeout(() => {
+        if (wantRef.current && !callRecRef.current) startCallSession();
+      }, restartDelayMs(restartsRef.current.length));
+    };
+    callRecRef.current = rec;
+    try {
+      rec.start();
+    } catch {
+      callRecRef.current = null;
+      setCallTrouble("error");
+    }
+  }
+
+  useEffect(() => {
+    wantRef.current = wantListen;
+    if (wantListen) {
+      if (!callRecRef.current) startCallSession();
+    } else {
+      clearCallTimers();
+      dropCallRecognizer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantListen]);
+
+  // The student typed or the box was cleared: start a fresh session from the new text.
+  useEffect(() => {
+    if (!callRecRef.current || callEmittedRef.current === null || value === callEmittedRef.current) return;
+    clearCallTimers();
+    dropCallRecognizer();
+    if (wantRef.current) startCallSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  useEffect(
+    () => () => {
+      wantRef.current = false;
+      clearCallTimers();
+      dropCallRecognizer();
+    },
+    [],
+  );
+
   function pick(key: MenuKey) {
     setMenuOpen(false);
     if (key === "gallery") galleryRef.current?.click();
@@ -306,11 +474,21 @@ export function ChatComposer({
 
   function send() {
     if (sendDisabled) return;
+    // A tap on Send unlocks speech on phones, so Pau Pau's answer can play.
+    unlockSpeech();
     // The sent text is final; nothing heard after this goes back in the box.
     dropRecognizer();
     setListening(false);
+    clearCallTimers();
+    dropCallRecognizer();
     onSend();
   }
+  useEffect(() => {
+    sendRef.current = () => {
+      if (!valueRef.current.trim()) return;
+      send();
+    };
+  });
 
   const failedFile = attachments.find((f) => f.status === "failed");
 
@@ -434,7 +612,7 @@ export function ChatComposer({
                 <Plus aria-hidden className="h-5 w-5" />
               </button>
             ) : null}
-            {canDictate ? (
+            {canDictate && !callOn ? (
               <button
                 type="button"
                 aria-label={listening ? "Stop voice typing" : "Voice typing: speak and it types into the box"}
@@ -449,6 +627,21 @@ export function ChatComposer({
               </button>
             ) : null}
             {listening ? <span className="text-[13px] text-ds-muted" role="status">Listening…</span> : null}
+            {callOn || callStatus === "unsupported" ? (
+              <span
+                className="flex min-h-[44px] items-center gap-2 px-2 text-[13px] leading-[1.4] text-ds-muted"
+                role="status"
+                data-call-status={callStatus}
+              >
+                {callStatus === "listening" ? (
+                  <span
+                    aria-hidden
+                    className={cn("h-2 w-2 shrink-0 rounded-full", callHearing ? "bg-ds-accent" : "bg-ds-sage")}
+                  />
+                ) : null}
+                {callStatusText(callStatus)}
+              </span>
+            ) : null}
           </div>
           <button
             type="button"

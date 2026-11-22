@@ -1,80 +1,116 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DsButton } from "@/components/ui/ds-button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
-import { dsCaption, dsInput, dsTextarea } from "@/lib/ds/classes";
-import { PauPauAvatar } from "@/components/stages/stage1/chat-bubbles";
+import { dsCaption } from "@/lib/ds/classes";
+import {
+  ComposerDock,
+  PauPauAvatar,
+  PauPauGroup,
+  ScrollToNewest,
+  StudentBubble,
+} from "@/components/stages/stage1/chat-bubbles";
+import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
-  lengthFromAnswer,
   pauPauNextAsk,
-  pauPauSummaryBubbles,
+  readBackParas,
+  reconfirmParas,
   type PauPauAsk,
 } from "@/lib/stage1/pau-pau";
+import {
+  appendStudentNote,
+  applyConfirmUpdates,
+  isQuickConfirm,
+  linkIn,
+  type ConfirmResult,
+  type ConfirmTurn,
+} from "@/lib/stage1/confirm-reply";
 
 type Props = {
   paperId: string;
   requirements: AssignmentRequirements;
   onChange: (next: AssignmentRequirements) => void;
+  /** Saves the confirmed card and moves on to the questions. */
   onConfirm: () => void;
-  onEditDetails: () => void;
   onStartOver: () => void;
   confirming: boolean;
   error: string | null;
-  /** Inside the chat frame: the name line is already above, on the first bubble. */
-  embedded?: boolean;
+  /** The conversation about the read-back, saved so a reload shows the same thing. */
+  turns: ConfirmTurn[];
+  onTurns: (next: ConfirmTurn[]) => void;
+  /** The assignment sheet text, so Pau Pau can answer questions about it. */
+  sheetText?: string;
 };
 
 export { PauPauAvatar };
 
+/** Asks the student already declined or answered, from the saved conversation. */
+export function dismissedFromTurns(turns: ConfirmTurn[]): Set<PauPauAsk> {
+  const out = new Set<PauPauAsk>();
+  for (const t of turns) if (t.role === "pau" && t.skip) out.add(t.skip);
+  return out;
+}
+
 /**
- * After the read: Pau Pau says back what it understood, asks for the one most
- * important missing thing, and "Let's go" confirms the same structured card.
+ * After the read: Pau Pau says back what it understood in ONE reply and the
+ * student answers in the same chat box (PLAN.md 9). "Looks good" confirms;
+ * a question gets an answer; a correction updates the card and Pau Pau
+ * re-confirms. Nothing moves on from an unclear reply.
  */
 export function PauPauConfirm({
   paperId,
   requirements,
   onChange,
   onConfirm,
-  onEditDetails,
   onStartOver,
   confirming,
   error,
-  embedded = false,
+  turns,
+  onTurns,
+  sheetText,
 }: Props) {
-  const [dismissed, setDismissed] = useState<Set<PauPauAsk>>(new Set());
-  const [answer, setAnswer] = useState("");
-  const [linkOpen, setLinkOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [replying, setReplying] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [askError, setAskError] = useState<string | null>(null);
-  const [thanks, setThanks] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const turnsRef = useRef(turns);
+  const reqRef = useRef(requirements);
+  useEffect(() => {
+    turnsRef.current = turns;
+  }, [turns]);
+  useEffect(() => {
+    reqRef.current = requirements;
+  }, [requirements]);
 
+  const dismissed = useMemo(() => dismissedFromTurns(turns), [turns]);
   const ask = pauPauNextAsk(requirements, dismissed);
-  // Same paper → same opener, so a reload reads the same.
-  const bubbles = pauPauSummaryBubbles(requirements, { pendingAsk: ask, seed: paperId });
-  const askText = ask ? PAU_PAU_ASK_TEXT[ask] : null;
 
-  function nextAsk(after: PauPauAsk, note: string | null) {
-    setAnswer("");
-    setLinkOpen(false);
-    setAskError(null);
-    setThanks(note);
-    setDismissed((prev) => new Set(prev).add(after));
+  // The first reply: the read-back, saved as the start of the conversation.
+  useEffect(() => {
+    if (turns.length) return;
+    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId }) }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turns.length]);
+
+  function push(...more: ConfirmTurn[]) {
+    const next = [...turnsRef.current, ...more];
+    turnsRef.current = next;
+    onTurns(next);
   }
 
   function addReading(reading: ProvidedReading) {
-    const list = [...(requirements.providedReadings.value ?? []), reading];
-    const field = markFieldConfirmed(requirements.providedReadings, { value: list });
-    onChange({ ...requirements, providedReadings: field, providedSources: field });
+    const req = reqRef.current;
+    const list = [...(req.providedReadings.value ?? []), reading];
+    const field = markFieldConfirmed(req.providedReadings, { value: list });
+    const next = { ...req, providedReadings: field, providedSources: field };
+    reqRef.current = next;
+    onChange(next);
     // Keep it on the saved assignment so a reload doesn't ask again.
     void fetch(`/api/papers/${paperId}/assignment/readings`, {
       method: "POST",
@@ -83,48 +119,130 @@ export function PauPauConfirm({
     }).catch(() => undefined);
   }
 
-  function saveTopic() {
-    const text = answer.replace(/\s+/g, " ").trim();
-    if (text.split(" ").length < 3) {
-      setAskError("A few words is enough, but I need at least that much.");
-      return;
-    }
-    onChange({ ...requirements, topic: markFieldConfirmed(requirements.topic, { value: text }) });
-    nextAsk("topic", "Got it, thanks.");
+  /** What to ask after this reply: the next missing thing, else "does it look right?". */
+  function followUp(after: Set<PauPauAsk>): string {
+    const next = pauPauNextAsk(reqRef.current, after);
+    return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
-  async function saveLink() {
-    const url = answer.trim();
-    if (!/^https?:\/\/\S+\.\S+/i.test(url)) {
-      setAskError("That doesn't look like a web link. It should start with http:// or https://.");
+  async function sendReply() {
+    const text = draft.replace(/\s+$/, "");
+    if (!text.trim() || replying || confirming) return;
+    setDraft("");
+    push({ role: "student", text });
+    const currentAsk = ask;
+
+    // Plain "looks good": straight on, unless the topic is still missing (gate).
+    if (isQuickConfirm(text)) {
+      if (currentAsk === "topic") {
+        push({ role: "pau", paras: ["Before we start I need the topic.", PAU_PAU_ASK_TEXT.topic] });
+        return;
+      }
+      onConfirm();
       return;
     }
-    setChecking(true);
-    setAskError(null);
-    const check = (await fetch(`/api/papers/${paperId}/assignment/readings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "check", url }),
-    })
-      .then((res) => res.json())
-      .catch(() => null)) as { ok?: boolean; reason?: string } | null;
-    setChecking(false);
-    if (!check?.ok) {
-      setAskError(
-        check?.reason === "not_found"
-          ? "I couldn't open that link: the page says it doesn't exist. Double-check it and try again, or upload the PDF instead."
-          : "I couldn't open that link. Double-check it and try again, or upload the PDF instead.",
-      );
-      return;
+
+    setReplying(true);
+    try {
+      // A link while Pau Pau is asking for sources: check it and keep it.
+      const url = currentAsk === "sources" ? linkIn(text) : null;
+      if (url) {
+        const check = (await fetch(`/api/papers/${paperId}/assignment/readings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check", url }),
+        })
+          .then((res) => res.json())
+          .catch(() => null)) as { ok?: boolean; reason?: string } | null;
+        if (!check?.ok) {
+          push({
+            role: "pau",
+            paras: [
+              check?.reason === "not_found"
+                ? "I couldn't open that link: the page says it doesn't exist. Double-check it, or upload the PDF instead."
+                : "I couldn't open that link. Double-check it, or upload the PDF instead.",
+            ],
+          });
+          return;
+        }
+        addReading({ url, origin: "manual" });
+        const after = new Set(dismissed).add("sources");
+        push({ role: "pau", paras: ["Nice, I've got that source.", followUp(after)], skip: "sources" });
+        return;
+      }
+
+      const res = await fetch(`/api/papers/${paperId}/assignment/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text.slice(0, 2000),
+          pendingAsk: currentAsk,
+          requirements: reqRef.current,
+          sheetExcerpt: sheetText?.slice(0, 8000) || undefined,
+          history: turnsRef.current.slice(-8).map((t) =>
+            t.role === "student" ? { role: "student", text: t.text.slice(0, 2000) } : { role: "pau", paras: t.paras.slice(0, 12) },
+          ),
+        }),
+      });
+      const result = (res.ok ? await res.json() : null) as ConfirmResult | null;
+      if (!result) {
+        push({ role: "pau", paras: ["Sorry, I didn't catch that. Could you say it another way?"] });
+        return;
+      }
+
+      const skip = result.skipAsk && currentAsk ? currentAsk : undefined;
+      const after = skip ? new Set(dismissed).add(skip) : dismissed;
+      if (result.intent === "confirm") {
+        if (pauPauNextAsk(reqRef.current, after) === "topic") {
+          push({ role: "pau", paras: ["Before we start I need the topic.", PAU_PAU_ASK_TEXT.topic], skip });
+          return;
+        }
+        if (skip) push({ role: "pau", paras: [result.reply], skip });
+        onConfirm();
+        return;
+      }
+      if (result.intent === "correction") {
+        const next = applyConfirmUpdates(reqRef.current, result.updates);
+        reqRef.current = next;
+        onChange(next);
+        push({
+          role: "pau",
+          paras: [result.reply, ...reconfirmParas(next, pauPauNextAsk(next, after))],
+          apply: { updates: result.updates },
+          skip,
+        });
+        return;
+      }
+      if (result.intent === "extra_info") {
+        if (result.keepAsNote) {
+          const next = appendStudentNote(reqRef.current, text);
+          reqRef.current = next;
+          onChange(next);
+        }
+        push({
+          role: "pau",
+          paras: [result.reply, followUp(after)],
+          apply: result.keepAsNote ? { note: text } : undefined,
+          skip,
+        });
+        return;
+      }
+      if (result.intent === "question") {
+        push({ role: "pau", paras: [result.reply, followUp(after)], skip });
+        return;
+      }
+      // Ambiguous: ask, never move on.
+      push({ role: "pau", paras: [result.reply], skip });
+    } catch {
+      push({ role: "pau", paras: ["Sorry, I didn't catch that. Could you say it another way?"] });
+    } finally {
+      setReplying(false);
     }
-    addReading({ url, origin: "manual" });
-    nextAsk("sources", "Nice, I've got that source.");
   }
 
   async function uploadSource(file: File | undefined) {
     if (!file) return;
     setBusy(true);
-    setAskError(null);
     // Title from the file's own first line; the student's file name otherwise.
     const read = await extractFileText(paperId, file).catch(() => null);
     const firstLine = read && read.ok ? read.text.split(/\n/).map((l) => l.trim()).find((l) => l.length >= 6) : null;
@@ -134,191 +252,92 @@ export function PauPauConfirm({
       origin: "manual",
     });
     setBusy(false);
-    nextAsk("sources", `Nice, I've got ${file.name}.`);
+    const after = new Set(dismissed).add("sources");
+    push({ role: "pau", paras: [`Nice, I've got ${file.name}.`, followUp(after)], skip: "sources" });
   }
 
-  function saveLength() {
-    const value = lengthFromAnswer(answer);
-    if (!value || (!value.wordsMin && !value.pagesMin)) {
-      setAskError("Try a number, like 1,200 words or 5 pages.");
-      return;
-    }
-    onChange({ ...requirements, length: markFieldConfirmed(requirements.length, { value }) });
-    nextAsk("length", "Perfect.");
-  }
+  const lastPau = turns.reduce((last, t, i) => (t.role === "pau" ? i : last), -1);
+  const speak = turns.flatMap((t, i) =>
+    t.role === "pau" ? [{ key: `confirm:${i}`, text: t.paras.join(" "), turn: i === lastPau }] : [],
+  );
+  const lastParas = lastPau >= 0 ? (turns[lastPau] as { paras: string[] }).paras : [];
 
   return (
-    <div className="mx-auto max-w-[680px]">
-      <div className="flex items-start gap-2 sm:gap-3">
-        <PauPauAvatar />
-        <div className="min-w-0 flex-1">
-          {embedded ? null : (
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
-              {COACH_NAME} <span className="font-normal normal-case tracking-normal">· your writing coach</span>
-            </p>
-          )}
-          <div className="mt-2 space-y-2" aria-live="polite">
-            <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
-            {bubbles.map((text, i) => (
-              <div key={i}>
-                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
-                  {text}
-                </p>
-              </div>
-            ))}
-            {thanks ? (
-              <div>
-                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
-                  {thanks}
-                </p>
-              </div>
-            ) : null}
-            {askText ? (
-              <div>
-                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
-                  {askText}
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          <SpeakNew
-            scope={paperId}
-            items={[
-              ...bubbles.map((text, i) => ({ key: `sum:${i}`, text, turn: true })),
-              ...(thanks ? [{ key: `thanks:${thanks}`, text: thanks, turn: true }] : []),
-              ...(askText && ask ? [{ key: `ask:${ask}`, text: askText, turn: true }] : []),
-            ]}
-          />
-          <ReplayButton
-            className="mt-1 -ml-2"
-            texts={[...bubbles, thanks, askText].filter((t): t is string => Boolean(t))}
-          />
-
-          {ask === "topic" ? (
-            <div className="mt-4 space-y-2">
-              <Textarea
-                className={dsTextarea}
-                rows={3}
-                aria-label="The prompt or topic"
-                placeholder="Paste the prompt, or describe the topic"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-              />
-              <DsButton type="button" variant="secondary" onClick={saveTopic}>
-                Save the topic
-              </DsButton>
-            </div>
-          ) : null}
-
-          {ask === "sources" ? (
-            <div className="mt-4 space-y-3">
-              {linkOpen ? (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    className={`${dsInput} flex-1`}
-                    type="url"
-                    inputMode="url"
-                    aria-label="Source link"
-                    placeholder="https://"
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !checking) void saveLink();
-                    }}
-                  />
-                  <DsButton type="button" variant="secondary" disabled={checking} onClick={() => void saveLink()}>
-                    {checking ? "Checking…" : askError ? "Try again" : "Add link"}
-                  </DsButton>
-                </div>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                {!linkOpen ? (
-                  <DsButton type="button" size="sm" variant="secondary" onClick={() => setLinkOpen(true)}>
-                    Add a link
-                  </DsButton>
+    <>
+      <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
+      <SpeakNew scope={paperId} items={speak} />
+      {turns.map((t, i) =>
+        t.role === "student" ? (
+          <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
+        ) : (
+          <PauPauGroup key={i} bubbles={t.paras} live={i === lastPau && i > 0}>
+            {i === lastPau ? (
+              <>
+                {ask === "sources" ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <DsButton
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      {busy ? "Reading the file…" : "Upload a source PDF"}
+                    </DsButton>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      className="hidden"
+                      aria-label="Upload a source PDF"
+                      accept=".pdf,.docx,.txt,.md,.html,application/pdf"
+                      onChange={(e) => {
+                        void uploadSource(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
                 ) : null}
-                <DsButton
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  {busy ? "Reading the file…" : "Upload a PDF"}
-                </DsButton>
-                <DsButton type="button" size="sm" variant="ghost" onClick={() => nextAsk("sources", null)}>
-                  Not now
-                </DsButton>
-              </div>
-              <input
-                ref={fileInput}
-                type="file"
-                className="hidden"
-                accept=".pdf,.docx,.txt,.md,.html,application/pdf"
-                onChange={(e) => {
-                  void uploadSource(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-          ) : null}
-
-          {ask === "length" ? (
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <Input
-                className={`${dsInput} flex-1`}
-                aria-label="Paper length"
-                placeholder="e.g. 1,200 words or 5 pages"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveLength();
-                }}
-              />
-              <div className="flex gap-2">
-                <DsButton type="button" variant="secondary" onClick={saveLength}>
-                  Save
-                </DsButton>
-                <DsButton type="button" size="sm" variant="ghost" onClick={() => nextAsk("length", null)}>
-                  Skip
-                </DsButton>
-              </div>
-            </div>
-          ) : null}
-
-          {askError ? (
-            <p className="mt-2 text-[16px] leading-[1.6] text-ds-error" role="alert">
-              {askError}
-            </p>
-          ) : null}
-          {error ? (
-            <p id="confirm-error" className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-
-          <div className="mt-8 flex flex-wrap items-center gap-4">
-            <DsButton
-              type="button"
-              variant="primary"
-              disabled={confirming || ask === "topic"}
-              onClick={onConfirm}
-            >
-              {confirming ? "Saving…" : "Let's go"}
-            </DsButton>
-            <DsButton type="button" size="sm" variant="ghost" onClick={onEditDetails}>
-              Fix something
-            </DsButton>
-          </div>
-          <p className={`mt-6 ${dsCaption}`}>
-            Wrong file?{" "}
-            <button type="button" className="font-semibold text-ds-ink underline underline-offset-4" onClick={onStartOver}>
-              Upload a different one
-            </button>
+                <ReplayButton className="-ml-2" texts={lastParas} />
+              </>
+            ) : null}
+          </PauPauGroup>
+        ),
+      )}
+      {replying ? (
+        <div className="flex items-start gap-2 sm:gap-3" role="status">
+          <PauPauAvatar />
+          <p className="mt-1 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[16px] leading-[1.6] text-ds-muted shadow-ds-card">
+            Thinking…
           </p>
         </div>
-      </div>
-    </div>
+      ) : null}
+      {error ? (
+        <p id="confirm-error" className="text-[16px] leading-[1.6] text-ds-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <p className={dsCaption}>
+        Wrong file?{" "}
+        <button type="button" className="font-semibold text-ds-ink underline underline-offset-4" onClick={onStartOver}>
+          Upload a different one
+        </button>
+      </p>
+      <ScrollToNewest signal={`${turns.length}:${replying}`} />
+      <ComposerDock>
+        <span id="confirm-reply-label" className="sr-only">
+          Reply to {COACH_NAME}
+        </span>
+        <ChatComposer
+          paperId={paperId}
+          labelledBy="confirm-reply-label"
+          value={draft}
+          onChange={setDraft}
+          onSend={() => void sendReply()}
+          sending={replying || confirming}
+          minRows={1}
+          placeholder={ask === "topic" ? "What's the paper about?" : "Reply to Pau Pau… “looks good” or what to change"}
+        />
+      </ComposerDock>
+    </>
   );
 }

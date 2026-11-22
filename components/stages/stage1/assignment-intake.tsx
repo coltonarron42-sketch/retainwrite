@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
+import {
+  CONFIRM_CHAT_FIELD,
+  parseConfirmTurns,
+  replayTurns,
+  trimTurns,
+  type ConfirmTurn,
+} from "@/lib/stage1/confirm-reply";
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
@@ -32,8 +40,8 @@ import {
   trimSent,
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
-import { pauPauSummaryBubbles } from "@/lib/stage1/pau-pau";
-import { ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { readBackParas } from "@/lib/stage1/pau-pau";
+import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -208,6 +216,23 @@ export function AssignmentIntake({
   const [stagedFiles, setStagedFiles] = useState<StagedAssignmentFile[]>([]);
   /** What the student sent in the chat box, shown as their bubble above Pau Pau's reply. */
   const [sentMessage, setSentMessage] = useState<SentMessage | null>(null);
+  // The conversation about the read-back (PLAN.md 9), saved per paper.
+  const [confirmTurns, setConfirmTurnsState] = useState<ConfirmTurn[]>([]);
+  const [confirmReady, setConfirmReady] = useState(false);
+  const confirmReplayed = useRef(false);
+  const setConfirmTurns = useCallback(
+    (next: ConfirmTurn[]) => {
+      const trimmed = trimTurns(next);
+      setConfirmTurnsState(trimmed);
+      try {
+        writeScoped(`confirm-chat:${paperId}`, JSON.stringify(trimmed));
+      } catch {
+        /* private mode */
+      }
+      if (!demoMode) void persistField(paperId, { fieldKey: CONFIRM_CHAT_FIELD, text: JSON.stringify(trimmed) });
+    },
+    [paperId, demoMode],
+  );
   const [parseStatus, setParseStatus] = useState("Extracting the text…");
   const [parseStartedAt, setParseStartedAt] = useState(() => Date.now());
   const [requirements, setRequirements] =
@@ -256,6 +281,45 @@ export function AssignmentIntake({
     label: string;
     excerpt: string;
   } | null>(null);
+
+  useEffect(() => {
+    setConfirmReady(false);
+    confirmReplayed.current = false;
+    let local: ConfirmTurn[] = [];
+    try {
+      local = parseConfirmTurns(readScoped(`confirm-chat:${paperId}`));
+    } catch {
+      local = [];
+    }
+    setConfirmTurnsState(local);
+    if (local.length || demoMode) {
+      setConfirmReady(true);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/papers/${paperId}/autosave`)
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { drafts?: { fieldKey: string; text: string }[] } | null) => {
+        if (cancelled) return;
+        const saved = parseConfirmTurns(data?.drafts?.find((row) => row.fieldKey === CONFIRM_CHAT_FIELD)?.text);
+        if (saved.length) setConfirmTurnsState((current) => (current.length ? current : saved));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setConfirmReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paperId, demoMode]);
+
+  // A reload before "looks good": put the student's corrections back on the card.
+  useEffect(() => {
+    if (!confirmReady || !requirements || confirmReplayed.current) return;
+    confirmReplayed.current = true;
+    if (requirements.topic.confirmed || requirements.promptQuestion.confirmed) return;
+    if (confirmTurns.some((t) => t.role === "pau" && t.apply)) setRequirements(replayTurns(requirements, confirmTurns));
+  }, [confirmReady, requirements, confirmTurns]);
 
   useEffect(() => {
     const local = readSentMessage(paperId);
@@ -1443,7 +1507,7 @@ export function AssignmentIntake({
   if (screen === "upload") {
     const hasFiles = stagedFiles.length > 0;
     const uploadSpeak: SpeakItem[] = [
-      { key: "ask", text: `${ASSIGNMENT_GREETING} What's the assignment we're working on?`, turn: !error },
+      { key: "ask", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`, turn: !error },
       ...(error && /^(Tell me|Give me|I couldn)/.test(error) ? [{ key: `err:${error}`, text: error, turn: true }] : []),
     ];
     return (
@@ -1451,12 +1515,19 @@ export function AssignmentIntake({
         <SpeakNew scope={paperId} items={uploadSpeak} />
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
-          <PauPauBubble as="h1" id="assignment-ask" showName={false}>
-            What&apos;s the assignment we&apos;re working on?
-          </PauPauBubble>
+          <PauPauGroup
+            showName
+            bubbles={[
+              ASSIGNMENT_GREETING,
+              ASSIGNMENT_ASK,
+              error && !sentMessage ? <span key="err" role="alert">{error}</span> : null,
+            ]}
+            headingIndex={1}
+            headingId="assignment-ask"
+            live={Boolean(error && !sentMessage)}
+          />
           {error && sentMessage ? <StudentBubble message={sentMessage} /> : null}
-          {error ? (
+          {error && sentMessage ? (
             <PauPauBubble showName={false} live>
               <span role="alert">{error}</span>
             </PauPauBubble>
@@ -1512,8 +1583,7 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-[680px]">
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
-          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
           <ReadingBubble status={parseStatus} startedAt={parseStartedAt} />
         </div>
@@ -1573,25 +1643,27 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-[680px]">
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-6">
-          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
-          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
-          <ScrollIntoViewOnMount>
-      <PauPauConfirm
-        embedded
-        paperId={paperId}
-        requirements={requirements}
-        onChange={setRequirements}
-        onConfirm={() => void confirmCard()}
-        onEditDetails={() => {
-          setError(null);
-          setEditingDetails(true);
-        }}
-        onStartOver={() => setScreen("upload")}
-        confirming={confirming}
-        error={error}
-      />
-          </ScrollIntoViewOnMount>
+          {confirmReady ? (
+            <PauPauConfirm
+              paperId={paperId}
+              requirements={requirements}
+              onChange={setRequirements}
+              onConfirm={() => void confirmCard()}
+              onStartOver={() => {
+                setConfirmTurns([]);
+                setScreen("upload");
+              }}
+              confirming={confirming}
+              error={error}
+              turns={confirmTurns}
+              onTurns={setConfirmTurns}
+              sheetText={rawText}
+            />
+          ) : (
+            <ReadingBubble status="Getting your conversation back…" startedAt={Date.now()} />
+          )}
         </div>
       </div>
     );
@@ -2177,7 +2249,6 @@ export function AssignmentIntake({
         setSubmitting(false),
       );
     };
-    const summary = pauPauSummaryBubbles(requirements, { seed: paperId });
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
@@ -2253,12 +2324,19 @@ export function AssignmentIntake({
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
           {/* The start of the chat, rebuilt from what's saved. */}
-          <PauPauBubble>{ASSIGNMENT_GREETING}</PauPauBubble>
-          <PauPauBubble showName={false}>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
-          <PauPauGroup bubbles={summary} />
-          <EchoBubble text="Let's go" />
-          <PauPauGroup bubbles={INTRO_BUBBLES} />
+          {confirmTurns.length ? (
+            confirmTurns.map((t, i) =>
+              t.role === "student" ? (
+                <StudentBubble key={`ct${i}`} message={{ text: t.text, files: [], at: 0 }} />
+              ) : (
+                <PauPauGroup key={`ct${i}`} bubbles={t.paras} />
+              ),
+            )
+          ) : (
+            <PauPauGroup bubbles={readBackParas(requirements, { seed: paperId })} />
+          )}
 
           {coachingPlan.map((item, i) => {
             const said = answerFor(item.id);
@@ -2267,7 +2345,8 @@ export function AssignmentIntake({
             if (isCurrent && !editing) return null;
             return (
               <div key={item.id} className="space-y-4">
-                <PauPauBubble showName={false}>{item.text}</PauPauBubble>
+                {/* The first question comes in the same reply as the intro. */}
+                <PauPauGroup bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]} />
                 {isCurrent ? null : sparkFor(item.id)}
                 <EchoBubble
                   text={said || "Skipped"}
@@ -2316,11 +2395,16 @@ export function AssignmentIntake({
           {q ? (
             <PauPauGroup
               bubbles={[
+                ...(!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES : []),
                 editing ? "Sure, change anything and send it again." : null,
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
               ].filter((b): b is string => Boolean(b))}
-              headingIndex={(editing ? 1 : 0) + (stanceMode && !editing ? 1 : 0)}
+              headingIndex={
+                (!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES.length : 0) +
+                (editing ? 1 : 0) +
+                (stanceMode && !editing ? 1 : 0)
+              }
               headingId="coach-question"
             >
               {q.kind === "background" ? (
@@ -2693,16 +2777,4 @@ function ListTextarea({ value, onChange }: { value: string; onChange: (raw: stri
       }}
     />
   );
-}
-
-/** Bring the newest chat bubble into view (one frame at a time on a phone). */
-function ScrollIntoViewOnMount({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const top = el.getBoundingClientRect().top;
-    if (top > window.innerHeight * 0.5) el.scrollIntoView({ block: "start", behavior: "auto" });
-  }, []);
-  return <div ref={ref} className="scroll-mt-6">{children}</div>;
 }

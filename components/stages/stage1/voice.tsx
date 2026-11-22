@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import {
   currentTurn,
@@ -11,6 +11,7 @@ import {
   stopSpeech,
   subscribeSpeaking,
   takeNew,
+  unlockSpeech,
   type SpeakItem,
 } from "@/lib/voice/speech";
 import { cn } from "@/lib/utils";
@@ -48,8 +49,11 @@ export function VoiceToggle({ className }: { className?: string }) {
       onClick={() => {
         const next = !voice;
         setChatPref("voice", next);
-        if (next) speak(currentTurn(), { interrupt: true });
-        else stopSpeech();
+        if (next) {
+          // Inside the tap: phones only allow speech that a gesture started.
+          unlockSpeech();
+          speak(currentTurn(), { interrupt: true });
+        } else stopSpeech();
       }}
       className={cn(
         "ds-focus inline-flex min-h-[48px] items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors duration-150",
@@ -63,12 +67,55 @@ export function VoiceToggle({ className }: { className?: string }) {
   );
 }
 
-/** Eyebrow row with the voice switch on the right. */
+function useRecognitionSupported() {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+    setOk(Boolean(w.SpeechRecognition ?? w.webkitSpeechRecognition));
+  }, []);
+  return ok;
+}
+
+/**
+ * Voice call mute (PLAN.md 9): while Voice is on the student's mic listens
+ * between Pau Pau's turns. Mute keeps it off (remembered on the account);
+ * Pau Pau still speaks.
+ */
+export function MicMuteButton({ className }: { className?: string }) {
+  const { voice, micMuted } = useChatPrefs();
+  const canListen = useRecognitionSupported();
+  if (!voice || !canListen) return null;
+  return (
+    <button
+      type="button"
+      data-mic-mute
+      aria-pressed={micMuted}
+      aria-label={micMuted ? "Unmute your mic" : "Mute your mic"}
+      onClick={() => {
+        unlockSpeech();
+        setChatPref("micMuted", !micMuted);
+      }}
+      className={cn(
+        "ds-focus inline-flex min-h-[48px] items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors duration-150",
+        micMuted ? "bg-ds-ink text-white" : "text-ds-ink hover:bg-ds-surface",
+        className,
+      )}
+    >
+      {micMuted ? <MicOff aria-hidden className="size-5" /> : <Mic aria-hidden className="size-5" />}
+      {micMuted ? "Unmute" : "Mute"}
+    </button>
+  );
+}
+
+/** Eyebrow row with the voice switch (and, on a voice call, Mute) on the right. */
 export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eyebrowClassName: string }) {
   return (
     <div className="flex min-h-[48px] items-center justify-between gap-2">
       <p className={eyebrowClassName}>{eyebrow}</p>
-      <VoiceToggle />
+      <div className="flex items-center gap-1">
+        <MicMuteButton />
+        <VoiceToggle />
+      </div>
     </div>
   );
 }
