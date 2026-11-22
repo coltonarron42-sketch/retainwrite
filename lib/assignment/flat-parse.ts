@@ -215,6 +215,24 @@ export function flatToNested(flat: Flat): Flat {
     otherInstructions: field(s(flat.otherInstructions)),
     aiPolicy: field(s(flat.aiPolicy) ?? "unspecified"),
   };
+  // The flat schema has no "other" description: name the style from the
+  // model's evidence quote ("Citation style: ASA" → "ASA"), or leave it to the
+  // sanitizer (an unnamed "other" dead-ends the confirm gate).
+  if (s(flat.citationStyle) === "other") {
+    const named = otherStyleName(s(evidence.citationStyle) ?? "");
+    if (named) nested.citationStyleOther = named;
+  }
   for (const key of Object.keys(nested)) if (nested[key] == null) delete nested[key];
   return nested;
+}
+
+/** "Citation style: ASA 6th edition." → "ASA 6th edition"; "Use Turabian style." → "Turabian". */
+export function otherStyleName(quote: string): string | null {
+  const q = quote.replace(/\s+/g, " ").trim();
+  if (!q) return null;
+  const labeled = q.match(/\b(?:citation|citations|documentation|reference)\s+(?:style|format)\s*[:\-–]\s*([^.;\n]{2,60})/i);
+  if (labeled) return labeled[1]!.trim();
+  const named = q.match(/\b([A-Z][\w&-]*(?:\s+(?:\d+\w*|[A-Z][\w&-]*)){0,3})\s+(?:style|format|citations?)\b/);
+  const name = named?.[1]?.replace(/^(?:(?:Use|Using|Cite|Follow|Format|In|All|Please)\s+)+/, "").trim();
+  return name || null;
 }

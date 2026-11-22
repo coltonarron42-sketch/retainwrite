@@ -32,3 +32,18 @@ describe("an extracted 'other' citation style with no name never dead-ends the c
     expect(sanitizeParsedRequirements(primary, emptyRequirements()).citationStyle.value).toBe("other");
   });
 });
+
+import { flatToNested, otherStyleName } from "@/lib/assignment/flat-parse";
+
+describe("a style outside the list keeps its name (QA 11:48 #9)", () => {
+  it("names the style from the evidence quote", () => {
+    expect(otherStyleName("Citation style: ASA 6th edition.")).toBe("ASA 6th edition");
+    expect(otherStyleName("Use Turabian style for notes.")).toBe("Turabian");
+    expect(otherStyleName("Cite everything in CSE format")).toBe("CSE");
+    expect(otherStyleName("")).toBeNull();
+  });
+  it("the model's 'other' with evidence becomes a named style", () => {
+    const nested = flatToNested({ topic: "Teen sleep", citationStyle: "other", evidence: { citationStyle: "Citation style: ASA" } }) as Record<string, unknown>;
+    expect(nested.citationStyleOther).toBe("ASA");
+  });
+});
