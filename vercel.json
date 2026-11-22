@@ -1,6 +1,9 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
+  "regions": [
+    "pdx1"
+  ],
   "crons": [
     {
       "path": "/api/cron/hidden-draft-purge",
