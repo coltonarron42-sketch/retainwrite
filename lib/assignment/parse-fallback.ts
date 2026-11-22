@@ -164,10 +164,15 @@ export function parseAssignmentFallback(
   const course =
     text.match(/^\s*(?:course|class)\s*:\s*(.{2,80}?)\s*$/im) ??
     text.match(
-      /\b((?:ENGL|ENG|HIST|BIO|CHEM|PSY|SOC|MATH|CS|ECON)\s*\d{2,4}[A-Z]?)\b/i,
+      /\b((?:ENGL|ENG|HIST|BIO|CHEM|PSYC|PSY|SOC|MATH|CS|ECON)\s*\d{2,4}[A-Z]?)\b/i,
     ) ??
+    // Any department code at the start of a line, e.g. "PHIL 230", "NURS-310".
+    text.match(/^\s*([A-Z]{2,5}[ -]?\d{3,4}[A-Z]?)\b/m) ??
     // A subject name plus a course number, e.g. "English 101 - Argument Essay".
-    text.match(/\b((?:[A-Z][a-z]+\s){1,3}\d{2,4}[A-Z]?)\b/);
+    // Not a date like "February 28".
+    text.match(
+      /\b((?!(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b)(?:[A-Z][a-z]+\s){1,3}\d{3,4}[A-Z]?)\b/,
+    );
   if (course) {
     const name = course[1].trim();
     req.course = extractedField(name, 0.8, name);

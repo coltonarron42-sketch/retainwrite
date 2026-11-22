@@ -65,3 +65,12 @@ describe("fallback list headings", () => {
     expect(r.requiredSources.value?.types).not.toMatch(/\n/);
   });
 });
+
+describe("fallback course", () => {
+  it("reads a department code and never a due date", () => {
+    const r = parseAssignmentFallback("PSYC 101 - Introduction to Psychology\nReflection Essay\nDue date: February 28", {});
+    expect(r.course.value).toBe("PSYC 101");
+    const d = parseAssignmentFallback("Reflection essay on identity.\nDue date: February 28\nWrite 1200 words.", {});
+    expect(d.course.value).not.toBe("February 28");
+  });
+});
