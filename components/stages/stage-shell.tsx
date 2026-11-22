@@ -102,7 +102,7 @@ export function StageShell({
   return (
     <div className="flex min-h-[70vh] flex-1 flex-col">
       {/* PLAN.md 9: a slim progress row, not a stage sidebar. */}
-      <div className={stage === 1 ? "mx-auto w-full max-w-[728px] px-6 pt-2" : "px-6 pt-2 md:px-16"}>
+      <div className={stage <= 3 ? "mx-auto w-full max-w-[728px] px-6 pt-2" : "px-6 pt-2 md:px-16"}>
         <StageProgress paperId={paperId} current={stage} statuses={statuses} />
       </div>
       <div className="min-w-0 flex-1 px-6 pb-12 pt-2 md:px-16">

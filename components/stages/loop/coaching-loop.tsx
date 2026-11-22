@@ -1,19 +1,14 @@
 "use client";
 
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
-import { CoachEyebrow, CoachSays } from "@/components/coaching/pau-pau";
 import { clipWords } from "@/lib/copy/clip";
-import { asHeading, isQuestionTopic } from "@/lib/copy/topic-phrase";
-import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
-import { LeadBatchView } from "@/components/coaching/lead-batch";
-import { LogicCheckpoint } from "@/components/coaching/logic-checkpoint";
-import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
-import { TeachCardView } from "@/components/coaching/teach-card";
+import { isQuestionTopic } from "@/lib/copy/topic-phrase";
+import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
 import { VoiceNudge } from "@/components/coaching/voice-nudge";
 import {
@@ -41,19 +36,12 @@ import {
   type FinalizedLogic,
 } from "@/lib/coaching/logicCheck";
 import { highlightReelFor, seedLeadFromHighlight } from "@/lib/coaching/highlightReel";
+import { mirrorQuestion } from "@/lib/coaching/memoryPath";
 import {
-  LESSON_PROBE_OPENER,
-  MEMORY_CONFIRM,
-  MEMORY_PROBE_OPENER,
-  mirrorQuestion,
-} from "@/lib/coaching/memoryPath";
-import {
-  SCRIPTED_MEMORY_FOLLOW_UP,
   safetyNoteFor,
   triggersForStudent,
   type MemoryTrigger,
 } from "@/lib/coaching/memoryTriggers";
-import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { stage5Locked, type SectionLockState } from "@/lib/coaching/sectionLoop";
 import { draftingAnchors } from "@/lib/drafting/anchors";
 import { requestHiddenDraftMilestone } from "@/lib/drafting/requestMilestone";
@@ -85,9 +73,20 @@ import { draftPointer } from "@/lib/papers/draft-resume";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { SaveStatus } from "@/components/stages/save-status";
-import { refreshStoredLogic, replaceClaim, revisionPrefill } from "@/lib/coaching/logicRevision";
+import { refreshStoredLogic, revisionPrefill } from "@/lib/coaching/logicRevision";
 import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
+import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-chat";
+import { OutlineChat } from "@/components/stages/loop/outline-chat";
+import {
+  afterMirror,
+  afterProbe,
+  appendLines,
+  nextOutlineIndex,
+  outlineSectionsForContinue,
+  stanceTurnFor,
+  type LoopLine,
+} from "@/lib/stages/stance-turn";
 
 type RuntimeSection = {
   key: string;
@@ -123,6 +122,11 @@ type Session = {
   nudgeKept: boolean;
   nudgeRework: boolean;
   events: string[];
+  /** Stage 2 conversation, rebuilt after a reload (PLAN.md 9). */
+  transcript?: LoopLine[];
+  /** Stage 3: sections the student has outlined, one at a time. */
+  outlineDone?: string[];
+  outlineTranscript?: LoopLine[];
 };
 
 type Props = {
@@ -141,7 +145,6 @@ type Props = {
   ) => void | boolean | Promise<void | boolean>;
 };
 
-const PLACEHOLDER_CONCEPT = /^(the )?(assigned )?concept$/i;
 
 /** Scoped per user (see lib/local/user-scope). */
 function storageName(paperId: string) {
@@ -233,6 +236,7 @@ export function CoachingLoop({
   const [thinNote, setThinNote] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [moving, setMoving] = useState(false);
+  const [outlineSaving, setOutlineSaving] = useState(false);
   const noteStatus = useDraftSave({
     paperId,
     fieldKey: `stance:${session?.sections[active]?.key ?? "note"}:draft`,
@@ -376,7 +380,6 @@ export function CoachingLoop({
     concept: lesson.concepts[0]?.term,
     assignmentText: session.assignmentText,
   });
-  const inStance = stage === 2;
   const locks = stage5Locked(session.sections);
   const skipped = session.sections.filter((item) => item.status === "skipped");
 
@@ -428,8 +431,9 @@ export function CoachingLoop({
     }
   }
 
-  async function continueAfterLogic(choice: "pass" | "keep" | "continued") {
+  async function continueAfterLogic(choice: "pass" | "keep" | "continued", more: LoopLine[] = []) {
     if (!session || !section) return;
+    const transcript = appendLines(session.transcript, more);
     const sections = session.sections.map((item, index) =>
       index === active
         ? {
@@ -449,6 +453,7 @@ export function CoachingLoop({
     commit({
       ...session,
       sections,
+      transcript,
       activeIndex: nextIndex,
       events: [
         ...session.events,
@@ -458,7 +463,7 @@ export function CoachingLoop({
     if (target.kind === "section") setActive(nextIndex);
     if (persist) {
       // Save on every confirm so a reload resumes at the next section.
-      const savedSession = { ...session, sections, activeIndex: nextIndex };
+      const savedSession = { ...session, sections, transcript, activeIndex: nextIndex };
       await persistField(paperId, {
         fieldKey: "loop_session",
         text: JSON.stringify(savedSession),
@@ -508,6 +513,308 @@ export function CoachingLoop({
     }
   }
 
+
+  // ── Stage 2 turns (PLAN.md 9). Same transitions as the old panels; each
+  // also records the exchange so the chat rebuilds after a reload.
+  const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
+
+  function onTeachAspect(aspect: string, more: LoopLine[]) {
+    if (!section) return;
+    updateSection(
+      section.key,
+      { teachStatus: "explored", teachAspect: aspect, loopStep: "probe" },
+      { transcript: withLines(more) },
+    );
+    log("teach_aspect_picked");
+  }
+
+  function onTeachSkip(more: LoopLine[]) {
+    if (!section) return;
+    updateSection(section.key, { teachStatus: "skipped_known", loopStep: "probe" }, { transcript: withLines(more) });
+    log("teach_skipped_known");
+  }
+
+  async function onMirrorSave(more: LoopLine[]) {
+    if (!session || !section || !idea.trim()) return;
+    const mirrorProbe = probeForThinNote(idea);
+    if (mirrorProbe) {
+      setThinNote(mirrorProbe);
+      return;
+    }
+    setThinNote(null);
+    const step = afterMirror(section, idea);
+    const transcript = withLines(more);
+    const nextSession: Session = {
+      ...session,
+      transcript,
+      sections: session.sections.map((item) =>
+        item.key === section.key ? { ...item, ideas: step.ideas, loopStep: step.loopStep } : item,
+      ),
+    };
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
+    const safety = safetyNoteFor(idea);
+    const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
+    updateSection(
+      section.key,
+      {
+        teachStatus: "mirrored",
+        ideas: step.ideas,
+        loopStep: "probe",
+      },
+      {
+        transcript,
+        safetyNote: safety.show ? safety.note : "",
+        events: [...session.events, safety.show ? safety.event : "mirror_answered"],
+        answers: [
+          ...session.answers,
+          {
+            kind: "mirror",
+            text: idea,
+            pasteRatio: ratio,
+            pastedChars: paste.meta.pastedChars,
+            typedChars: paste.meta.typedChars,
+          },
+        ],
+      },
+    );
+    paste.reset();
+    setIdea("");
+  }
+
+  async function onProbeSave(more: LoopLine[]) {
+    if (!session || !section) return;
+    if (!idea.trim()) return;
+    const probe = probeForThinNote(idea);
+    if (probe) {
+      setThinNote(probe);
+      return;
+    }
+    setThinNote(null);
+    const step = afterProbe(section, idea, replacingClaim.current);
+    replacingClaim.current = false;
+    const transcript = withLines(more);
+    const nextSession: Session = {
+      ...session,
+      transcript,
+      sections: session.sections.map((item) =>
+        item.key === section.key ? { ...item, ideas: step.ideas, loopStep: step.loopStep } : item,
+      ),
+    };
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
+    const reel =
+      section.mode === "lesson" && section.concept
+        ? highlightReelFor({ answer: idea, concept: section.concept })
+        : null;
+    const seeded = reel ? seedLeadFromHighlight(reel) : null;
+    const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
+    updateSection(
+      section.key,
+      {
+        ideas: step.ideas,
+        chosenLead: seeded?.name ?? section.chosenLead,
+        loopStep: step.loopStep,
+      },
+      {
+        transcript,
+        answers: [
+          ...session.answers,
+          {
+            kind: "probe",
+            text: idea,
+            pasteRatio: ratio,
+            pastedChars: paste.meta.pastedChars,
+            typedChars: paste.meta.typedChars,
+          },
+        ],
+      },
+    );
+    paste.reset();
+    setIdea("");
+  }
+
+  function onNameLead(text: string, more: LoopLine[]) {
+    if (!section || !text.trim()) return;
+    updateSection(section.key, { chosenLead: text.trim(), loopStep: "summarize" }, { transcript: withLines(more) });
+    log("section_lead_picked");
+    setIdea("");
+  }
+
+  function onPickLead(lead: PreparedLead, more: LoopLine[]) {
+    if (!section) return;
+    updateSection(section.key, { chosenLead: lead.name, loopStep: "summarize" }, { transcript: withLines(more) });
+    log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
+  }
+
+  function onConfirm(more: LoopLine[]) {
+    if (!session || !section) return;
+    const notes = keptIdeas(section.ideas).at(-1) ?? "";
+    const raw = logicCheckFromNotes({
+      notes,
+      assignmentText: session.assignmentText,
+      rubricRef: section.rubricRef,
+      mode: section.mode,
+      confirmedPrompt,
+      confirmedTopic,
+    });
+    const logic = finalizeLogicCheck(raw, {
+      assignmentText: session.assignmentText,
+      studentNotes: notes,
+      mode: section.mode,
+      rubricRequiresCounterargument: false,
+      validRubricRefs: [section.rubricRef, "ethics", "prompt"],
+    });
+    updateSection(
+      section.key,
+      {
+        loopStep: "logic_check",
+        logic,
+        logicRevealed: false,
+        ideas: notes.trim() ? [notes.trim()] : [],
+      },
+      { transcript: withLines(more) },
+    );
+    log("logic_opener_shown");
+  }
+
+  function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
+    if (!section) return;
+    if (choice === "tweak") {
+      updateSection(section.key, { loopStep: "probe", logicRevealed: false }, { transcript: withLines(more) });
+      setIdea(keptIdeas(section.ideas).at(-1) ?? "");
+      log("logic_opener_tweak");
+      return;
+    }
+    const passed = section.logic?.result.tier === "pass";
+    updateSection(
+      section.key,
+      {
+        logicRevealed: true,
+        ...(passed ? { status: "confirmed" as const } : {}),
+      },
+      { transcript: withLines(more) },
+    );
+    log("logic_check_run");
+  }
+
+  function onLogicResult(choice: LogicChoice | "pass", more: LoopLine[]) {
+    if (!section) return;
+    if (choice === "pass") {
+      void continueAfterLogic("pass", more);
+      return;
+    }
+    if (choice === "continued") {
+      void continueAfterLogic("continued", more);
+      return;
+    }
+    if (choice === "keep") {
+      void continueAfterLogic("keep", more);
+      return;
+    }
+    if (choice === "tweak") {
+      updateSection(section.key, { loopStep: "probe" }, { transcript: withLines(more) });
+      log("logic_opener_tweak");
+      router.push(`/app/papers/${paperId}/stage/2`);
+      return;
+    }
+    if (choice === "adjust" || choice === "revise" || choice === "reframe" || choice === "new_angle") {
+      replacingClaim.current = true;
+      setIdea(revisionPrefill(section.ideas));
+      updateSection(section.key, { loopStep: "probe", logicRevealed: false, logic: null }, { transcript: withLines(more) });
+      log("logic_check_revise");
+    }
+  }
+
+  function onSkipSection(more: LoopLine[]) {
+    if (!session || !section) return;
+    updateSection(section.key, { status: "skipped" }, { transcript: withLines(more) });
+    log("section_skipped");
+    setActive(Math.min(session.sections.length - 1, active + 1));
+  }
+
+  function onPromptType(promptType: PromptType) {
+    if (!session) return;
+    const extraction = extractLesson(session.assignmentText, { studentPromptType: promptType });
+    commit({
+      ...session,
+      extraction: { ...extraction, promptType, source: "ai" },
+      sections: buildSections({ ...extraction, promptType }),
+      events: [...session.events, "prompt_type_changed"],
+      activeIndex: 0,
+    });
+    setActive(0);
+  }
+
+  // ── Stage 3: one section at a time. The final step is the old Continue.
+  async function finishOutline(base: Session) {
+    const sections = outlineSectionsForContinue(base.sections, outlineDrafts.current);
+    const nextSession = { ...base, sections };
+    commit(nextSession);
+    if (persist) {
+      for (const item of sections) {
+        const outlineText = keptIdeas(item.ideas).join("\n");
+        if (!outlineText.trim()) continue;
+        const ok = await persistField(paperId, {
+          fieldKey: `outline:${item.key}`,
+          text: outlineText,
+          submitted: true,
+          resume: { stage: 3, sectionKey: item.key, screen: "outline" },
+          session: nextSession,
+        });
+        if (!ok) {
+          setThinNote("Couldn't save the outline.");
+          return;
+        }
+      }
+    }
+    await continueProductStage();
+  }
+
+  async function onOutlineSend(key: string, text: string, more: LoopLine[]) {
+    if (!session) return;
+    setThinNote(null);
+    outlineDrafts.current[key] = text;
+    // A blank answer is not a decision to delete the Stance notes.
+    const sections = text.trim()
+      ? session.sections.map((item) => (item.key === key ? { ...item, ideas: [text.trim()] } : item))
+      : session.sections;
+    const outlineDone = [...(session.outlineDone ?? []).filter((k) => k !== key), key];
+    const next: Session = {
+      ...session,
+      sections,
+      outlineDone,
+      outlineTranscript: appendLines(session.outlineTranscript, more),
+    };
+    commit(next);
+    const nextIndex = nextOutlineIndex(sections, outlineDone);
+    const saved = sections.find((item) => item.key === key);
+    const outlineText = saved ? keptIdeas(saved.ideas).join("\n") : "";
+    if (persist && outlineText.trim()) {
+      setOutlineSaving(true);
+      const ok = await persistField(paperId, {
+        fieldKey: `outline:${key}`,
+        text: outlineText,
+        submitted: true,
+        resume: { stage: 3, sectionKey: sections[nextIndex]?.key ?? key, screen: "outline" },
+        session: next,
+      });
+      setOutlineSaving(false);
+      if (!ok) {
+        setThinNote("Couldn't save the outline.");
+        return;
+      }
+    }
+    if (nextIndex < 0) {
+      setOutlineSaving(true);
+      await finishOutline(next);
+      setOutlineSaving(false);
+    }
+  }
+
+  function onOutlineReopen(key: string) {
+    if (!session) return;
+    commit({ ...session, outlineDone: (session.outlineDone ?? []).filter((k) => k !== key) });
+  }
+
   const card =
     section?.mode === "lesson" && section.concept
       ? defaultTeachCard(clipWords(subject === "your topic" ? section.concept : subject, 60), section.rubricRef)
@@ -549,460 +856,133 @@ export function CoachingLoop({
           Opening the next stage…
         </p>
       ) : null}
-      {stage === 2 ? (
-        <>
-      <CoachEyebrow label="What you're learning" />
-      <h1 className={`mt-2 ${dsH1}`}>
-        {stageLessonHeader(subject, lesson.statement)}
-      </h1>
-      <p className={`mt-3 ${dsBody}`}>
-        {session.extraction.promptType === "personal_experience"
-          ? "This looks like a personal-story assignment. We'll help you remember and tell it."
-          : subject === "your topic"
-            ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-            : isQuestionTopic(subject)
-              ? "This is the question your paper answers. We'll work through it one section at a time."
-              : `This assignment teaches ${subjectMidSentence(subject)}.`}{" "}
-        <a
-          href={`/app/papers/${paperId}/stage/1`}
-          className={dsLink}
-        >
-          Edit assignment
-        </a>
-      </p>
-        </>
-      ) : (
+      {stage >= 4 ? (
         <p className={dsEyebrow}>
           Stage {stage} of {STAGE_LABELS.length} · {STAGE_LABELS[stage - 1]}
         </p>
-      )}
-      {stage === 2 ? (
-      <label className={`mt-4 block ${dsCaption}`}>
-        Prompt type
-        <select
-          className={`mt-1 max-w-[240px] ${dsSelect}`}
-          value={session.extraction.promptType}
-          onChange={(event) => {
-            const promptType = event.target.value as PromptType;
-            const extraction = extractLesson(session.assignmentText, { studentPromptType: promptType });
-            commit({
-              ...session,
-              extraction: { ...extraction, promptType, source: "ai" },
-              sections: buildSections({ ...extraction, promptType }),
-              events: [...session.events, "prompt_type_changed"],
-              activeIndex: 0,
-            });
-            setActive(0);
-          }}
-        >
-          <option value="lesson">Lesson</option>
-          <option value="personal_experience">Personal experience</option>
-          <option value="mixed">Mixed</option>
-        </select>
-      </label>
-      ) : null}
-
-      {stage === 2 ? (
-      <ol className="mt-6 flex flex-wrap gap-2">
-        {session.sections.map((item, index) => (
-          <li key={item.key}>
-            <button
-              type="button"
-              className={`rounded-full px-3 py-1 text-sm ${index === active ? "bg-rw-ink text-white" : "bg-white text-rw-ink"}`}
-              onClick={() => {
-                setActive(index);
-                commit({ ...session, activeIndex: index });
-              }}
-            >
-              {item.title}
-              {item.status === "skipped" ? " · Skipped" : ""}
-            </button>
-          </li>
-        ))}
-      </ol>
       ) : null}
 
       {stage === 2 && section ? (
-        <div className="mt-6 space-y-4">
-          <p className="text-sm text-rw-ink/70">{section.needs}</p>
-          {inStance && section.mode === "lesson" && section.loopStep === "teach" && card ? (
-            <TeachCardView
-              card={card}
-              onAspect={(aspect) => {
-                updateSection(section.key, {
-                  teachStatus: "explored",
-                  teachAspect: aspect,
-                  loopStep: "probe",
-                });
-                log("teach_aspect_picked");
-              }}
-              onSkipKnown={() => {
-                updateSection(section.key, { teachStatus: "skipped_known", loopStep: "probe" });
-                log("teach_skipped_known");
-              }}
-            />
-          ) : null}
-
-          {inStance && section.mode === "memory" && section.loopStep === "teach" ? (
-            <MemoryMirror
-              question={mirrorQuestion(lesson.emotionalTerms, session.assignmentText)}
-              value={idea}
-              onChange={(value) => {
-                paste.onChange(idea, value);
-                setIdea(value);
-              }}
-              onPaste={paste.onPaste}
-              onDrop={paste.onDrop}
-              onSave={() => {
-                void (async () => {
-                const mirrorProbe = probeForThinNote(idea);
-                if (mirrorProbe) {
-                  setThinNote(mirrorProbe);
-                  return;
+        <StanceChat
+          paperId={paperId}
+          intro={{
+            heading: stageLessonHeader(subject, lesson.statement),
+            body:
+              session.extraction.promptType === "personal_experience"
+                ? "This looks like a personal-story assignment. We'll help you remember and tell it."
+                : subject === "your topic"
+                  ? "The assignment topic is still missing. Add it on the checklist before this lesson."
+                  : isQuestionTopic(subject)
+                    ? "This is the question your paper answers. We'll work through it one section at a time."
+                    : `This assignment teaches ${subjectMidSentence(subject)}.`,
+          }}
+          promptType={session.extraction.promptType}
+          sections={session.sections}
+          active={active}
+          kind={stanceTurnFor(
+            {
+              mode: section.mode,
+              loopStep: section.loopStep,
+              status: section.status,
+              hasLogic: Boolean(section.logic),
+              logicRevealed: section.logicRevealed,
+            },
+            { hasCard: Boolean(card), personalized: Boolean(examples?.personalized), hasBatch: Boolean(batch) },
+          )}
+          card={card}
+          followUpCard={followUp?.kind === "teach_then_ask" ? followUp.card : null}
+          mirrorAsk={mirrorQuestion(lesson.emotionalTerms, session.assignmentText)}
+          triggers={
+            section.mode === "memory"
+              ? triggersForStudent({
+                  under18: false,
+                  hiddenIds: session.hiddenTriggers,
+                  refresh: session.triggerRefresh,
+                  theme: "general",
+                })
+              : null
+          }
+          activeTrigger={session.activeTrigger}
+          safetyNote={session.safetyNote}
+          batch={
+            batch
+              ? {
+                  ranked: batch.ranked,
+                  wildcard: batch.wildcard,
+                  capReached: batch.capReached,
+                  searchPrompt: batch.capReached
+                    ? buildGoogleSearchPrompt({
+                        section: section.title,
+                        rubricTerms: [section.concept ?? "assignment"],
+                        storyAngle: lesson.statement,
+                      })
+                    : null,
                 }
-                setThinNote(null);
-                const nextIdeas = [...keptIdeas(section.ideas), idea];
-                const nextSession: Session = {
-                  ...session,
-                  sections: session.sections.map((item) =>
-                    item.key === section.key ? { ...item, ideas: nextIdeas, loopStep: "probe" as const } : item,
-                  ),
-                };
-                if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
-                const safety = safetyNoteFor(idea);
-                const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
-                updateSection(
-                  section.key,
-                  {
-                    teachStatus: "mirrored",
-                    ideas: nextIdeas,
-                    loopStep: "probe",
-                  },
-                  {
-                    safetyNote: safety.show ? safety.note : "",
-                    events: [...session.events, safety.show ? safety.event : "mirror_answered"],
-                    answers: [
-                      ...session.answers,
-                      {
-                        kind: "mirror",
-                        text: idea,
-                        pasteRatio: ratio,
-                        pastedChars: paste.meta.pastedChars,
-                        typedChars: paste.meta.typedChars,
-                      },
-                    ],
-                  },
-                );
-                paste.reset();
-                setIdea("");
-                })();
-              }}
-            />
-          ) : null}
-
-          {inStance && section.loopStep === "probe" ? (
-            <div className="space-y-3">
-              <CoachSays>
-                {section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER}
-              </CoachSays>
-              <Textarea
-                value={idea}
-                onChange={(event) => {
-                  paste.onChange(idea, event.target.value);
-                  setIdea(event.target.value);
-                }}
-                onPaste={paste.onPaste}
-                onDrop={paste.onDrop}
-                placeholder="Your idea, in your words"
-              />
-              {thinNote ? <p className="text-sm text-red-700">{thinNote}</p> : null}
-              <SaveStatus status={noteStatus} />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  onClick={() => {
-                    void (async () => {
-                    if (!idea.trim()) return;
-                    const probe = probeForThinNote(idea);
-                    if (probe) {
-                      setThinNote(probe);
-                      return;
-                    }
-                    setThinNote(null);
-                    const nextIdeas = replacingClaim.current
-                      ? replaceClaim(section.ideas, idea)
-                      : [...keptIdeas(section.ideas), idea];
-                    replacingClaim.current = false;
-                    const nextSession: Session = {
-                      ...session,
-                      sections: session.sections.map((item) =>
-                        item.key === section.key
-                          ? { ...item, ideas: nextIdeas, loopStep: section.searchStatus === "not_needed" ? "summarize" : "search" }
-                          : item,
-                      ),
-                    };
-                    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) return;
-                    const reel =
-                      section.mode === "lesson" && section.concept
-                        ? highlightReelFor({ answer: idea, concept: section.concept })
-                        : null;
-                    const seeded = reel ? seedLeadFromHighlight(reel) : null;
-                    const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
-                    updateSection(
-                      section.key,
-                      {
-                        ideas: nextIdeas,
-                        chosenLead: seeded?.name ?? section.chosenLead,
-                        loopStep: section.searchStatus === "not_needed" ? "summarize" : "search",
-                      },
-                      {
-                        answers: [
-                          ...session.answers,
-                          {
-                            kind: "probe",
-                            text: idea,
-                            pasteRatio: ratio,
-                            pastedChars: paste.meta.pastedChars,
-                            typedChars: paste.meta.typedChars,
-                          },
-                        ],
-                      },
-                    );
-                    paste.reset();
-                    setIdea("");
-                    })();
-                  }}
-                >
-                  Save this idea
-                </Button>
-              </div>
-              {followUp?.kind === "teach_then_ask" ? (
-                <TeachCardView
-                  card={followUp.card}
-                  onAspect={(aspect) => {
-                    updateSection(section.key, { teachAspect: aspect, teachStatus: "explored" });
-                    log("teach_then_ask_shown");
-                  }}
-                  onSkipKnown={() => updateSection(section.key, { teachStatus: "skipped_known" })}
-                />
-              ) : null}
-              {section.mode === "memory" ? (
-                <MemoryTriggerList
-                  triggers={triggersForStudent({
-                    under18: false,
-                    hiddenIds: session.hiddenTriggers,
-                    refresh: session.triggerRefresh,
-                    theme: "general",
-                  })}
-                  activeLine={session.activeTrigger}
-                  onPick={(trigger: MemoryTrigger) => {
-                    setSession({ ...session, activeTrigger: trigger.line, events: [...session.events, "memory_trigger_picked"] });
-                  }}
-                  onHide={(trigger) =>
-                    setSession({ ...session, hiddenTriggers: [...session.hiddenTriggers, trigger.id] })
-                  }
-                  onSkip={() => log("memory_triggers_skipped")}
-                />
-              ) : null}
-              {session.activeTrigger ? <p className="text-sm">{SCRIPTED_MEMORY_FOLLOW_UP}</p> : null}
-              {session.safetyNote ? (
-                <p className="rounded-lg bg-white p-3 text-sm text-rw-ink">{session.safetyNote}</p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {inStance && section.loopStep === "search" && !examples?.personalized ? (
-            <div className="space-y-3 rounded-xl border border-rw-ink/15 bg-white p-4">
-              <p className="text-sm text-rw-ink/80">
-                I couldn&apos;t tie research directions to this assignment yet. Name a source or
-                example you want to check, in your own words.
-              </p>
-              <Textarea
-                value={idea}
-                onChange={(event) => setIdea(event.target.value)}
-                placeholder="A source, person, or example to verify"
-              />
-              <Button
-                type="button"
-                disabled={!idea.trim()}
-                onClick={() => {
-                  updateSection(section.key, { chosenLead: idea.trim(), loopStep: "summarize" });
-                  log("section_lead_picked");
-                  setIdea("");
-                }}
-              >
-                I&apos;ll check this
-              </Button>
-            </div>
-          ) : null}
-
-          {inStance && section.loopStep === "search" && batch ? (
-            <LeadBatchView
-              ranked={batch.ranked}
-              wildcard={batch.wildcard}
-              capReached={batch.capReached}
-              searchPrompt={
-                batch.capReached
-                  ? buildGoogleSearchPrompt({
-                      section: section.title,
-                      rubricTerms: [section.concept ?? "assignment"],
-                      storyAngle: lesson.statement,
-                    })
-                  : null
-              }
-              onPick={(lead: PreparedLead) => {
-                updateSection(section.key, { chosenLead: lead.name, loopStep: "summarize" });
-                log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
-              }}
-            />
-          ) : null}
-
-          {inStance && (section.loopStep === "summarize" || section.loopStep === "confirm") ? (
-            <ConfirmPanel
-              section={section}
-              memory={section.mode === "memory"}
-              onConfirm={(notes) => {
-                const raw = logicCheckFromNotes({
-                  notes,
-                  assignmentText: session.assignmentText,
-                  rubricRef: section.rubricRef,
-                  mode: section.mode,
-                  confirmedPrompt,
-                  confirmedTopic,
-                });
-                const logic = finalizeLogicCheck(raw, {
-                  assignmentText: session.assignmentText,
-                  studentNotes: notes,
-                  mode: section.mode,
-                  rubricRequiresCounterargument: false,
-                  validRubricRefs: [section.rubricRef, "ethics", "prompt"],
-                });
-                updateSection(section.key, {
-                  loopStep: "logic_check",
-                  logic,
-                  logicRevealed: false,
-                  ideas: notes.trim() ? [notes.trim()] : [],
-                });
-                log("logic_opener_shown");
-              }}
-            />
-          ) : null}
-
-          {inStance && section.loopStep === "logic_check" && section.logic && !section.logicRevealed ? (
-            <LogicCheckpoint
-              phase="opener"
-              onChoice={(choice) => {
-                if (choice === "tweak") {
-                  updateSection(section.key, { loopStep: "probe", logicRevealed: false });
-                  setIdea(keptIdeas(section.ideas).at(-1) ?? "");
-                  log("logic_opener_tweak");
-                  return;
-                }
-                if (choice === "yes") {
-                  const passed = section.logic?.result.tier === "pass";
-                  updateSection(section.key, {
-                    logicRevealed: true,
-                    ...(passed ? { status: "confirmed" as const } : {}),
-                  });
-                }
-                log("logic_check_run");
-              }}
-              onContinue={() => undefined}
-            />
-          ) : null}
-
-          {inStance && section.loopStep === "logic_check" && section.logic && section.logicRevealed ? (
-            <LogicCheckpoint
-              phase={section.logic.result.tier}
-              reason={section.logic.result.reason}
-              claimQuote={section.logic.result.studentClaimRef?.quote}
-              assignmentQuote={section.logic.result.citedTerm?.quote}
-              questions={section.logic.result.alternativeAngles.map((angle) => angle.question)}
-              onChoice={(choice) => {
-                if (choice === "continued") {
-                  continueAfterLogic("continued");
-                  return;
-                }
-                if (choice === "keep") {
-                  void continueAfterLogic("keep");
-                  return;
-                }
-                if (choice === "tweak") {
-                  updateSection(section.key, { loopStep: "probe" });
-                  log("logic_opener_tweak");
-                  router.push(`/app/papers/${paperId}/stage/2`);
-                  return;
-                }
-                if (choice === "adjust" || choice === "revise" || choice === "reframe" || choice === "new_angle") {
-                  replacingClaim.current = true;
-                  setIdea(revisionPrefill(section.ideas));
-                  updateSection(section.key, { loopStep: "probe", logicRevealed: false, logic: null });
-                  log("logic_check_revise");
-                }
-              }}
-              onContinue={() => continueAfterLogic("pass")}
-            />
-          ) : null}
-
-          {inStance && section.status !== "confirmed" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                updateSection(section.key, { status: "skipped" });
-                log("section_skipped");
-                setActive(Math.min(session.sections.length - 1, active + 1));
-              }}
-            >
-              Skip this section for now
-            </Button>
-          ) : null}
-        </div>
+              : null
+          }
+          transcript={session.transcript ?? []}
+          idea={idea}
+          onIdea={(value) => {
+            paste.onChange(idea, value);
+            setIdea(value);
+          }}
+          onPaste={paste.onPaste}
+          onDrop={paste.onDrop}
+          thinNote={thinNote}
+          noteStatus={noteStatus}
+          skipped={skipped.map((item) => ({ key: item.key, title: item.title }))}
+          voiceNote={voice.note}
+          handlers={{
+            teachAspect: onTeachAspect,
+            teachSkip: onTeachSkip,
+            mirrorSave: (more) => void onMirrorSave(more),
+            probeSave: (more) => void onProbeSave(more),
+            followUpAspect: (aspect) => {
+              if (!section) return;
+              updateSection(section.key, { teachAspect: aspect, teachStatus: "explored" });
+              log("teach_then_ask_shown");
+            },
+            followUpSkip: () => section && updateSection(section.key, { teachStatus: "skipped_known" }),
+            triggerPick: (trigger: MemoryTrigger) =>
+              setSession({ ...session, activeTrigger: trigger.line, events: [...session.events, "memory_trigger_picked"] }),
+            triggerHide: (trigger) => setSession({ ...session, hiddenTriggers: [...session.hiddenTriggers, trigger.id] }),
+            triggersSkip: () => log("memory_triggers_skipped"),
+            nameLead: onNameLead,
+            pickLead: onPickLead,
+            confirm: onConfirm,
+            logicOpener: onLogicOpener,
+            logicResult: onLogicResult,
+            skipSection: onSkipSection,
+            jumpTo: (index) => {
+              if (index < 0) return;
+              setActive(index);
+              commit({ ...session, activeIndex: index });
+              log("section_skip_reminder_clicked");
+            },
+            promptType: onPromptType,
+          }}
+        />
       ) : null}
 
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
-        <ProductNotes
-          title="Outline"
-          intro="Pau Pau pulled in your notes from Stance. Shape each section into a short outline in your own words: one line per point, your main claim first, then the example that shows it."
-          sections={session.sections}
-          editable
+        <OutlineChat
           paperId={paperId}
           persist={persist}
-          onEdit={(key, text) => {
-            outlineDrafts.current[key] = text;
-            // A cleared box is not a decision to delete the Stance notes.
-            if (text.trim()) updateSection(key, { ideas: [text.trim()] });
-          }}
-          onContinue={() => {
-            void (async () => {
-              const sections = session.sections.map((item) => {
-                const text = outlineDrafts.current[item.key]?.trim();
-                // Blank or untouched drafts keep the student's kept Stance ideas.
-                if (!text || text === keptIdeas(item.ideas).join("\n")) return item;
-                return { ...item, ideas: [text] };
-              });
-              const nextSession = { ...session, sections };
-              commit(nextSession);
-              if (persist) {
-                for (const item of sections) {
-                  const outlineText = keptIdeas(item.ideas).join("\n");
-                  if (!outlineText.trim()) continue;
-                  const ok = await persistField(paperId, {
-                    fieldKey: `outline:${item.key}`,
-                    text: outlineText,
-                    submitted: true,
-                    resume: { stage: 3, sectionKey: item.key, screen: "outline" },
-                    session: nextSession,
-                  });
-                  if (!ok) {
-                    setThinNote("Couldn't save the outline.");
-                    return;
-                  }
-                }
-              }
-              await continueProductStage();
-            })();
+          sections={session.sections}
+          done={session.outlineDone ?? []}
+          transcript={session.outlineTranscript ?? []}
+          saving={outlineSaving || moving}
+          error={thinNote}
+          skipped={skipped.map((item) => ({ key: item.key, title: item.title }))}
+          voiceNote={voice.note}
+          onSend={(key, text, more) => void onOutlineSend(key, text, more)}
+          onReopen={onOutlineReopen}
+          onFinish={() => void finishOutline(session)}
+          onGoBack={(key) => {
+            setActive(session.sections.findIndex((sectionItem) => sectionItem.key === key));
+            log("section_skip_reminder_clicked");
+            router.push(`/app/papers/${paperId}/stage/2`);
           }}
         />
       ) : null}
@@ -1118,7 +1098,7 @@ export function CoachingLoop({
         </section>
       ) : null}
 
-      {skipped.length > 0 && stage <= 5 ? (
+      {skipped.length > 0 && stage >= 4 && stage <= 5 ? (
         <div className="fixed inset-x-0 bottom-0 border-t border-rw-ink/10 bg-white px-4 py-3 text-sm">
           {skipped.map((item) => (
             <p key={item.key}>
@@ -1159,70 +1139,6 @@ function AssignmentSeed({ paperId, onUse }: { paperId: string; onUse: (text: str
       <Textarea className="mt-4" value={text} onChange={(event) => setText(event.target.value)} />
       <Button type="button" className="mt-4" disabled={!text.trim()} onClick={() => onUse(text.trim())}>
         Use this assignment
-      </Button>
-    </div>
-  );
-}
-
-function MemoryMirror({
-  question,
-  value,
-  onChange,
-  onPaste,
-  onDrop,
-  onSave,
-}: {
-  question: string;
-  value: string;
-  onChange: (value: string) => void;
-  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
-  onDrop: (event: DragEvent<HTMLTextAreaElement>) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <p className="font-medium text-rw-ink">{question}</p>
-      <Textarea value={value} onChange={(event) => onChange(event.target.value)} onPaste={onPaste} onDrop={onDrop} />
-      <Button type="button" onClick={onSave} disabled={!value.trim()}>
-        Save what it means to you
-      </Button>
-    </div>
-  );
-}
-
-function ConfirmPanel({
-  section,
-  memory,
-  onConfirm,
-}: {
-  section: RuntimeSection;
-  memory: boolean;
-  onConfirm: (notes: string) => void;
-}) {
-  const notes = keptIdeas(section.ideas).at(-1) ?? "";
-  const angle = [section.teachAspect, section.concept].find((item) => item && !PLACEHOLDER_CONCEPT.test(item)) ?? null;
-  return (
-    <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
-      <CoachSays>{memory ? MEMORY_CONFIRM : "Ready to move forward with this?"}</CoachSays>
-      {!memory ? (
-        <dl className="mt-3 space-y-1 text-[16px] leading-[1.6] text-ds-ink">
-          <div>
-            <dt className="inline font-semibold">Lead: </dt>
-            <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
-          </div>
-          {angle ? (
-            <div>
-              <dt className="inline font-semibold">Angle: </dt>
-              <dd className="inline">{asHeading(angle)}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
-      {section.concept && !PLACEHOLDER_CONCEPT.test(section.concept) ? (
-        <p className="mt-2 text-sm">Lesson link: {lessonLinkFor(section.concept)}</p>
-      ) : null}
-      <Button type="button" className="mt-3" onClick={() => onConfirm(notes)}>
-        Yes, lock it in
       </Button>
     </div>
   );

@@ -13,7 +13,7 @@ describe("signup with an existing email", () => {
   it("wires Keep my angle to continueAfterLogic", () => {
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     expect(loop).not.toContain('if (choice === "keep") return;');
-    expect(loop).toContain('continueAfterLogic("keep")');
+    expect(loop).toContain('continueAfterLogic("keep", more)');
   });
 });
 

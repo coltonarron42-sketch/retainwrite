@@ -139,7 +139,7 @@ Pau Pau should feel like a present coach, closer to how Grok talks than a series
 - **Offers fold into the current reply.** The hesitation offer, its choices and Pau Pau's answer are a soft last paragraph inside the current question's bubble, never a second bubble.
 - **Reloads are silent.** A reload never re-reads old bubbles; only a NEW Pau Pau turn (after the student taps, types or speaks on this page load) is spoken.
 - **Sources and examples.** Pau Pau introduces them in her own voice, then shows clickable search links (articles, news, videos) in the same reply; never made-up articles. She never reads source content as if she were the source; voice reads only her intro. The research-leads card follows this pattern.
-- **Same chat-style input everywhere (next batch).** Stages 2 and 3 move to the same question-at-top, + / mic / send composer, one question at a time.
+- **Same chat-style input in Stages 2 and 3.** Stance and Outline use the same question-at-top chat, composer (mic / send; "+" only where there is a file to add), slim progress row and call-mode voice/mute as Stage 1. One Pau Pau turn at a time: teach cards, the mirror, the probe, research leads, the lock-in and the logic check are each one Pau Pau reply with tap choices inside it. Stage 3 asks one outline section at a time; the box starts with the student's own Stance notes. The voice nudge (Stage 6) folds into her reply wherever it appears. Every gate and its exact criteria stay the same (thin notes, logic check, skipped sections block Sources, outline saved before advancing), the conversation is saved so a reload resumes it, and a typed reply only stands in for a choice when it is a plain yes.
 - Coaching only: Pau Pau never writes the paper. Extraction must keep working.
 
 ---
