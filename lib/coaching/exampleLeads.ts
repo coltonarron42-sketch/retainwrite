@@ -113,7 +113,8 @@ export function exampleLeadBatch(input: {
 
   const ref = input.rubricRef;
   if (input.section) {
-    return sectionLeadBatch({ section: input.section, subject, question, search, idea, ref });
+    // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
+    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea, ref });
   }
   const candidates: LeadCandidate[] = [
     {

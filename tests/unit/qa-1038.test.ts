@@ -12,7 +12,7 @@ import { finalizeLogicCheck, logicCheckFromNotes, notesOnPrompt } from "@/lib/co
 import { keptIdeas, probeForThinNote, THIN_NOTE } from "@/lib/coaching/thin";
 import { applyOutlineDrafts } from "@/lib/papers/outline";
 import { interestDisplay, practitionerReason } from "@/lib/stage1/leads";
-import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent } from "@/lib/stages/stance-intent";
+import { ASIDE_FOLLOW_UP, finalStanceIntent, intentReply, needsModel, rulesStanceIntent } from "@/lib/stages/stance-intent";
 import type { LoopLine } from "@/lib/stages/stance-turn";
 
 const read = (p: string) => readFileSync(p, "utf8");
@@ -153,6 +153,14 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     expect(current).toContain("Sure. A few questions for your introduction.");
     expect(current).toContain('id="stance-question"');
   });
+  it("after probing questions she doesn't repeat the opening ask", () => {
+    const transcript: LoopLine[] = [{ k: "intro", who: "pau", text: "Do you already have an idea?" }, { k: "intro", who: "you", text: "Ask me some probing questions please." }];
+    const html = stance({ transcript, aside: { k: "intro", at: 2, paras: ["Sure. A few questions for your introduction."], intent: "request_probe" } });
+    const current = html.slice(html.lastIndexOf("data-pau-turn"));
+    expect(current).toContain(ASIDE_FOLLOW_UP);
+    expect(current).not.toMatch(/or do you want me to ask some probing questions/);
+    expect(current).toContain('id="stance-question"');
+  });
 });
 
 describe("#4 the logic check checks relevance to the prompt first", () => {
@@ -235,6 +243,12 @@ describe("#7 lead titles are section-specific", () => {
     expect(a[0]).toContain("later starts help teens sleep");
     expect(b[0]).toContain("Sleep debt shows up in grades");
     expect(stanceTurnParas("pick_lead", { section: section({ title: "Body" }), card: null, mirrorAsk: "", activeTrigger: null })[0]).toContain("for your body");
+  });
+  it("a long 'how did…' prompt is called 'your question', never spliced in mid-sentence", () => {
+    const concl = exampleLeadBatch({ concept: "How did the New Deal change the relationship between Americans and the federal government?", assignmentText: "", rubricRef: "r", studentIdea: "People started expecting help from Washington in a crisis.", section: { key: "conclusion", title: "Conclusion" } });
+    const names = concl.candidates.map((c) => c.name).join(" | ");
+    expect(names).not.toMatch(/why how did|on how did/i);
+    expect(names).toContain("your question still matters");
   });
 });
 
