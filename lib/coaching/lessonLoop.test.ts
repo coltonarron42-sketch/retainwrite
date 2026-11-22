@@ -357,7 +357,7 @@ describe("memory path and logic checkpoint", () => {
     expect(logicChoice("tweak").blocks).toBe(false);
     expect(logicChoice("continued")).toEqual({ advances: true, blocks: false });
     expect(LOGIC_CONTINUE).toBe("Continue anyway");
-    expect(LOGIC_STRONG_HEADLINE).toBe("We would not recommend moving forward.");
+    expect(LOGIC_STRONG_HEADLINE).toBe("Hold up. This needs a fix before you move on.");
 
     const assignment = "Evaluate leaders against ethical principles and explain your standard.";
     const strong = finalizeLogicCheck(

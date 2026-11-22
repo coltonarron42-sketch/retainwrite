@@ -110,7 +110,7 @@ describe("C: natural replies instead of Fix something", () => {
     expect(next.dueDate.value).toMatch(/^Dec 3, 20\d\d$/);
     const paras = reconfirmParas(next, null);
     expect(paras.join(" ")).toMatch(/1,500/);
-    expect(paras.at(-1)).toMatch(/look right now/);
+    expect(paras.at(-1)).toMatch(/look right now/i);
   });
   it("extra info keeps the student's words verbatim", () => {
     const next = appendStudentNote(card(), "My teacher said first person is fine.");
