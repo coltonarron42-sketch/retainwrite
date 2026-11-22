@@ -7,7 +7,16 @@
  * 3. Mark page failed and surface retake UI
  */
 
+import type OpenAI from "openai";
+import { assertCoachingOnly } from "@/lib/ai/guard";
+import { getGrokClient } from "@/lib/ai/grok";
 import { MODEL_STRONG } from "@/lib/config";
+
+const VISION_TIMEOUT_MS = 30_000;
+const VISION_PROMPT =
+  "This is a photo or scan of a student's assignment sheet. Transcribe all readable text exactly as written, " +
+  "keeping line breaks, labels, lists and point values. Include handwriting if readable. Do not summarize, explain, " +
+  "or add anything. Output only the transcription. If there is no readable text, output exactly NO_TEXT.";
 
 export type OcrPageResult = {
   text: string;
@@ -56,8 +65,8 @@ export async function transcribePage(input: OcrInput): Promise<OcrPageResult> {
   if (hasGrok()) {
     try {
       return await callGrokVision(input);
-    } catch {
-      /* fall through */
+    } catch (err) {
+      console.error("[ocr] vision failed", { page: input.page ?? null, message: err instanceof Error ? err.message : "error" });
     }
   }
 
@@ -79,10 +88,38 @@ async function callMistralOcr(input: OcrInput): Promise<OcrPageResult> {
 }
 
 async function callGrokVision(input: OcrInput): Promise<OcrPageResult> {
-  // Stub: full Grok vision call lives behind GROK_API_KEY + openai SDK.
-  // // SOP: coaching only, never generate submission text
-  void input;
-  throw new Error("Grok vision OCR not configured for this environment");
+  // // SOP: coaching only, never generate submission text (transcription only)
+  const grok = getGrokClient();
+  if (!grok) throw new Error("missing_key");
+  const started = Date.now();
+  const response = await grok.chat.completions.create(
+    {
+      model: MODEL_STRONG,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: input.imageUrl, detail: "high" } },
+            { type: "text", text: VISION_PROMPT },
+          ],
+        },
+      ],
+      reasoning_effort: "low",
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+    { timeout: VISION_TIMEOUT_MS, maxRetries: 1 },
+  );
+  const raw = response.choices[0]?.message?.content?.trim() ?? "";
+  console.info("[ocr] vision finished", { ms: Date.now() - started, page: input.page ?? null, chars: raw.length });
+  const text = raw === "NO_TEXT" ? "" : raw;
+  if (!assertCoachingOnly(text).ok) throw new Error("guard");
+  return {
+    text,
+    method: text ? "ocr_grok_vision" : "failed",
+    confidence: text ? 0.8 : 0,
+    quality: text ? "good" : "partial",
+    handwritten: false,
+    rotationDegrees: 0,
+  };
 }
 
 /** Client-side blur/dark heuristic (0–1). Below 0.45 → retake prompt. */
