@@ -9,7 +9,8 @@ import { createClient } from "@/lib/supabase/client";
  * Runs in the background: reading the assignment never waits on it.
  */
 export async function storeOriginals(paperId: string, files: StagedAssignmentFile[]) {
-  const ready = files.filter((f) => f.status === "ready");
+  // Saved web pages are kept as extracted text only, never as stored HTML.
+  const ready = files.filter((f) => f.status === "ready" && f.kind !== "html");
   if (!ready.length) return;
   let supabase: ReturnType<typeof createClient>;
   try {

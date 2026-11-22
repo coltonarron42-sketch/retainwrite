@@ -11,6 +11,8 @@ import {
   guessMimeFromFilename,
 } from "@/lib/assignment/upload-limits";
 import { ASSIGNMENT_MAX_FILES } from "@/lib/config";
+import { ACCEPTED_TYPES_SENTENCE, ASSIGNMENT_ACCEPT, kindFromName } from "@/lib/assignment/file-types";
+import { CameraCapture } from "@/components/stages/stage1/camera-capture";
 import { cn } from "@/lib/utils";
 
 export type StagedAssignmentFile = {
@@ -87,8 +89,8 @@ type Props = {
   onRetryFile?: (id: string) => void;
 };
 
-const ACCEPT =
-  ".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.heic,.heif,.gif,application/pdf,image/*";
+const ACCEPT = ASSIGNMENT_ACCEPT;
+const PHOTO_ACCEPT = "image/*,.heic,.heif";
 
 function newId() {
   return `f_${Math.random().toString(36).slice(2, 10)}`;
@@ -117,6 +119,10 @@ export function UploadPanel({
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
+  /** The photo chooser: camera roll, files, or the in-page camera. */
+  const [photoChooser, setPhotoChooser] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const photoFilesRef = useRef<HTMLInputElement>(null);
 
   const ingestFiles = useCallback(
     async (list: FileList | File[]) => {
@@ -152,6 +158,7 @@ export function UploadPanel({
           previewUrl: mime.startsWith("image/") ? URL.createObjectURL(file) : undefined,
           extractedText: "",
           status: "reading",
+          kind: kindFromName(file.name) === "unknown" && mime.startsWith("image/") ? "photo" : kindFromName(file.name),
           method: "manual",
         };
       });
@@ -213,8 +220,7 @@ export function UploadPanel({
           Drop the assignment here
         </p>
         <p className="mt-2 text-[16px] text-ds-muted">
-          PDF, Word, text, or photos — up to {ASSIGNMENT_MAX_FILES} files, 25 MB
-          each.
+          {ACCEPTED_TYPES_SENTENCE} — up to {ASSIGNMENT_MAX_FILES} files, 25 MB each.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <DsButton
@@ -229,7 +235,8 @@ export function UploadPanel({
             type="button"
             variant="ghost"
             disabled={busy}
-            onClick={() => galleryRef.current?.click()}
+            aria-expanded={photoChooser}
+            onClick={() => setPhotoChooser((open) => !open)}
           >
             Photo library
           </DsButton>
@@ -237,11 +244,71 @@ export function UploadPanel({
             type="button"
             variant="ghost"
             disabled={busy}
-            onClick={() => cameraRef.current?.click()}
+            aria-expanded={photoChooser}
+            onClick={() => setPhotoChooser((open) => !open)}
           >
             Take a photo
           </DsButton>
         </div>
+        {photoChooser ? (
+          <div
+            className="mx-auto mt-4 flex max-w-[420px] flex-col gap-2 rounded-[8px] border border-ds-border bg-ds-page p-4 text-left"
+            role="group"
+            aria-label="Add a photo"
+          >
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-ds-muted">Add a photo</p>
+            <DsButton
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setPhotoChooser(false);
+                galleryRef.current?.click();
+              }}
+            >
+              From camera roll
+            </DsButton>
+            <DsButton
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setPhotoChooser(false);
+                photoFilesRef.current?.click();
+              }}
+            >
+              From files
+            </DsButton>
+            <DsButton
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setPhotoChooser(false);
+                setCameraOpen(true);
+              }}
+            >
+              Use camera
+            </DsButton>
+          </div>
+        ) : null}
+        {cameraOpen ? (
+          <CameraCapture
+            onCapture={(file) => void ingestFiles([file])}
+            onUseSystemCamera={() => cameraRef.current?.click()}
+            onClose={() => setCameraOpen(false)}
+          />
+        ) : null}
+        <input
+          ref={photoFilesRef}
+          type="file"
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden
+          accept={ACCEPT}
+          multiple
+          onChange={(e) => {
+            if (e.target.files) void ingestFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
         <input
           id={fileInputId}
           ref={fileRef}
@@ -259,7 +326,7 @@ export function UploadPanel({
           ref={galleryRef}
           type="file"
           className="sr-only"
-          accept="image/*"
+          accept={PHOTO_ACCEPT}
           multiple
           onChange={(e) => {
             if (e.target.files) void ingestFiles(e.target.files);
@@ -271,7 +338,7 @@ export function UploadPanel({
           ref={cameraRef}
           type="file"
           className="sr-only"
-          accept="image/*"
+          accept={PHOTO_ACCEPT}
           capture="environment"
           onChange={(e) => {
             if (e.target.files) void ingestFiles(e.target.files);
