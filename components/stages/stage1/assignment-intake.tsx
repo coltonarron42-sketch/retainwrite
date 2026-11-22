@@ -100,6 +100,7 @@ import {
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
 import { Check } from "lucide-react";
+import { citationComfortQuestion } from "@/lib/stage1/comfort";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import {
   SPARK_DECLINED,
@@ -500,7 +501,7 @@ export function AssignmentIntake({
     plan.push({
       id: "bg_comfort",
       kind: "background",
-      text: `How comfortable are you with ${requirements.citationStyle.value ?? "the required"} citations so far?`,
+      text: citationComfortQuestion(requirements),
     });
     plan.push({
       id: "coaching_take",
