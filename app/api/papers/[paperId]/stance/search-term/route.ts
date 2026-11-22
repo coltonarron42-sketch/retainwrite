@@ -59,5 +59,8 @@ export async function POST(request: Request, ctx: Ctx) {
       query = null;
     }
   }
-  return NextResponse.json({ query, source: query ? "model" : "rules" });
+  // `reason` explains a fallback (no secrets): the model failed, or its query was rejected.
+  const reason = query ? undefined : res.ok ? "rejected" : res.reason;
+  const raw = !query && res.ok ? res.text.slice(0, 120) : undefined;
+  return NextResponse.json({ query, source: query ? "model" : "rules", reason, raw });
 }

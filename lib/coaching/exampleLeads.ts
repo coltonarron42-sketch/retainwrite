@@ -288,7 +288,7 @@ function sectionLeadBatch(ctx: {
       },
     ],
     wildcard: {
-      name: `Outside this class: where else ${focus ? "an idea like yours" : question ? "a question like yours" : subject} comes up`,
+      name: `Outside this class: where else ${focus ? `the idea in your ${part}` : question ? "a question like yours" : subject} comes up`,
       rubricMatch: 0.22,
       rubricRef: ref,
       lessonLink: `Same pattern as your ${part}`,

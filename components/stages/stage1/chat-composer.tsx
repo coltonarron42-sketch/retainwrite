@@ -13,7 +13,8 @@ import {
   type CallStatus,
 } from "@/lib/voice/call";
 import { useChatPrefs } from "@/lib/voice/prefs";
-import { isSpeaking, speechSupported, stopSpeech, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
+import { audibleSentence, isSpeaking, speechSupported, stopSpeech, subscribeAudible, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
+import { TapToHear } from "@/components/stages/stage1/tap-to-hear";
 
 import {
   useCallback,
@@ -316,6 +317,8 @@ export function ChatComposer({
   /* ---- Voice call: listen between Pau Pau's turns, send after a pause ---- */
   const { voice, micMuted } = useChatPrefs();
   const speaking = useSyncExternalStore(subscribeSpeaking, isSpeaking, () => false);
+  // "Pau Pau is talking" follows real playback (PLAN.md 9), not the queue.
+  const audible = useSyncExternalStore(subscribeAudible, audibleSentence, () => null) !== null;
   const [callId, setCallId] = useState(0);
   const owner = useSyncExternalStore(subscribeCall, callOwner, () => 0);
   const [callTrouble, setCallTrouble] = useState<"blocked" | "error" | null>(null);
@@ -354,7 +357,9 @@ export function ChatComposer({
         : micMuted
           ? "muted"
           : speaking
-            ? "paused"
+            ? audible
+              ? "paused"
+              : "starting"
             : sending
               ? "off"
               : "listening";
@@ -661,6 +666,7 @@ export function ChatComposer({
                 {callStatusText(callStatus)}
               </span>
             ) : null}
+            <TapToHear />
             {callOn && callStatus === "paused" ? (
               // Barge-in: listening stays paused while she talks (echo protection)
               // unless the student taps here; then she stops and the mic opens.

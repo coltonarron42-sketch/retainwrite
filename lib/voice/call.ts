@@ -43,7 +43,7 @@ export function restartDelayMs(recentRestarts: number): number {
   return Math.min(4000, 250 * 2 ** Math.max(0, recentRestarts - 1));
 }
 
-export type CallStatus = "off" | "listening" | "paused" | "muted" | "unsupported" | "blocked" | "error";
+export type CallStatus = "off" | "listening" | "paused" | "starting" | "muted" | "unsupported" | "blocked" | "error";
 
 export function callStatusText(status: CallStatus): string | null {
   switch (status) {
@@ -52,6 +52,9 @@ export function callStatusText(status: CallStatus): string | null {
     case "paused":
       // Short: at 390px it must fit beside 'Talk now' in two lines like 'Listening…'.
       return "Pau Pau is talking. Your mic is paused.";
+    case "starting":
+      // Her turn is queued but no sound is playing yet: never claim she's talking.
+      return "Getting her voice ready…";
     case "muted":
       return "Your mic is muted. Type, or unmute to talk.";
     case "unsupported":
