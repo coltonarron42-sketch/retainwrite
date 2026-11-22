@@ -1,17 +1,19 @@
 import { SiteHeader } from "@/components/marketing/site-header";
 import { LoginForm } from "@/components/auth/login-form";
+import { PasswordUpdatedListener } from "@/components/auth/password-updated-listener";
 import { authErrorMessage, safeInternalPath } from "@/lib/auth/site-url";
 
 export const metadata = { title: "Log in" };
 
 type Props = {
-  searchParams?: Promise<{ next?: string; error?: string }>;
+  searchParams?: Promise<{ next?: string; error?: string; email?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: Props) {
   const params = searchParams ? await searchParams : {};
   const nextPath = safeInternalPath(params.next);
   const errorMessage = params.error ? authErrorMessage(params.error) : null;
+  const defaultEmail = (params.email ?? "").trim().slice(0, 254);
 
   return (
     <main className="min-h-screen bg-rw-paper">
@@ -30,7 +32,8 @@ export default async function LoginPage({ searchParams }: Props) {
             {errorMessage}
           </p>
         ) : null}
-        <LoginForm nextPath={nextPath} />
+        <PasswordUpdatedListener />
+        <LoginForm nextPath={nextPath} defaultEmail={defaultEmail} />
       </div>
     </main>
   );

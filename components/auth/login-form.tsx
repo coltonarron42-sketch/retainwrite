@@ -11,9 +11,10 @@ const initialState: AuthActionState = {};
 
 type Props = {
   nextPath?: string;
+  defaultEmail?: string;
 };
 
-export function LoginForm({ nextPath = "/app" }: Props) {
+export function LoginForm({ nextPath = "/app", defaultEmail = "" }: Props) {
   const [signInState, signIn, signInPending] = useActionState(
     signInAction,
     initialState,
@@ -38,6 +39,7 @@ export function LoginForm({ nextPath = "/app" }: Props) {
             name="email"
             type="email"
             autoComplete="username"
+            defaultValue={defaultEmail}
             required
           />
         </div>

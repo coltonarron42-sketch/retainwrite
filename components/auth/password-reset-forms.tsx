@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   requestPasswordResetAction,
   updatePasswordAction,
   type AuthActionState,
 } from "@/app/auth/actions";
+import { announcePasswordUpdated } from "@/lib/auth/password-updated-signal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,8 +50,45 @@ export function ForgotPasswordForm() {
 export function ResetPasswordForm({ email }: { email: string }) {
   const [state, action, pending] = useActionState(updatePasswordAction, initialState);
   const [show, setShow] = useState(false);
+  // Controlled so a failed submit doesn't wipe what the student typed.
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [mismatchShown, setMismatchShown] = useState(false);
+  const updatedFor = state.passwordUpdatedFor;
+  const MISMATCH = "The two passwords don't match. Type the same one twice.";
+  const matches = password === confirm;
+  const serverError = state.error && !(state.error === MISMATCH && matches) ? state.error : null;
+  const error = mismatchShown && !matches ? MISMATCH : serverError;
+
+  useEffect(() => {
+    if (updatedFor) announcePasswordUpdated(updatedFor);
+  }, [updatedFor]);
+
+  if (updatedFor) {
+    return (
+      <div className="mt-8 space-y-4" role="status" data-testid="password-updated">
+        <p className="text-lg font-semibold text-rw-ink">Password updated.</p>
+        <p className="text-sm text-rw-ink/70">
+          Please return to your original browser and log in with your new password.
+        </p>
+        <Button asChild variant="secondary" className="w-full">
+          <Link href={`/login?email=${encodeURIComponent(updatedFor)}`}>Log in here instead</Link>
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <form action={action} className="mt-8 space-y-4">
+    <form
+      action={action}
+      className="mt-8 space-y-4"
+      onSubmit={(event) => {
+        if (!matches) {
+          event.preventDefault();
+          setMismatchShown(true);
+        }
+      }}
+    >
       {/* Lets password managers save the new password under this account. */}
       <input
         type="email"
@@ -72,6 +110,8 @@ export function ResetPasswordForm({ email }: { email: string }) {
           required
           minLength={6}
           autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
         />
       </div>
       <div className="space-y-2">
@@ -83,16 +123,18 @@ export function ResetPasswordForm({ email }: { email: string }) {
           required
           minLength={6}
           autoComplete="new-password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
         />
       </div>
       <label className="flex items-center gap-2 text-sm text-rw-ink/70">
         <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
         Show password
       </label>
-      {state.error ? (
+      {error ? (
         <p className="text-sm text-red-700" role="alert">
-          {state.error}{" "}
-          {state.error.includes("expired") || state.error.includes("reset link") ? (
+          {error}{" "}
+          {error.includes("expired") || error.includes("reset link") ? (
             <Link href="/forgot-password" className="font-semibold underline">
               Forgot password
             </Link>
