@@ -7,7 +7,8 @@ import Link from "next/link";
  * - Subhead: section 1 product goal (line 7) + section 3 "we never write for you" promise (line 19).
  * - Proof points: section 2 non-negotiables (lines 10–14).
  * - CTA: "Start free paper", lines 19 and 115; journey line 34.
- * - Stages: section 3, lines 23–28.
+ * - Stages: section 3, lines 23–28, softened where a feature isn't fully built yet
+ *   (no export, citation-audit, or reference-builder promises until they ship).
  * - Pricing blurb + link: retainwrite-cursor-build-prompt.md line 501 (locked homepage blurb).
  */
 
@@ -25,7 +26,7 @@ const STAGES = [
   },
   {
     name: "Stance and research",
-    copy: "Go section by section. Share what you already know. Get 3–5 research leads to explore, then confirm your ideas.",
+    copy: "Go section by section. Share what you already know. Get research leads to explore, then confirm your ideas.",
   },
   {
     name: "Outline",
@@ -33,15 +34,15 @@ const STAGES = [
   },
   {
     name: "Sources",
-    copy: "Review and select your research leads. Build references as you go.",
+    copy: "Review your research leads and pick the ones you want to use.",
   },
   {
     name: "Drafting",
-    copy: "Write every sentence from your outline. The coach offers example transitions and light cleanup flags.",
+    copy: "Write every sentence yourself, working from your outline. The coach guides; you write.",
   },
   {
     name: "Revise",
-    copy: "Check citations, flow, and voice. Export to Word or PDF.",
+    copy: "Polish flow and voice, then get your paper ready to hand in.",
   },
 ];
 
