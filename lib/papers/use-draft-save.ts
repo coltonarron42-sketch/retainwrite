@@ -24,7 +24,9 @@ export function useDraftSave(input: {
   const baseline = useRef({ fieldKey: input.fieldKey, text: input.text });
 
   const latest = useRef(input);
-  latest.current = input;
+  useEffect(() => {
+    latest.current = input;
+  });
 
   useEffect(() => {
     if (!input.enabled) return;
@@ -34,7 +36,7 @@ export function useDraftSave(input: {
       return;
     }
     if (baseline.current.text === input.text) return;
-    if (latest.current.localCopy) writeLocalDraft(input.paperId, input.fieldKey, input.text);
+    if (input.localCopy) writeLocalDraft(input.paperId, input.fieldKey, input.text);
     // Only say "Saving…" while the request is in flight. During the typing
     // pause the text is not saved yet, so drop a stale "Saved" instead.
     setStatus("idle");
@@ -52,7 +54,7 @@ export function useDraftSave(input: {
       });
     }, DRAFT_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [input.enabled, input.fieldKey, input.paperId, input.text]);
+  }, [input.enabled, input.fieldKey, input.paperId, input.text, input.localCopy]);
 
   useEffect(() => {
     function flush() {

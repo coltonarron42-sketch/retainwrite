@@ -44,9 +44,17 @@ export function sourceSearchDirections(topic: string, _note?: string): string {
   return `What would you search first? Try JSTOR, Google Scholar, or your school library for “${subject}”. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
 
+const CLAUSE_START = /^(how|why|what|whether|when|where|which|who|should|does|do|is|are|can|to what extent)\b/i;
+
+/** "How social media…" is already a clause; it reads as its own heading. */
+export function subjectMidSentence(subject: string): string {
+  return CLAUSE_START.test(subject) ? subject.charAt(0).toLowerCase() + subject.slice(1) : subject;
+}
+
 export function stageLessonHeader(subject: string, lessonStatement: string): string {
   if (subject && subject !== "your topic" && !/the assigned concept/i.test(subject)) {
     if (/the assigned concept/i.test(lessonStatement)) {
+      if (CLAUSE_START.test(subject)) return subject.charAt(0).toUpperCase() + subject.slice(1);
       return `How ${subject} shows up in the examples you choose`;
     }
     return lessonStatement;

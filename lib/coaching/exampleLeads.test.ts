@@ -5,6 +5,7 @@ import {
   leadCopyIsTemplate,
   sourceSearchDirections,
   stageLessonHeader,
+  subjectMidSentence,
   visibleSourceLead,
 } from "@/lib/coaching/exampleLeads";
 
@@ -62,5 +63,17 @@ describe("exampleLeadBatch", () => {
     expect(visibleSourceLead("Research on SOC 101 Argumentative Essay")).toBeNull();
     expect(visibleSourceLead("A study of teen sleep and social media")).toMatch(/teen sleep/);
     expect(batch.candidates).toEqual([]);
+  });
+});
+
+describe("stage lesson header wording", () => {
+  it("does not double a leading How", () => {
+    const header = stageLessonHeader(
+      "How social media has changed the way teenagers form their sense of identity",
+      "How the assigned concept shows up in the examples you choose",
+    );
+    expect(header).toBe("How social media has changed the way teenagers form their sense of identity");
+    expect(subjectMidSentence("How social media has changed things")).toBe("how social media has changed things");
+    expect(subjectMidSentence("Later school start times")).toBe("Later school start times");
   });
 });
