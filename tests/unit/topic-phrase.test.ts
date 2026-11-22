@@ -62,7 +62,8 @@ describe("question topics in Stage 2 templates", () => {
     ].join(" | ");
     expect(all).not.toMatch(/\?”\?|\?\.|about Should|of Should|part of Should|with What/);
     expect(all).toContain("What should you look up first about your question?");
-    expect(all).toContain("key words like high schools start later, morning");
+    expect(all).toContain("for “high schools start later”, then narrow it with a word or two of your own");
+    expect(all).not.toMatch(/later, morning/);
     expect(all).not.toMatch(/about high schools start later/);
     expect(askForConcept(q)).toBe("Which part of this question interests you most: “Should high schools start later in the morning?”");
   });

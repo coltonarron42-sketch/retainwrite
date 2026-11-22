@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { firstSentenceOf, splitSentences } from "@/lib/copy/sentences";
 import { assignmentAlertQuote } from "@/lib/coaching/logicCheck";
-import { exampleLeadBatch, searchKeywords, sourceSearchDirections } from "@/lib/coaching/exampleLeads";
+import { exampleLeadBatch, searchKeywords, searchPhrase, sourceSearchDirections } from "@/lib/coaching/exampleLeads";
 
 describe("sentences never break on abbreviations", () => {
   it("keeps U.S., Dr., a.m. and e.g. inside one sentence", () => {
@@ -23,7 +23,9 @@ describe("search directions read as key words, not a broken sentence", () => {
     expect(searchKeywords("high schools start later in the morning")).toBe("high schools start later, morning");
     const text = sourceSearchDirections("Should high schools start later in the morning?");
     expect(text).not.toMatch(/for “high schools start later in the morning”/);
-    expect(text).toContain("key words like high schools start later, morning");
+    expect(searchPhrase("high schools start later in the morning")).toBe("high schools start later");
+    expect(text).toContain("Try “high schools start later” in JSTOR, Google Scholar, or your school library, then add a word or two of your own.");
+    expect(text).not.toMatch(/later, morning/);
   });
 
   it("question topics never get spliced into 'about …'", () => {

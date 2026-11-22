@@ -43,8 +43,11 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
 
 export function sourceSearchDirections(topic: string, _note?: string): string {
   const subject = topicSearchTerms(topic);
-  const where = subject ? `with key words like ${searchKeywords(subject)}` : "with key words from your topic";
-  return `What would you search first? Try JSTOR, Google Scholar, or your school library ${where}. Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
+  const term = subject ? searchPhrase(subject) : "";
+  const where = term
+    ? `Try “${term}” in JSTOR, Google Scholar, or your school library, then add a word or two of your own.`
+    : "Try a few words from your topic in JSTOR, Google Scholar, or your school library.";
+  return `What would you search first? ${where} Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
 
 /** The topic inside our own sentence ("This assignment teaches how…"). */
@@ -113,7 +116,7 @@ export function exampleLeadBatch(input: {
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Search JSTOR or your school library with key words from ${question ? "your question" : "your topic"}: ${searchKeywords(search)}. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
+      whyFits: `Try searching JSTOR or your school library for “${searchPhrase(search)}”, then narrow it with a word or two of your own. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
       name: question
@@ -173,4 +176,11 @@ export function searchKeywords(phrase: string): string {
   }
   if (current.length) groups.push(current.join(" "));
   return groups.slice(0, 4).join(", ") || phrase;
+}
+
+/** The longest run of content words, as a search term: "high schools start later in the morning" → "high schools start later". */
+export function searchPhrase(phrase: string): string {
+  const groups = searchKeywords(phrase).split(", ").filter(Boolean);
+  if (!groups.length) return phrase;
+  return groups.reduce((best, g) => (g.split(" ").length > best.split(" ").length ? g : best), groups[0]!);
 }
