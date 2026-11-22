@@ -1,9 +1,6 @@
-export function splitSentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
+import { splitSentences } from "@/lib/text/sentences";
+
+export { splitSentences };
 
 export function commitSentence(existing: string[], next: string): string[] {
   const parts = splitSentences(next);
