@@ -178,6 +178,8 @@ export function AssignmentIntake({
   } | null>(null);
   const [ownStory, setOwnStory] = useState("");
   const [writingOwnStory, setWritingOwnStory] = useState(false);
+  /** Which story is being saved: an angle id, "own", or null. Shown right away. */
+  const [pickingStory, setPickingStory] = useState<string | null>(null);
   const [viewSource, setViewSource] = useState<{
     label: string;
     excerpt: string;
@@ -797,6 +799,8 @@ export function AssignmentIntake({
   }
 
   async function pickStory(angle: StoryAngle) {
+    if (pickingStory) return;
+    setPickingStory(angle.id);
     const picked = { text: angle.question, source: "ai" as const };
     setStoryAngle(picked);
     await fetch(`/api/papers/${paperId}/intake/story-pick`, {
@@ -808,6 +812,7 @@ export function AssignmentIntake({
         angleId: angle.id,
       }),
     }).catch(() => undefined);
+    setPickingStory(null);
     goToStanceOnStory();
   }
 
@@ -817,6 +822,8 @@ export function AssignmentIntake({
       setError("Write at least 15 words for your own angle.");
       return;
     }
+    if (pickingStory) return;
+    setPickingStory("own");
     setStoryAngle({ text, source: "student" });
     setAnswers((prev) => [
       ...prev.filter((a) => a.questionId !== "story_own"),
@@ -835,6 +842,7 @@ export function AssignmentIntake({
       body: JSON.stringify({ text, source: "student" }),
     }).catch(() => undefined);
     pasteMeta.reset();
+    setPickingStory(null);
     goToStanceOnStory();
   }
 
@@ -1824,18 +1832,26 @@ export function AssignmentIntake({
           {storyAngles.map((angle) => (
             <div
               key={angle.id}
-              className="rounded-[12px] border border-ds-border bg-ds-surface p-6 shadow-ds-card"
+              className={cn(
+                "rounded-[12px] border bg-ds-surface p-6 shadow-ds-card transition-colors duration-150",
+                pickingStory === angle.id ? "border-ds-accent" : "border-ds-border",
+              )}
             >
               <p className="text-[16px] font-semibold leading-[1.6] text-ds-ink">{angle.question}</p>
               <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">{angle.whyFits}</p>
               <DsButton
                 type="button"
                 size="sm"
-                className="mt-4"
                 variant="secondary"
+                disabled={Boolean(pickingStory)}
+                aria-busy={pickingStory === angle.id}
+                className={cn(
+                  "mt-4",
+                  pickingStory === angle.id && "border-ds-accent bg-[rgba(196,120,90,0.1)] disabled:opacity-100",
+                )}
                 onClick={() => void pickStory(angle)}
               >
-                Pick this one
+                {pickingStory === angle.id ? "Saving your pick…" : "Pick this one"}
               </DsButton>
             </div>
           ))}
@@ -1865,9 +1881,11 @@ export function AssignmentIntake({
               <DsButton
                 type="button"
                 variant="primary"
+                disabled={Boolean(pickingStory)}
+                aria-busy={pickingStory === "own"}
                 onClick={() => void submitOwnStory()}
               >
-                Use my angle
+                {pickingStory === "own" ? "Saving your angle…" : "Use my angle"}
               </DsButton>
             </div>
           ) : null}
