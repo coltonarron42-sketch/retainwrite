@@ -147,6 +147,9 @@ Pau Pau should feel like a present coach, closer to how Grok talks than a series
 - **Logic tiers.** Severe ("Logic alert", "Continue anyway") is only for a claim that is off-topic (the model decides relevance first on every section; word overlap is the fallback) or contradicts itself. A personal example backing an opinion is normal: at most a gentle nudge ("One example is a great start; what else shows this?").
 - **Append-only history.** Pau Pau's answers to requests and questions are saved in the transcript, so they survive the next turn and a reload; after answering she gives a short follow-up instead of repeating the opening ask.
 - **Quick lesson in Body only.** The lesson concept's Quick lesson appears in the Body, where the concept is applied; the Introduction and Conclusion don't carry a concept and go straight to the probe.
+- **On-topic means the prompt's subject.** Specific details of the subject count as addressing the assignment (for a start-time prompt: 8:30, the bell, first period, starting later). When the relevance check says on-topic, the cruder word match never adds "doesn't yet speak to the assignment".
+- **Sends are never dropped.** A message sent while Pau Pau is still replying is queued with a visible note and goes out when she's done; text typed meanwhile stays in the box.
+- **Presence.** A small flat Pau Pau face (Design System ink, white eyes) sits at the top of each chat and beside her bubbles, with an occasional glance and blink (CSS only, none under reduced motion). While her voice plays, soft wavy lines pulse along the bubble being read, tied to the speech start/end events, and fade when she stops; nothing shows when voice is off. The lines are absolutely placed, so the input never moves.
 - Coaching only: Pau Pau never writes the paper. Extraction must keep working.
 
 ---
