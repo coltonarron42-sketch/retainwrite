@@ -4,19 +4,14 @@ import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { cn } from "@/lib/utils";
+import { plainText } from "@/lib/voice/presence";
+import { PauFace, SpeakingWaves, useBubbleSpeaking } from "@/components/stages/stage1/pau-presence";
 
-/** Small round mark for the coach; Design System colors only. */
-export function PauPauAvatar({ size = "md" }: { size?: "sm" | "md" }) {
+/** Small round mark for the coach: a flat face, Design System colors only. */
+export function PauPauAvatar({ size = "md", alive = false }: { size?: "sm" | "md"; alive?: boolean }) {
   return (
-    <span
-      aria-hidden
-      className={
-        size === "sm"
-          ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[10px] font-semibold text-white"
-          : "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[13px] font-semibold tracking-wide text-white sm:h-10 sm:w-10"
-      }
-    >
-      PP
+    <span aria-hidden data-pau-avatar className={size === "sm" ? "flex h-6 w-6 shrink-0" : "flex h-8 w-8 shrink-0 sm:h-10 sm:w-10"}>
+      <PauFace alive={alive} className="h-full w-full" />
     </span>
   );
 }
@@ -44,19 +39,24 @@ export function PauPauBubble({
   className?: string;
 }) {
   const Tag = as;
+  const speaking = useBubbleSpeaking(plainText([children].flat()));
   return (
     <div className={cn("flex items-start gap-2 sm:gap-3", className)}>
-      <PauPauAvatar />
+      <PauPauAvatar alive={speaking} />
       <div className="min-w-0 flex-1">
         {showName ? (
           <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
             {COACH_NAME} <span className="font-normal normal-case tracking-normal">· {label}</span>
           </p>
         ) : null}
-        <div className={BUBBLE} aria-live={live ? "polite" : undefined}>
-          <Tag id={id} className="font-ds-sans text-[18px] font-normal leading-[1.6] text-ds-ink">
-            {children}
-          </Tag>
+        {/* Waves sit outside the bubble box: absolutely placed, no layout shift. */}
+        <div className="relative w-fit max-w-full" data-pau-speaking={speaking || undefined}>
+          <SpeakingWaves active={speaking} />
+          <div className={BUBBLE} aria-live={live ? "polite" : undefined}>
+            <Tag id={id} className="font-ds-sans text-[18px] font-normal leading-[1.6] text-ds-ink">
+              {children}
+            </Tag>
+          </div>
         </div>
       </div>
     </div>
@@ -93,15 +93,18 @@ export function PauPauGroup({
   const shown = bubbles
     .map((b, i) => ({ b, i }))
     .filter(({ b }) => b !== null && b !== undefined && b !== "" && b !== false);
+  const speaking = useBubbleSpeaking(plainText(shown.map(({ b }) => b)));
   return (
     <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn>
-      <PauPauAvatar />
+      <PauPauAvatar alive={speaking} />
       <div className="min-w-0 flex-1">
         {showName ? (
           <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
             {COACH_NAME} <span className="font-normal normal-case tracking-normal">· {label}</span>
           </p>
         ) : null}
+        <div className="relative w-fit max-w-full" data-pau-speaking={speaking || undefined}>
+        <SpeakingWaves active={speaking} />
         <div className={cn(BUBBLE, "block w-fit space-y-3")} aria-live={live ? "polite" : undefined}>
           {shown.map(({ b, i }) => {
             const Tag = i === headingIndex ? "h1" : typeof b === "string" ? "p" : "div";
@@ -116,6 +119,7 @@ export function PauPauGroup({
             );
           })}
           {children ? <div className="space-y-2">{children}</div> : null}
+        </div>
         </div>
       </div>
     </div>

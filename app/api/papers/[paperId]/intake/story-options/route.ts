@@ -6,9 +6,15 @@ import { logSessionEvent } from "@/lib/session-events";
 
 export const runtime = "nodejs";
 
+// Student answers run long (the early take is a few sentences): clip them,
+// never reject the request (QA 12:25 #2: a 300-char answer returned 400).
 const bodySchema = z.object({
-  topic: z.string().max(500).optional(),
-  studentPhrases: z.array(z.string().max(200)).max(20).optional(),
+  topic: z.string().max(4000).transform((v) => v.slice(0, 500)).optional(),
+  studentPhrases: z
+    .array(z.string().max(8000).transform((v) => v.slice(0, 400)))
+    .max(100)
+    .transform((list) => list.slice(0, 20))
+    .optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };

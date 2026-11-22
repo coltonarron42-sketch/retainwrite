@@ -240,6 +240,9 @@ export function CoachingLoop({
   // assignment is on its way and must not be asked for again.
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [idea, setIdea] = useState("");
+  // Clear only the text that was sent: words typed while a reply was loading
+  // stay in the box (QA 12:25 #4: a send was silently lost).
+  const clearSent = (sent: string) => setIdea((cur) => (cur.trim() === sent.trim() ? "" : cur));
   const replacingClaim = useRef(false);
   const outlineDrafts = useRef<Record<string, string>>({});
   // A thin-note hint belongs to the turn it was shown on (QA 10:38 #6).
@@ -610,7 +613,7 @@ export function CoachingLoop({
     commit(next);
     syncSession(next, section.key);
     paste.reset();
-    setIdea("");
+    clearSent(idea);
     setThinNote(null);
   }
 
@@ -674,7 +677,7 @@ export function CoachingLoop({
       },
     );
     paste.reset();
-    setIdea("");
+    clearSent(idea);
   }
 
   async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) {
@@ -729,14 +732,14 @@ export function CoachingLoop({
       },
     );
     paste.reset();
-    setIdea("");
+    clearSent(idea);
   }
 
   function onNameLead(text: string, more: LoopLine[]) {
     if (!section || !text.trim()) return;
     updateSection(section.key, { chosenLead: text.trim(), loopStep: "summarize" }, { transcript: withLines(more) });
     log("section_lead_picked");
-    setIdea("");
+    clearSent(idea);
   }
 
   function onPickLead(lead: PreparedLead, more: LoopLine[]) {

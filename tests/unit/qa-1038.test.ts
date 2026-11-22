@@ -143,7 +143,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     expect(outlineSrc).toMatch(/if \(intent !== "content"\) \{[\s\S]*props\.onAside\(intent, current\.key[\s\S]*setText\(notes\);\s*return;/);
     const aside = loop.slice(loop.indexOf("function onAside"), loop.indexOf("function onTeachAspect"));
     expect(aside).not.toMatch(/ideas:|saveLoop|answers:/);
-    expect(aside).toContain('setIdea("")');
+    expect(aside).toContain("clearSent(idea)");
   });
   it("the answer rides inside her current turn (one reply)", () => {
     const transcript: LoopLine[] = [{ k: "intro", who: "pau", text: "Do you already have an idea?" }, { k: "intro", who: "you", text: "Ask me some probing questions please." }];

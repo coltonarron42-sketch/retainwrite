@@ -9,5 +9,10 @@
       "path": "/api/cron/hidden-draft-purge",
       "schedule": "0 8 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "batch-*": false
+    }
+  }
 }

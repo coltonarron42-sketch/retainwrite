@@ -994,7 +994,7 @@ export function AssignmentIntake({
     void fetch(`/api/papers/${paperId}/intake/story-options`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, studentPhrases: phrases }),
+      body: JSON.stringify({ topic: topic.slice(0, 500), studentPhrases: phrases.slice(0, 20).map((p) => p.slice(0, 400)) }),
     })
       .then(async (res) => {
         if (!res.ok) return;

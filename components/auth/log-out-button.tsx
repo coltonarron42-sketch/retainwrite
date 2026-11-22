@@ -3,6 +3,7 @@
 import { signOutAction } from "@/app/auth/actions";
 import { clearAppLocalData, setLocalUser } from "@/lib/local/user-scope";
 import { resetChatPrefs } from "@/lib/voice/prefs";
+import { markSignedOut } from "@/lib/session/signedOut";
 import { stopSpeech } from "@/lib/voice/speech";
 
 /**
@@ -21,6 +22,8 @@ export function LogOutButton({
     <form
       action={signOutAction}
       onSubmit={() => {
+        // Stop autosave timers and pagehide flushes first: the session is going.
+        markSignedOut();
         stopSpeech();
         // No user from here on: late async work (e.g. a prefs fetch still in
         // flight) can no longer write under the old account.

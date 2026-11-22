@@ -160,7 +160,10 @@ export function ChatComposer({
   const reading = attachments.some((f) => f.status === "reading");
   const failed = attachments.some((f) => f.status === "failed");
   const hasContent = Boolean(value.trim()) || attachments.length > 0;
-  const sendDisabled = !hasContent || reading || failed || sending || sendBlocked;
+  const blocked = !hasContent || reading || failed || sendBlocked;
+  // Send while Pau Pau is still replying: queue it (visibly) and send when she
+  // is done. A send is never dropped (QA 12:25 #4).
+  const [queued, setQueued] = useState(false);
 
   useEffect(() => setCanDictate(Boolean(speechRecognition())), []);
   useEffect(() => () => recRef.current?.abort(), []);
@@ -473,7 +476,12 @@ export function ChatComposer({
   }
 
   function send() {
-    if (sendDisabled) return;
+    if (blocked) return;
+    if (sending) {
+      setQueued(true);
+      return;
+    }
+    setQueued(false);
     // A tap on Send unlocks speech on phones, so Pau Pau's answer can play.
     unlockSpeech();
     // Barge-in: Send while Pau Pau is talking stops her and takes the reply.
@@ -485,6 +493,15 @@ export function ChatComposer({
     dropCallRecognizer();
     onSend();
   }
+  useEffect(() => {
+    if (!queued) return;
+    if (!value.trim() && attachments.length === 0) {
+      setQueued(false);
+      return;
+    }
+    if (!sending) send();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, sending, value]);
   useEffect(() => {
     sendRef.current = () => {
       if (!valueRef.current.trim()) return;
@@ -665,8 +682,9 @@ export function ChatComposer({
           <button
             type="button"
             aria-label={sendLabel}
-            disabled={sendDisabled}
+            disabled={blocked || queued}
             aria-busy={sending || reading || undefined}
+            data-send-queued={queued || undefined}
             className="ds-focus flex h-11 w-11 items-center justify-center rounded-full bg-ds-accent text-white shadow-ds-button transition-colors duration-150 hover:brightness-95 disabled:cursor-not-allowed disabled:bg-ds-border disabled:text-ds-muted disabled:shadow-none"
             onClick={send}
           >
@@ -674,6 +692,12 @@ export function ChatComposer({
           </button>
         </div>
       </div>
+
+      {queued ? (
+        <p className="mt-2 px-2 text-[13px] leading-[1.6] text-ds-muted" role="status" data-send-queued-note>
+          Pau Pau is still replying. Your message sends as soon as she&apos;s done.
+        </p>
+      ) : null}
 
       {menuOpen ? (
         <div

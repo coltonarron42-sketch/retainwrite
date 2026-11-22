@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { writeLocalDraft } from "@/lib/papers/local-draft";
 import { persistField } from "@/lib/papers/persist";
+import { onSignedOut, signedOut } from "@/lib/session/signedOut";
 import { DRAFT_SAVE_DELAY_MS, type ResumePointer } from "@/lib/papers/resume";
 
 export type SaveStatusValue = "idle" | "saving" | "saved";
@@ -29,7 +30,7 @@ export function useDraftSave(input: {
   });
 
   useEffect(() => {
-    if (!input.enabled) return;
+    if (!input.enabled || signedOut()) return;
     if (baseline.current.fieldKey !== input.fieldKey) {
       baseline.current = { fieldKey: input.fieldKey, text: input.text };
       setStatus("idle");
@@ -53,13 +54,17 @@ export function useDraftSave(input: {
         setStatus(ok ? "saved" : "idle");
       });
     }, DRAFT_SAVE_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    const off = onSignedOut(() => window.clearTimeout(timer));
+    return () => {
+      window.clearTimeout(timer);
+      off();
+    };
   }, [input.enabled, input.fieldKey, input.paperId, input.text, input.localCopy]);
 
   useEffect(() => {
     function flush() {
       const current = latest.current;
-      if (!current.enabled || !current.text.trim()) return;
+      if (!current.enabled || !current.text.trim() || signedOut()) return;
       setStatus("saving");
       void persistField(current.paperId, {
         fieldKey: current.fieldKey,
