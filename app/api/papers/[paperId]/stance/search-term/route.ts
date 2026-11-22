@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
-import { parseSearchTerm, SEARCH_TERM_SCHEMA, SEARCH_TERM_SYSTEM } from "@/lib/coaching/searchTerm";
+import {
+  parseSearchTerm,
+  parseSearchTerms,
+  SEARCH_TERM_SCHEMA,
+  SEARCH_TERM_SYSTEM,
+  SEARCH_TERMS_SCHEMA,
+  SEARCH_TERMS_SYSTEM,
+} from "@/lib/coaching/searchTerm";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -10,8 +17,19 @@ export const runtime = "nodejs";
 
 const bodySchema = z.object({
   topic: z.string().min(1).max(4000).transform((v) => v.slice(0, 500)),
-  section: z.string().max(200).transform((v) => v.slice(0, 80)),
+  section: z.string().max(200).transform((v) => v.slice(0, 80)).optional(),
   note: z.string().max(8000).transform((v) => v.slice(0, 1200)).optional(),
+  // Batch form (QA 3:35 C): every section in one call when Stage 2 loads.
+  sections: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(60),
+        title: z.string().max(200).transform((v) => v.slice(0, 80)),
+        needs: z.string().max(2000).transform((v) => v.slice(0, 240)).optional(),
+      }),
+    )
+    .max(12)
+    .optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -43,6 +61,27 @@ export async function POST(request: Request, ctx: Ctx) {
     const { data: paper } = await supabase.from("papers").select("id").eq("id", paperId).eq("user_id", user.id).maybeSingle();
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  if (body.sections?.length) {
+    const keys = body.sections.map((s) => s.key);
+    const res = await grokChatJson({
+      model: MODEL_FAST,
+      reasoningEffort: "low",
+      system: SEARCH_TERMS_SYSTEM,
+      user: JSON.stringify({ topic: body.topic, sections: body.sections }),
+      jsonSchema: { name: "search_queries", schema: SEARCH_TERMS_SCHEMA as unknown as Record<string, unknown> },
+      timeoutMs: 20_000,
+    });
+    let queries: Record<string, string> = {};
+    if (res.ok) {
+      try {
+        queries = parseSearchTerms(JSON.parse(res.text), keys);
+      } catch {
+        queries = {};
+      }
+    }
+    return NextResponse.json({ queries, source: Object.keys(queries).length ? "model" : "rules", reason: res.ok ? undefined : res.reason });
+  }
+  if (!body.section) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   const res = await grokChatJson({
     model: MODEL_FAST,
     reasoningEffort: "low",

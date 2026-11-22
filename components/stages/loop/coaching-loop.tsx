@@ -1,5 +1,6 @@
 "use client";
 
+import { PauFace } from "@/components/stages/stage1/pau-presence";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -376,35 +377,50 @@ export function CoachingLoop({
     () => summarizeCountedAnswers(session?.answers ?? []),
     [session?.answers],
   );
-  // A natural library query per section from the model (QA 2:31 #3c). The
-  // keyword builder fills in until it answers, or if it can't.
-  const [searchTerms, setSearchTerms] = useState<Record<string, string | null>>({});
-  const termNote = section && section.mode === "lesson" ? keptIdeas(section.ideas).join(" ").trim() : "";
-  const termKey = section && termNote ? `${section.key}\u0001${termNote}` : "";
+  // A natural library query per section from the model (QA 2:31 #3c), fetched
+  // for ALL sections in one call as soon as Stage 2 loads and cached per paper
+  // (QA 3:35 C), so the leads show their final terms with no visible swap. The
+  // keyword builder fills in only if the model can't answer in time.
   const termTopic = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+  const termSections = useMemo(
+    () => (session?.sections ?? []).map((s) => ({ key: s.key, title: s.title, needs: s.needs })),
+    [session?.sections],
+  );
+  const termCacheKey = termTopic && termSections.length ? `${termTopic}\u0001${termSections.map((s) => s.key).join(",")}` : "";
+  const [searchTerms, setSearchTerms] = useState<{ key: string; map: Record<string, string> }>({ key: "", map: {} });
+  const termsAsked = useRef("");
   useEffect(() => {
-    if (stage !== 2 || !termKey || !termTopic || termKey in searchTerms || signedOut()) return;
-    setSearchTerms((m) => ({ ...m, [termKey]: null }));
-    const [key, note] = termKey.split("\u0001");
-    const title = session?.sections.find((s) => s.key === key)?.title ?? key ?? "";
+    if (stage < 2 || !termCacheKey || termsAsked.current === termCacheKey || signedOut()) return;
+    termsAsked.current = termCacheKey;
+    const cacheName = `searchTerms:${paperId}`;
+    try {
+      const cached = JSON.parse(readScoped(cacheName) ?? "null") as { key?: string; map?: Record<string, string> } | null;
+      if (cached?.key === termCacheKey && cached.map && Object.keys(cached.map).length) {
+        setSearchTerms({ key: termCacheKey, map: cached.map });
+        return;
+      }
+    } catch {
+      /* ignore a bad cache */
+    }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 17000);
+    const timer = setTimeout(() => controller.abort(), 22000);
     void fetch(`/api/papers/${paperId}/stance/search-term`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: termTopic.slice(0, 500), section: title.slice(0, 80), note: (note ?? "").slice(0, 1200) }),
+      body: JSON.stringify({ topic: termTopic.slice(0, 500), sections: termSections.slice(0, 12) }),
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? (res.json() as Promise<{ query?: string | null }>) : null))
+      .then((res) => (res.ok ? (res.json() as Promise<{ queries?: Record<string, unknown> }>) : null))
       .then((data) => {
-        const q = typeof data?.query === "string" && isCleanQuery(data.query) ? data.query : null;
-        if (q) setSearchTerms((m) => ({ ...m, [termKey]: q }));
+        const map: Record<string, string> = {};
+        for (const [k, v] of Object.entries(data?.queries ?? {})) if (typeof v === "string" && isCleanQuery(v)) map[k] = v;
+        if (!Object.keys(map).length) return;
+        setSearchTerms({ key: termCacheKey, map });
+        writeScoped(cacheName, JSON.stringify({ key: termCacheKey, map }));
       })
       .catch(() => undefined)
       .finally(() => clearTimeout(timer));
-    // searchTerms is read only to skip repeats
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, termKey, termTopic, paperId]);
+  }, [stage, termCacheKey, termTopic, termSections, paperId]);
   const voice = voiceNoteForStage(stage, {
     naturalWords: totals.naturalWords,
     pastedShare: totals.pastedShare,
@@ -1037,7 +1053,7 @@ export function CoachingLoop({
           studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
           section: { key: section.key, title: section.title },
-          searchTerm: termKey ? searchTerms[termKey] ?? null : null,
+          searchTerm: searchTerms.key === termCacheKey ? searchTerms.map[section.key] ?? null : null,
         })
       : null;
   const batch =
@@ -1068,9 +1084,13 @@ export function CoachingLoop({
         </p>
       ) : null}
       {stage >= 4 ? (
-        <p className={dsEyebrow}>
-          Stage {stage} of {STAGE_LABELS.length} · {STAGE_LABELS[stage - 1]}
-        </p>
+        <div className="mb-4 flex items-center gap-3">
+          {/* Sources already has a shell in PLAN.md; presence only, no Stage 4 logic. */}
+          {stage === 4 ? <PauFace alive className="h-10 w-10 shrink-0" /> : null}
+          <p className={dsEyebrow}>
+            Stage {stage} of {STAGE_LABELS.length} · {STAGE_LABELS[stage - 1]}
+          </p>
+        </div>
       ) : null}
 
       {stage === 2 && section ? (
@@ -1293,7 +1313,7 @@ export function CoachingLoop({
             onChange={(event) => setSession({ ...session, draft: event.target.value })}
             placeholder="Your draft stays in your words."
           />
-          <p className="text-sm text-rw-ink/60">{wordCount(session.draft)} words</p>
+          <p className="text-sm text-rw-ink/75">{wordCount(session.draft)} words</p>
           {mismatch?.triggered && !session.nudgeKept ? (
             <VoiceNudge
               result={mismatch}
