@@ -17,6 +17,14 @@ describe("early stance question", () => {
     expect(q).toBe("What's your early take on this assignment?");
     expect(q).not.toMatch(/moment from your own life/);
   });
+  it("lowercases a leading function word but keeps proper nouns", () => {
+    expect(earlyStanceQuestion({ topic: "Whether high schools should start later in the morning" })).toBe(
+      "What's your early take on whether high schools should start later in the morning?",
+    );
+    expect(earlyStanceQuestion({ topic: "English 101 argument essay" })).toBe(
+      "What's your early take on English 101 argument essay?",
+    );
+  });
   it("falls back to clean wording", () => {
     expect(earlyStanceQuestion({})).toBe("What's your early take on this assignment?");
   });
