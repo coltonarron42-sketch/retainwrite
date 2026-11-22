@@ -245,6 +245,7 @@ function field(value: unknown, coerceValue: (input: unknown) => unknown): Loose 
 
 const VALUE_COERCERS: Record<string, (value: unknown) => unknown> = {
   course: (value) => shortString(value, 120),
+  instructor: (value) => shortString(value, 120),
   paperType: (value) => shortString(value, 120),
   topic: (value) => shortString(value, 400),
   promptQuestion: (value) => shortString(value, 600),

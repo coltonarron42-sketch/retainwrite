@@ -118,6 +118,8 @@ export const aiPolicySchema = z.enum([
 export const assignmentRequirementsSchema = z.object({
   schemaVersion: z.literal("1.0"),
   course: fieldSchema(z.string()),
+  /** Teacher or professor as written. Optional: older saved cards do not have it. */
+  instructor: fieldSchema(z.string()).optional(),
   paperType: fieldSchema(z.string()),
   topic: fieldSchema(z.string()),
   promptQuestion: fieldSchema(z.string()),
