@@ -54,6 +54,11 @@ function snapshot(): ChatPrefs {
 
 function commit(uid: string, prefs: ChatPrefs) {
   if (localUser() !== uid) return;
+  if (uid === "anon") {
+    state = { uid, prefs };
+    listeners.forEach((l) => l());
+    return; // signed out: keep in memory only
+  }
   state = { uid, prefs };
   writeScoped(NAME, JSON.stringify(prefs));
   listeners.forEach((l) => l());

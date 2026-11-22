@@ -1,7 +1,7 @@
 "use client";
 
 import { signOutAction } from "@/app/auth/actions";
-import { clearAppLocalData } from "@/lib/local/user-scope";
+import { clearAppLocalData, setLocalUser } from "@/lib/local/user-scope";
 import { resetChatPrefs } from "@/lib/voice/prefs";
 import { stopSpeech } from "@/lib/voice/speech";
 
@@ -22,8 +22,11 @@ export function LogOutButton({
       action={signOutAction}
       onSubmit={() => {
         stopSpeech();
-        clearAppLocalData();
+        // No user from here on: late async work (e.g. a prefs fetch still in
+        // flight) can no longer write under the old account.
+        setLocalUser(null);
         resetChatPrefs();
+        clearAppLocalData();
       }}
     >
       <button type="submit" className={className}>
