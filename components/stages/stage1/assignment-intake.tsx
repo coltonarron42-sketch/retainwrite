@@ -76,7 +76,7 @@ import {
 import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-stance";
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
-import { createLead, exampleLeadWhy, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
+import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerReason, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
 import {
   evaluateStage1VoiceMinimum,
@@ -1116,14 +1116,13 @@ export function AssignmentIntake({
     // Offer leads after early take
     if (q.id === "stance_early" && requirements && text) {
       const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
-      const tags = extractInterestTags(
-        nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText),
-      );
+      const interestAnswers = nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText);
+      const tags = extractInterestTags(interestAnswers);
+      const shown = tags[0] ? interestDisplay(tags[0], interestAnswers) : null;
       const suggested = [
         createLead({
           name: "A practitioner voice in this topic",
-          whyAssignment:
-            "Someone who has written or spoken about the same question your prompt asks.",
+          whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
           searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
         }),
@@ -1131,9 +1130,9 @@ export function AssignmentIntake({
       if (tags[0]) {
         suggested.push(
           createLead({
-            name: `An example connected to ${tags[0]}`,
-            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value),
-            whyInterest: `Touches on your interest in ${tags[0]}.`,
+            name: shown?.media ? `Something from ${shown.name} that shows the same idea` : `An example connected to ${shown?.name ?? tags[0]}`,
+            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value, interestAnswers),
+            whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
             searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
@@ -1317,14 +1316,13 @@ export function AssignmentIntake({
 
     if (requirements && leads.length === 0) {
       const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
-      const tags = extractInterestTags(
-        nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText),
-      );
+      const interestAnswers = nextAnswers.filter((a) => a.kind === "interest").map((a) => a.answerText);
+      const tags = extractInterestTags(interestAnswers);
+      const shown = tags[0] ? interestDisplay(tags[0], interestAnswers) : null;
       const suggested = [
         createLead({
           name: "A practitioner voice in this topic",
-          whyAssignment:
-            "Someone who has written or spoken about the same question your prompt asks.",
+          whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
           searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
         }),
@@ -1332,9 +1330,9 @@ export function AssignmentIntake({
       if (tags[0]) {
         suggested.push(
           createLead({
-            name: `An example connected to ${tags[0]}`,
-            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value),
-            whyInterest: `Touches on your interest in ${tags[0]}.`,
+            name: shown?.media ? `Something from ${shown.name} that shows the same idea` : `An example connected to ${shown?.name ?? tags[0]}`,
+            whyAssignment: exampleLeadWhy(tags[0], requirements.topic.value || requirements.promptQuestion.value, interestAnswers),
+            whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
             searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
