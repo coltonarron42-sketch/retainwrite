@@ -32,3 +32,6 @@ export function moreWordsNote(_have: number, _need: number, what: string): strin
  * aloud too, so the student hears how the name sounds ("Pow pow").
  */
 export const ASSIGNMENT_GREETING = "Hi, I'm Pau Pau.";
+
+/** Pau Pau's first question, in the same reply as the greeting. */
+export const ASSIGNMENT_ASK = "What's the assignment we're working on?";

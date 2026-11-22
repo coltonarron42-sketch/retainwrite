@@ -271,7 +271,12 @@ export function openerIndex(seed: string | number | undefined): number {
   return (h >>> 0) % SUMMARY_OPENERS.length;
 }
 
-export type SummaryOptions = { pendingAsk?: PauPauAsk | null; seed?: string | number };
+export type SummaryOptions = {
+  pendingAsk?: PauPauAsk | null;
+  seed?: string | number;
+  /** Facts only: no lead-in ("Got it.") and no closing line. For re-confirming after a correction. */
+  bare?: boolean;
+};
 
 /**
  * What Pau Pau understood, as a few short chat bubbles, one idea each:
@@ -284,10 +289,11 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
   const citation = citationPhrase(req);
   const [lead, verb] = SUMMARY_OPENERS[openerIndex(opts.seed)]!;
   const what = length ? `${length}${citation ? ` in ${citation}` : ""}` : citation;
-  let opener = lead;
-  if (where.length && what) opener += ` ${verb} ${joinList(where)}: ${what}.`;
-  else if (where.length) opener += ` ${verb} ${joinList(where)}.`;
-  else if (what) opener += ` ${verb} ${what}.`;
+  let opener = opts.bare ? "" : lead;
+  const v = opts.bare ? verb.charAt(0).toUpperCase() + verb.slice(1) : verb;
+  if (where.length && what) opener += ` ${v} ${joinList(where)}: ${what}.`;
+  else if (where.length) opener += ` ${v} ${joinList(where)}.`;
+  else if (what) opener += ` ${v} ${what}.`;
 
   const needs: string[] = [];
   const shape = structurePhrases(req);
@@ -316,7 +322,32 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
     close = opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?";
   }
   const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
+  if (opts.bare) return [opener, needs.join(" "), graded.join(" "), whenWhat.join(" ")].map(tidy).filter(Boolean);
   return [first, needs.join(" "), graded.join(" "), whenWhat.join(" "), close].filter(Boolean).map(tidy);
+}
+
+/** How the student can answer the read-back: in their own words, in the same box. */
+export const CONFIRM_INVITE = "If anything's off, just tell me in your own words.";
+export const RECONFIRM_ASK = "Does that look right now? If so, we're ready to roll.";
+
+/**
+ * The read-back as ONE reply (PLAN.md 9): a few paragraphs in a single message,
+ * ending with the one thing Pau Pau needs, or the invitation to confirm.
+ */
+export function readBackParas(full: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null; seed?: string | number } = {}): string[] {
+  const items = pauPauSummaryBubbles(full, opts);
+  const close = items.pop() ?? "";
+  const body = items;
+  const paras = body.length > 2 ? [body.slice(0, 2).join(" "), body.slice(2).join(" ")] : body.length ? [body.join(" ")] : [];
+  const ask = opts.pendingAsk ? PAU_PAU_ASK_TEXT[opts.pendingAsk] : CONFIRM_INVITE;
+  paras.push(`${close} ${ask}`.trim());
+  return paras;
+}
+
+/** After a correction: the updated facts, then "does that look right now?" (or the next missing thing). */
+export function reconfirmParas(full: AssignmentRequirements, pendingAsk: PauPauAsk | null): string[] {
+  const facts = pauPauSummaryBubbles(full, { bare: true }).join(" ").trim();
+  return [facts ? `Here's what I have now: ${facts.charAt(0).toLowerCase()}${facts.slice(1)}` : "", pendingAsk ? PAU_PAU_ASK_TEXT[pendingAsk] : RECONFIRM_ASK].filter(Boolean);
 }
 
 /** The same read-back as one paragraph (read aloud, tests). */

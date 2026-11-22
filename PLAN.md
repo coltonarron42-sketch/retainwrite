@@ -104,7 +104,7 @@ Land → Start free paper → Sign up or demo → Upload assignment → Confirm 
 - **Buttons:** Primary — terracotta background (`#C4785A`), white text, 8px border radius, soft shadow (`0 2px 8px rgba(196,120,90,0.25)`), 48px min height for touch. Secondary — white background, terracotta text and 1px border, same radius. Ghost — no border, terracotta text, underline on hover.
 - **Inputs:** White background, 1px warm-gray border, 8px radius, 16px padding, 48px min height. Focus ring: 2px terracotta, offset 2px.
 - **Cards:** White background, 1px warm-gray border (or no border with soft shadow `0 1px 4px rgba(28,43,45,0.06)`), 12px radius.
-- **Progress indicator:** Thin sage bar or simple step counter. Never a busy multi-colored stepper.
+- **Progress indicator:** Thin sage bar or simple step counter. Never a busy multi-colored stepper. Inside a paper it is a slim horizontal row (see section 9), never a sidebar list.
 - **Logic-check states:** No flag = quiet sage checkmark. Light feedback = amber note. Strong pushback = amber banner with the claim restated. Red alert = terracotta banner, continue-anyway is a secondary button, never hidden.
 - **Anonymous banner:** Amber background, warm amber text, appears at top of demo sessions: "Progress won't be saved. Create a free account to save and resume anytime."
 
@@ -128,8 +128,18 @@ Land → Start free paper → Sign up or demo → Upload assignment → Confirm 
 - Respect `prefers-reduced-motion`.
 - Form labels always visible, never placeholder-only.
 
+## 9. Pau Pau Conversation Model (added Nov 22, 2026 per Colton)
+Pau Pau should feel like a present coach, closer to how Grok talks than a series of separate text messages.
+- **One reply per turn.** Each Pau Pau turn is ONE continuous message block (paragraphs inside it are fine; it may stream in). Never several stacked bubbles saying one thing. This includes the greeting + first question, the assignment read-back + confirmation question, an offer + its choices, and Pau Pau's reply to a choice. Reloaded history renders the same way.
+- **Natural replies, no "Fix something".** After the read-back the student just replies in the same chat input ("looks good", "do you need my due date?", "it's actually 1500 words, due Dec 3"). Pau Pau classifies the reply (confirm, question, correction, extra info). Corrections update the extracted fields and Pau Pau re-confirms in one reply. Pau Pau never advances on an ambiguous reply. The student's own words are kept verbatim. Stage gates still apply.
+- **Light progress, no stage sidebar inside a paper.** A slim horizontal indicator (stage markers + current stage name) replaces the six-stage list. It never pushes the input down on mobile or desktop.
+- **Voice.** When Voice is on it works on mobile (unlocked by the student's tap), stays on, and reads only Pau Pau's own words, never source text or the student's words.
+- **Sources and examples (next batch).** Pau Pau introduces them in her own voice, then shows clickable links. She never reads source content as if she were the source; voice reads only her intro.
+- **Same chat-style input everywhere (next batch).** Stages 2 and 3 move to the same question-at-top, + / mic / send composer, one question at a time.
+- Coaching only: Pau Pau never writes the paper. Extraction must keep working.
+
 ---
-Last updated: 2026-11-21
+Last updated: 2026-11-22
 
 ## Future: Pau Pau Bot (do not start until Stage 3 is solid and coaching rules are locked)
 
