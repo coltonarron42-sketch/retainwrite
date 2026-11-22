@@ -18,8 +18,21 @@ export function formatAuthError(message: string): string {
     return "An account with that email already exists. Try logging in.";
   }
 
-  if (lower.includes("rate limit") || lower.includes("security purposes")) {
-    return "Too many emails requested. Wait a minute and try again.";
+  const wait = lower.match(/after (\d+) seconds?/);
+  if (lower.includes("security purposes") && wait) {
+    return `For security, wait ${wait[1]} seconds before requesting another link.`;
+  }
+  if (lower.includes("security purposes")) {
+    return "Please wait a minute before requesting another link.";
+  }
+  if (lower.includes("email rate limit") || lower.includes("over_email_send_rate_limit")) {
+    return "We've sent too many emails in the last hour. Try again in a little while.";
+  }
+  if (lower.includes("rate limit")) {
+    return "Too many attempts. Wait a minute and try again.";
+  }
+  if (lower.includes("error sending") && lower.includes("email")) {
+    return "We couldn't send the email just now. Try again in a minute.";
   }
 
   if (lower.includes("should be different from the old password")) {

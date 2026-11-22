@@ -146,7 +146,7 @@ export async function requestPasswordResetAction(
   if (error) return { error: formatAuthError(error.message) };
   return {
     notice:
-      "If that email has an account, a reset link is on its way. You can open it on any device.",
+      "If that email has an account, a reset link is on its way from coach@send.retainwrite.com. It can take a minute. Check spam or junk, and use the newest email if you asked more than once. You can open it on any device.",
   };
 }
 
