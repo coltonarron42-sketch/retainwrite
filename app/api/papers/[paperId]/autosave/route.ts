@@ -15,6 +15,8 @@ const bodySchema = z.object({
       sectionKey: z.string().max(80).nullable().optional(),
       questionId: z.string().max(80).nullable().optional(),
       screen: z.string().max(40).nullable().optional(),
+      /** Client clock (ms) when this position was reached; resume compares it with the device copy. */
+      at: z.number().optional(),
     })
     .optional(),
   session: z.unknown().optional(),

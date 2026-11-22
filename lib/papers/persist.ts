@@ -15,7 +15,7 @@ export async function persistField(
     const res = await fetch(`/api/papers/${paperId}/autosave`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(input.resume ? { ...input, resume: { ...input.resume, at: input.resume.at ?? Date.now() } } : input),
       keepalive: true,
     });
     return res.ok;

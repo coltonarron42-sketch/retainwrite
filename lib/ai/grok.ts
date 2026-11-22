@@ -106,7 +106,14 @@ export async function grokChatJson(opts: GrokChatOpts): Promise<
   } catch (err) {
     const message = err instanceof Error ? err.message : "grok_error";
     const timedOut = /abort|timeout/i.test(message);
-    console.info("[grok] read finished", { ms: Date.now() - started, model: opts.model, timeout: timedOut });
+    const status = (err as { status?: number } | null)?.status ?? null;
+    console.warn("[grok] read failed", {
+      ms: Date.now() - started,
+      model: opts.model,
+      timeout: timedOut,
+      status,
+      message: message.slice(0, 200),
+    });
     return { ok: false, reason: timedOut ? "timeout" : "request_failed" };
   }
 }

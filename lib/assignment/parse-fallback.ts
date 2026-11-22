@@ -1,3 +1,4 @@
+import { labeledValue, plausibleTopic } from "@/lib/assignment/plausible";
 import {
   applyPageWordEstimates,
 } from "@/lib/assignment/pages-to-words";
@@ -94,20 +95,23 @@ export function parseAssignmentFallback(
   );
   // "3 pages", "3-page", "3 page"
   const pageSingle = text.match(/\b(\d+)\s*[- ]?\s*(?:pages?|pp\.?)\b/i);
-  const wordRange = text.match(
-    /(\d{3,5})\s*[–-]\s*(\d{3,5})\s*words?\b/i,
-  );
-  const wordSingle = text.match(/\b(\d{3,5})\s*words?\b/i);
+  // "1,200–1,500 words": never read the "500" out of "1,500".
+  const NUM = "(\\d{1,2},\\d{3}|\\d{3,5})";
+  const lengthLine = labeledValue(text, ["length", "word count", "required length"]);
+  const lengthSource = lengthLine && /\d/.test(lengthLine) ? lengthLine : text;
+  const wordRange = lengthSource.match(new RegExp(`(?<![\\d,])${NUM}\\s*(?:[–-]|to)\\s*${NUM}\\s*words?\\b`, "i"));
+  const wordSingle = lengthSource.match(new RegExp(`(?<![\\d,.–-])${NUM}\\s*words?\\b`, "i"));
+  const num = (value: string) => Number(value.replace(/,/g, ""));
 
   let length: LengthValue = { raw: undefined };
   if (wordRange) {
     length = {
-      wordsMin: Number(wordRange[1]),
-      wordsMax: Number(wordRange[2]),
+      wordsMin: num(wordRange[1]!),
+      wordsMax: num(wordRange[2]!),
       raw: wordRange[0],
     };
   } else if (wordSingle) {
-    const n = Number(wordSingle[1]);
+    const n = num(wordSingle[1]!);
     length = { wordsMin: n, wordsMax: n, raw: wordSingle[0] };
   } else if (pageRange) {
     length = {
@@ -121,7 +125,7 @@ export function parseAssignmentFallback(
   }
   length = applyPageWordEstimates(length);
   if (length.raw || length.pagesMin || length.wordsMin) {
-    req.length = extractedField(length, 0.85, length.raw, {
+    req.length = extractedField(length, lengthSource === text ? 0.6 : 0.85, length.raw, {
       method: "paste",
       excerpt: length.raw?.slice(0, 200),
     });
@@ -190,15 +194,20 @@ export function parseAssignmentFallback(
     req.paperType = extractedField(kind.toLowerCase(), 0.7, kind);
   }
 
+  const labeledTopic = labeledValue(text, ["topic", "essay topic", "paper topic", "research topic"]);
   const asked = text.match(
-    /\b(?:write(?:\s+a(?:n)?)?(?:\s+\d+[–-]?\d*\s*page)?\s+(?:paper|essay|analysis)?\s*)?(?:about|on|analyz(?:e|ing)|discuss|argue(?:\s+that)?)\s+(.{12,160}?)(?:[.!?\n]|$)/i,
+    /\b(?:write(?:\s+a(?:n)?)?(?:\s+\d+[–-]?\d*\s*page)?\s+(?:paper|essay|analysis)?\s*)?(?:about|on|analyz(?:e|ing)|discuss|argue(?:\s+that)?)\s+([^.!?\n]{12,160})(?:[.!?\n]|$)/i,
   );
-  if (asked?.[1] && !isFormatTopic(asked[1]) && !isPlaceholderTopic(asked[1])) {
-    req.topic = extractedField(asked[1].trim().slice(0, 180), 0.7, asked[0].slice(0, 120));
+  if (labeledTopic && plausibleTopic(labeledTopic)) {
+    req.topic = extractedField(labeledTopic.slice(0, 180), 0.8, labeledTopic.slice(0, 120));
+  } else if (asked?.[1] && !isFormatTopic(asked[1]) && !isPlaceholderTopic(asked[1]) && plausibleTopic(asked[1])) {
+    req.topic = extractedField(asked[1].trim().slice(0, 180), 0.6, asked[0].slice(0, 120));
   }
   // A question sentence, even when the line keeps going ("Prompt: Should …? Write …").
-  const question = text
-    .split(/\n/)
+  const labeledQuestion = labeledValue(text, ["prompt question", "prompt", "essay question", "question"]);
+  const question = labeledQuestion && /\?\s*$/.test(labeledQuestion) && labeledQuestion.split(/\s+/).length >= 5
+    ? labeledQuestion
+    : text.split(/\n/)
     .map((line) => line.trim().replace(/^(?:question|prompt|essay prompt|assignment)\s*:\s*/i, ""))
     .flatMap((line) => line.match(/[^.!?]*\?/g) ?? [])
     .map((sentence) => sentence.trim())
