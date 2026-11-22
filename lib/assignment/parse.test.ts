@@ -108,8 +108,8 @@ ${"detail ".repeat(12)}`;
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).not.toContain("setTimeout(r, 700)");
     expect(intake).not.toContain('setScreen("followup")');
-    expect(intake).toContain("Looks right — continue");
-    expect(intake.match(/Looks right/g)).toHaveLength(1);
+    expect(intake).toContain("Let's go");
+    expect((intake.match(/Looks right/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 
   it("falls back after one timed-out read instead of a second 30s call", async () => {

@@ -55,6 +55,6 @@ describe("assignment confirm gate", () => {
     expect(fn.indexOf("await fetch")).toBeGreaterThan(0);
     expect(fn.indexOf("await fetch")).toBeLessThan(fn.indexOf("setRequirements(confirmed)"));
     expect(fn.indexOf("setRequirements(confirmed)")).toBeLessThan(fn.indexOf('setScreen("coaching")'));
-    expect(source).toContain("Saving the checklist…");
+    expect(source).toContain(`{confirming ? "Saving…" : "Let's go"}`);
   });
 });

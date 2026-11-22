@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
+import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
+import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -189,6 +191,8 @@ export function AssignmentIntake({
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
+  /** The field-by-field editor behind Pau Pau's "Fix something". */
+  const [editingDetails, setEditingDetails] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [startingStance, setStartingStance] = useState(false);
   const [storyAngles, setStoryAngles] = useState<StoryAngle[]>([]);
@@ -1305,13 +1309,30 @@ export function AssignmentIntake({
     );
   }
 
+  if (screen === "card" && requirements && !editingDetails) {
+    return (
+      <PauPauConfirm
+        paperId={paperId}
+        requirements={requirements}
+        onChange={setRequirements}
+        onConfirm={() => void confirmCard()}
+        onEditDetails={() => {
+          setError(null);
+          setEditingDetails(true);
+        }}
+        onStartOver={() => setScreen("upload")}
+        confirming={confirming}
+        error={error}
+      />
+    );
+  }
+
   if (screen === "card" && requirements) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <h1 className={dsH1}>Does this look right?</h1>
+        <h1 className={dsH1}>Fix the details</h1>
         <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
-          We read your prompt. Check every field. Fix anything that&apos;s off
-          before we continue — we won&apos;t guess for you.
+          Change anything {COACH_NAME} got wrong. Your edits are what the coaching uses.
         </p>
         {error ? (
           <p id="confirm-error" className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
@@ -1751,8 +1772,8 @@ export function AssignmentIntake({
         ) : null}
 
         <div className="mt-8 flex flex-wrap gap-4">
-          <DsButton type="button" variant="secondary" onClick={() => setScreen("upload")}>
-            Back
+          <DsButton type="button" variant="secondary" onClick={() => setEditingDetails(false)}>
+            Back to {COACH_NAME}
           </DsButton>
           <DsButton
             type="button"
@@ -1760,7 +1781,7 @@ export function AssignmentIntake({
             disabled={confirming}
             onClick={() => void confirmCard()}
           >
-            {confirming ? "Saving the checklist…" : "Looks right — continue"}
+            {confirming ? "Saving…" : "Let's go"}
           </DsButton>
         </div>
 
