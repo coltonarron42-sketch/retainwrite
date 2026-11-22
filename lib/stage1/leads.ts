@@ -108,7 +108,9 @@ export function practitionerSearchTerms(topic: string | null | undefined, intere
 /** A concrete one-line reason for the interest-steered example lead. */
 export function exampleLeadWhy(interest: string, topic: string | null | undefined): string {
   const t = shortTopic(topic);
-  return t
+  // Long prompts are never cut mid-sentence: name "the prompt's question" instead.
+  const full = (topic ?? "").replace(/[?.!]+$/, "").replace(/\s+/g, " ").trim();
+  return t && full.length <= 60
     ? `A real case from ${interest} you can test your take on "${t}" against.`
-    : `A real case from ${interest} you can test your take against.`;
+    : `A real case from ${interest} you can test your answer to the prompt's question against.`;
 }
