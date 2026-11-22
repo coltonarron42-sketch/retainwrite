@@ -4,6 +4,7 @@ import { useState } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, EchoBubble, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
+import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { keptIdeas } from "@/lib/coaching/thin";
@@ -117,6 +118,8 @@ export function OutlineChat(props: Props) {
     props.onSend(current.key, value, [pau(current.key, askText), tapped ? pick(current.key, notes ? "Keep my notes" : "Skip for now") : you(current.key, value.trim() || "Keep my notes")]);
   }
 
+  // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
+  const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau") || done.length > 0);
   const speak: SpeakItem[] = [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
 
   const isLastPick = (i: number) => {
@@ -212,6 +215,7 @@ export function OutlineChat(props: Props) {
           ) : null}
           <ReplayButton texts={[turnParas.join(" ")]} className="-ml-2" />
         </PauPauGroup>
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} />
         <ScrollToNewest signal={`${transcript.length}:${current?.key ?? "done"}:${props.error ?? ""}`} />
       </div>
 

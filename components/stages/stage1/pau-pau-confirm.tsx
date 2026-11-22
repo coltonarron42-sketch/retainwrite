@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
@@ -48,6 +48,8 @@ type Props = {
   onTurns: (next: ConfirmTurn[]) => void;
   /** The assignment sheet text, so Pau Pau can answer questions about it. */
   sheetText?: string;
+  /** The welcome-back line on a return (rendered after her latest turn). */
+  welcome?: ReactNode;
 };
 
 export { PauPauAvatar };
@@ -76,6 +78,7 @@ export function PauPauConfirm({
   turns,
   onTurns,
   sheetText,
+  welcome,
 }: Props) {
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
@@ -340,6 +343,7 @@ export function PauPauConfirm({
           Upload a different one
         </button>
       </p>
+      {welcome}
       <ScrollToNewest signal={`${turns.length}:${replying}`} />
       <ComposerDock>
         <span id="confirm-reply-label" className="sr-only">

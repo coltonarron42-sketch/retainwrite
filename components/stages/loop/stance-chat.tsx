@@ -4,6 +4,7 @@ import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode }
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
+import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { asHeading } from "@/lib/copy/topic-phrase";
@@ -229,6 +230,8 @@ export function StanceChat(props: Props) {
   // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
   const inFlight = useRef(false);
   const section = sections[active];
+  // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
+  const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
   if (!section) return null;
   const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger, seed: paperId, index: active });
   const logicAsk = logicOpenerText(paperId, active);
@@ -675,6 +678,7 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} />
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}`} />
       </div>
 
