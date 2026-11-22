@@ -1,3 +1,4 @@
+import { oneQuip } from "@/lib/coach/quips";
 import { PAU_PERSONALITY } from "@/lib/coach/personality";
 /**
  * The student's natural reply to Pau Pau's read-back (PLAN.md 9): no "Fix
@@ -405,5 +406,6 @@ export function parseModelResult(raw: unknown): ConfirmResult | null {
   if (intent === "correction" && !hasUpdates(updates)) intent = "ambiguous";
   // A confirm that carries changes is a correction, so Pau Pau re-confirms first.
   if (intent === "confirm" && hasUpdates(updates)) intent = "correction";
-  return { intent, reply: reply.replace(/!/g, "."), updates, keepAsNote: Boolean(r.keepAsNote), skipAsk: Boolean(r.skipAsk) };
+  // Checked after generation: at most one quip per reply (QA 3:35 B).
+  return { intent, reply: oneQuip(reply.replace(/!/g, ".")), updates, keepAsNote: Boolean(r.keepAsNote), skipAsk: Boolean(r.skipAsk) };
 }

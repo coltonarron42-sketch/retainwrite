@@ -1,3 +1,4 @@
+import { oneQuipParas } from "@/lib/coach/quips";
 /**
  * Pau Pau (POW-pow) is the coach. After the assignment is read, Pau Pau says
  * back what it understood in one conversational bubble, then asks for the one
@@ -249,7 +250,7 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
  * [lead-in, verb phrase before "<course>: <length>"].
  */
 export const SUMMARY_OPENERS: ReadonlyArray<string> = [
-  "Okay, I've read it. Riveting stuff, honestly.",
+  "Okay, I've read it. Let's get into it.",
   "Got it.",
   "Alright, I read it through. Homework, my favorite genre.",
   "Okay, I've gone through it.",
@@ -339,7 +340,8 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
   }
   const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
   if (opts.bare) return [opener, needs.join(" "), graded.join(" "), whenWhat.join(" ")].map(tidy).filter(Boolean);
-  return [first, needs.join(" "), graded.join(" "), whenWhat.join(" "), close].filter(Boolean).map(tidy);
+  // At most one quip in the read-back (QA 3:35 B): an opener quip drops "This is totally doable."
+  return oneQuipParas([first, needs.join(" "), graded.join(" "), whenWhat.join(" "), close].filter(Boolean).map(tidy)).filter(Boolean);
 }
 
 /** How the student can answer the read-back: in their own words, in the same box. */

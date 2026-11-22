@@ -10,13 +10,12 @@ export const PAU_PERSONALITY = `Personality: you are Pau Pau, really cool, posit
 - Stay helpful and on mission: the quip never replaces the coaching or the question.
 - Coaching only: you never write any part of their paper.`;
 
-/** Quips used in static copy (also the sample set in the report/tests). */
+/** Quips used in static copy (also the sample set in the report/tests). Stage 2 deals from STAGE2_QUIPS. */
 export const SAMPLE_QUIPS = [
-  "Riveting stuff, honestly.",
   "Homework, my favorite genre.",
   "No pop quiz, I promise.",
   "No crystal ball required.",
-  "Mysterious. I like it.",
-  "The fun kind, I promise.",
+  "Painless, mostly.",
+  "Rubrics love this stuff.",
   "Scout's honor.",
 ] as const;
