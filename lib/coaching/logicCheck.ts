@@ -1,3 +1,4 @@
+import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { firstSentenceOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
 
@@ -245,7 +246,7 @@ export function logicCheckFromNotes(input: {
       citedTerm: { rubricRef: "prompt", quote: asked },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
-      alternativeAngles: [{ question: `How does this connect to “${asked}”?`.slice(0, 160), rubricRef: "prompt" }],
+      alternativeAngles: [{ question: tidyQuotePunct(`How does this connect to “${asked}”?`).slice(0, 160), rubricRef: "prompt" }],
       reframeAvailable: true,
     };
   }

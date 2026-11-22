@@ -1,3 +1,4 @@
+import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { asHeading, isClauseTopic, isQuestionTopic, topicMidSentence, topicRef, topicSearchTerms } from "@/lib/copy/topic-phrase";
 import { clipWords } from "@/lib/copy/clip";
 // SOP: coaching only, never generate submission text
@@ -56,6 +57,20 @@ export function subjectMidSentence(subject: string): string {
 }
 
 /**
+ * The Stance opener's purpose line. A subject that is really a question
+ * ("whether high schools should start later") is something to argue, not a
+ * lesson that "teaches" (QA 2:08 #7d).
+ */
+export function assignmentPurposeLine(subject: string): string {
+  const mid = topicMidSentence(subject).replace(/[\s.?!]+$/, "");
+  if (/^(whether|if)\b/i.test(mid)) return `This assignment asks you to argue ${mid.replace(/^if\b/i, "whether")}.`;
+  if (/^(to what extent|how far)\b/i.test(mid)) return `This assignment asks you to argue ${mid}.`;
+  if (/^(how|why|what|which|who|when|where)\b/i.test(mid)) return `This assignment asks you to explain ${mid}.`;
+  if (/^(should|do|does|did|is|are|can|could|would|will|has|have)\b/i.test(mid)) return "This is the question your paper answers. We'll work through it one section at a time.";
+  return `This assignment teaches ${mid}.`;
+}
+
+/**
  * A lesson statement read off the sheet by the rule fallback can be the course
  * header ("ENG 101: College Composition … Instructor: Prof. …"), not a lesson.
  */
@@ -89,7 +104,14 @@ export function topicLabel(concept: string | null, assignmentText: string): stri
   return sentence ? clipWords(sentence, 90) : null;
 }
 
-export function exampleLeadBatch(input: {
+export function exampleLeadBatch(input: Parameters<typeof exampleLeadBatchRaw>[0]): ReturnType<typeof exampleLeadBatchRaw> {
+  const out = exampleLeadBatchRaw(input);
+  // Quote punctuation, straight or curly: “…morning?”, never “…”? or ?”? (QA 2:08 #7a).
+  const tidy = (c: LeadCandidate): LeadCandidate => ({ ...c, name: tidyQuotePunct(c.name), whyFits: tidyQuotePunct(c.whyFits) });
+  return { ...out, candidates: out.candidates.map(tidy), wildcard: out.wildcard ? tidy(out.wildcard) : null };
+}
+
+function exampleLeadBatchRaw(input: {
   concept: string | null;
   assignmentText: string;
   studentIdea: string;
@@ -170,6 +192,10 @@ const NOTE_LEAD_IN = /^(i think( that)?|i believe( that)?|my point is( that)?|in
 export function noteFocus(idea: string, words = 9): string {
   const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
   if (!t) return "";
+  // A whole first clause reads better than a cut ("…morning, so I…").
+  const clause = t.split(/[,;:.!?—]/)[0]!.trim();
+  const n = clause.split(" ").length;
+  if (n >= 3 && n <= words + 2) return clause;
   const parts = t.split(" ");
   const cut = parts.slice(0, words).join(" ").replace(/[,;:.!?]+$/, "");
   return parts.length > words ? `${cut}…` : cut;
@@ -199,7 +225,7 @@ function sectionLeadBatch(ctx: {
   // Keywords only: never the student's raw sentence in a search box.
   const topicTerm = searchPhrase(ctx.search);
   const extra = idea ? noteKeywords(idea, topicTerm) : [];
-  const term = [topicTerm, ...extra].filter(Boolean).join(" ");
+  const term = cleanSearchTerm([topicTerm, ...extra].filter(Boolean).join(" "), ctx.search);
   const first =
     role === "intro"
       ? `What background should your introduction set up before ${about}?`
@@ -293,6 +319,36 @@ export function noteKeywords(idea: string, topicTerm = "", max = 3): string[] {
     if (out.length >= max) break;
   }
   return out;
+}
+
+// Words that make a search term read like a sentence fragment.
+const FRAGMENT_STOP = new Set([
+  "should", "would", "could", "can", "will", "shall", "may", "might", "must", "do", "does", "did", "is", "are", "was", "were", "be", "been",
+  "has", "have", "had", "not", "no", "so", "because", "but", "if", "then", "when", "while", "which", "who", "what", "why", "how", "whether",
+  "improve", "improves", "help", "helps", "helping", "need", "needs", "show", "shows", "learn", "means", "mean", "give", "gives", "take", "takes",
+  "keep", "keeps", "let", "lets", "make", "makes", "get", "gets", "think", "feel", "want", "would", "us", "we", "our", "my", "i",
+]);
+
+/**
+ * A library search term: 2-6 meaningful words, never a slice of the
+ * student's sentence or a fragment like "should start later times improve"
+ * (QA 2:08 #7c). Falls back to the topic's own words.
+ */
+export function cleanSearchTerm(term: string, fallback = ""): string {
+  const pick = (text: string) => {
+    const out: string[] = [];
+    for (const raw of text.toLowerCase().replace(/[“”"?.!,;:()]/g, " ").split(/\s+/)) {
+      const w = raw.replace(/^['-]+|['-]+$/g, "");
+      if (!w || w.length < 3 && !/^\d/.test(w)) continue;
+      if (SEARCH_STOP.has(w) || FRAGMENT_STOP.has(w) || /ly$/.test(w) || out.includes(w)) continue;
+      out.push(w);
+      if (out.length >= 6) break;
+    }
+    return out;
+  };
+  let words = pick(term);
+  if (words.length < 2) words = pick(`${term} ${fallback}`);
+  return words.slice(0, 6).join(" ");
 }
 
 const SEARCH_STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "be", "it", "its", "their", "they", "them", "this", "that", "with", "by", "from", "as", "into", "more", "most", "than", "really", "actually"]);
