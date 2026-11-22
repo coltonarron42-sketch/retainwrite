@@ -41,7 +41,7 @@ export function isThinAnswer(
 const FILLER_START = /^(?:idk|i don't know|i dont know|not sure|whatever)\b/i;
 
 /** Kind, clear "too short" copy (QA 10:38 #6). */
-export const THIN_NOTE = "That's a start. Mysterious, I like it. Give me a bit more: what's the one specific point this section should make?";
+export const THIN_NOTE = "That's a start. Give me a bit more: what's the one specific point this section should make?";
 
 /** A thin note gets a question, not a rejection and not a saved answer. */
 export function probeForThinNote(text: string): string | null {

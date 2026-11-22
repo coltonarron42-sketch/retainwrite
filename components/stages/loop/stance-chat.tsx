@@ -22,6 +22,7 @@ import {
   LOGIC_YES,
 } from "@/lib/coaching/logicCheck";
 import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
+import { oneQuipParas, quipFor } from "@/lib/coach/quips";
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
@@ -132,9 +133,33 @@ export function stanceTurnParas(
     card: TeachCard | null;
     mirrorAsk: string;
     activeTrigger: string | null;
+    /** Per-paper quip deal (QA 3:35 B): the paper id and this section's index. */
+    seed?: string;
+    index?: number;
   },
 ): string[] {
   const { section, card } = ctx;
+  return oneQuipParas(stanceTurnParasRaw(kind, ctx, section, card));
+}
+
+/** The probe opener: a first-section start, a short hand-off for later sections. */
+export function probeLead(index: number | undefined, title: string): string {
+  const part = title.toLowerCase();
+  return index === undefined || index <= 0 ? `Let's start with your ${part}.` : `On to your ${part}.`;
+}
+
+/** "Time for a logic check. <quip> Do you feel good about this?" (quip optional). */
+export function logicOpenerText(seed?: string, index?: number): string {
+  const q = quipFor(seed, index, "logic_opener");
+  return q ? LOGIC_OPENER.replace("Time for a logic check. ", `Time for a logic check. ${q} `) : LOGIC_OPENER;
+}
+
+function stanceTurnParasRaw(
+  kind: StanceTurnKind,
+  ctx: { mirrorAsk: string; activeTrigger: string | null; seed?: string; index?: number },
+  section: StanceSectionView,
+  card: TeachCard | null,
+): string[] {
   switch (kind) {
     case "teach_card":
       return card ? [card.affirm, quickLessonLine(card.concept, card.definition), card.ask].filter((p): p is string => Boolean(p)) : [];
@@ -142,19 +167,19 @@ export function stanceTurnParas(
       return [ctx.mirrorAsk];
     case "probe":
       return [
-        section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER,
+        `${probeLead(ctx.index, section.title)} ${section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER}`,
         ...(ctx.activeTrigger ? [SCRIPTED_MEMORY_FOLLOW_UP] : []),
       ];
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
-      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note. No crystal ball required. Pick the one you want to try, or tell me your own.`];
+      return [`Here are a few directions worth checking for your ${section.title.toLowerCase()}, built from your note.${(() => { const q = quipFor(ctx.seed, ctx.index, "pick_lead"); return q ? ` ${q}` : ""; })()} Pick the one you want to try, or tell me your own.`];
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
       return [section.mode === "memory" ? MEMORY_CONFIRM : "Looking solid. Ready to move forward with this?", ...(link ? [link] : [])];
     }
     case "logic_opener":
-      return [LOGIC_OPENER];
+      return [logicOpenerText(ctx.seed, ctx.index)];
     case "logic_result": {
       const r = section.logic?.result;
       if (!r) return [];
@@ -205,7 +230,8 @@ export function StanceChat(props: Props) {
   const inFlight = useRef(false);
   const section = sections[active];
   if (!section) return null;
-  const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger });
+  const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger, seed: paperId, index: active });
+  const logicAsk = logicOpenerText(paperId, active);
   const pau = (text: string): LoopLine => ({ k: section.key, who: "pau", text });
   const you = (text: string): LoopLine => ({ k: section.key, who: "you", text });
   // A tapped choice is app text: a "Picked: …" chip, never the student's words.
@@ -280,7 +306,7 @@ export function StanceChat(props: Props) {
       case "logic_opener":
         if (isPlainYes(text)) {
           props.onIdea("");
-          h.logicOpener("yes", [pau(LOGIC_OPENER), you(text)]);
+          h.logicOpener("yes", [pau(logicAsk), you(text)]);
           return;
         }
         break;
@@ -555,10 +581,10 @@ export function StanceChat(props: Props) {
 
           {kind === "logic_opener" ? (
             <Choices label="Logic check">
-              <DsButton type="button" size="sm" disabled={props.busy} aria-busy={props.busy || undefined} onClick={() => h.logicOpener("yes", [pau(LOGIC_OPENER), pick(LOGIC_YES)])}>
+              <DsButton type="button" size="sm" disabled={props.busy} aria-busy={props.busy || undefined} onClick={() => h.logicOpener("yes", [pau(logicAsk), pick(LOGIC_YES)])}>
                 {LOGIC_YES}
               </DsButton>
-              <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicOpener("tweak", [pau(LOGIC_OPENER), pick(LOGIC_TWEAK)])}>
+              <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicOpener("tweak", [pau(logicAsk), pick(LOGIC_TWEAK)])}>
                 {LOGIC_TWEAK}
               </DsButton>
             </Choices>

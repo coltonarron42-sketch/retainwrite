@@ -13,7 +13,7 @@ export const MEMORY_PROBE_OPENER =
   "Do you already have a moment in mind for this section, or do you want me to ask a few questions to jog your memory?";
 
 export const LESSON_PROBE_OPENER =
-  "New section, fresh start. Do you already have an idea of how you want this section to go, or do you want me to ask some probing questions so we can start finding research?";
+  "Do you already have an idea of how you want this section to go, or do you want me to ask some probing questions so we can start finding research?";
 
 export const MEMORY_CONFIRM = "Are you comfortable moving forward with this moment?";
 

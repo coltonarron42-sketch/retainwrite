@@ -7,7 +7,7 @@ import { isVerbatimSubstring } from "@/lib/coaching/lesson";
 import { isThinAnswer } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
-export const LOGIC_OPENER = "Time for a logic check. The fun kind, I promise. Do you feel good about this?";
+export const LOGIC_OPENER = "Time for a logic check. Do you feel good about this?";
 export const LOGIC_YES = "Yes, check it";
 export const LOGIC_TWEAK = "Let me tweak it first";
 export const LOGIC_PASS = "Logic check ✓ Looks solid.";
