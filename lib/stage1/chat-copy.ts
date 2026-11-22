@@ -16,8 +16,8 @@ export const PLACEHOLDERS: Record<string, string> = {
 
 /** Short opening bubbles after "Let's go": one idea each; the voice sample is mentioned once, here. */
 export const INTRO_BUBBLES = [
-  "Now a few quick questions, so I can coach you on this one.",
-  "Your answers also show me how you write, so use your own words. No need to polish.",
+  "Okay, a few quick questions so I can actually coach you on this one.",
+  "Your answers also show me how you write. So just use your own words. No polish needed.",
 ];
 
 /** Pau Pau's nudge when an answer is under its minimum. */

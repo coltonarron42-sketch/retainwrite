@@ -7,12 +7,12 @@ import { isVerbatimSubstring } from "@/lib/coaching/lesson";
 import { isThinAnswer } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 
-export const LOGIC_OPENER = "Time for a logic check. Do you feel good about this?";
+export const LOGIC_OPENER = "Quick logic check. You feel good about this?";
 export const LOGIC_YES = "Yes, check it";
 export const LOGIC_TWEAK = "Let me tweak it first";
 export const LOGIC_PASS = "Logic check ✓ Looks solid.";
 export const LOGIC_ALERT_LABEL = "Logic alert";
-export const LOGIC_STRONG_HEADLINE = "We would not recommend moving forward.";
+export const LOGIC_STRONG_HEADLINE = "Hold up. This needs a fix before you move on.";
 export const LOGIC_STRONG_DETAIL = "This claim doesn't hold up as written.";
 export const LOGIC_MODERATE_TITLE = "A thought before you move on";
 export const LOGIC_WRITER = "Your call. You're the writer.";

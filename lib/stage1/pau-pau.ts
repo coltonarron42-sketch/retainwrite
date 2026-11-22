@@ -346,7 +346,7 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
 
 /** How the student can answer the read-back: in their own words, in the same box. */
 export const CONFIRM_INVITE = "If anything's off, just tell me in your own words.";
-export const RECONFIRM_ASK = "Does that look right now? If so, we're ready to roll.";
+export const RECONFIRM_ASK = "Look right now? If so, we're ready to roll.";
 
 /**
  * The read-back as ONE reply (PLAN.md 9): a few paragraphs in a single message,
