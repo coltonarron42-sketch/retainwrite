@@ -99,8 +99,15 @@ export function interestItems(text: string): string[] {
   for (const part of parts) {
     let item = part.replace(LEAD_VERB, "").replace(/^(?:the|a|an)\s+/i, "").trim();
     // Keep "baking sourdough" (activity + thing) but drop a bare lead verb like "watching soccer" → "soccer".
+    // "baking sourdough on weekends" → "baking sourdough": drop when/where tails.
+    item = item
+      .replace(/\s+(?:on|at|in|for|from|during|after|before|every|each|to|lately|sometimes|all the time|a lot|right now|these days)\b.*$/i, "")
+      .trim();
     if (!item) continue;
-    item = item.split(/\s+/).slice(0, 3).join(" ");
+    const words = item.split(/\s+/).slice(0, 3);
+    while (words.length && STOP_TAG_WORDS.has(words[words.length - 1]!.toLowerCase())) words.pop();
+    item = words.join(" ");
+    if (!item) continue;
     if (GENERIC_ITEM.test(item) || /\b(cousin|friend|mom|dad|brother|sister|grandpa|grandma)\b/i.test(item)) continue;
     if (item.split(/\s+/).every((w) => STOP_TAG_WORDS.has(w.toLowerCase()))) continue;
     const tag = normalizeTag(item);
