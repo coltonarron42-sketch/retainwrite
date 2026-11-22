@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
+import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1202,7 +1203,7 @@ export function AssignmentIntake({
         </h1>
         <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
           Upload the full prompt — files, photos from your library, or a camera
-          shot of the handout. We&apos;ll pull out the requirements, and
+          shot of the handout. Pau Pau will pull out the requirements, and
           you&apos;ll check them before we ask any questions.
         </p>
 
@@ -1254,7 +1255,7 @@ export function AssignmentIntake({
           {parseSeconds > 0 ? `Still reading… ${parseSeconds}s` : "Still reading…"}
         </p>
         <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
-          No coaching questions yet — we only extract what the assignment says.
+          {COACH_NAME} is only reading what the assignment says. Questions come after.
         </p>
       </div>
     );
@@ -1263,9 +1264,7 @@ export function AssignmentIntake({
   if (screen === "followup" && requirements) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>
-          One quick check
-        </p>
+        <CoachEyebrow label="One quick check" />
         <h1 className={cn(dsH1, "mt-2")}>
           Anything else for the assignment?
         </h1>
@@ -1865,13 +1864,9 @@ export function AssignmentIntake({
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>
-          {stanceMode
-            ? "Your early stance"
-            : isInterest
-              ? "Get to know you"
-              : "Assignment coaching"}
-        </p>
+        <CoachEyebrow
+          label={stanceMode ? "Your early stance" : isInterest ? "Getting to know you" : "Quick question"}
+        />
         <h1 className={cn(dsH1, "mt-2")}>
           {q?.text ?? "Loading…"}
         </h1>
@@ -2027,9 +2022,7 @@ export function AssignmentIntake({
   if (screen === "story" && requirements) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>
-          Pick your story
-        </p>
+        <CoachEyebrow label="Your story" />
         <h1 className={cn(dsH1, "mt-2")}>
           Pick your story
         </h1>
@@ -2120,7 +2113,8 @@ export function AssignmentIntake({
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <h1 className={dsH1}>Ready for stance?</h1>
+        <CoachEyebrow label="Stage 1 wrap-up" />
+        <h1 className={cn(dsH1, "mt-2")}>Ready for stance?</h1>
         <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
           Stage 1 finishes when the assignment card is confirmed, you have
           picked a story, and you have an early take.
@@ -2138,7 +2132,7 @@ export function AssignmentIntake({
           <li>
             {voiceWordsMet ? "✓" : "·"} Voice sample (
             {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
-            {voiceWordsMet ? "" : ", optional: more helps the coach match your voice"})
+            {voiceWordsMet ? "" : ", optional: more helps Pau Pau match your voice"})
           </li>
           <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
         </ul>

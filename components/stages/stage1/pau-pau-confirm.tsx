@@ -30,11 +30,15 @@ type Props = {
 };
 
 /** Small round mark for the coach; Design System colors only. */
-export function PauPauAvatar() {
+export function PauPauAvatar({ size = "md" }: { size?: "sm" | "md" }) {
   return (
     <span
       aria-hidden
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ds-ink sm:h-10 sm:w-10 font-ds-sans text-[13px] font-semibold tracking-wide text-white"
+      className={
+        size === "sm"
+          ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[10px] font-semibold text-white"
+          : "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[13px] font-semibold tracking-wide text-white sm:h-10 sm:w-10"
+      }
     >
       PP
     </span>

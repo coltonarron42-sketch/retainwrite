@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
+import { CoachEyebrow, CoachSays } from "@/components/coaching/pau-pau";
 import { asQuestion, isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
@@ -343,7 +344,7 @@ export function CoachingLoop({
     if (!sessionLoaded) {
       return (
         <p className="text-sm text-rw-ink/70" role="status">
-          Loading your confirmed assignment…
+          Pau Pau is pulling up your confirmed assignment…
         </p>
       );
     }
@@ -540,7 +541,7 @@ export function CoachingLoop({
       ) : null}
       {stage === 2 ? (
         <>
-      <p className={dsEyebrow}>What you&apos;re learning</p>
+      <CoachEyebrow label="What you're learning" />
       <h1 className={`mt-2 ${dsH1}`}>
         {stageLessonHeader(subject, lesson.statement)}
       </h1>
@@ -691,9 +692,9 @@ export function CoachingLoop({
 
           {inStance && section.loopStep === "probe" ? (
             <div className="space-y-3">
-              <p className="font-medium text-rw-ink">
+              <CoachSays>
                 {section.mode === "memory" ? MEMORY_PROBE_OPENER : LESSON_PROBE_OPENER}
-              </p>
+              </CoachSays>
               <Textarea
                 value={idea}
                 onChange={(event) => {
@@ -953,7 +954,7 @@ export function CoachingLoop({
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <ProductNotes
           title="Outline"
-          intro="These are your notes from Stance. Shape each section into a short outline in your own words: one line per point, your main claim first, then the example that shows it."
+          intro="Pau Pau pulled in your notes from Stance. Shape each section into a short outline in your own words: one line per point, your main claim first, then the example that shows it."
           sections={session.sections}
           editable
           paperId={paperId}
@@ -1191,11 +1192,11 @@ function ConfirmPanel({
   const notes = keptIdeas(section.ideas).at(-1) ?? "";
   return (
     <div className="rounded-xl border border-rw-ink/15 bg-white p-4">
-      <p className="text-sm text-rw-ink/80">
+      <CoachSays>
         {memory
           ? MEMORY_CONFIRM
           : `Are you comfortable moving forward with ${section.chosenLead ?? "your lead"} and ${section.teachAspect ?? section.concept ?? "this angle"}?`}
-      </p>
+      </CoachSays>
       {section.concept ? <p className="mt-2 text-sm">Lesson link: {lessonLinkFor(section.concept)}</p> : null}
       <Button type="button" className="mt-3" onClick={() => onConfirm(notes)}>
         Yes, lock it in
