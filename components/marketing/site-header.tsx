@@ -16,8 +16,8 @@ export async function SiteHeader({ minimal = false, tone = "default" }: Props = 
 
   if (editorial) {
     return (
-      <header className="border-b border-ds-border">
-        <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-4 px-6 py-4 md:px-16">
+      <header className="border-b border-ds-border px-6 py-4 md:px-16">
+        <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-4">
           <Link
             href="/"
             className="ds-focus rounded-[8px] font-display text-[20px] font-semibold leading-[1.2] text-ds-ink"
