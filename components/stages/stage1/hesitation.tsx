@@ -84,12 +84,15 @@ export function SparkExchange({
   onYes,
   onNo,
   onOff,
+  inline = false,
 }: {
   turn: SparkTurn;
   active: boolean;
   onYes: () => void;
   onNo: () => void;
   onOff: () => void;
+  /** Rendered inside the current question's bubble as a soft last paragraph (never its own bubble). */
+  inline?: boolean;
 }) {
   // One reply (PLAN.md 9): the offer, its choices, and Pau Pau's answer to the
   // choice all live in the same message block.
@@ -107,9 +110,8 @@ export function SparkExchange({
         ))}
       </ul>
     ) : null;
-  return (
-    <div data-spark data-spark-status={turn.status}>
-      <PauPauGroup bubbles={[SPARK_OFFER, reply]} live={active && turn.status !== "offer"}>
+  const extras = (
+    <>
         {turn.status === "offer" && active ? (
           <div className="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Want some questions?">
             <DsButton type="button" size="sm" variant="secondary" onClick={onYes}>
@@ -132,6 +134,26 @@ export function SparkExchange({
             No need to answer these. Write whatever comes to you, in your own words.
           </p>
         ) : null}
+    </>
+  );
+  if (inline) {
+    return (
+      <div
+        data-spark
+        data-spark-status={turn.status}
+        className="space-y-2 border-t border-ds-border pt-3 text-ds-text"
+        aria-live={active ? "polite" : undefined}
+      >
+        <p className="text-ds-muted">{SPARK_OFFER}</p>
+        {reply ? typeof reply === "string" ? <p>{reply}</p> : reply : null}
+        {extras}
+      </div>
+    );
+  }
+  return (
+    <div data-spark data-spark-status={turn.status}>
+      <PauPauGroup bubbles={[SPARK_OFFER, reply]} live={active && turn.status !== "offer"}>
+        {extras}
       </PauPauGroup>
     </div>
   );

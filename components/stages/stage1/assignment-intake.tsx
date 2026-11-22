@@ -2252,7 +2252,7 @@ export function AssignmentIntake({
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
-        <SparkExchange turn={sparks[qid]!} active={false} onYes={() => {}} onNo={() => {}} onOff={() => {}} />
+        <SparkExchange inline turn={sparks[qid]!} active={false} onYes={() => {}} onNo={() => {}} onOff={() => {}} />
       ) : null;
     const answerSpark = async () => {
       if (!q) return;
@@ -2346,8 +2346,9 @@ export function AssignmentIntake({
             return (
               <div key={item.id} className="space-y-4">
                 {/* The first question comes in the same reply as the intro. */}
-                <PauPauGroup bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]} />
-                {isCurrent ? null : sparkFor(item.id)}
+                <PauPauGroup bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]}>
+                  {isCurrent ? null : sparkFor(item.id)}
+                </PauPauGroup>
                 <EchoBubble
                   text={said || "Skipped"}
                   muted={!said}
@@ -2380,8 +2381,7 @@ export function AssignmentIntake({
           ) : null}
           {stanceAnswer && !(stanceMode && !editing) ? (
             <div className="space-y-4">
-              <PauPauBubble showName={false}>{stanceText}</PauPauBubble>
-              {stanceMode ? null : sparkFor("stance_early")}
+              <PauPauGroup bubbles={[stanceText]}>{stanceMode ? null : sparkFor("stance_early")}</PauPauGroup>
               <EchoBubble
                 text={stanceAnswer}
                 editing={stanceMode}
@@ -2429,11 +2429,24 @@ export function AssignmentIntake({
                 </p>
               ) : null}
               {stanceMode ? <p className="text-[13px] leading-[1.6] text-ds-muted">{EARLY_STANCE_MIN_NOTE}</p> : null}
+              {sparkHere ? (
+                <SparkExchange
+                  inline
+                  turn={sparkHere}
+                  active
+                  onYes={() => void answerSpark()}
+                  onNo={() => updateSpark(sparkHere.qid, { status: "declined" })}
+                  onOff={() => {
+                    setChatPref("sparkOff", true);
+                    updateSpark(sparkHere.qid, { status: "off" });
+                  }}
+                />
+              ) : null}
               <ReplayButton texts={currentTurnTexts} className="-ml-2" />
             </PauPauGroup>
           ) : null}
 
-          {sparkHere ? (
+          {sparkHere && !q ? (
             <SparkExchange
               turn={sparkHere}
               active
