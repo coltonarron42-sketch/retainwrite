@@ -16,13 +16,22 @@ import {
 } from "@/components/stages/stage1/upload-panel";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import {
+  ComposerDock,
+  EchoBubble,
   PauPauBubble,
+  PauPauGroup,
   ReadingBubble,
+  ScrollToNewest,
+  SENT_FIELD_KEY,
   StudentBubble,
+  parseSentMessage,
   readSentMessage,
   saveSentMessage,
+  trimSent,
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
+import { pauPauSummaryBubbles } from "@/lib/stage1/pau-pau";
+import { INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -185,7 +194,7 @@ export function AssignmentIntake({
   /** What the student sent in the chat box, shown as their bubble above Pau Pau's reply. */
   const [sentMessage, setSentMessage] = useState<SentMessage | null>(null);
   const [parseStatus, setParseStatus] = useState("Extracting the text…");
-  const [parseSeconds, setParseSeconds] = useState(0);
+  const [parseStartedAt, setParseStartedAt] = useState(() => Date.now());
   const [requirements, setRequirements] =
     useState<AssignmentRequirements | null>(null);
   const [rawText, setRawText] = useState("");
@@ -212,11 +221,15 @@ export function AssignmentIntake({
     source: "ai" | "student";
   } | null>(null);
   const [ownStory, setOwnStory] = useState("");
-  const [writingOwnStory, setWritingOwnStory] = useState(false);
   /** Which story is being saved: an angle id, "own", or null. Shown right away. */
   const [pickingStory, setPickingStory] = useState<string | null>(null);
   /** True while a reload is still fetching the saved draft for the open question. */
   const [restoringDraft, setRestoringDraft] = useState(false);
+  /**
+   * Editing an earlier answer (tapped its bubble): where the student was, and
+   * what they had typed there, so sending the edit takes them straight back.
+   */
+  const [editReturn, setEditReturn] = useState<{ at: number | "story" | "gate" | "stance"; draft: string } | null>(null);
   // Draft text for the resumed question, held until that question is open so
   // it is never shown (or autosaved) under a different question.
   const draftRestore = useRef<{ questionId: string; text: string; opened: boolean; serverDone: boolean } | null>(null);
@@ -226,14 +239,21 @@ export function AssignmentIntake({
   } | null>(null);
 
   useEffect(() => {
-    setSentMessage(readSentMessage(paperId));
-  }, [paperId]);
-
-  useEffect(() => {
-    if (screen !== "parsing") return;
-    const timer = window.setInterval(() => setParseSeconds((seconds) => seconds + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [screen]);
+    const local = readSentMessage(paperId);
+    setSentMessage(local);
+    if (local || demoMode) return;
+    let cancelled = false;
+    void fetch(`/api/papers/${paperId}/autosave`)
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { drafts?: { fieldKey: string; text: string }[] } | null) => {
+        const saved = parseSentMessage(data?.drafts?.find((row) => row.fieldKey === SENT_FIELD_KEY)?.text);
+        if (!cancelled && saved) setSentMessage((current) => current ?? saved);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [paperId, demoMode]);
 
   useEffect(() => {
     setPaper(accountPaper ?? getDemoPaper(paperId) ?? null);
@@ -607,6 +627,8 @@ export function AssignmentIntake({
     // A described assignment needs a little to go on: the topic, the length, anything.
     if (!hasFiles && wordCount(typed.replace(/https?:\/\/\S+/g, "")) < 4 && !linkList.length) {
       setSentMessage({ text: typed, files: [], at: Date.now() });
+      // It's in their bubble now; the box is for the next try.
+      setPaste("");
       setError(
         "Tell me a little more: what's the topic or question, and how long should it be? Or tap + to add the assignment sheet.",
       );
@@ -619,20 +641,23 @@ export function AssignmentIntake({
     };
     setSentMessage(message);
     saveSentMessage(paperId, message);
-    setParseSeconds(0);
+    if (!demoMode) void persistField(paperId, { fieldKey: SENT_FIELD_KEY, text: JSON.stringify(trimSent(message)) });
+    // Sent: the text is in the student's bubble, so the box clears (as in any chat).
+    setPaste("");
+    setParseStartedAt(Date.now());
     setScreen("parsing");
     setParseStatus(
       "Reading the assignment…",
     );
 
-    if (paste.trim() || linkList.length) {
+    if (typed || linkList.length) {
       void fetch(`/api/papers/${paperId}/assignment/finalize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pasteText: paste.trim() || undefined,
+          pasteText: typed || undefined,
           links: linkList.length ? linkList : undefined,
-          extractionMethod: paste.trim() ? "paste" : "manual",
+          extractionMethod: typed ? "paste" : "manual",
         }),
       }).catch(() => undefined);
     }
@@ -640,7 +665,7 @@ export function AssignmentIntake({
 
     const combined = [
       ...fileTexts,
-      paste.trim(),
+      typed,
       ...linkList.map((u) => `[Link provided]: ${u}`),
     ]
       .filter(Boolean)
@@ -833,7 +858,7 @@ export function AssignmentIntake({
     setScreen("story");
   }
 
-  async function submitAnswer(opts?: { skip?: boolean }) {
+  async function submitAnswer(opts?: { skip?: boolean; text?: string }) {
     const q = coachingPlan[qIndex];
     if (!q) {
       if (qIndex >= coachingPlan.length && coachingPlan.length > 0) {
@@ -842,13 +867,13 @@ export function AssignmentIntake({
       }
       return;
     }
-    const text = opts?.skip ? "" : draftAnswer.trim();
+    const text = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     if (!opts?.skip && !text && q.kind !== "background") {
-      setError("Type an answer to continue, or skip this one.");
+      setError("Tell me a little, even a sentence, or tap skip.");
       return;
     }
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
-      setError("Your early take needs at least 25 words.");
+      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
       return;
     }
 
@@ -879,7 +904,13 @@ export function AssignmentIntake({
     // Move on right away; the answer saves in the background (the device copy
     // stays until the server has it). Waiting on the save made every question
     // feel 1-6s slow.
-    const nextId = coachingPlan[qIndex + 1]?.id ?? null;
+    const back = editReturn;
+    const nextId =
+      back && typeof back.at === "number"
+        ? coachingPlan[back.at]?.id ?? null
+        : back
+          ? q.id
+          : coachingPlan[qIndex + 1]?.id ?? null;
     if (!demoMode && text) {
       const fieldKey = `stage1:${q.id}`;
       const at = Date.now();
@@ -961,6 +992,12 @@ export function AssignmentIntake({
       setLeads(suggested);
     }
 
+    // An edited earlier answer: straight back to where the student was.
+    if (back) {
+      returnFromEdit(nextAnswers);
+      return;
+    }
+
     if (qIndex + 1 < coachingPlan.length) {
       const nextQuestion = coachingPlan[qIndex + 1];
       setDraftAnswer(
@@ -1040,13 +1077,13 @@ export function AssignmentIntake({
       }),
     }).catch(() => undefined);
     setPickingStory(null);
-    goToStanceOnStory();
+    afterStoryPicked();
   }
 
   async function submitOwnStory() {
     const text = ownStory.trim();
     if (wordCount(text) < 15) {
-      setError("Write at least 15 words for your own angle.");
+      setError(moreWordsNote(wordCount(text), 15, "Your own angle"));
       return;
     }
     if (pickingStory) return;
@@ -1069,14 +1106,15 @@ export function AssignmentIntake({
       body: JSON.stringify({ text, source: "student" }),
     }).catch(() => undefined);
     pasteMeta.reset();
+    setOwnStory("");
     setPickingStory(null);
-    goToStanceOnStory();
+    afterStoryPicked();
   }
 
   async function submitStanceAnswer() {
     const text = draftAnswer.trim();
     if (wordCount(text) < 25) {
-      setError("Your early take needs at least 25 words.");
+      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
       return;
     }
     if (!demoMode) {
@@ -1120,6 +1158,7 @@ export function AssignmentIntake({
     setDraftAnswer("");
     pasteMeta.reset();
     setError(null);
+    setEditReturn(null);
 
     if (requirements && leads.length === 0) {
       const scholarly = !!requirements.requiredSources.value?.scholarlyRequired;
@@ -1174,6 +1213,66 @@ export function AssignmentIntake({
         l.name === lead.name ? { ...l, status: "to_verify" as const } : l,
       ),
     );
+  }
+
+  /** Tap an earlier answer's bubble: reopen that question with the answer in the box. */
+  function editAnswer(target: number | "story" | "stance") {
+    if (submitting || pickingStory) return;
+    if (!editReturn) {
+      setEditReturn({
+        at: screen === "story" ? "story" : screen === "gate" ? "gate" : qIndex < 0 ? "stance" : qIndex,
+        draft: screen === "story" ? ownStory : screen === "coaching" ? draftAnswer : "",
+      });
+    }
+    if (target === "story") {
+      setError(null);
+      setScreen("story");
+      return;
+    }
+    if (target === "stance") {
+      goToStanceOnStory();
+      return;
+    }
+    openQuestion(target);
+  }
+
+  /** After an edit is sent (or cancelled), go back to where the student was, with their typing. */
+  function returnFromEdit(nextAnswers: IntakeAnswer[]) {
+    const back = editReturn;
+    setEditReturn(null);
+    setError(null);
+    pasteMeta.reset();
+    if (!back) return;
+    if (back.at === "story") {
+      setOwnStory(back.draft);
+      setScreen("story");
+      return;
+    }
+    if (back.at === "gate") {
+      setScreen("gate");
+      return;
+    }
+    if (back.at === "stance") {
+      goToStanceOnStory();
+      setDraftAnswer(back.draft || nextAnswers.find((a) => a.questionId === "stance_early")?.answerText || "");
+      return;
+    }
+    const target = coachingPlan[back.at];
+    setScreen("coaching");
+    setQIndex(back.at);
+    setDraftAnswer(back.draft || nextAnswers.find((a) => a.questionId === target?.id)?.answerText || "");
+  }
+
+  /** Story picked (or changed): on to the early take, or back to the wrap-up if that's done. */
+  function afterStoryPicked() {
+    const back = editReturn;
+    setEditReturn(null);
+    if (back?.at === "gate" && answers.some((a) => a.questionId === "stance_early")) {
+      setScreen("gate");
+      return;
+    }
+    goToStanceOnStory();
+    if (back?.at === "stance" && back.draft) setDraftAnswer(back.draft);
   }
 
   async function completeStage1() {
@@ -1319,7 +1418,7 @@ export function AssignmentIntake({
         <div className="mt-4 space-y-6">
           <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
-          <ReadingBubble status={parseStatus} seconds={parseSeconds} />
+          <ReadingBubble status={parseStatus} startedAt={parseStartedAt} />
         </div>
       </div>
     );
@@ -1922,348 +2021,362 @@ export function AssignmentIntake({
     );
   }
 
-  if (screen === "coaching" && requirements) {
-    const stanceMode = qIndex < 0;
-    const q = stanceMode
-      ? {
-          id: "stance_early",
-          kind: "coaching" as const,
-          text: `${earlyStanceQuestion({
-            topic: requirements.topic.value,
-            promptQuestion: requirements.promptQuestion.value,
-          })} ${EARLY_STANCE_MIN_NOTE}`,
-        }
-      : coachingPlan[qIndex];
+  if ((screen === "coaching" || screen === "story" || screen === "gate") && requirements) {
+    const stanceMode = screen === "coaching" && qIndex < 0;
+    const stanceText = earlyStanceQuestion({
+      topic: requirements.topic.value,
+      promptQuestion: requirements.promptQuestion.value,
+    });
+    const q =
+      screen !== "coaching"
+        ? null
+        : stanceMode
+          ? { id: "stance_early", kind: "coaching" as const, text: stanceText }
+          : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
-
-    return (
-      <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>Stage 1 · Intake</p>
-        <PauPauBubble
-          as="h1"
-          id="coach-question"
-          label={stanceMode ? "Your early stance" : isInterest ? "Getting to know you" : "Quick question"}
-          className="mt-4"
-        >
-          {q?.text ?? "Loading…"}
-        </PauPauBubble>
-        {isInterest ? (
-          <p className="mt-2 pl-10 text-[13px] leading-[1.6] text-ds-muted sm:pl-[52px]">
-            Optional. We use this only to steer research leads toward things you find engaging.
-          </p>
-        ) : null}
-        <div className="mt-6 space-y-4">
-          {q?.kind === "background" ? (
-            <div className="flex flex-wrap gap-2">
-              {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
-                <DsButton
-                  key={choice}
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  aria-pressed={draftAnswer === choice}
-                  className={
-                    draftAnswer === choice
-                      ? "border-ds-accent bg-[rgba(196,120,90,0.1)]"
-                      : undefined
-                  }
-                  onClick={() => setDraftAnswer(choice)}
-                >
-                  {choice}
-                </DsButton>
-              ))}
-            </div>
-          ) : null}
-          <ChatComposer
-            paperId={paperId}
-            labelledBy="coach-question"
-            value={draftAnswer}
-            onChange={(next) => {
-              pasteMeta.onChange(draftAnswer, next);
-              setDraftAnswer(next);
-            }}
-            onPaste={pasteMeta.onPaste}
-            inputProps={{
-              onDrop: pasteMeta.onDrop,
-              onBeforeInput: pasteMeta.onBeforeInput,
-              readOnly: restoringDraft && !draftAnswer,
-              "aria-busy": restoringDraft || undefined,
-            }}
-            enterSends={false}
-            minRows={q?.kind === "background" ? 1 : 3}
-            sending={submitting}
-            sendLabel="Continue"
-            placeholder={
-              restoringDraft && !draftAnswer
-                ? "Restoring your draft…"
-                : q?.kind === "background"
-                  ? "A short answer is fine."
-                  : "Write or say it in your own words…"
-            }
-            onSend={() => {
-              if (submitting) return;
-              setSubmitting(true);
-              void (stanceMode ? submitStanceAnswer() : submitAnswer()).finally(() => setSubmitting(false));
-            }}
-          />
-          <p className="text-[13px] leading-[1.6] text-ds-muted">
-            {restoringDraft && !draftAnswer ? (
-              <span role="status">Restoring your draft… </span>
-            ) : null}
-            {submitting ? <span role="status">Saving… </span> : null}
-            {wordCount(draftAnswer)} words
-            {q?.kind && q.kind !== "background"
-              ? " · counts toward your voice sample after you continue"
-              : ""}{" "}
-            <SaveStatus status={draftStatus} />
-          </p>
-        </div>
-
-        {leads.length > 0 && q?.id !== "stance_early" ? (
-          <div className="mt-8 space-y-4 border-t border-ds-border pt-8">
-            <h2 className="font-display text-[20px] font-semibold leading-[1.2] text-ds-ink">Leads to verify</h2>
-            <p className="text-[13px] leading-[1.6] text-ds-muted">
-              These are starting points for Stage 4 — not citations.
-            </p>
-            {leads.map((lead) => (
-              <div
-                key={lead.name}
-                className="rounded-[12px] border border-ds-border bg-ds-surface p-6 text-[16px] leading-[1.6] shadow-ds-card"
-              >
-                <p className="font-semibold text-ds-ink">{lead.name}</p>
-                <p className="mt-2 text-ds-muted">{lead.whyAssignment}</p>
-                {lead.whyInterest ? (
-                  <p className="mt-2 text-ds-muted">{lead.whyInterest}</p>
-                ) : null}
-                {lead.hookOrExampleNote ? (
-                  <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
-                    {lead.hookOrExampleNote}
-                  </p>
-                ) : null}
-                <span className="mt-2 inline-block text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
-                  To verify
-                </span>
-                <div className="mt-4">
-                  <DsButton
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => acceptLead(lead)}
-                  >
-                    Add as a lead
-                  </DsButton>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {error ? (
-          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="mt-6 flex flex-wrap gap-4">
-          {!stanceMode && qIndex > 0 ? (
-            <DsButton type="button" variant="ghost" onClick={() => openQuestion(qIndex - 1)}>
-              Previous question
-            </DsButton>
-          ) : null}
-          {isInterest ? (
-            <DsButton type="button" variant="ghost" onClick={skipInterest}>
-              Skip get-to-know-you
-            </DsButton>
-          ) : null}
-          {!stanceMode && q?.kind !== "background" ? (
-            <DsButton
-              type="button"
-              variant="ghost"
-              disabled={submitting}
-              onClick={() => submitAnswer({ skip: true })}
-            >
-              Skip this one
-            </DsButton>
-          ) : null}
-        </div>
-        <p className="mt-4 text-[13px] leading-[1.6] text-ds-muted">
-          Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words <SaveStatus status={draftStatus} />
-        </p>
-      </div>
-    );
-  }
-
-  if (screen === "story" && requirements) {
-    return (
-      <div className="mx-auto max-w-[680px]">
-        <CoachEyebrow label="Your story" />
-        <h1 className={cn(dsH1, "mt-2")}>
-          Pick your story
-        </h1>
-        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
-          Here are a few directions your paper could take, built from what you
-          told me. Pick one, or write your own. You can change it later.
-        </p>
-        <div className="mt-6 space-y-4">
-          {storyAngles.map((angle) => (
-            <div
-              key={angle.id}
-              className={cn(
-                "rounded-[12px] border bg-ds-surface p-6 shadow-ds-card transition-colors duration-150",
-                pickingStory === angle.id ? "border-ds-accent" : "border-ds-border",
-              )}
-            >
-              <p className="text-[16px] font-semibold leading-[1.6] text-ds-ink">{angle.question}</p>
-              <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">{angle.whyFits}</p>
-              <DsButton
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={Boolean(pickingStory)}
-                aria-busy={pickingStory === angle.id}
-                className={cn(
-                  "mt-4",
-                  pickingStory === angle.id && "border-ds-accent bg-[rgba(196,120,90,0.1)] disabled:opacity-100",
-                )}
-                onClick={() => void pickStory(angle)}
-              >
-                {pickingStory === angle.id ? "Saving your pick…" : "Pick this one"}
-              </DsButton>
-            </div>
-          ))}
-        </div>
-        <div className="mt-8">
-          <DsButton
-            type="button"
-            variant="ghost"
-            onClick={() => setWritingOwnStory((v) => !v)}
-          >
-            I&apos;ll write my own
-          </DsButton>
-          {writingOwnStory ? (
-            <div className="mt-4 space-y-4">
-              <Textarea
-                className={dsTextarea}
-                rows={5}
-                value={ownStory}
-                onPaste={pasteMeta.onPaste}
-                onDrop={pasteMeta.onDrop}
-                onChange={(e) => {
-                  pasteMeta.onChange(ownStory, e.target.value);
-                  setOwnStory(e.target.value);
-                }}
-                placeholder="Write your own story angle as a question (≥ 15 words)."
-              />
-              <DsButton
-                type="button"
-                variant="primary"
-                disabled={Boolean(pickingStory)}
-                aria-busy={pickingStory === "own"}
-                onClick={() => void submitOwnStory()}
-              >
-                {pickingStory === "own" ? "Saving your angle…" : "Use my angle"}
-              </DsButton>
-            </div>
-          ) : null}
-        </div>
-        {error ? (
-          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (screen === "gate") {
+    const editing = editReturn !== null;
+    const answerFor = (id: string) => answers.find((a) => a.questionId === id && a.answerText.trim())?.answerText ?? "";
+    const stanceAnswer = answerFor("stance_early");
+    const beyondPlan = screen !== "coaching" || stanceMode;
+    const lastAnswered = coachingPlan.reduce((last, item, i) => (answerFor(item.id) ? i : last), -1);
+    // Questions reached so far: everything answered, plus any skipped on the way.
+    const reach = beyondPlan
+      ? coachingPlan.length
+      : Math.max(lastAnswered + 1, qIndex);
     const sample = answers
       .filter((a) => a.isVoiceSample)
       .map((a) => a.answerText)
       .join("\n");
-    const metrics = sample ? computeStyleMetrics(sample) : null;
+    const metrics = screen === "gate" && sample ? computeStyleMetrics(sample) : null;
     // The student sees words against the 200-word target, so that is what the
     // check mark and the "short side" note follow.
     const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
+    const blockers = stanceStartBlockers({
+      checklistConfirmed: cardGate.ok,
+      hasStory: Boolean(storyAngle),
+      voiceOk: voiceEval.ok,
+      voiceReason: voiceEval.reasons[0],
+      stanceOk,
+    });
+    const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
+    const minNote =
+      stanceMode && draftWords > 0 && draftWords < 25
+        ? `A couple more sentences and your early take is ready (about 25 words; ${draftWords} so far).`
+        : screen === "story" && draftWords > 0 && draftWords < 15
+          ? `A little more for your own angle (about 15 words; ${draftWords} so far).`
+          : null;
+    const isVoiceQuestion = Boolean(q && q.kind !== "background");
+    const send = (text?: string) => {
+      if (submitting) return;
+      setSubmitting(true);
+      void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() =>
+        setSubmitting(false),
+      );
+    };
+    const summary = pauPauSummaryBubbles(requirements, { seed: paperId });
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <CoachEyebrow label="Stage 1 wrap-up" />
-        <h1 className={cn(dsH1, "mt-2")}>Ready for stance?</h1>
-        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
-          Stage 1 finishes when the assignment card is confirmed, you have
-          picked a story, and you have an early take.
-        </p>
+        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
+          {/* The start of the chat, rebuilt from what's saved. */}
+          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          {sentMessage ? <StudentBubble message={sentMessage} /> : null}
+          <PauPauGroup bubbles={summary} />
+          <EchoBubble text="Let's go" />
+          <PauPauGroup bubbles={INTRO_BUBBLES} />
 
-        {metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? (
-          <div className="mt-6 rounded-[8px] border border-ds-border border-l-4 border-l-ds-sage bg-ds-surface px-6 py-4 text-[16px] leading-[1.6] text-ds-ink">
-            <p>{readyVoiceLine(voiceEval.totalWords)}</p>
-          </div>
-        ) : null}
+          {coachingPlan.map((item, i) => {
+            const said = answerFor(item.id);
+            if (!said && i >= reach) return null;
+            const isCurrent = q?.id === item.id;
+            if (isCurrent && !editing) return null;
+            return (
+              <div key={item.id} className="space-y-4">
+                <PauPauBubble showName={false}>{item.text}</PauPauBubble>
+                <EchoBubble
+                  text={said || "Skipped"}
+                  muted={!said}
+                  editing={isCurrent}
+                  onEdit={() => editAnswer(i)}
+                  editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
+                />
+              </div>
+            );
+          })}
 
-        <ul className="mt-6 space-y-2 rounded-[12px] border border-ds-border bg-ds-surface p-6 text-[16px] leading-[1.6] text-ds-ink shadow-ds-card">
-          <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
-          <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
-          <li>
-            {voiceWordsMet ? "✓" : "·"} Voice sample (
-            {voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
-            {voiceWordsMet ? "" : ", optional: more helps Pau Pau match your voice"})
-          </li>
-          <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
-        </ul>
+          {storyAngle && screen !== "story" ? (
+            <div className="space-y-4">
+              <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
+              <EchoBubble
+                text={storyAngle.text}
+                onEdit={() => editAnswer("story")}
+                editLabel="Change your story angle"
+              />
+            </div>
+          ) : null}
+          {stanceAnswer && !(stanceMode && !editing) ? (
+            <div className="space-y-4">
+              <PauPauBubble showName={false}>{stanceText}</PauPauBubble>
+              <EchoBubble
+                text={stanceAnswer}
+                editing={stanceMode}
+                onEdit={() => editAnswer("stance")}
+                editLabel="Edit your early take"
+              />
+            </div>
+          ) : null}
 
-        {error ? (
-          <p className="mt-4 text-[16px] leading-[1.6] text-ds-error" role="alert">
-            {error}
-          </p>
-        ) : null}
+          {/* Pau Pau's current turn. */}
+          {q ? (
+            <PauPauGroup
+              bubbles={[
+                editing ? "Sure, change anything and send it again." : null,
+                stanceMode && !editing ? "Last one before the stance interview." : null,
+                q.text,
+              ].filter((b): b is string => Boolean(b))}
+              headingIndex={(editing ? 1 : 0) + (stanceMode && !editing ? 1 : 0)}
+              headingId="coach-question"
+            >
+              {q.kind === "background" ? (
+                <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
+                  {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
+                    <DsButton
+                      key={choice}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={submitting}
+                      onClick={() => send(choice)}
+                    >
+                      {choice}
+                    </DsButton>
+                  ))}
+                </div>
+              ) : null}
+              {isInterest && q.id === "interest_1" ? (
+                <p className="text-[13px] leading-[1.6] text-ds-muted">
+                  Optional. I use this only to steer research leads toward things you enjoy.
+                </p>
+              ) : null}
+              {stanceMode ? <p className="text-[13px] leading-[1.6] text-ds-muted">{EARLY_STANCE_MIN_NOTE}</p> : null}
+            </PauPauGroup>
+          ) : null}
 
-        <div className="mt-8 flex flex-wrap gap-4">
-          <DsButton
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              // Reopen the first voice answer, prefilled, so the student can extend it.
-              const first = coachingPlan.findIndex(
-                (question) => question.kind !== "background" && question.kind !== "interest",
-              );
-              openQuestion(first >= 0 ? first : 0);
-            }}
-          >
-            Back to questions
-          </DsButton>
-          <DsButton
-            type="button"
-            variant="primary"
-            disabled={
-              startingStance ||
-              stanceStartBlockers({
-              checklistConfirmed: cardGate.ok,
-              hasStory: Boolean(storyAngle),
-              voiceOk: voiceEval.ok,
-              voiceReason: voiceEval.reasons[0],
-              stanceOk,
-            }).length > 0}
-            onClick={() => void completeStage1()}
-          >
-            {startingStance ? "Starting the stance interview…" : "Start stance interview"}
-          </DsButton>
+          {screen === "story" ? (
+            <PauPauGroup
+              bubbles={[
+                "Here are a few directions your paper could take, built from what you told me.",
+                <ul key="angles" className="space-y-2" aria-label="Story angles">
+                  {storyAngles.map((angle) => (
+                    <li key={angle.id}>
+                      <button
+                        type="button"
+                        disabled={Boolean(pickingStory)}
+                        aria-busy={pickingStory === angle.id}
+                        onClick={() => void pickStory(angle)}
+                        className={cn(
+                          "ds-focus w-full rounded-[8px] border bg-ds-page px-4 py-3 text-left transition-colors duration-150 hover:border-ds-accent disabled:cursor-not-allowed",
+                          pickingStory === angle.id ? "border-ds-accent" : "border-ds-border",
+                        )}
+                      >
+                        <span className="block text-[16px] font-semibold leading-[1.5] text-ds-ink">
+                          {angle.question}
+                        </span>
+                        <span className="mt-1 block text-[14px] leading-[1.5] text-ds-muted">
+                          {pickingStory === angle.id ? "Saving your pick…" : angle.whyFits}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>,
+                "Tap one, or write your own angle below. You can change it later.",
+              ]}
+              headingIndex={0}
+              headingId="story-ask"
+            />
+          ) : null}
+
+          {screen === "gate" ? (
+            <PauPauGroup
+              bubbles={[
+                "That's everything for Stage 1. Ready for the stance interview?",
+                metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords)
+                  ? readyVoiceLine(voiceEval.totalWords)
+                  : null,
+                <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
+                  <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
+                  <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
+                  <li>
+                    {voiceWordsMet ? "✓" : "·"} Voice sample ({voiceEval.totalWords}/{STAGE1_VOICE_MIN_WORDS} words
+                    {voiceWordsMet ? "" : ", optional: more helps Pau Pau match your voice"})
+                  </li>
+                  <li>{stanceOk ? "✓" : "○"} Early stance (≥ 25 words)</li>
+                </ul>,
+                voiceShortNote({ voiceOk: voiceWordsMet }) || null,
+              ].filter((b) => b !== null)}
+              headingIndex={0}
+              headingId="gate-ask"
+            >
+              <div className="pt-2">
+                <DsButton
+                  type="button"
+                  variant="primary"
+                  disabled={startingStance || blockers.length > 0}
+                  onClick={() => void completeStage1()}
+                >
+                  {startingStance ? "Starting the stance interview…" : "Start stance interview"}
+                </DsButton>
+                {blockers.map((reason) => (
+                  <p key={reason} className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="status">
+                    {reason}
+                  </p>
+                ))}
+                <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
+                  Want to change something? Tap any of your answers above.
+                </p>
+              </div>
+            </PauPauGroup>
+          ) : null}
+
+          {leads.length > 0 && screen === "coaching" && !stanceMode ? (
+            <PauPauGroup
+              bubbles={[
+                <div key="leads" className="space-y-3">
+                  <p>A couple of leads to verify later (starting points for Stage 4, not citations):</p>
+                  {leads.map((lead) => (
+                    <div key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
+                      <p className="font-semibold">{lead.name}</p>
+                      <p className="text-ds-muted">{lead.whyAssignment}</p>
+                      {lead.whyInterest ? <p className="text-ds-muted">{lead.whyInterest}</p> : null}
+                      <DsButton type="button" size="sm" variant="secondary" className="mt-2" onClick={() => acceptLead(lead)}>
+                        Add as a lead
+                      </DsButton>
+                    </div>
+                  ))}
+                </div>,
+              ]}
+            />
+          ) : null}
+
+          {error ? (
+            <PauPauBubble showName={false} live>
+              <span role="alert">{error}</span>
+            </PauPauBubble>
+          ) : null}
         </div>
-        {stanceStartBlockers({
-          checklistConfirmed: cardGate.ok,
-          hasStory: Boolean(storyAngle),
-          voiceOk: voiceEval.ok,
-          voiceReason: voiceEval.reasons[0],
-          stanceOk,
-        }).map((reason) => (
-          <p key={reason} className="mt-4 text-[16px] leading-[1.6] text-ds-muted" role="status">
-            {reason}
-          </p>
-        ))}
-        {voiceShortNote({ voiceOk: voiceWordsMet }) ? (
-          <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted" role="note">
-            {voiceShortNote({ voiceOk: voiceWordsMet })}
-          </p>
-        ) : null}
+
+        {screen === "gate" ? null : (
+          <ComposerDock>
+            {screen === "story" ? (
+              <ChatComposer
+                paperId={paperId}
+                labelledBy="story-ask"
+                value={ownStory}
+                onChange={(next) => {
+                  pasteMeta.onChange(ownStory, next);
+                  setOwnStory(next);
+                }}
+                onPaste={pasteMeta.onPaste}
+                inputProps={{ onDrop: pasteMeta.onDrop, onBeforeInput: pasteMeta.onBeforeInput }}
+                enterSends={false}
+                minRows={1}
+                sending={pickingStory === "own"}
+                sendLabel="Send"
+                placeholder="Or write your own angle as a question"
+                onSend={() => void submitOwnStory()}
+              />
+            ) : (
+              <ChatComposer
+                paperId={paperId}
+                labelledBy="coach-question"
+                value={draftAnswer}
+                onChange={(next) => {
+                  pasteMeta.onChange(draftAnswer, next);
+                  setDraftAnswer(next);
+                }}
+                onPaste={pasteMeta.onPaste}
+                inputProps={{
+                  onDrop: pasteMeta.onDrop,
+                  onBeforeInput: pasteMeta.onBeforeInput,
+                  readOnly: restoringDraft && !draftAnswer,
+                  "aria-busy": restoringDraft || undefined,
+                }}
+                enterSends={false}
+                minRows={1}
+                sending={submitting}
+                sendLabel="Send"
+                placeholder={
+                  restoringDraft && !draftAnswer
+                    ? "Restoring your draft…"
+                    : PLACEHOLDERS[q?.id ?? ""] ?? "Tell me in your own words"
+                }
+                onSend={() => send()}
+              />
+            )}
+            {minNote ? (
+              <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="note">
+                {minNote}
+              </p>
+            ) : null}
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 text-[13px] leading-[1.6] text-ds-muted">
+              <div className="flex flex-wrap items-center gap-x-1">
+                {editing ? (
+                  <button
+                    type="button"
+                    className="ds-focus min-h-[48px] px-2 font-semibold underline-offset-4 hover:underline"
+                    onClick={() => returnFromEdit(answers)}
+                  >
+                    Cancel edit
+                  </button>
+                ) : screen === "coaching" && !stanceMode ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      className="ds-focus min-h-[48px] px-2 font-semibold underline-offset-4 hover:underline"
+                      onClick={() => void submitAnswer({ skip: true })}
+                    >
+                      Skip
+                    </button>
+                    {isInterest ? (
+                      <button
+                        type="button"
+                        className="ds-focus min-h-[48px] px-2 underline-offset-4 hover:underline"
+                        onClick={skipInterest}
+                      >
+                        Skip the get-to-know-you questions
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+              <p className="flex items-center gap-2 px-2">
+                {restoringDraft && !draftAnswer ? <span role="status">Restoring your draft… </span> : null}
+                {submitting ? <span role="status">Saving… </span> : null}
+                {isVoiceQuestion || stanceMode ? (
+                  <span
+                    className="inline-flex items-center gap-1"
+                    title="Your voice sample: how much of your own writing Pau Pau has so far"
+                    aria-label={`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}
+                  >
+                    <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-ds-border">
+                      <span
+                        className="block h-full bg-ds-sage"
+                        style={{ width: `${Math.min(100, (voiceEval.totalWords / STAGE1_VOICE_MIN_WORDS) * 100)}%` }}
+                      />
+                    </span>
+                    <span aria-hidden>{voiceWordsMet ? "Voice ✓" : "Voice"}</span>
+                  </span>
+                ) : null}
+                <SaveStatus status={draftStatus} />
+              </p>
+            </div>
+          </ComposerDock>
+        )}
+        <ScrollToNewest
+          signal={`${screen}:${qIndex}:${answers.length}:${storyAngles.length}:${editing ? 1 : 0}:${error ?? ""}`}
+        />
       </div>
     );
   }

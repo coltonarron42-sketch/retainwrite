@@ -40,6 +40,7 @@ describe("Stage 1 chat-style assignment input", () => {
 
   it("the later Stage 1 questions use the same bubble and input", () => {
     expect(intake).toContain('labelledBy="coach-question"');
-    expect(intake).toContain('sendLabel="Continue"');
+    expect(intake).toContain('sendLabel="Send"');
+    expect(intake).not.toContain('sendLabel="Continue"');
   });
 });

@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
 import { dsCaption, dsInput, dsTextarea } from "@/lib/ds/classes";
+import { PauPauAvatar } from "@/components/stages/stage1/chat-bubbles";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
 import {
   COACH_NAME,
@@ -15,6 +16,7 @@ import {
   lengthFromAnswer,
   pauPauNextAsk,
   pauPauSummary,
+  pauPauSummaryBubbles,
   type PauPauAsk,
 } from "@/lib/stage1/pau-pau";
 
@@ -31,21 +33,7 @@ type Props = {
   embedded?: boolean;
 };
 
-/** Small round mark for the coach; Design System colors only. */
-export function PauPauAvatar({ size = "md" }: { size?: "sm" | "md" }) {
-  return (
-    <span
-      aria-hidden
-      className={
-        size === "sm"
-          ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[10px] font-semibold text-white"
-          : "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ds-ink font-ds-sans text-[13px] font-semibold tracking-wide text-white sm:h-10 sm:w-10"
-      }
-    >
-      PP
-    </span>
-  );
-}
+export { PauPauAvatar };
 
 /**
  * After the read: Pau Pau says back what it understood, asks for the one most
@@ -74,7 +62,9 @@ export function PauPauConfirm({
   const fileInput = useRef<HTMLInputElement>(null);
 
   const ask = pauPauNextAsk(requirements, dismissed);
-  const summary = pauPauSummary(requirements, { pendingAsk: ask });
+  // Same paper → same opener, so a reload reads the same.
+  const summary = pauPauSummary(requirements, { pendingAsk: ask, seed: paperId });
+  const bubbles = pauPauSummaryBubbles(requirements, { pendingAsk: ask, seed: paperId });
   const askText = ask ? PAU_PAU_ASK_TEXT[ask] : null;
 
   useEffect(() => {
@@ -195,14 +185,29 @@ export function PauPauConfirm({
               {COACH_NAME} <span className="font-normal normal-case tracking-normal">· your writing coach</span>
             </p>
           )}
-          <div
-            className="mt-2 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface p-5 shadow-ds-card"
-            aria-live="polite"
-          >
+          <div className="mt-2 space-y-2" aria-live="polite">
             <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
-            {thanks ? <p className="mb-2 text-[16px] leading-[1.6] text-ds-muted">{thanks}</p> : null}
-            <p className="text-[18px] leading-[1.6] text-ds-ink">{summary}</p>
-            {askText ? <p className="mt-3 text-[18px] leading-[1.6] text-ds-ink">{askText}</p> : null}
+            {bubbles.map((text, i) => (
+              <div key={i}>
+                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
+                  {text}
+                </p>
+              </div>
+            ))}
+            {thanks ? (
+              <div>
+                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
+                  {thanks}
+                </p>
+              </div>
+            ) : null}
+            {askText ? (
+              <div>
+                <p className="inline-block max-w-full rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface px-4 py-3 text-[18px] leading-[1.6] text-ds-ink shadow-ds-card sm:px-5 sm:py-4">
+                  {askText}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {canSpeak ? (
