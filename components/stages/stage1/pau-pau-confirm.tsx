@@ -27,6 +27,8 @@ type Props = {
   onStartOver: () => void;
   confirming: boolean;
   error: string | null;
+  /** Inside the chat frame: the name line is already above, on the first bubble. */
+  embedded?: boolean;
 };
 
 /** Small round mark for the coach; Design System colors only. */
@@ -58,6 +60,7 @@ export function PauPauConfirm({
   onStartOver,
   confirming,
   error,
+  embedded = false,
 }: Props) {
   const [dismissed, setDismissed] = useState<Set<PauPauAsk>>(new Set());
   const [answer, setAnswer] = useState("");
@@ -187,9 +190,11 @@ export function PauPauConfirm({
       <div className="flex items-start gap-2 sm:gap-3">
         <PauPauAvatar />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
-            {COACH_NAME} <span className="font-normal normal-case tracking-normal">· your writing coach</span>
-          </p>
+          {embedded ? null : (
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+              {COACH_NAME} <span className="font-normal normal-case tracking-normal">· your writing coach</span>
+            </p>
+          )}
           <div
             className="mt-2 rounded-[12px] rounded-tl-[4px] border border-ds-border bg-ds-surface p-5 shadow-ds-card"
             aria-live="polite"

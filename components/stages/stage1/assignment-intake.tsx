@@ -11,10 +11,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  UploadPanel,
   extractStagedFile,
   type StagedAssignmentFile,
 } from "@/components/stages/stage1/upload-panel";
+import { ChatComposer } from "@/components/stages/stage1/chat-composer";
+import {
+  PauPauBubble,
+  ReadingBubble,
+  StudentBubble,
+  readSentMessage,
+  saveSentMessage,
+  type SentMessage,
+} from "@/components/stages/stage1/chat-bubbles";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -26,7 +34,6 @@ import {
 } from "@/lib/assignment/ai-policy-notice";
 import { requirementsHaveFacts } from "@/lib/assignment/coerce";
 import { storeOriginals } from "@/lib/assignment/store-originals";
-import { canStartAssignmentParse } from "@/lib/assignment/can-start-parse";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
@@ -172,9 +179,11 @@ export function AssignmentIntake({
   /** A reload is still working out which screen and question to reopen. */
   const [resumePending, setResumePending] = useState(!demoMode);
   const [paste, setPaste] = useState("");
-  const [links, setLinks] = useState("");
+  const [links] = useState("");
   const [rightsOk, setRightsOk] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<StagedAssignmentFile[]>([]);
+  /** What the student sent in the chat box, shown as their bubble above Pau Pau's reply. */
+  const [sentMessage, setSentMessage] = useState<SentMessage | null>(null);
   const [parseStatus, setParseStatus] = useState("Extracting the text…");
   const [parseSeconds, setParseSeconds] = useState(0);
   const [requirements, setRequirements] =
@@ -215,6 +224,10 @@ export function AssignmentIntake({
     label: string;
     excerpt: string;
   } | null>(null);
+
+  useEffect(() => {
+    setSentMessage(readSentMessage(paperId));
+  }, [paperId]);
 
   useEffect(() => {
     if (screen !== "parsing") return;
@@ -562,14 +575,16 @@ export function AssignmentIntake({
 
   async function runParse() {
     setError(null);
-    const linkList = parseLinkField(links);
-    if (!rightsOk) {
-      setError("Confirm you're uploading this for your own coursework.");
+    const typed = paste.trim();
+    const typedLinks = typed.match(/https?:\/\/[^\s<>"”)]+/g) ?? [];
+    const linkList = [...new Set([...parseLinkField(links), ...typedLinks])];
+    const hasFiles = stagedFiles.length > 0;
+    if (hasFiles && !rightsOk) {
+      setError("Tick the box to confirm you're uploading this for your own coursework.");
       return;
     }
-    const hasFiles = stagedFiles.length > 0;
     if (stagedFiles.some((f) => f.status === "reading")) {
-      setError("Your files are still being read. Read my assignment unlocks when they finish.");
+      setError("Your files are still being read. Send unlocks when they finish.");
       return;
     }
     const fileTexts = stagedFiles
@@ -577,20 +592,33 @@ export function AssignmentIntake({
       .map((f) => f.extractedText.trim())
       .filter(Boolean);
     const failedFiles = stagedFiles.filter((f) => f.status === "failed");
-    if (failedFiles.length && !fileTexts.length && !paste.trim()) {
+    if (failedFiles.length) {
       setError(
         failedFiles.length === 1
-          ? `We couldn't read ${failedFiles[0]!.filename}. Retry it, remove it, or add the assignment text below.`
-          : "We couldn't read your files. Retry them, remove them, or add the assignment text below.",
+          ? `I couldn't read ${failedFiles[0]!.filename}. Retry it or remove it, then send again.`
+          : "I couldn't read some of your files. Retry them or remove them, then send again.",
       );
       return;
     }
-    // Paste / links are optional. Files alone are enough to continue.
-    if (!hasFiles && !paste.trim() && linkList.length === 0) {
-      setError("Upload a file, add optional text, or add at least one link.");
+    if (!hasFiles && !typed && linkList.length === 0) {
+      setError("Attach the assignment with +, or tell me about it in the box.");
       return;
     }
-
+    // A described assignment needs a little to go on: the topic, the length, anything.
+    if (!hasFiles && wordCount(typed.replace(/https?:\/\/\S+/g, "")) < 4 && !linkList.length) {
+      setSentMessage({ text: typed, files: [], at: Date.now() });
+      setError(
+        "Tell me a little more: what's the topic or question, and how long should it be? Or tap + to add the assignment sheet.",
+      );
+      return;
+    }
+    const message: SentMessage = {
+      text: typed,
+      files: stagedFiles.map((f) => ({ name: f.filename, kind: f.kind })),
+      at: Date.now(),
+    };
+    setSentMessage(message);
+    saveSentMessage(paperId, message);
     setParseSeconds(0);
     setScreen("parsing");
     setParseStatus(
@@ -624,7 +652,7 @@ export function AssignmentIntake({
         const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ corpusText: combined }),
+          body: JSON.stringify({ corpusText: combined, described: !hasFiles || undefined }),
         });
         const data = (await res.json()) as {
           requirements?: AssignmentRequirements;
@@ -1224,59 +1252,56 @@ export function AssignmentIntake({
   }
 
   if (screen === "upload") {
-    const canSubmit = canStartAssignmentParse({
-      fileCount: stagedFiles.length,
-      pasteText: paste,
-      linkCount: parseLinkField(links).length,
-      rightsOk,
-    });
-    const filesReading = stagedFiles.some((f) => f.status === "reading");
-    const fileFailed = stagedFiles.some((f) => f.status === "failed");
-
+    const hasFiles = stagedFiles.length > 0;
     return (
       <div className="mx-auto max-w-[680px]">
-        <p className={dsEyebrow}>
-          Stage 1 · Intake
-        </p>
-        <h1 className={cn(dsH1, "mt-2")}>
-          Start with the assignment
-        </h1>
-        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
-          Upload the full prompt — files, photos from your library, or a camera
-          shot of the handout. Pau Pau will pull out the requirements, and
-          you&apos;ll check them before we ask any questions.
-        </p>
-
-        <div className="mt-8 space-y-6">
-          <UploadPanel
-            paperId={paperId}
-            files={stagedFiles}
-            onFilesChange={setStagedFiles}
-            paste={paste}
-            onPasteChange={setPaste}
-            links={links}
-            onLinksChange={setLinks}
-            rightsOk={rightsOk}
-            onRightsOkChange={setRightsOk}
-            error={error}
-            onError={setError}
-            onRetryFile={(id) => void retryFile(id)}
-          />
-          <DsButton
-            type="button"
-            variant="primary"
-            disabled={!canSubmit || filesReading || fileFailed}
-            aria-busy={filesReading || undefined}
-            aria-describedby={fileFailed ? "file-failed-hint" : undefined}
-            onClick={() => void runParse()}
-          >
-            {filesReading ? "Reading your files…" : "Read my assignment"}
-          </DsButton>
-          {fileFailed && !filesReading ? (
-            <p id="file-failed-hint" className="text-[13px] leading-[1.6] text-ds-muted">
-              Retry or remove the file that couldn&apos;t be read to continue.
-            </p>
+        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <div className="mt-4 space-y-6">
+          <PauPauBubble as="h1" id="assignment-ask">
+            What&apos;s the assignment we&apos;re working on?
+          </PauPauBubble>
+          {error && sentMessage ? <StudentBubble message={sentMessage} /> : null}
+          {error ? (
+            <PauPauBubble showName={false} live>
+              <span role="alert">{error}</span>
+            </PauPauBubble>
           ) : null}
+          <div>
+            <ChatComposer
+              paperId={paperId}
+              labelledBy="assignment-ask"
+              value={paste}
+              onChange={setPaste}
+              placeholder="Upload a photo, PDF, or Word file, or just tell me about it…"
+              files={stagedFiles}
+              onFilesChange={setStagedFiles}
+              onRetryFile={(id) => void retryFile(id)}
+              onError={setError}
+              onSend={() => void runParse()}
+              sendLabel="Send to Pau Pau"
+              sendBlocked={hasFiles && !rightsOk}
+            />
+            {hasFiles ? (
+              <>
+                <label className="mt-4 flex items-start gap-2 text-[16px] leading-[1.6] text-ds-ink">
+                  <input
+                    type="checkbox"
+                    className="mt-[6px] h-4 w-4 accent-[#c4785a]"
+                    checked={rightsOk}
+                    onChange={(e) => {
+                      setRightsOk(e.target.checked);
+                      if (e.target.checked) setError(null);
+                    }}
+                  />
+                  <span>I&apos;m uploading this for my own coursework.</span>
+                </label>
+                <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
+                  We keep these files while this paper is on your account, and for 90 days after it&apos;s deleted. You
+                  can remove a file anytime.
+                </p>
+              </>
+            ) : null}
+          </div>
         </div>
         {demoMode ? (
           <p className="mt-6 text-[13px] leading-[1.6] text-ds-muted">
@@ -1289,14 +1314,13 @@ export function AssignmentIntake({
 
   if (screen === "parsing") {
     return (
-      <div className="mx-auto max-w-[680px] py-16 text-center" role="status">
-        <p className="font-display text-[24px] font-semibold leading-[1.2] text-ds-ink">{parseStatus}</p>
-        <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
-          {parseSeconds > 0 ? `Still reading… ${parseSeconds}s` : "Still reading…"}
-        </p>
-        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
-          {COACH_NAME} is only reading what the assignment says. Questions come after.
-        </p>
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <div className="mt-4 space-y-6">
+          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          {sentMessage ? <StudentBubble message={sentMessage} /> : null}
+          <ReadingBubble status={parseStatus} seconds={parseSeconds} />
+        </div>
       </div>
     );
   }
@@ -1350,7 +1374,14 @@ export function AssignmentIntake({
 
   if (screen === "card" && requirements && !editingDetails) {
     return (
+      <div className="mx-auto max-w-[680px]">
+        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <div className="mt-4 space-y-6">
+          <PauPauBubble>What&apos;s the assignment we&apos;re working on?</PauPauBubble>
+          {sentMessage ? <StudentBubble message={sentMessage} /> : null}
+          <ScrollIntoViewOnMount>
       <PauPauConfirm
+        embedded
         paperId={paperId}
         requirements={requirements}
         onChange={setRequirements}
@@ -1363,6 +1394,9 @@ export function AssignmentIntake({
         confirming={confirming}
         error={error}
       />
+          </ScrollIntoViewOnMount>
+        </div>
+      </div>
     );
   }
 
@@ -1904,16 +1938,18 @@ export function AssignmentIntake({
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <CoachEyebrow
+        <p className={dsEyebrow}>Stage 1 · Intake</p>
+        <PauPauBubble
+          as="h1"
+          id="coach-question"
           label={stanceMode ? "Your early stance" : isInterest ? "Getting to know you" : "Quick question"}
-        />
-        <h1 className={cn(dsH1, "mt-2")}>
+          className="mt-4"
+        >
           {q?.text ?? "Loading…"}
-        </h1>
+        </PauPauBubble>
         {isInterest ? (
-          <p className="mt-2 text-[16px] leading-[1.6] text-ds-muted">
-            Optional. We use this only to steer research leads toward things you
-            find engaging.
+          <p className="mt-2 pl-10 text-[13px] leading-[1.6] text-ds-muted sm:pl-[52px]">
+            Optional. We use this only to steer research leads toward things you find engaging.
           </p>
         ) : null}
         <div className="mt-6 space-y-4">
@@ -1938,31 +1974,43 @@ export function AssignmentIntake({
               ))}
             </div>
           ) : null}
-          <Textarea
-            className={dsTextarea}
-            rows={q?.kind === "background" ? 3 : 8}
+          <ChatComposer
+            paperId={paperId}
+            labelledBy="coach-question"
             value={draftAnswer}
-            readOnly={restoringDraft && !draftAnswer}
-            aria-busy={restoringDraft || undefined}
-            onPaste={pasteMeta.onPaste}
-            onDrop={pasteMeta.onDrop}
-            onBeforeInput={pasteMeta.onBeforeInput}
-            onChange={(e) => {
-              pasteMeta.onChange(draftAnswer, e.target.value);
-              setDraftAnswer(e.target.value);
+            onChange={(next) => {
+              pasteMeta.onChange(draftAnswer, next);
+              setDraftAnswer(next);
             }}
+            onPaste={pasteMeta.onPaste}
+            inputProps={{
+              onDrop: pasteMeta.onDrop,
+              onBeforeInput: pasteMeta.onBeforeInput,
+              readOnly: restoringDraft && !draftAnswer,
+              "aria-busy": restoringDraft || undefined,
+            }}
+            enterSends={false}
+            minRows={q?.kind === "background" ? 1 : 3}
+            sending={submitting}
+            sendLabel="Continue"
             placeholder={
               restoringDraft && !draftAnswer
                 ? "Restoring your draft…"
                 : q?.kind === "background"
                   ? "A short answer is fine."
-                  : "Write in your own words — paste is fine too."
+                  : "Write or say it in your own words…"
             }
+            onSend={() => {
+              if (submitting) return;
+              setSubmitting(true);
+              void (stanceMode ? submitStanceAnswer() : submitAnswer()).finally(() => setSubmitting(false));
+            }}
           />
           <p className="text-[13px] leading-[1.6] text-ds-muted">
             {restoringDraft && !draftAnswer ? (
               <span role="status">Restoring your draft… </span>
             ) : null}
+            {submitting ? <span role="status">Saving… </span> : null}
             {wordCount(draftAnswer)} words
             {q?.kind && q.kind !== "background"
               ? " · counts toward your voice sample after you continue"
@@ -2037,20 +2085,6 @@ export function AssignmentIntake({
               Skip this one
             </DsButton>
           ) : null}
-          <DsButton
-            type="button"
-            variant="primary"
-            disabled={submitting}
-            onClick={() => {
-              if (submitting) return;
-              setSubmitting(true);
-              void (stanceMode ? submitStanceAnswer() : submitAnswer()).finally(() =>
-                setSubmitting(false),
-              );
-            }}
-          >
-            {submitting ? "Saving…" : "Continue"}
-          </DsButton>
         </div>
         <p className="mt-4 text-[13px] leading-[1.6] text-ds-muted">
           Voice sample: {voiceEval.totalWords} / {STAGE1_VOICE_MIN_WORDS} words <SaveStatus status={draftStatus} />
@@ -2343,4 +2377,16 @@ function ListTextarea({ value, onChange }: { value: string; onChange: (raw: stri
       }}
     />
   );
+}
+
+/** Bring the newest chat bubble into view (one frame at a time on a phone). */
+function ScrollIntoViewOnMount({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (top > window.innerHeight * 0.5) el.scrollIntoView({ block: "start", behavior: "auto" });
+  }, []);
+  return <div ref={ref} className="scroll-mt-6">{children}</div>;
 }
