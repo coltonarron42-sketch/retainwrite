@@ -10,6 +10,7 @@ import { emptyRequirements } from "@/lib/assignment/schema";
 import { indefiniteArticle, withArticle } from "@/lib/copy/articles";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
+import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
 export const COACH_NAME = "Pau Pau";
@@ -28,8 +29,12 @@ function citationPhrase(req: AssignmentRequirements): string | null {
   const style = req.citationStyle.value;
   if (!style) return null;
   if (style === "other") return req.citationStyleOther?.trim() ? `${req.citationStyleOther.trim()} format` : null;
-  const short = style.replace(/\s+\d+$/, "").replace(/\s+17\s+/, " ");
-  return `${short} format`;
+  // Specific, as the sheet gives it: "MLA 9", "APA 7", "Chicago 17 notes-bibliography".
+  const specific: Record<string, string> = {
+    "Chicago 17 Notes": "Chicago 17 notes-bibliography",
+    "Chicago 17 Author-Date": "Chicago 17 author-date",
+  };
+  return `${specific[style] ?? style} format`;
 }
 
 /** "PSYC 101 - Introduction to Psychology" → "PSYC 101"; plain names stay. */
@@ -44,7 +49,7 @@ function coursePhrase(req: AssignmentRequirements): string | null {
 function instructorPhrase(req: AssignmentRequirements): string | null {
   const name = req.instructor?.value?.replace(/\s+/g, " ").trim();
   if (!name || name.length > 60) return null;
-  return `${name}${/s$/i.test(name) ? "'" : "'s"} class`;
+  return name;
 }
 
 function lengthPhrase(req: AssignmentRequirements): string | null {
@@ -109,6 +114,8 @@ function formattingPhrase(req: AssignmentRequirements): string | null {
   const keep: string[] = [];
   for (const raw of req.formattingRules.value ?? []) {
     const item = raw.replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "");
+    // Length lives in the facts sentence only, so a corrected length never contradicts an old one here.
+    if (/\b\d[\d,]*\s*(?:-|–|to)?\s*[\d,]*\s*(?:words?|pages?)\b/i.test(item)) continue;
     if (!item || CITATION_PAGE.test(item) || /title page|cover page|abstract|citation style|\b(mla|apa|chicago)\b/i.test(item)) continue;
     if (!/spac|font|pt\b|point|margin|times|arial|calibri|header|heading|page number|indent/i.test(item)) continue;
     if (item.length > 60) continue;
@@ -240,21 +247,33 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
  * same way. Picked by a stable seed (the paper id) so a reload says the same thing.
  * [lead-in, verb phrase before "<course>: <length>"].
  */
-export const SUMMARY_OPENERS: ReadonlyArray<readonly [string, string]> = [
-  ["Okay, let's see here…", "looks like"],
-  ["Got it.", "Looks like"],
-  ["Alright, I read it.", "This is"],
-  ["Thanks, that helps.", "So this is"],
-  ["Okay, here's what I'm seeing.", "It's"],
-  ["Okay, I've read it through.", "Sounds like"],
-  ["Alright, here's the gist.", "It's"],
-  ["Great, I've got it.", "This one is"],
+export const SUMMARY_OPENERS: ReadonlyArray<string> = [
+  "Okay, I've read it.",
+  "Got it.",
+  "Alright, I read it through.",
+  "Thanks, that helps.",
+  "Okay, here's what I'm seeing.",
+  "Okay, I've read it through.",
+  "Alright, here's the gist.",
+  "Great, I've got it.",
 ];
 
 /**
  * Stable, well-mixed hash (FNV-1a + a final avalanche) so paper ids spread
  * evenly over the openers; the same paper always gets the same one.
  */
+/**
+ * The facts sentence, always a full sentence:
+ * "This is for ENG 101 with Prof. Dana Ruiz: a 1,200 word essay in MLA 9 format."
+ */
+function factsSentence(course: string | null, instructor: string | null, what: string | null): string {
+  const where = course && instructor ? `${course} with ${instructor}` : course ?? (instructor ? `${instructor}'s class` : null);
+  if (where && what) return `This is for ${where}: ${what}.`;
+  if (where) return `This is for ${where}.`;
+  if (what) return `This is ${what}.`;
+  return "";
+}
+
 export function openerIndex(seed: string | number | undefined): number {
   if (seed == null) return 0;
   if (typeof seed === "number") return Math.abs(Math.trunc(seed)) % SUMMARY_OPENERS.length;
@@ -284,16 +303,12 @@ export type SummaryOptions = {
  */
 export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: SummaryOptions = {}): string[] {
   const { view: req, skipped } = trustedView(full);
-  const where = [coursePhrase(req), instructorPhrase(req)].filter((item): item is string => Boolean(item));
   const length = lengthPhrase(req);
   const citation = citationPhrase(req);
-  const [lead, verb] = SUMMARY_OPENERS[openerIndex(opts.seed)]!;
-  const what = length ? `${length}${citation ? ` in ${citation}` : ""}` : citation;
-  let opener = opts.bare ? "" : lead;
-  const v = opts.bare ? verb.charAt(0).toUpperCase() + verb.slice(1) : verb;
-  if (where.length && what) opener += ` ${v} ${joinList(where)}: ${what}.`;
-  else if (where.length) opener += ` ${v} ${joinList(where)}.`;
-  else if (what) opener += ` ${v} ${what}.`;
+  const lead = SUMMARY_OPENERS[openerIndex(opts.seed)]!;
+  const what = length ? `${length}${citation ? ` in ${citation}` : ""}` : citation ? `a paper in ${citation}` : null;
+  const facts = factsSentence(coursePhrase(req), instructorPhrase(req), what);
+  const opener = opts.bare ? facts : `${lead} ${facts}`.trim();
 
   const needs: string[] = [];
   const shape = structurePhrases(req);
@@ -309,7 +324,7 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
 
   const whenWhat: string[] = [];
   const due = req.dueDate.value?.trim();
-  if (due && due.length <= 60) whenWhat.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
+  if (due && due.length <= 60) whenWhat.push(`It's due ${withYear(due.replace(/^due:?\s*/i, "")) ?? due}.`);
   const topic = topicLine(req);
   if (topic) whenWhat.push(topic);
 
@@ -319,7 +334,7 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
     if (first === lead) first = "Okay, I read through it.";
     close = "I couldn't make out every detail on the sheet, so I'll check a couple of things with you.";
   } else {
-    close = opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?";
+    close = opts.pendingAsk ? "That covers most of it." : "This is totally doable. You ready to get rolling?";
   }
   const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
   if (opts.bare) return [opener, needs.join(" "), graded.join(" "), whenWhat.join(" ")].map(tidy).filter(Boolean);
@@ -347,7 +362,7 @@ export function readBackParas(full: AssignmentRequirements, opts: { pendingAsk?:
 /** After a correction: the updated facts, then "does that look right now?" (or the next missing thing). */
 export function reconfirmParas(full: AssignmentRequirements, pendingAsk: PauPauAsk | null): string[] {
   const facts = pauPauSummaryBubbles(full, { bare: true }).join(" ").trim();
-  return [facts ? `Here's what I have now: ${facts.charAt(0).toLowerCase()}${facts.slice(1)}` : "", pendingAsk ? PAU_PAU_ASK_TEXT[pendingAsk] : RECONFIRM_ASK].filter(Boolean);
+  return [facts ? `Here's what I have now. ${facts}` : "", pendingAsk ? PAU_PAU_ASK_TEXT[pendingAsk] : RECONFIRM_ASK].filter(Boolean);
 }
 
 /** The same read-back as one paragraph (read aloud, tests). */

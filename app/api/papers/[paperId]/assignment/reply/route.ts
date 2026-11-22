@@ -10,6 +10,7 @@ import {
   CONFIRM_REPLY_SYSTEM,
   cardForModel,
   confirmUserPrompt,
+  finalizeResult,
   isQuickConfirm,
   parseModelResult,
   rulesClassify,
@@ -92,7 +93,7 @@ export async function POST(request: Request, ctx: Ctx) {
       result = null;
     }
   }
-  const out = result ?? rules;
+  const out = finalizeResult(result, rules, pendingAsk);
   if (!demo) {
     await logSessionEvent({
       paperId,

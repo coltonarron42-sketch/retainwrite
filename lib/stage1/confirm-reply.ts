@@ -5,6 +5,7 @@
  * confirm. Corrections update the extracted fields and Pau Pau re-confirms.
  * SOP: coaching only. Replies talk about the assignment sheet, never the paper.
  */
+import { withYear } from "@/lib/copy/due-date";
 import { markFieldConfirmed } from "@/lib/assignment/confirm-helpers";
 import { emptyField, type AssignmentRequirements, type CitationStyle } from "@/lib/assignment/schema";
 import { lengthFromAnswer, type PauPauAsk } from "@/lib/stage1/pau-pau";
@@ -179,12 +180,50 @@ export function rulesClassify(text: string, pendingAsk: PauPauAsk | null): Confi
       updates,
     };
   }
-  return {
-    ...base,
-    intent: "ambiguous",
-    reply: "Just to be sure I've got it: does everything above look right, or is there something I should change?",
-    updates,
-  };
+  return { ...base, intent: "ambiguous", reply: clarifyingAsk(pendingAsk), updates };
+}
+
+/**
+ * An unclear reply ("hmm maybe") gets a real clarifying question that re-asks,
+ * with a clear way forward. It never moves on.
+ */
+export function clarifyingAsk(pendingAsk: PauPauAsk | null): string {
+  if (pendingAsk === "sources") {
+    return "No worries. Is there a source you have to use? You can paste a link, upload a PDF, or tell me \u201cskip\u201d and we'll find sources together later.";
+  }
+  if (pendingAsk === "length") {
+    return "No worries. Roughly how long does it need to be, in words or pages? If the sheet doesn't say, tell me \u201cskip\u201d.";
+  }
+  if (pendingAsk === "topic") {
+    return "No worries. What's the paper about, in a few words? If you haven't picked a topic yet, just say so.";
+  }
+  return "No worries. Does anything in there look off, like the length, due date or sources? Or tell me \u201clooks good\u201d and we'll start.";
+}
+
+/**
+ * Final say on the model's reading. The rules are exact about numbers and
+ * dates the student typed, so those win (a "1,500 words" correction always
+ * replaces the whole old range). Unclear replies always get the clarifying ask.
+ */
+export function finalizeResult(model: ConfirmResult | null, rules: ConfirmResult, pendingAsk: PauPauAsk | null): ConfirmResult {
+  if (!model) return rules;
+  const updates = { ...model.updates };
+  const r = rules.updates;
+  if (r.wordsMin || r.pagesMin) {
+    updates.wordsMin = r.wordsMin;
+    updates.wordsMax = r.wordsMax;
+    updates.pagesMin = r.pagesMin;
+    updates.pagesMax = r.pagesMax;
+  }
+  if (r.dueDate) updates.dueDate = r.dueDate;
+  let intent = model.intent;
+  let reply = model.reply;
+  if ((intent === "ambiguous" || intent === "confirm") && hasUpdates(updates) && rules.intent === "correction") {
+    intent = "correction";
+    reply = rules.reply;
+  }
+  if (intent === "ambiguous") reply = clarifyingAsk(pendingAsk);
+  return { ...model, intent, reply, updates };
 }
 
 /** Writes the changes onto the card as student-confirmed values. */
@@ -207,15 +246,16 @@ export function applyConfirmUpdates(req: AssignmentRequirements, u: ConfirmUpdat
   const type = str(u.paperType, 60);
   if (type) next.paperType = markFieldConfirmed(req.paperType, { value: type });
   const due = str(u.dueDate, 60);
-  if (due) next.dueDate = markFieldConfirmed(req.dueDate, { value: due });
+  if (due) next.dueDate = markFieldConfirmed(req.dueDate, { value: withYear(due) ?? due });
   const cite = citationFrom(u.citationStyle);
   if (cite) next.citationStyle = markFieldConfirmed(req.citationStyle, { value: cite });
   const pos = (n: number | null) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.round(n) : undefined);
-  const wordsMin = pos(u.wordsMin);
-  const pagesMin = pos(u.pagesMin);
+  // A single number ("1,500 words") replaces the whole range.
+  const wordsMin = pos(u.wordsMin) ?? pos(u.wordsMax);
+  const pagesMin = wordsMin ? undefined : (pos(u.pagesMin) ?? pos(u.pagesMax));
   if (wordsMin || pagesMin) {
-    const wordsMax = pos(u.wordsMax) ?? wordsMin;
-    const pagesMax = pos(u.pagesMax) ?? pagesMin;
+    const wordsMax = wordsMin ? Math.max(wordsMin, pos(u.wordsMax) ?? wordsMin) : undefined;
+    const pagesMax = pagesMin ? Math.max(pagesMin, pos(u.pagesMax) ?? pagesMin) : undefined;
     const raw = wordsMin
       ? `${wordsMin === wordsMax ? wordsMin : `${wordsMin}-${wordsMax}`} words`
       : `${pagesMin === pagesMax ? pagesMin : `${pagesMin}-${pagesMax}`} pages`;
@@ -248,7 +288,7 @@ Intents:
 - "correction": the student corrects or adds a detail you track (topic, prompt question, course, instructor, paper type, due date, citation style, length in words or pages, number of sources). Put ONLY the changed values in "updates"; every other update is null. A reply that confirms AND corrects is a correction.
 - "question": the student asks you something (e.g. "do you need my due date?", "what does the rubric focus on?"). Answer from the assignment details given. If the sheet doesn't say, say so plainly and suggest asking their teacher.
 - "extra_info": the student shares context that isn't a tracked field (e.g. "my teacher said first person is fine"). Set keepAsNote true so their exact words are saved. If they decline what you asked for ("I don't have the sources yet"), set skipAsk true.
-- "ambiguous": you can't tell what they mean. Ask one short clarifying question. Never treat an unclear reply as confirm.
+- "ambiguous": you can't tell what they mean (e.g. "hmm maybe", "idk"). Never treat an unclear reply as confirm. The app adds the clarifying question.
 
 The reply: 1-3 short, warm, plain sentences in Pau Pau's own voice. No exclamation points. Do not restate the whole assignment. For a correction, briefly name what you changed ("Got it, 1,500 words and due Dec 3."). Do not end with a question (no "anything else?", no "does it look right?"); the app adds the follow-up question. Only an "ambiguous" reply ends with your one clarifying question.
 Coaching only: never write any part of the student's paper. No thesis, outline, arguments, example sentences, or paragraphs. Never invent assignment details.
