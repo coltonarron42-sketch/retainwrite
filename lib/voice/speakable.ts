@@ -22,7 +22,9 @@ export function speakableSentences(text: string): string[] {
     .filter((x) => !QUOTE.test(x))
     .filter((x) => !/^the big question\b/i.test(x))
     // Restating the topic repeats the student's own words; Pau Pau skips it.
-    .filter((x) => !/^you'll be writing about\b/i.test(x));
+    .filter((x) => !/^you'll be writing about\b/i.test(x))
+    // UI instructions are on screen; Pau Pau doesn't read them out.
+    .filter((x) => !/^(or )?tap\b|^write at least\b|^add to it below\b/i.test(x));
   return sentences
     .map((x) =>
       x

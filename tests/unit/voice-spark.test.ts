@@ -23,6 +23,11 @@ describe("speakable text", () => {
       speakableSentences("When has the question “Should schools start later?” come up in real life — school, work, family?"),
     ).toEqual(["When has this question come up in real life, school, work, family?"]);
   });
+  it("skips UI instructions", () => {
+    expect(speakableSentences("Tell me a little more: what's the topic? Or tap + to add the assignment sheet.")).toEqual(["Tell me a little more: what's the topic?"]);
+    expect(speakableSentences("When has this come up for you? Write at least a few sentences.")).toEqual(["When has this come up for you?"]);
+    expect(speakableSentences("Give me a little more — a couple more sentences? Your early take is almost there. Add to it below.")).toEqual(["Give me a little more, a couple more sentences?", "Your early take is almost there."]);
+  });
   it("reads number ranges naturally", () => {
     expect(speakableSentences("A 1,200–1,500 word paper.")).toEqual(["A 1,200 to 1,500 word paper."]);
   });
