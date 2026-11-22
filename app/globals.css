@@ -8,6 +8,18 @@
   --rw-teal: #0f766e;
   --rw-sky: #9ec9c3;
   --rw-mist: #d7e8e2;
+
+  /* PLAN.md 8.1 Design System — Editorial-Warm */
+  --ds-page: #faf7f2;
+  --ds-surface: #ffffff;
+  --ds-ink: #1c2b2d;
+  --ds-muted: #5c6b6e;
+  --ds-faint: #9aa5a8;
+  --ds-accent: #c4785a;
+  --ds-sage: #7a9e7e;
+  --ds-amber: #d4a017;
+  --ds-error: #c0392b;
+  --ds-border: #e8e2da;
 }
 
 html,
@@ -72,5 +84,62 @@ body {
   .animate-rise,
   .animate-drift {
     animation: none;
+  }
+}
+
+/* PLAN.md 8.4 buttons. Terracotta with white text is 3.4:1, so the label is
+   large text (19px bold) to meet WCAG AA (8.7). */
+@layer components {
+  .ds-btn-primary,
+  .ds-btn-secondary,
+  .ds-btn-ghost {
+    display: inline-flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    padding: 0 24px;
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.2;
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease,
+      color 150ms ease;
+  }
+  .ds-btn-primary {
+    background: var(--ds-accent);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(196, 120, 90, 0.25);
+  }
+  .ds-btn-primary:hover {
+    box-shadow: 0 4px 16px rgba(196, 120, 90, 0.32);
+  }
+  .ds-btn-secondary {
+    background: var(--ds-surface);
+    color: var(--ds-accent);
+    border: 1px solid var(--ds-accent);
+  }
+  .ds-btn-ghost {
+    padding: 0 8px;
+    color: var(--ds-accent);
+  }
+  .ds-btn-ghost:hover {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .ds-btn-primary:focus-visible,
+  .ds-btn-secondary:focus-visible,
+  .ds-btn-ghost:focus-visible,
+  .ds-focus:focus-visible {
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ds-btn-primary,
+    .ds-btn-secondary,
+    .ds-btn-ghost {
+      transition: none;
+    }
   }
 }
