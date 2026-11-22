@@ -1,5 +1,6 @@
 "use client";
 
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { speakableSentences } from "@/lib/voice/speakable";
 
 /**
@@ -570,6 +571,61 @@ export type SpeakItem = { key: string; text: string; turn?: boolean };
 export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
   const turn = items.filter((i) => i.turn).map((i) => i.text);
   if (turn.length) latestTurn = turn;
+  // Anything this paper already showed or said, on any earlier visit, is never
+  // read again (Colton 3:46 PM): restored history stays silent even if it
+  // arrives late or under a new key after a reload or a return.
+  const heard = heardFor(scope);
+  const before = heard.size;
+  const fresh0 = takeNewInner(scope, items).filter((i) => !heard.has(textMark(i.text)));
+  for (const i of items) heard.add(textMark(i.text));
+  if (heard.size !== before) saveHeard(scope, heard);
+  return fresh0;
+}
+
+/* ---- per-paper "already shown / spoken" marker, saved per user ---- */
+const heardCache = new Map<string, Set<string>>();
+const paperOf = (scope: string) => scope.split(":")[0] ?? scope;
+/** A short stable mark for a line (FNV-1a), so storage never holds her words. */
+export function textMark(text: string): string {
+  let h = 0x811c9dc5;
+  const t = text.replace(/\s+/g, " ").trim();
+  for (let i = 0; i < t.length; i++) {
+    h ^= t.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+function heardFor(scope: string): Set<string> {
+  const key = paperOf(scope);
+  let set = heardCache.get(key);
+  if (set) return set;
+  set = new Set();
+  try {
+    const raw = readScoped(`heard:${key}`);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    if (Array.isArray(list)) for (const m of list) if (typeof m === "string") set.add(m);
+  } catch {
+    /* ignore a bad entry */
+  }
+  heardCache.set(key, set);
+  return set;
+}
+function saveHeard(scope: string, set: Set<string>) {
+  const list = [...set].slice(-600);
+  writeScoped(`heard:${paperOf(scope)}`, JSON.stringify(list));
+}
+/** A chat (re)mounted: what's on screen at its first pass is restored history. */
+export function beginSpeakScope(scope: string) {
+  seen.delete(scope);
+}
+/** Mark lines as already said (e.g. the welcome-back line we just spoke). */
+export function markHeard(scope: string, texts: string[]) {
+  const heard = heardFor(scope);
+  texts.forEach((t) => heard.add(textMark(t)));
+  saveHeard(scope, heard);
+}
+
+function takeNewInner(scope: string, items: SpeakItem[]): SpeakItem[] {
   let set = seen.get(scope);
   // Until the student taps or types on this page load, everything on screen is
   // restored history (a reload can swap screens and redraw old bubbles), so
@@ -597,6 +653,7 @@ export function currentTurn(): string[] {
 /** Test helper. */
 export function __resetSpeech() {
   seen.clear();
+  heardCache.clear();
   interacted = false;
   latestTurn = [];
   queue = [];
