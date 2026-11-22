@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { AppNavLink } from "@/components/app/app-nav-link";
 import { DemoLossBanner } from "@/components/app/demo-loss-banner";
 import { LogOutButton } from "@/components/auth/log-out-button";
 import { requireUser } from "@/lib/auth/require-user";
 
+/**
+ * Signed-in shell, PLAN.md section 8 (Editorial-Warm). Only the frame (page
+ * background, banner, header) is restyled here; Stage content keeps its own styles.
+ */
 export default async function AppLayout({
   children,
 }: {
@@ -11,25 +16,24 @@ export default async function AppLayout({
   const access = await requireUser("/app");
 
   return (
-    <div className="min-h-screen bg-rw-paper">
+    <div className="min-h-screen bg-ds-page">
       {access.kind !== "user" ? <DemoLossBanner /> : null}
-      <header className="border-b border-rw-ink/10 bg-white/50">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 md:px-8">
-          <Link href="/" className="font-display text-xl text-rw-ink">
+      <header className="border-b border-ds-border px-6 py-4 font-ds-sans md:px-16">
+        <div className="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Link
+            href="/"
+            className="ds-focus rounded-[8px] font-display text-[20px] font-semibold leading-[1.2] text-ds-ink"
+          >
             RetainWrite
           </Link>
-          <nav className="flex items-center gap-4 text-sm font-medium text-rw-ink/70">
-            <Link href="/app" className="hover:text-rw-ink">
+          <nav aria-label="Account" className="-mr-2 flex flex-wrap items-center gap-x-1 md:gap-x-3">
+            <AppNavLink href="/app" exact>
               My papers
-            </Link>
-            <Link href="/app/billing" className="hover:text-rw-ink">
-              Billing
-            </Link>
-            <Link href="/pricing" className="hover:text-rw-ink">
-              Pricing
-            </Link>
+            </AppNavLink>
+            <AppNavLink href="/app/billing">Billing</AppNavLink>
+            <AppNavLink href="/pricing">Pricing</AppNavLink>
             {access.kind === "user" ? (
-              <LogOutButton className="font-medium text-rw-ink/70 hover:text-rw-ink" />
+              <LogOutButton className="ds-focus rounded-[8px] px-2 py-2 text-[16px] font-semibold text-ds-ink transition-colors duration-150 hover:text-ds-muted" />
             ) : null}
           </nav>
         </div>
