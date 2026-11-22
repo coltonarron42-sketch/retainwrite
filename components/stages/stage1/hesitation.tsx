@@ -160,4 +160,4 @@ export function SparkExchange({
 }
 
 export const SPARK_DECLINED = "No problem. Take your time.";
-export const SPARK_OFF = "Got it. I won't offer again.";
+export const SPARK_OFF = "Got it. I won't offer again. Scout's honor.";
