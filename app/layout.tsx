@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, JetBrains_Mono, Manrope, Source_Sans_3 } from "next/font/google";
 import { SITE_URL } from "@/lib/config";
 import "./globals.css";
@@ -28,6 +28,14 @@ const sans = Manrope({
   variable: "--font-sans",
   weight: ["400", "500", "600", "700"],
 });
+
+// The on-screen keyboard resizes the page (Android), so a chat composer docked
+// at the bottom stays visible above it. iOS ignores this; the dock lifts itself.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+};
 
 export const metadata: Metadata = {
   title: {

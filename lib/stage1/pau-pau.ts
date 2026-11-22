@@ -168,7 +168,11 @@ function sourcesPhrase(req: AssignmentRequirements): string | null {
   const n = sources.countMin;
   let base: string | null = null;
   if (n) {
-    const kind = /scholarly|peer/i.test(sources.types ?? "") || sources.scholarlyRequired ? "scholarly sources" : "sources";
+    const kind = /peer/i.test(`${sources.types ?? ""} ${sources.notes ?? ""}`)
+      ? "peer-reviewed sources"
+      : /scholarly/i.test(sources.types ?? "") || sources.scholarlyRequired
+        ? "scholarly sources"
+        : "sources";
     base = `at least ${count(n)} ${n === 1 ? kind.replace(/s$/, "") : kind}`;
   } else if (sources.types?.trim() && sources.types.length <= 80 && !named) {
     base = sources.types.trim().replace(/^use\s+/i, "").replace(/\.$/, "");
@@ -231,37 +235,79 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
   return { view, skipped };
 }
 
-/** What Pau Pau understood, as one conversational paragraph. */
-export function pauPauSummary(full: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null } = {}): string {
+/**
+ * A small set of natural openers so the read-back doesn't always start the
+ * same way. Picked by a stable seed (the paper id) so a reload says the same thing.
+ * [lead-in, verb phrase before "<course>: <length>"].
+ */
+export const SUMMARY_OPENERS: ReadonlyArray<readonly [string, string]> = [
+  ["Okay, let's see here…", "looks like"],
+  ["Got it.", "Looks like"],
+  ["Alright, I read it.", "This is"],
+  ["Thanks, that helps.", "So this is"],
+  ["Okay, here's what I'm seeing.", "It's"],
+];
+
+/** Stable small hash so the same paper always gets the same opener. */
+export function openerIndex(seed: string | number | undefined): number {
+  if (seed == null) return 0;
+  if (typeof seed === "number") return Math.abs(Math.trunc(seed)) % SUMMARY_OPENERS.length;
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return h % SUMMARY_OPENERS.length;
+}
+
+export type SummaryOptions = { pendingAsk?: PauPauAsk | null; seed?: string | number };
+
+/**
+ * What Pau Pau understood, as a few short chat bubbles, one idea each:
+ * what it is → what it needs → how it's graded → when and what about → wrap-up.
+ */
+export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: SummaryOptions = {}): string[] {
   const { view: req, skipped } = trustedView(full);
   const where = [coursePhrase(req), instructorPhrase(req)].filter((item): item is string => Boolean(item));
   const length = lengthPhrase(req);
   const citation = citationPhrase(req);
-  let opener = "Okay, let's see here…";
+  const [lead, verb] = SUMMARY_OPENERS[openerIndex(opts.seed)]!;
   const what = length ? `${length}${citation ? ` in ${citation}` : ""}` : citation;
-  if (where.length && what) opener += ` looks like ${joinList(where)}: ${what}.`;
-  else if (where.length) opener += ` looks like ${joinList(where)}.`;
-  else if (what) opener += ` looks like ${what}.`;
-  const parts = [opener];
+  let opener = lead;
+  if (where.length && what) opener += ` ${verb} ${joinList(where)}: ${what}.`;
+  else if (where.length) opener += ` ${verb} ${joinList(where)}.`;
+  else if (what) opener += ` ${verb} ${what}.`;
+
+  const needs: string[] = [];
   const shape = structurePhrases(req);
-  if (shape.length) parts.push(`You'll need ${joinList(shape)}.`);
+  if (shape.length) needs.push(`You'll need ${joinList(shape)}.`);
   const sources = sourcesPhrase(req);
-  if (sources) parts.push(`It calls for ${sources}.`);
+  if (sources) needs.push(`It calls for ${sources}.`);
+
+  const graded: string[] = [];
   const formatting = formattingPhrase(req);
-  if (formatting) parts.push(formatting);
+  if (formatting) graded.push(formatting);
   const rubric = rubricPhrase(req);
-  if (rubric) parts.push(rubric);
+  if (rubric) graded.push(rubric);
+
+  const whenWhat: string[] = [];
   const due = req.dueDate.value?.trim();
-  if (due && due.length <= 60) parts.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
+  if (due && due.length <= 60) whenWhat.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
   const topic = topicLine(req);
-  if (topic) parts.push(topic);
+  if (topic) whenWhat.push(topic);
+
+  let first = opener;
+  let close: string;
   if (skipped) {
-    if (parts.length === 1 && parts[0] === "Okay, let's see here…") parts[0] = "Okay, I read through it.";
-    parts.push("I couldn't make out every detail on the sheet, so I'll check a couple of things with you.");
+    if (first === lead) first = "Okay, I read through it.";
+    close = "I couldn't make out every detail on the sheet, so I'll check a couple of things with you.";
   } else {
-    parts.push(opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?");
+    close = opts.pendingAsk ? "Looks good so far." : "This is totally doable. You ready to get rolling?";
   }
-  return parts.join(" ").replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
+  const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
+  return [first, needs.join(" "), graded.join(" "), whenWhat.join(" "), close].filter(Boolean).map(tidy);
+}
+
+/** The same read-back as one paragraph (read aloud, tests). */
+export function pauPauSummary(full: AssignmentRequirements, opts: SummaryOptions = {}): string {
+  return pauPauSummaryBubbles(full, opts).join(" ").replace(/\s+/g, " ").trim();
 }
 
 /** True when the sheet asks for sources the student has not given us yet. */
