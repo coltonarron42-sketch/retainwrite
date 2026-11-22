@@ -12,8 +12,10 @@ import { createClient } from "@/lib/supabase/server";
 export async function confirmEmail(formData: FormData) {
   const tokenHash = String(formData.get("token_hash") ?? "");
   const type = String(formData.get("type") ?? "");
-  const next = safeInternalPath(String(formData.get("next") ?? "/app"));
+  const isRecovery = type === "recovery";
+  const next = isRecovery ? "/reset-password" : safeInternalPath(String(formData.get("next") ?? "/app"));
   const login = (code: string): never => {
+    if (isRecovery) redirect(`/forgot-password?error=${encodeURIComponent(code)}`);
     redirect(`/login?error=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`);
   };
 
@@ -38,7 +40,11 @@ export async function confirmEmail(formData: FormData) {
     await clearDemoSession();
     redirect(next);
   }
-  if (outcome === "app") redirect("/app");
+  // A signed-in browser can still set a new password from a used recovery link.
+  if (outcome === "app") {
+    if (isRecovery && user) redirect("/reset-password");
+    redirect("/app");
+  }
 
   console.error("[auth/confirm]", error?.message ?? "verify_failed");
   login(outcome);
