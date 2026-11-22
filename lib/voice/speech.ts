@@ -13,6 +13,14 @@ import { speakableSentences } from "@/lib/voice/speakable";
  * leave the engine paused. So: unlock on the first tap (and on the Voice
  * switch), hold the queue until then, wait for voices, give every utterance a
  * watchdog, wait a beat after cancel(), and resume() before each speak().
+ *
+ * Server voice first (PLAN.md 9, Nov 22): each sentence is fetched as MP3 from
+ * /api/voice/tts (xAI text to speech) and played through one shared <audio>
+ * element that is unlocked on the first tap. Web Speech is the fallback (no
+ * server voice, a failed clip). "Audible" (waves, "Pau Pau is talking") is set
+ * only from real playback events ('playing' / onstart), never from a timer;
+ * if playback can't start, `needsTap()` turns on and the UI shows "Tap to
+ * hear Pau Pau".
  */
 
 let queue: string[] = [];
@@ -55,6 +63,91 @@ export function audibleSentence(): string | null {
   return audible;
 }
 
+/* Audio could not start (autoplay blocked, silent engine): ask for a tap. */
+let tapNeeded = false;
+const tapListeners = new Set<() => void>();
+function setTapNeeded(v: boolean) {
+  if (tapNeeded === v) return;
+  tapNeeded = v;
+  tapListeners.forEach((l) => l());
+}
+export function subscribeNeedsTap(listener: () => void) {
+  tapListeners.add(listener);
+  return () => tapListeners.delete(listener);
+}
+export function needsTap(): boolean {
+  return tapNeeded;
+}
+
+/* ---- server voice: <audio> + /api/voice/tts ---- */
+let serverVoice: "unknown" | "on" | "off" = "unknown";
+let serverFailures = 0;
+let audioEl: HTMLAudioElement | null = null;
+const clips = new Map<string, Promise<string | null>>();
+// 0.05s of silence, played inside the first tap so later play() calls are allowed (iOS).
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+
+function audioSupported(): boolean {
+  return typeof window !== "undefined" && typeof window.Audio === "function" && typeof fetch === "function" && typeof URL?.createObjectURL === "function";
+}
+function getAudio(): HTMLAudioElement | null {
+  if (!audioSupported()) return null;
+  if (!audioEl) {
+    audioEl = new window.Audio();
+    audioEl.preload = "auto";
+    audioEl.setAttribute("playsinline", "");
+    audioEl.setAttribute("data-pau-audio", "");
+  }
+  return audioEl;
+}
+/** Safari 17+: play through the speaker (not the earpiece) even after the mic was used, and past the silent switch. */
+function preferPlaybackRoute() {
+  try {
+    const nav = navigator as Navigator & { audioSession?: { type?: string } };
+    if (nav.audioSession && nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
+  } catch {
+    /* ignore */
+  }
+}
+function fetchClip(text: string): Promise<string | null> {
+  if (serverVoice === "off") return Promise.resolve(null);
+  const hit = clips.get(text);
+  if (hit) return hit;
+  const p = fetch("/api/voice/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: text.slice(0, 600) }),
+  })
+    .then(async (res) => {
+      if (res.status === 503 || res.status === 401 || res.status === 404) {
+        serverVoice = "off";
+        return null;
+      }
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("empty");
+      serverVoice = "on";
+      serverFailures = 0;
+      return URL.createObjectURL(blob);
+    })
+    .catch(() => {
+      if (++serverFailures >= 3) serverVoice = "off";
+      clips.delete(text);
+      return null;
+    });
+  clips.set(text, p);
+  if (clips.size > 40) {
+    const first = clips.keys().next().value;
+    if (first !== undefined && first !== text) clips.delete(first);
+  }
+  return p;
+}
+/** Which engine reads Pau Pau's words right now (for tests and the report). */
+export function voiceEngine(): "server" | "browser" | "unknown" {
+  return serverVoice === "on" ? "server" : serverVoice === "off" ? "browser" : "unknown";
+}
+
 export function subscribeSpeaking(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -64,6 +157,11 @@ export function isSpeaking() {
 }
 
 export function speechSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  if (audioSupported() && serverVoice !== "off") return true;
+  return synthSupported();
+}
+function synthSupported(): boolean {
   if (typeof window === "undefined") return false;
   const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
   return (
@@ -117,6 +215,17 @@ let installed = false;
 /** Listens once for the first tap or key and for late-loading voices. */
 export function installSpeechUnlock() {
   if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
+  if (!synthSupported()) {
+    installed = true;
+    const onTap = () => {
+      interacted = true;
+      unlockSpeech();
+    };
+    for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
+      window.addEventListener(type, onTap, { capture: true, passive: true });
+    }
+    return;
+  }
   installed = true;
   const onGesture = () => {
     interacted = true;
@@ -149,9 +258,43 @@ export function installSpeechUnlock() {
  * silent utterance once so iOS/Android allow speech that starts later, after
  * a network reply, then plays anything that was waiting.
  */
+let audioUnlocked = false;
 export function unlockSpeech() {
   interacted = true;
   if (!speechSupported()) return;
+  preferPlaybackRoute();
+  // A "Tap to hear" tap: unlock again inside this gesture.
+  if (tapNeeded) audioUnlocked = false;
+  const a = getAudio();
+  if (a && !audioUnlocked && !active) {
+    audioUnlocked = true;
+    try {
+      a.muted = true;
+      a.src = SILENT_WAV;
+      const p = a.play();
+      if (p && typeof p.then === "function")
+        p.then(
+          () => {
+            // Only stop the silent unlock clip, never a sentence that started meanwhile.
+            if (a.src === SILENT_WAV) a.pause();
+            a.muted = false;
+          },
+          () => {
+            a.muted = false;
+            audioUnlocked = false;
+          },
+        );
+      else a.muted = false;
+    } catch {
+      a.muted = false;
+      audioUnlocked = false;
+    }
+  }
+  setTapNeeded(false);
+  if (!synthSupported()) {
+    if (queue.length && !active) pump();
+    return;
+  }
   const synth = window.speechSynthesis;
   try {
     synth.resume();
@@ -215,6 +358,104 @@ function pump() {
   const next = queue.shift()!;
   active = true;
   const gen = generation;
+  setSpeaking(true);
+  if (audioSupported() && serverVoice !== "off") {
+    const clip = fetchClip(next);
+    // Fetch ahead so the next sentence starts without a gap.
+    for (const t of queue.slice(0, 2)) void fetchClip(t);
+    void clip.then((url) => {
+      if (gen !== generation) return;
+      if (url) playClip(url, next, gen);
+      else if (synthSupported()) speakWithSynth(next, gen);
+      else {
+        active = false;
+        pump();
+      }
+    });
+    return;
+  }
+  speakWithSynth(next, gen);
+}
+
+/** Playback could not start: keep the sentence, stop pretending, ask for a tap. */
+function blockedBeforeStart(text: string, gen: number) {
+  if (gen !== generation) return;
+  if (watchdog) clearTimeout(watchdog);
+  watchdog = null;
+  queue.unshift(text);
+  active = false;
+  audibleEnded = true;
+  setAudible(null);
+  setSpeaking(false);
+  setTapNeeded(true);
+}
+
+function playClip(url: string, next: string, gen: number) {
+  const a = getAudio();
+  if (!a) return speakWithSynth(next, gen);
+  let finished = false;
+  let started = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = null;
+    if (gen !== generation) return;
+    audibleEnded = queue.length === 0;
+    setAudible(null);
+    active = false;
+    pump();
+  };
+  a.onplaying = () => {
+    if (gen !== generation || finished) return;
+    started = true;
+    setTapNeeded(false);
+    audibleEnded = false;
+    setAudible(next);
+    // Playing: allow its real length, then move on even without 'ended'.
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = setTimeout(done, utteranceBudgetMs(next) + 2000);
+  };
+  a.onended = done;
+  a.onerror = () => {
+    if (finished || gen !== generation) return;
+    finished = true;
+    if (watchdog) clearTimeout(watchdog);
+    // A bad clip: say this sentence with the browser voice instead.
+    if (!started && synthSupported()) speakWithSynth(next, gen);
+    else done();
+  };
+  a.muted = false;
+  a.src = url;
+  let p: Promise<void> | undefined;
+  try {
+    p = a.play();
+  } catch {
+    p = Promise.reject(new Error("play"));
+  }
+  p?.catch?.((err: unknown) => {
+    if (finished || gen !== generation) return;
+    finished = true;
+    if ((err as { name?: string } | null)?.name === "NotAllowedError") blockedBeforeStart(next, gen);
+    else if (synthSupported()) speakWithSynth(next, gen);
+    else blockedBeforeStart(next, gen);
+  });
+  // No 'playing' within 5s: the clip isn't really playing, so don't claim it is.
+  watchdog = setTimeout(() => {
+    if (finished || gen !== generation) return;
+    if (!started) {
+      finished = true;
+      try {
+        a.pause();
+      } catch {
+        /* ignore */
+      }
+      blockedBeforeStart(next, gen);
+    }
+  }, 5000);
+}
+
+function speakWithSynth(next: string, gen: number) {
   const synth = window.speechSynthesis;
   const u = new SpeechSynthesisUtterance(next);
   const voice = pickVoice();
@@ -222,6 +463,7 @@ function pump() {
   u.lang = voice?.lang ?? "en-US";
   u.rate = 1;
   let finished = false;
+  let started = false;
   const done = () => {
     if (finished) return;
     finished = true;
@@ -235,8 +477,13 @@ function pump() {
   };
   u.onstart = () => {
     if (gen === generation && !finished) {
+      started = true;
+      setTapNeeded(false);
       audibleEnded = false;
       setAudible(next);
+      // Started: allow its real length, then move on even without onend.
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(done, utteranceBudgetMs(next));
     }
   };
   u.onend = done;
@@ -253,12 +500,26 @@ function pump() {
     done();
     return;
   }
-  watchdog = setTimeout(done, utteranceBudgetMs(next));
+  // The engine never started (phones without an unlocking tap): ask for one.
+  watchdog = setTimeout(() => {
+    if (finished || gen !== generation) return;
+    if (!started) {
+      finished = true;
+      try {
+        synth.cancel();
+      } catch {
+        /* ignore */
+      }
+      lastCancelAt = Date.now();
+      blockedBeforeStart(next, gen);
+    }
+  }, 4000);
 }
 
 /** Queue Pau Pau's words. `interrupt` replaces anything already playing. */
 export function speak(texts: string[], opts: { interrupt?: boolean } = {}) {
   if (!speechSupported()) return;
+  setTapNeeded(false);
   installSpeechUnlock();
   if (opts.interrupt) stopSpeech();
   for (const t of texts) for (const s of speakableSentences(t)) queue.push(...chunkSentence(s));
@@ -277,7 +538,18 @@ export function stopSpeech() {
   setSpeaking(false);
   audibleEnded = true;
   setAudible(null);
-  if (speechSupported()) {
+  setTapNeeded(false);
+  if (audioEl) {
+    audioEl.onplaying = null;
+    audioEl.onended = null;
+    audioEl.onerror = null;
+    try {
+      audioEl.pause();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (synthSupported()) {
     lastCancelAt = Date.now();
     window.speechSynthesis.cancel();
   }
@@ -332,8 +604,19 @@ export function __resetSpeech() {
   unlocked = false;
   lastCancelAt = 0;
   cachedVoice = undefined;
+  serverVoice = "unknown";
+  serverFailures = 0;
+  clips.clear();
+  audioEl = null;
+  audioUnlocked = false;
+  tapNeeded = false;
   if (watchdog) clearTimeout(watchdog);
   watchdog = null;
+}
+
+/** Test helper: force the browser voice (no server clips). */
+export function __browserVoiceForTest() {
+  serverVoice = "off";
 }
 
 /** Test helper: pretend the student already tapped. */
