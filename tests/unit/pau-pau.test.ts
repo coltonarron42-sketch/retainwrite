@@ -84,3 +84,19 @@ describe("Pau Pau bubble", () => {
     expect(text).toContain("You'll be graded on thesis and argument, use of evidence, organization, and MLA formatting and mechanics.");
   });
 });
+
+describe("Pau Pau on a weak (rule fallback) read", () => {
+  it("never states low-confidence facts or a fragment topic; asks for the topic", async () => {
+    const { capFallbackConfidence } = await import("@/lib/assignment/parse");
+    const r = emptyRequirements();
+    r.course = extractedField("ENG 101: College Composition", 0.8);
+    r.topic = extractedField("the prompt. Your thesis should appear in", 0.7);
+    r.length = extractedField({ wordsMin: 500, wordsMax: 500 }, 0.6);
+    r.citationStyle = extractedField("MLA 9" as const, 0.85);
+    const capped = capFallbackConfidence(r);
+    const text = pauPauSummary(capped, { pendingAsk: pauPauNextAsk(capped, new Set()) });
+    expect(text).not.toMatch(/500|the prompt|thesis should/);
+    expect(text).toContain("I couldn't make out every detail");
+    expect(pauPauNextAsk(capped, new Set())).toBe("topic");
+  });
+});
