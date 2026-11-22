@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEve
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { DsButton } from "@/components/ui/ds-button";
+import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
 import { LogicCheckpoint } from "@/components/coaching/logic-checkpoint";
 import { MemoryTriggerList } from "@/components/coaching/memory-triggers";
@@ -15,6 +17,7 @@ import {
   exampleLeadBatch,
   sourceSearchDirections,
   stageLessonHeader,
+  subjectMidSentence,
   visibleSourceLead,
 } from "@/lib/coaching/exampleLeads";
 import {
@@ -536,36 +539,34 @@ export function CoachingLoop({
       ) : null}
       {stage === 2 ? (
         <>
-      <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
-        What you&apos;re learning
-      </p>
-      <h1 className="mt-2 font-display text-3xl text-rw-ink">
+      <p className={dsEyebrow}>What you&apos;re learning</p>
+      <h1 className={`mt-2 ${dsH1}`}>
         {stageLessonHeader(subject, lesson.statement)}
       </h1>
-      <p className="mt-2 text-sm text-rw-ink/70">
+      <p className={`mt-3 ${dsBody}`}>
         {session.extraction.promptType === "personal_experience"
           ? "This looks like a personal-story assignment. We'll help you remember and tell it."
           : subject === "your topic"
             ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-            : `This assignment teaches ${subject}.`}{" "}
+            : `This assignment teaches ${subjectMidSentence(subject)}.`}{" "}
         <a
           href={`/app/papers/${paperId}/stage/1`}
-          className="font-semibold text-rw-teal underline-offset-2 hover:underline"
+          className={dsLink}
         >
           Edit assignment
         </a>
       </p>
         </>
       ) : (
-        <p className="text-xs font-semibold uppercase tracking-wider text-rw-teal">
-          {STAGE_LABELS[stage - 1]}
+        <p className={dsEyebrow}>
+          Stage {stage} of {STAGE_LABELS.length} · {STAGE_LABELS[stage - 1]}
         </p>
       )}
       {stage === 2 ? (
-      <label className="mt-3 block text-sm text-rw-ink/70">
+      <label className={`mt-4 block ${dsCaption}`}>
         Prompt type
         <select
-          className="mt-1 block rounded-md border border-rw-ink/20 bg-white px-2 py-1"
+          className={`mt-1 max-w-[240px] ${dsSelect}`}
           value={session.extraction.promptType}
           onChange={(event) => {
             const promptType = event.target.value as PromptType;
@@ -949,7 +950,7 @@ export function CoachingLoop({
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <ProductNotes
           title="Outline"
-          intro="These are your notes from Stance. Edit them in your own words."
+          intro="These are your notes from Stance. Shape each section into a short outline in your own words: one line per point, your main claim first, then the example that shows it."
           sections={session.sections}
           editable
           paperId={paperId}
@@ -1203,12 +1204,14 @@ function ConfirmPanel({
 function OutlineDraft({
   paperId,
   sectionKey,
+  label,
   value,
   enabled,
   onChange,
 }: {
   paperId: string;
   sectionKey: string;
+  label: string;
   value: string;
   enabled: boolean;
   onChange: (text: string) => void;
@@ -1231,7 +1234,8 @@ function OutlineDraft({
   return (
     <>
       <Textarea
-        className="mt-2"
+        className={`mt-3 w-full ${dsTextarea}`}
+        aria-label={`Outline notes for ${label}`}
         value={text}
         onChange={(event) => {
           setText(event.target.value);
@@ -1267,35 +1271,34 @@ function ProductNotes({
   onContinue: () => void;
 }) {
   return (
-    <section className="mt-8 space-y-3">
-      <h2 className="font-display text-2xl text-rw-ink">{title}</h2>
-      <p className="text-sm text-rw-ink/70">{intro}</p>
-      {direction ? <p className="text-sm text-rw-ink">{direction}</p> : null}
+    <section className="mt-2 space-y-4">
+      <h1 className={dsH1}>{title}</h1>
+      <p className={dsBody}>{intro}</p>
+      {direction ? <p className="text-[16px] leading-[1.6] text-ds-ink">{direction}</p> : null}
       {sections.map((item) => (
-        <article key={item.key} className="rounded-xl bg-white p-4 text-sm">
-          <h3 className="font-medium">{item.title}</h3>
-          <p className="text-rw-ink/70">{item.needs}</p>
+        <article key={item.key} className={`${dsCard} p-6`}>
+          <h2 className={dsLabel}>{item.title}</h2>
+          <p className={`mt-1 ${dsCaption}`}>{item.needs}</p>
           {editable ? (
             <OutlineDraft
               paperId={paperId ?? ""}
               sectionKey={item.key}
+              label={item.title}
               value={keptIdeas(item.ideas).join("\n")}
               enabled={Boolean(persist && paperId)}
               onChange={(text) => onEdit?.(item.key, text)}
             />
           ) : (
             keptIdeas(item.ideas).map((note) => (
-              <p key={note}>Your note: {note}</p>
+              <p key={note} className="mt-2 text-[16px] leading-[1.6] text-ds-ink">Your note: {note}</p>
             ))
           )}
           {showLeads && visibleSourceLead(item.chosenLead) ? (
-            <p className="mt-2">To verify: {visibleSourceLead(item.chosenLead)}</p>
+            <p className={`mt-2 ${dsBody}`}>To verify: {visibleSourceLead(item.chosenLead)}</p>
           ) : null}
         </article>
       ))}
-      <Button type="button" onClick={onContinue}>
-        Continue
-      </Button>
+      <DsButton onClick={onContinue}>Continue</DsButton>
     </section>
   );
 }

@@ -256,7 +256,9 @@ export function AssignmentIntake({
           // only if it is newer (for example, typed on another device).
           const local = readLocalDraft(paperId, `stage1:${questionId}`);
           draftRestore.current = { questionId, text: local?.text ?? "", opened: false };
-          if (!local) setRestoringDraft(true);
+          // Show "Restoring your draft…" until the text is in the box, even when
+          // this browser has a copy (the question can open a beat before it).
+          setRestoringDraft(true);
           void draftsRequest
             .then((saved) => {
               if (cancelled) return;
