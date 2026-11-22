@@ -365,12 +365,14 @@ export function PickedChip({
 }) {
   const body = (
     <>
-      <span className="text-ds-muted">Picked:</span> <span className="text-ds-ink">{label}</span>
-      <span className="sr-only"> ({fullText})</span>
+      <span aria-hidden className="min-w-0 truncate">
+        <span className="text-ds-muted">Picked:</span> <span className="text-ds-ink">{label}</span>
+      </span>
+      <span className="sr-only">Picked: {fullText}</span>
     </>
   );
   const cls =
-    "inline-flex min-h-[48px] max-w-[85%] items-center gap-1 rounded-full border border-ds-border bg-ds-surface px-4 py-2 text-left text-[14px] leading-[1.4]";
+    "inline-flex min-h-[48px] max-w-[85%] items-center whitespace-nowrap rounded-full border border-ds-border bg-ds-surface px-4 py-2 text-left text-[14px] leading-[1.4]";
   return (
     <div className="flex justify-end" data-picked-chip>
       {onEdit ? (
