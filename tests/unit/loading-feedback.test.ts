@@ -6,7 +6,7 @@ describe("loading feedback", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     expect(intake).toContain("Reading the assignment…");
-    expect(intake).toContain("Still reading");
+    expect(readFileSync("components/stages/stage1/chat-bubbles.tsx", "utf8")).toContain("Still reading");
     expect(intake).toContain("Starting the stance interview…");
     expect(loop).toContain("Opening the next stage…");
   });
