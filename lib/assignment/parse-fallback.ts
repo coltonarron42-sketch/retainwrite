@@ -25,6 +25,32 @@ function isFormatTopic(value: string): boolean {
   return hits.length >= 2 && !/\b(how|why|should|affect|social|health|argue|explain|discuss)\b/i.test(text);
 }
 
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+
+function numberWord(value: string): number | undefined {
+  const n = Number(value);
+  if (Number.isFinite(n)) return n;
+  return NUMBER_WORDS[value.toLowerCase()];
+}
+
+/** "this question", "the prompt": a pointer back to the prompt, not a topic. */
+export function isPlaceholderTopic(value: string): boolean {
+  const text = value.replace(/\s+/g, " ").trim().toLowerCase().replace(/[.,;:!?]+$/, "");
+  return /^(?:this|that|the|your|my|a|an)\s+(?:question|topic|prompt|issue|assignment|essay|paper|subject|position)$/.test(text) || /^(?:it|this|that)$/.test(text);
+}
+
+/** Split "A (25 pts), B (30 pts)" or "A; B; C" into trimmed items. */
+function splitInlineList(value: string): string[] {
+  const sep = value.includes(";") ? /;/ : /,(?![^()]*\))/;
+  return value
+    .split(sep)
+    .map((part) => part.trim().replace(/\.$/, "").trim())
+    .filter((part) => part.length > 1)
+    .slice(0, 20);
+}
+
 export function parseAssignmentFallback(
   rawText: string,
   options?: { allowTopicAndDueDateGuess?: boolean },
@@ -37,9 +63,10 @@ export function parseAssignmentFallback(
 
   // Length: pages or words
   const pageRange = text.match(
-    /(\d+)\s*[–-]\s*(\d+)\s*(?:pages?|pp\.?)\b/i,
+    /(\d+)\s*[–-]\s*(\d+)\s*[- ]?\s*(?:pages?|pp\.?)\b/i,
   );
-  const pageSingle = text.match(/\b(\d+)\s*(?:pages?|pp\.?)\b/i);
+  // "3 pages", "3-page", "3 page"
+  const pageSingle = text.match(/\b(\d+)\s*[- ]?\s*(?:pages?|pp\.?)\b/i);
   const wordRange = text.match(
     /(\d{3,5})\s*[–-]\s*(\d{3,5})\s*words?\b/i,
   );
@@ -98,19 +125,25 @@ export function parseAssignmentFallback(
   const allowGuesses = options?.allowTopicAndDueDateGuess !== false;
 
   // An explicit due line is extracted. A missing date is never invented.
+  // The date must be written in the text (with or without a year).
   const due = text.match(
-    /\b(?:due|deadline)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i,
+    /\b(?:due(?:\s+date)?|deadline)\s*(?::|on|by)?\s+((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|\d{4}-\d{2}-\d{2})/i,
   );
   if (due) {
     req.dueDate = extractedField(due[1], 0.7, due[0]);
   }
 
   // Course-ish line
-  const course = text.match(
-    /\b((?:ENGL|ENG|HIST|BIO|CHEM|PSY|SOC|MATH|CS|ECON)\s*\d{2,4}[A-Z]?)\b/i,
-  );
+  const course =
+    text.match(/^\s*(?:course|class)\s*:\s*(.{2,80}?)\s*$/im) ??
+    text.match(
+      /\b((?:ENGL|ENG|HIST|BIO|CHEM|PSY|SOC|MATH|CS|ECON)\s*\d{2,4}[A-Z]?)\b/i,
+    ) ??
+    // A subject name plus a course number, e.g. "English 101 - Argument Essay".
+    text.match(/\b((?:[A-Z][a-z]+\s){1,3}\d{2,4}[A-Z]?)\b/);
   if (course) {
-    req.course = extractedField(course[1], 0.8, course[1]);
+    const name = course[1].trim();
+    req.course = extractedField(name, 0.8, name);
   }
 
   // Paper type
@@ -128,13 +161,16 @@ export function parseAssignmentFallback(
   const asked = text.match(
     /\b(?:write(?:\s+a(?:n)?)?(?:\s+\d+[–-]?\d*\s*page)?\s+(?:paper|essay|analysis)?\s*)?(?:about|on|analyz(?:e|ing)|discuss|argue(?:\s+that)?)\s+(.{12,160}?)(?:[.!?\n]|$)/i,
   );
-  if (asked?.[1] && !isFormatTopic(asked[1])) {
+  if (asked?.[1] && !isFormatTopic(asked[1]) && !isPlaceholderTopic(asked[1])) {
     req.topic = extractedField(asked[1].trim().slice(0, 180), 0.7, asked[0].slice(0, 120));
   }
+  // A question sentence, even when the line keeps going ("Prompt: Should …? Write …").
   const question = text
     .split(/\n/)
-    .map((line) => line.trim().replace(/^(?:question|prompt)\s*:\s*/i, ""))
-    .find((line) => line.endsWith("?") && line.split(/\s+/).length >= 6 && !isFormatTopic(line));
+    .map((line) => line.trim().replace(/^(?:question|prompt|essay prompt|assignment)\s*:\s*/i, ""))
+    .flatMap((line) => line.match(/[^.!?]*\?/g) ?? [])
+    .map((sentence) => sentence.trim())
+    .find((sentence) => sentence.split(/\s+/).length >= 6 && !isFormatTopic(sentence));
   if (question) {
     req.promptQuestion = extractedField(question.slice(0, 400), 0.7, question.slice(0, 120));
   }
@@ -144,7 +180,7 @@ export function parseAssignmentFallback(
     const writeAbout = text.match(
       /\b(?:write(?:\s+a(?:n)?)?\s+(?:paper|essay)?\s+)?(?:about|on|analyz(?:e|ing)|discuss|argue)\s+(.{20,140}?)(?:[.!?\n]|$)/i,
     );
-    if (writeAbout) {
+    if (writeAbout && !isPlaceholderTopic(writeAbout[1])) {
       req.topic = extractedField(writeAbout[1].trim(), 0.65, writeAbout[0].slice(0, 80));
     } else {
       const firstLine = text
@@ -159,17 +195,18 @@ export function parseAssignmentFallback(
 
   // Required sources
   const sources = text.match(
-    /\b(?:at least\s+)?(\d+)\s+(?:scholarly\s+)?(?:sources|references|citations|leaders)\b/i,
+    /\b(?:at least\s+|a minimum of\s+|minimum of\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:credible|scholarly|academic|peer[- ]reviewed|reliable|outside|primary|secondary)\s+)*(?:sources|references|citations|leaders)\b[^.\n]*/i,
   );
   if (sources) {
+    const types = sources[0].trim();
     req.requiredSources = extractedField(
       {
-        countMin: Number(sources[1]),
-        scholarlyRequired: /scholarly/i.test(sources[0]),
-        types: sources[0],
+        countMin: numberWord(sources[1]),
+        scholarlyRequired: /scholarly|peer[- ]reviewed|academic/i.test(types),
+        types,
       },
       0.75,
-      sources[0],
+      types,
     );
   } else if (/scholarly/i.test(lower)) {
     req.requiredSources = extractedField(
@@ -177,6 +214,40 @@ export function parseAssignmentFallback(
       0.5,
       "scholarly",
     );
+  }
+
+  // Rubric line: "Rubric: Thesis (25 pts), Evidence (30 pts)".
+  const rubricLine = text.match(/^\s*(?:rubric|grading(?: criteria)?|criteria)\s*:\s*(.+)$/im);
+  if (rubricLine) {
+    const criteria = splitInlineList(rubricLine[1])
+      .map((item) => {
+        const weight = item.match(/\(?\s*(\d{1,3})\s*(?:pts?|points?|%)\s*\)?/i);
+        const name = item.replace(/\(?\s*\d{1,3}\s*(?:pts?|points?|%)\s*\)?/i, "").replace(/[-–:]\s*$/, "").trim();
+        return name ? { name, ...(weight ? { weight: Number(weight[1]) } : {}) } : null;
+      })
+      .filter((c): c is { name: string; weight?: number } => Boolean(c));
+    if (criteria.length) {
+      req.rubricCriteria = extractedField(criteria, 0.75, rubricLine[0].trim().slice(0, 200));
+    }
+  }
+
+  // Sections / structure line: "Sections: Introduction; Body; Conclusion".
+  const sectionsLine = text.match(/^\s*(?:sections?|structure|organization|outline)\s*:\s*(.+)$/im);
+  if (sectionsLine) {
+    const parts = splitInlineList(sectionsLine[1]);
+    if (parts.length) {
+      req.structuralRequirements = extractedField(parts, 0.75, sectionsLine[0].trim().slice(0, 200));
+    }
+  }
+
+  // Formatting rules written in the text.
+  const formatting = [
+    text.match(/\b\d{1,2}\s*-?\s*(?:pt|point)\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3}/)?.[0],
+    text.match(/\b(?:double|single|1\.5)[- ]spaced\b/i)?.[0],
+    text.match(/\b1[- ]inch margins?\b/i)?.[0],
+  ].filter((rule): rule is string => Boolean(rule));
+  if (formatting.length) {
+    req.formattingRules = extractedField(formatting, 0.7, formatting[0]);
   }
 
   // AI policy

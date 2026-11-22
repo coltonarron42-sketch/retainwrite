@@ -6,7 +6,7 @@
 import { dropInvalidEvidence } from "@/lib/assignment/evidence";
 import { applyPageWordEstimates } from "@/lib/assignment/pages-to-words";
 import { coerceRequirements, requirementsHaveFacts, schemaIssueLog } from "@/lib/assignment/coerce";
-import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
+import { isPlaceholderTopic, parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import {
   assignmentRequirementsSchema,
   emptyRequirements,
@@ -119,6 +119,9 @@ export function fillEmptyRequirements(
     "citationStyle",
     "requiredSources",
     "dueDate",
+    "rubricCriteria",
+    "structuralRequirements",
+    "formattingRules",
   ] as const;
   for (const key of keys) {
     if (fieldEmpty(next[key]) && !fieldEmpty(extra[key])) {
@@ -134,7 +137,10 @@ export function sanitizeParsedRequirements(
   extra: AssignmentRequirements,
 ): AssignmentRequirements {
   const next = { ...primary };
-  if (typeof next.topic.value === "string" && isFormatOrLengthLine(next.topic.value)) {
+  if (
+    typeof next.topic.value === "string" &&
+    (isFormatOrLengthLine(next.topic.value) || isPlaceholderTopic(next.topic.value))
+  ) {
     next.topic = emptyRequirements().topic;
   }
   if (
