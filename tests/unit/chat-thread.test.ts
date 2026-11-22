@@ -29,7 +29,7 @@ describe("Stage 1 is one chat thread", () => {
   it("rebuilds the whole thread from saved data: first message, read-back, answers, story, stance", () => {
     expect(intake).toContain("SENT_FIELD_KEY");
     expect(intake).toContain("<StudentBubble message={sentMessage} />");
-    expect(intake).toContain("<PauPauGroup bubbles={summary} />");
+    expect(intake).toContain("confirmTurns.map((t, i) =>");
     expect(intake).toContain("coachingPlan.map((item, i) => {");
     expect(intake).toContain('editLabel="Change your story angle"');
     expect(intake).toContain('editLabel="Edit your early take"');

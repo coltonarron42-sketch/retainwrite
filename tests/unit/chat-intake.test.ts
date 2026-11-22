@@ -8,7 +8,7 @@ const route = readFileSync("app/api/papers/[paperId]/assignment/parse/route.ts",
 
 describe("Stage 1 chat-style assignment input", () => {
   it("asks the question as a Pau Pau bubble with one field and the soft placeholder", () => {
-    expect(intake).toContain("What&apos;s the assignment we&apos;re working on?");
+    expect(intake).toContain("ASSIGNMENT_ASK,");
     expect(intake).toContain('placeholder="Upload a photo, PDF, or Word file, or just tell me about it…"');
     expect(intake).toContain('labelledBy="assignment-ask"');
   });

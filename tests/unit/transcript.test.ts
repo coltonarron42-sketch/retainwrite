@@ -40,7 +40,7 @@ describe("voice typing in the composer", () => {
 describe("Stage 1 greeting says the name aloud", () => {
   const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
   it("speaks the greeting with the first ask", () => {
-    expect(intake).toContain("text: `${ASSIGNMENT_GREETING} What's the assignment we're working on?`");
+    expect(intake).toContain("text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`");
   });
 });
 
