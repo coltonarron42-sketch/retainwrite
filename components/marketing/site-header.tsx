@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { LogOutButton } from "@/components/auth/log-out-button";
 import { Button } from "@/components/ui/button";
+import { isSignedIn } from "@/lib/auth/current-user";
 
-export function SiteHeader() {
+export async function SiteHeader() {
+  const signedIn = await isSignedIn();
   return (
     <header className="absolute inset-x-0 top-0 z-20">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 md:px-8">
@@ -24,12 +27,23 @@ export function SiteHeader() {
           >
             Pricing
           </Link>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/login">Log in</Link>
-          </Button>
-          <Button asChild size="sm" variant="secondary">
-            <Link href="/signup">Start free</Link>
-          </Button>
+          {signedIn ? (
+            <>
+              <Button asChild size="sm" variant="secondary">
+                <Link href="/app">My papers</Link>
+              </Button>
+              <LogOutButton className="text-sm font-medium text-rw-ink/70 hover:text-rw-ink" />
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Log in</Link>
+              </Button>
+              <Button asChild size="sm" variant="secondary">
+                <Link href="/signup">Sign up</Link>
+              </Button>
+            </>
+          )}
         </nav>
       </div>
     </header>

@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/server";
 export type AuthActionState = {
   error?: string;
   notice?: string;
+  /** Set after a verified password change; the email-window session is already signed out. */
+  passwordUpdatedFor?: string;
 };
 
 function safeNext(raw: FormDataEntryValue | null): string {
@@ -205,6 +207,19 @@ export async function updatePasswordAction(
     return { error: "Your new password didn't save. Try again, or request a new reset link." };
   }
   await probe.auth.signOut({ scope: "local" });
+  // Don't keep the student signed in inside the email app's browser.
+  // They log in again where they started, with the password they just set.
+  await supabase.auth.signOut({ scope: "local" });
   await clearDemoSession();
-  redirect("/app");
+  return { passwordUpdatedFor: user.email };
+}
+
+/** Sign out this browser (clears the auth cookies) and go home. */
+export async function signOutAction() {
+  if (hasSupabaseConfig()) {
+    const supabase = await createClient();
+    await supabase.auth.signOut({ scope: "local" });
+  }
+  await clearDemoSession();
+  redirect("/");
 }
