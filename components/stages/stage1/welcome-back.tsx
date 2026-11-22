@@ -16,15 +16,24 @@ import { markHeard, speak } from "@/lib/voice/speech";
 export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: boolean): string | null {
   const decided = useRef(false);
   const [line, setLine] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (!ready || decided.current) return;
     decided.current = true;
+    // Any restored history opens at the bottom, welcome line or not.
+    if (hasHistory) setRestored(true);
     const name = `welcome:${paperId}`;
     const pick = welcomeBackLine({ hasHistory, last: parseWelcomeState(readScoped(name)), now: Date.now() });
     if (!pick) return;
     writeScoped(name, JSON.stringify(pick.next));
     setLine(pick.line);
   }, [ready, hasHistory, paperId]);
+  useEffect(() => {
+    if (!restored) return;
+    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    const timers = [0, 300, 1000].map((ms) => window.setTimeout(toBottom, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [restored]);
   return line;
 }
 
