@@ -41,7 +41,7 @@ describe("assignment parse recovery", () => {
     expect(issues.every((issue) => issue.path.length < 80 && !issue.code.includes(" "))).toBe(true);
   });
 
-  it("uses one model read, then the rule parser, and keeps an explicit due date", async () => {
+  it("retries the model read up to three times, then the rule parser, and keeps an explicit due date", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let calls = 0;
     const result = await parseAssignmentCorpus(SAMPLE, {
@@ -51,7 +51,7 @@ describe("assignment parse recovery", () => {
         return { ok: true, text: "[]", model: "test" };
       },
     });
-    expect(calls).toBe(1);
+    expect(calls).toBe(3);
     expect(result.needsConfirmation).toBe(false);
     expect(result.parseMeta.fallback).toBe(true);
     expect(result.requirements.topic.value).toMatch(/social media/i);
@@ -112,7 +112,7 @@ ${"detail ".repeat(12)}`;
     expect((intake.match(/Looks right/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 
-  it("falls back after one timed-out read instead of a second 30s call", async () => {
+  it("retries a failed read at most three times, within the deadline", async () => {
     let calls = 0;
     const started = Date.now();
     const result = await parseAssignmentCorpus(SAMPLE, {
@@ -122,18 +122,19 @@ ${"detail ".repeat(12)}`;
         return { ok: false, reason: "timeout" };
       },
     });
-    expect(calls).toBe(1);
+    expect(calls).toBe(3);
     expect(Date.now() - started).toBeLessThan(15_000);
     expect(result.parseMeta.reason).toBe("timeout");
     expect(result.requirements.topic.value).toMatch(/social media/i);
   });
 
-  it("asks the model once and records the elapsed time without the assignment text", () => {
+  it("hedges the model read and records the elapsed time without the assignment text", () => {
     const parse = readFileSync("lib/assignment/parse.ts", "utf8");
     const route = readFileSync("app/api/papers/[paperId]/assignment/parse/route.ts", "utf8");
     const grok = readFileSync("lib/ai/grok.ts", "utf8");
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(parse.match(/await ask\(/g)).toHaveLength(1);
+    expect(parse.match(/void ask\(/g)).toHaveLength(1);
+    expect(parse).toContain("PARSE_DEADLINE_MS");
     expect(grok).toContain("controller.abort()");
     expect(grok).toContain("Promise.race");
     expect(route).toContain("[assignment/parse] timing");
@@ -144,7 +145,7 @@ ${"detail ".repeat(12)}`;
     expect(intake).not.toContain("await fetch(`/api/papers/${paperId}/assignment/finalize`");
   });
 
-  it("does not make a second model call when the first response is not an object", async () => {
+  it("caps retries at three when the response is not an object", async () => {
     let calls = 0;
     const result = await parseAssignmentCorpus(SAMPLE, {
       mode: "live",
@@ -153,7 +154,7 @@ ${"detail ".repeat(12)}`;
         return { ok: true, text: "[]", model: "test" };
       },
     });
-    expect(calls).toBe(1);
+    expect(calls).toBe(3);
     expect(result.parseMeta.fallback).toBe(true);
     expect(result.requirements.topic.value).toMatch(/social media/i);
     expect(result.needsConfirmation).toBe(false);

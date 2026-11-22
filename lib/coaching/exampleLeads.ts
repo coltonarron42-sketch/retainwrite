@@ -1,4 +1,5 @@
 import { asHeading, isClauseTopic, isQuestionTopic, topicMidSentence, topicRef, topicSearchTerms } from "@/lib/copy/topic-phrase";
+import { clipWords } from "@/lib/copy/clip";
 // SOP: coaching only, never generate submission text
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
@@ -20,13 +21,13 @@ export function coachingSubject(input: {
 }): string {
   const confirmed = input.confirmedTopic?.trim() || input.confirmedPrompt?.trim();
   if (confirmed && !/^(soc\s+\d+|the assigned concept|the concept)$/i.test(confirmed)) {
-    return confirmed.slice(0, 140);
+    return clipWords(confirmed, 140);
   }
   const concept = input.concept?.trim() ?? "";
-  if (concept && !/^(the assigned concept|the concept)$/i.test(concept)) return concept.slice(0, 140);
+  if (concept && !/^(the assigned concept|the concept)$/i.test(concept)) return clipWords(concept, 140);
   const fromText = topicLabel(null, input.assignmentText ?? "");
   if (fromText && !/^soc\s+\d+/i.test(fromText)) return fromText;
-  return confirmed?.slice(0, 140) || "your topic";
+  return clipWords(confirmed, 140) || "your topic";
 }
 
 /** Course-title leads are not something a student can look up. */
@@ -64,12 +65,12 @@ export function stageLessonHeader(subject: string, lessonStatement: string): str
 
 export function topicLabel(concept: string | null, assignmentText: string): string | null {
   const cleaned = concept?.trim() ?? "";
-  if (cleaned && cleaned.toLowerCase() !== "the concept") return cleaned.slice(0, 80);
+  if (cleaned && cleaned.toLowerCase() !== "the concept") return clipWords(cleaned, 80);
   const sentence = assignmentText
     .split(/[.!?\n]/)
     .map((part) => part.trim())
     .find((part) => part.split(/\s+/).filter(Boolean).length >= 4);
-  return sentence ? sentence.slice(0, 90) : null;
+  return sentence ? clipWords(sentence, 90) : null;
 }
 
 export function exampleLeadBatch(input: {
@@ -84,7 +85,7 @@ export function exampleLeadBatch(input: {
 } {
   const topic = topicLabel(input.concept, input.assignmentText);
   const idea = keptIdeas([input.studentIdea])[0] ?? "";
-  const rawSubject = topic || (idea.split(/\s+/).length >= 4 ? idea.slice(0, 80) : "");
+  const rawSubject = topic || (idea.split(/\s+/).length >= 4 ? clipWords(idea, 80) : "");
   if (!rawSubject) {
     return { personalized: false, candidates: [], wildcard: null };
   }

@@ -49,6 +49,7 @@ import {
 } from "@/lib/demo/store";
 import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-stance";
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
+import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
 import { createLead, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
 import {
@@ -245,16 +246,34 @@ export function AssignmentIntake({
       .catch(() => null);
     void fetch(`/api/papers/${paperId}/intake/answers`)
       .then(async (res) => (res.ok ? res.json() : null))
-      .then((data: {
+      .then((loaded: {
         answers?: IntakeAnswer[];
         storyAngle?: { text: string; source: "ai" | "student" } | null;
         resume?: { screen?: string | null; questionId?: string | null } | null;
       } | null) => {
+        let data = loaded;
         if (cancelled) return;
         if (!data) {
           setResumePending(false);
           setResumeReady(true);
           return;
+        }
+        // A reload right after Next: the answer and position may not be on
+        // the server yet. This device's copy is newer, so use it.
+        const localPos = readLocalPosition(paperId);
+        const serverAt = (data.resume as { at?: number } | null | undefined)?.at ?? null;
+        if (preferLocalPosition(localPos, serverAt) && localPos) {
+          const answered = localPos.answered;
+          if (answered && !(data.answers ?? []).some((a) => a.questionId === answered.questionId)) {
+            data = { ...data, answers: [...(data.answers ?? []), answered as IntakeAnswer] };
+            void persistField(paperId, {
+              fieldKey: `stage1:${answered.questionId}`,
+              text: answered.answerText,
+              submitted: true,
+              resume: { stage: 1, questionId: localPos.questionId ?? answered.questionId, screen: "coaching", at: localPos.at },
+            });
+          }
+          if (localPos.questionId) data = { ...data, resume: { screen: "coaching", questionId: localPos.questionId } };
         }
         if (data.answers?.length) setAnswers(data.answers);
         if (data.storyAngle?.text) setStoryAngle(data.storyAngle);
@@ -832,10 +851,29 @@ export function AssignmentIntake({
     // Move on right away; the answer saves in the background (the device copy
     // stays until the server has it). Waiting on the save made every question
     // feel 1-6s slow.
+    const nextId = coachingPlan[qIndex + 1]?.id ?? null;
     if (!demoMode && text) {
       const fieldKey = `stage1:${q.id}`;
+      const at = Date.now();
+      saveLocalPosition(paperId, {
+        questionId: nextId,
+        at,
+        answered: {
+          questionId: q.id,
+          questionText: q.text,
+          kind: q.kind,
+          answerText: text,
+          isVoiceSample: isVoice,
+          pasteRatio: pasteMeta.meta.pasteRatio,
+        },
+      });
       const save = () =>
-        persistField(paperId, { fieldKey, text, submitted: true, resume: { stage: 1, questionId: q.id, screen: "coaching" } });
+        persistField(paperId, {
+          fieldKey,
+          text,
+          submitted: true,
+          resume: { stage: 1, questionId: nextId ?? q.id, screen: "coaching", at },
+        });
       void save()
         .then((ok) => ok || new Promise<boolean>((resolve) => setTimeout(() => void save().then(resolve), 1500)))
         .then((ok) => {

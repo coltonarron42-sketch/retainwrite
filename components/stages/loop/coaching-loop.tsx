@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { CoachEyebrow, CoachSays } from "@/components/coaching/pau-pau";
+import { clipWords } from "@/lib/copy/clip";
 import { asHeading, isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 import { LeadBatchView } from "@/components/coaching/lead-batch";
@@ -502,7 +503,7 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? defaultTeachCard((subject === "your topic" ? section.concept : subject).slice(0, 60), section.rubricRef)
+      ? defaultTeachCard(clipWords(subject === "your topic" ? section.concept : subject, 60), section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =
