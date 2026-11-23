@@ -138,7 +138,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
   });
   it("Stage 2 and Stage 3 check typed words before saving; the aside is not a note", () => {
     const stanceSrc = read("components/stages/loop/stance-chat.tsx");
-    expect(stanceSrc).toMatch(/const intent = await props\.classify\(text, ask\);[\s\S]*if \(intent !== "content"\) \{[\s\S]*props\.onAside\(intent, turn, \[pau\(ask\), you\(text\)\]\);\s*return;/);
+    expect(stanceSrc).toMatch(/const intent = await props\.classify\(text, ask\);[\s\S]*if \(intent !== "content"\) \{[\s\S]*props\.onAside\(intent, turn, \[pau\(ask\), you\(text\)\]\);\s*return(?: "aside")?;/);
     const outlineSrc = read("components/stages/loop/outline-chat.tsx");
     expect(outlineSrc).toMatch(/if \(intent !== "content"\) \{[\s\S]*props\.onAside\(intent, current\.key[\s\S]*setText\(notes\);\s*return;/);
     const aside = loop.slice(loop.indexOf("function onAside"), loop.indexOf("function onTeachAspect"));

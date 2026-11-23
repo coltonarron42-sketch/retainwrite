@@ -98,7 +98,7 @@ export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: bool
 }
 
 /** The welcome-back turn at the end of the restored chat. Only this line is spoken. */
-export function WelcomeBack({ line, scope, signal }: { line: string | null; scope: string; signal: string | number }) {
+export function WelcomeBack({ line, scope, signal, silent = false }: { line: string | null; scope: string; signal: string | number; silent?: boolean }) {
   // It greets the return, then steps aside: once the chat moves on (a reply, a
   // new turn), it's gone, so it never sits under newer turns.
   const [atSignal, setAtSignal] = useState<string | number | null>(null);
@@ -119,11 +119,11 @@ export function WelcomeBack({ line, scope, signal }: { line: string | null; scop
   }, [line]);
   useEffect(() => {
     // Voice prefs can load a moment late; after that, the Voice switch reads it.
-    if (!line || !voice || spoken.current === line || Date.now() - shownAt.current > 4000) return;
+    if (silent || !line || !voice || spoken.current === line || Date.now() - shownAt.current > 4000) return;
     spoken.current = line;
     markHeard(scope, [line]);
     speak([line]);
-  }, [line, voice, scope]);
+  }, [line, voice, scope, silent]);
   if (!line || (atSignal !== null && atSignal !== signal)) return null;
   return (
     <div data-welcome-back>
