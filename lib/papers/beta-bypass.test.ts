@@ -25,10 +25,12 @@ describe("beta credit bypass", () => {
 
 describe("resume link", () => {
   it("opens the saved stage, section, and question", () => {
+    // Preserved gates: a pointer ahead of the paper's stage never opens that stage.
+    expect(continueHref({ id: "paper-1", current_stage: 2, resume: { stage: 3, screen: "outline" } })).toBe("/app/papers/paper-1/stage/2");
     expect(
       continueHref({
         id: "paper-1",
-        current_stage: 1,
+        current_stage: 2,
         resume: { stage: 2, sectionKey: "body", questionId: "probe", screen: "stance" },
       }),
     ).toBe("/app/papers/paper-1/stage/2?section=body&question=probe&screen=stance");
