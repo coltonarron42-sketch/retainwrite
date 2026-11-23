@@ -14,5 +14,12 @@
     "deploymentEnabled": {
       "batch-*": false
     }
+  },
+  "functions": {
+    "app/api/voice/realtime/route.ts": {
+      "regions": [
+        "iad1"
+      ]
+    }
   }
 }

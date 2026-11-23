@@ -42,3 +42,17 @@ describe("Grok Voice realtime PoC", () => {
     expect(s.indexOf("# Current state")).toBeGreaterThan(s.indexOf("Non-negotiable"));
   });
 });
+
+import { isEcho } from "@/lib/voice/realtime/guard";
+describe("echo filter", () => {
+  const her = ["That's the tap — the app's got it from here. Once the intro locks, we'll move to the body."];
+  it("drops her own words coming back through speakers", () => {
+    expect(isEcho("That's it from here. Once the intro locks", her, true)).toBe(true);
+    expect(isEcho("the app's got it from here", her, false)).toBe(true);
+    expect(isEcho("yes", ["Tap Yes, lock it in when you're happy, or just say yes."], true)).toBe(true);
+  });
+  it("keeps the student's own words", () => {
+    expect(isEcho("My brother falls asleep in first period", her, true)).toBe(false);
+    expect(isEcho("yes", ["Tap Yes, lock it in when you're happy, or just say yes."], false)).toBe(false);
+  });
+});

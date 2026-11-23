@@ -91,6 +91,7 @@ export function useRealtimeCall(opts: {
               return rows.map((x) => (x === row ? { ...x, saved: hide } : x));
             });
         },
+        echo: (itemId) => setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x))),
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
         saveNote: async (_id, text, itemId) => {
           const r = await optsRef.current.saveNote(text);
