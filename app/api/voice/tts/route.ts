@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { z } from "zod";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -19,6 +20,8 @@ const bodySchema = z.object({ text: z.string().min(1).max(TTS_MAX_CHARS), voice:
  * // SOP: coaching only — reads Pau Pau's own words aloud, never the student's
  */
 export async function POST(request: Request) {
+  // The old voice is stopped (lib/voice/legacy.ts): no read-aloud audio.
+  if (!legacyVoiceOn()) return NextResponse.json({ error: "tts_off" }, { status: 410 });
   const key = process.env.GROK_API_KEY?.trim();
   if (!key) return NextResponse.json({ error: "tts_unavailable" }, { status: 503 });
   let body: z.infer<typeof bodySchema>;

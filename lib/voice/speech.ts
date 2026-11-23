@@ -1,5 +1,6 @@
 "use client";
 
+import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
 import { speakableSentences } from "@/lib/voice/speakable";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
@@ -194,6 +195,7 @@ export function isSpeaking() {
 
 export function speechSupported(): boolean {
   if (typeof window === "undefined") return false;
+  if (!legacyVoiceOn()) return false;
   if (audioSupported() && serverVoice !== "off") return true;
   return synthSupported();
 }
