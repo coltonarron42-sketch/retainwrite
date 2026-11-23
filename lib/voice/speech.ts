@@ -229,8 +229,9 @@ function armOnly() {
 }
 /**
  * The student sent a new message (the composer's Send, typed or spoken): a
- * real action. Arms her queue AND ends the restore hold (below). Toggles,
- * unlock taps, Mute and other buttons never end it.
+ * real action (as is a choice/chip/step tap, via armFromEvent). Arms her
+ * queue AND ends the restore hold (below). Toggles, unlock taps, Mute and
+ * blank clicks never end it.
  */
 export function armSpeech() {
   armOnly();
@@ -315,7 +316,9 @@ function armFromEvent(e: Event) {
   // An explicit Read aloud tap on a turn plays that turn, even in the hold.
   if (el.closest("[data-replay]")) explicitTapAt = Date.now();
   const btn = el.closest("button, [role=button]");
-  if (btn && !btn.closest(VOICE_CONTROLS)) armOnly();
+  // A choice, chip or step button is a real action, like a send: it ends the
+  // restore hold too (QA 6:18 PM). Voice controls and blank clicks never do.
+  if (btn && !btn.closest(VOICE_CONTROLS)) armSpeech();
 }
 let armInstalled = false;
 function installArm() {

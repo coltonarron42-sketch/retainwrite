@@ -175,7 +175,7 @@ describe("QA 5:44 PM: the reopen race", () => {
 });
 
 describe("QA 5:44 PM: the restore hold", () => {
-  it("only the welcome line; toggles, unlock, Mute, blank clicks and other buttons never release it", async () => {
+  it("only the welcome line; toggles, unlock, Mute and blank clicks never release it", async () => {
     S.installSpeechUnlock();
     S.beginRestoreHold();
     S.speak(["Let's shape your body (develop the main examples)."]);
@@ -183,13 +183,30 @@ describe("QA 5:44 PM: the restore hold", () => {
     S.unlockSpeech();
     tapButton("data-voice-toggle");
     tapButton("data-mic-mute");
-    tapButton();
+    tapButton("data-tap-to-hear");
     document.body.click();
     expect(S.restoreHoldActive()).toBe(true);
     await wait(300);
     expect(spoken).toEqual([]);
     S.studentSent();
     expect(S.restoreHoldActive()).toBe(false);
+  });
+  it("a choice or chip tap IS a real action: it ends the hold and her reply to it is spoken (QA 6:18 PM)", async () => {
+    S.installSpeechUnlock();
+    S.beginRestoreHold();
+    expect(S.restoreHoldActive()).toBe(true);
+    const chip = document.createElement("button");
+    chip.textContent = "Keep my notes";
+    document.body.append(chip);
+    chip.click();
+    chip.remove();
+    expect(S.restoreHoldActive()).toBe(false);
+    expect(S.speechArmed()).toBe(true);
+    S.takeNew(`${P}:stage3`, [{ key: "t1", text: "old" }]);
+    const fresh = S.takeNew(`${P}:stage3`, [{ key: "t1", text: "old" }, { key: "t2", text: "Nice. On to your conclusion.", turn: true }]);
+    S.speak(fresh.map((i) => i.text));
+    await wait(300);
+    expect(spoken).toEqual(["Nice.", "On to your conclusion."]);
   });
   it("ends when the welcome finishes playing; an explicit Read aloud tap still plays", async () => {
     S.beginRestoreHold(60_000);
