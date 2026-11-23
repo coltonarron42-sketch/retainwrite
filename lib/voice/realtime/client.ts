@@ -15,7 +15,7 @@ export type RtEvents = {
   pauDelta?: (responseId: string, text: string) => void;
   pauDone?: (responseId: string, status: string | undefined) => void;
   pauCancelled?: (responseId: string) => void;
-  saveNote?: (callId: string, text: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote?: (callId: string, text: string, itemId: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
   sources?: (links: { title: string; url: string; why?: string }[]) => void;
   error?: (message: string) => void;
   metric?: (m: { e2eMs?: number; bargeMs?: number }) => void;
@@ -290,7 +290,7 @@ export class RealtimeVoice {
       case "rw.save_note": {
         const callId = String(e.call_id ?? "");
         const text = String(e.text ?? "");
-        const run = this.on.saveNote ? this.on.saveNote(callId, text) : Promise.resolve({ ok: false, result: "unsupported" });
+        const run = this.on.saveNote ? this.on.saveNote(callId, text, String(e.item_id ?? "")) : Promise.resolve({ ok: false, result: "unsupported" });
         void run
           .catch(() => ({ ok: false, result: "error" }))
           .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen }));

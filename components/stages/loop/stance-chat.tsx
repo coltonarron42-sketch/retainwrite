@@ -270,7 +270,7 @@ export function StanceChat(props: Props) {
   const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
   // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
   const rtMode = useRealtimeEnabled(paperId);
-  const sendNowRef = useRef<(text: string) => Promise<string>>(async () => "none");
+  const sendNowRef = useRef<(text: string, fromVoice?: boolean) => Promise<string>>(async () => "none");
   const screenRef = useRef("");
   const noteBusy = useRef(0);
   const mountLen = useRef(transcript.length);
@@ -279,7 +279,7 @@ export function StanceChat(props: Props) {
     saveNote: async (text) => {
       noteBusy.current = Date.now() + 60_000;
       try {
-        const result = await sendNowRef.current(text);
+        const result = await sendNowRef.current(text, true);
         await new Promise((r) => setTimeout(r, 80));
         return { ok: true, result, screen: screenRef.current };
       } finally {
@@ -349,7 +349,7 @@ export function StanceChat(props: Props) {
     }
   }
 
-  async function sendNow(text: string): Promise<string> {
+  async function sendNow(text: string, fromVoice = false): Promise<string> {
     // Put the words back only if nothing new was typed (a hint, a thin note).
     const restore = () => props.onIdea(text);
     setHint(null);
@@ -360,6 +360,8 @@ export function StanceChat(props: Props) {
       // Content, or something said TO Pau Pau? Requests are never saved as notes.
       const intent = await props.classify(text, ask);
       if (intent !== "content") {
+        // On a Grok Voice call she answers it out loud; it is still never saved as a note.
+        if (fromVoice) return "aside";
         const turn: IntentTurn = choiceTurn ? "choice" : kind === "teach_card" || kind === "mirror" || kind === "probe" || kind === "name_lead" || kind === "pick_lead" ? kind : "probe";
         props.onAside(intent, turn, [pau(ask), you(text)]);
         return "aside";
@@ -967,7 +969,7 @@ function LiveTurns({ rows }: { rows: import("@/components/stages/loop/realtime-v
   return (
     <div className="space-y-4" data-rt-live>
       {rows
-        .filter((r) => r.text.trim() || r.sources?.length)
+        .filter((r) => !r.saved && (r.text.trim() || r.sources?.length))
         .map((r) =>
           r.who === "you" ? (
             <StudentBubble key={r.id} message={{ text: r.text, files: [], at: 0 }} />
