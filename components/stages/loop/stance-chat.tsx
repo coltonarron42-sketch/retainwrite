@@ -26,7 +26,7 @@ import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
-import { isPlainYes, isSpokenYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
 import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
@@ -96,6 +96,8 @@ export type StanceHandlers = {
   logicOpener: (choice: "yes" | "tweak", lines: LoopLine[]) => void;
   logicResult: (choice: LogicChoice | "pass", lines: LoopLine[]) => void;
   skipSection: (lines: LoopLine[]) => void;
+  /** Lines added to the chat with nothing saved (discussion over a waiting choice). */
+  discuss: (lines: LoopLine[]) => void;
   jumpTo: (index: number) => void;
   promptType: (value: "lesson" | "personal_experience" | "mixed") => void;
 };
@@ -273,6 +275,8 @@ export function StanceChat(props: Props) {
   const sendNowRef = useRef<(text: string, fromVoice?: boolean) => Promise<string>>(async () => "none");
   const screenRef = useRef("");
   const noteBusy = useRef(0);
+  // A replacement waiting for "Want me to swap that in?" (section:turn, the new note).
+  const swapRef = useRef<{ key: string; text: string } | null>(null);
   const mountLen = useRef(transcript.length);
   const rt = useRealtimeCall({
     paperId,
@@ -368,6 +372,32 @@ export function StanceChat(props: Props) {
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
     const yes = isPlainYes(text) || (fromVoice && isSpokenYes(text));
     const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "locked_in" || kind === "none";
+    // Over a waiting choice (Colton 11:45 PM): new ideas are discussion; a clear
+    // replacement is saved only after "Want me to swap that in?" gets a yes.
+    // Typed and spoken words take the same path (same gate).
+    const noteTurn = choiceTurn && kind !== "none" && kind !== "locked_in";
+    const swapKey = `${section.key}:${kind}`;
+    const pending = swapRef.current?.key === swapKey ? swapRef.current : null;
+    if (noteTurn && pending) {
+      swapRef.current = null;
+      if (isSwapYes(text) || (fromVoice && isSpokenYes(text))) {
+        props.onIdea("");
+        await h.probeSave(fromVoice ? [pau(SWAP_ASK), you(text)] : [you(text)], { replace: true, text: pending.text });
+        return "saved";
+      }
+      if (isSwapNo(text)) {
+        props.onIdea("");
+        if (!fromVoice) h.discuss([you(text), pau("Okay, your note stays as it is.")]);
+        return "swap_declined";
+      }
+    }
+    const replacement = noteTurn ? replacementText(text) : null;
+    if (replacement) {
+      swapRef.current = { key: swapKey, text: replacement };
+      props.onIdea("");
+      if (!fromVoice) h.discuss([you(text), pau(SWAP_ASK)]);
+      return "swap_ask";
+    }
     if (choiceTurn && yes) {
       // handled below
     } else {
@@ -418,11 +448,15 @@ export function StanceChat(props: Props) {
         }
         break;
     }
-    // Words typed over a choice are a revised note, sent as their reply.
-    if (choiceTurn && kind !== "none" && kind !== "locked_in") {
-      await h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true, text });
-      return "saved";
+    // Other words over a choice are discussion: the saved note never changes.
+    if (noteTurn) {
+      props.onIdea("");
+      if (!fromVoice) h.discuss([you(text), pau(discussionLine(transcript.length))]);
+      return "discussion";
     }
+    // Spoken words after a lock-in never land in the box as a stale note, and no
+    // tap hint covers the next turn: on a call she points to the choices herself.
+    if (fromVoice) return "tap_needed";
     restore();
     setHint(TAP_HINT);
     return "tap_needed";

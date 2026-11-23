@@ -750,6 +750,17 @@ export function CoachingLoop({
     setThinNote(null);
   }
 
+  /** Discussion over a waiting choice: lines join the chat, nothing is saved as the note. */
+  function onDiscuss(more: LoopLine[]) {
+    if (!session || !section) return;
+    const next: Session = { ...session, transcript: withLines(more), events: [...session.events, "stance_discussion"] };
+    commit(next);
+    syncSession(next, section.key);
+    paste.reset();
+    clearSent(idea);
+    setThinNote(null);
+  }
+
   function onTeachAspect(aspect: string, more: LoopLine[]) {
     if (!section) return;
     updateSection(
@@ -1271,6 +1282,7 @@ export function CoachingLoop({
             logicOpener: onLogicOpener,
             logicResult: onLogicResult,
             skipSection: onSkipSection,
+            discuss: onDiscuss,
             jumpTo: (index) => {
               if (index < 0) return;
               setActive(index);

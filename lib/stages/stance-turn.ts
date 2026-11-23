@@ -127,3 +127,47 @@ export function isSpokenYes(text: string): boolean {
 export function isPlainYes(text: string): boolean {
   return /^(y(es|ep|eah|up)?|sure|ok(ay)?|lock it in|looks good|sounds good|let'?s go|check it|go ahead|do it)[.!\s]*$/i.test(text.trim());
 }
+
+/**
+ * A clear replacement of the saved note over a waiting choice ("change it to…",
+ * "actually my point is…"). Returns the new note, or null. Anything else said
+ * over a choice is discussion and never replaces the note (Colton 11:45 PM).
+ * Same rule for typed and spoken words.
+ */
+const REPLACE_CUES: RegExp[] = [
+  /^(?:(?:ok(?:ay)?|no|wait|hmm+|um+|uh+|so|actually)[,.!\s]+)*(?:can you |could you |please |let'?s |i want to |i'?d like to )?(?:change|switch|update|replace|swap|make) (?:it|that|this|my (?:note|point|idea|claim|answer)|the (?:note|point|idea|claim))(?: (?:to|with|for|into|so it says|so it'?s))[:,]?\s+(.+)$/i,
+  /^(?:(?:ok(?:ay)?|no|wait|hmm+|um+|uh+|so)[,.!\s]+)*actually,?\s+(?:my (?:real |main )?(?:point|idea|claim|note|answer) is|what i (?:mean|meant|want to say) is|i (?:mean|meant))(?: that)?[:,]?\s+(.+)$/i,
+  /^(?:(?:ok(?:ay)?|no|wait|so)[,.!\s]+)*(?:my (?:real |new )?(?:point|note|claim) (?:should be|is now)|instead,? (?:say|put|use|make it))[:,]?\s+(.+)$/i,
+];
+export function replacementText(text: string): string | null {
+  const t = text.trim().replace(/[\u2019]/g, "'");
+  for (const re of REPLACE_CUES) {
+    const m = t.match(re);
+    const note = m?.[1]?.trim().replace(/^["“]|["”]$/g, "").trim();
+    if (note && note.split(/\s+/).length >= 3) return note.charAt(0).toUpperCase() + note.slice(1);
+  }
+  return null;
+}
+
+/** Yes to "Want me to swap that in?": a plain yes, or "yes, swap it". */
+export function isSwapYes(text: string): boolean {
+  if (isPlainYes(text)) return true;
+  return /^(?:(?:y(?:es|ep|eah|up)?|sure|ok(?:ay)?|please)[,.!\s]*)*(?:please|swap it(?: in)?|do it|go ahead|use (?:that|it|the new one)|change it|yes please)?[.!\s]*$/i.test(text.trim()) && /\S/.test(text) && !/\b(no|not|don'?t|keep)\b/i.test(text);
+}
+
+/** No to the swap: keep the saved note. */
+export function isSwapNo(text: string): boolean {
+  return /^(?:no|nope|nah|never ?mind|keep (?:it|the (?:old|first|saved) one|my (?:old |first )?note)|leave it|don'?t)\b/i.test(text.trim());
+}
+
+export const SWAP_ASK = "Want me to swap that in?";
+
+/** Her short reply when new words over a choice are discussion (the saved note stays). */
+export function discussionLine(seed: number): string {
+  const lines = [
+    "Good thought. Your saved note stays as it is. If you want it changed, say “change it to…” and I'll check with you first.",
+    "I like where that's going. I haven't changed your note. Say “change it to…” if you want that in instead.",
+    "That's worth keeping in mind. Your note is still the one above; tell me “change it to…” to swap it.",
+  ];
+  return lines[Math.abs(seed) % lines.length]!;
+}
