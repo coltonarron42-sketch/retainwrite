@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
@@ -16,13 +16,16 @@ import {
   rulesClassify,
   type ConfirmResult,
 } from "@/lib/stage1/confirm-reply";
-import { createClient } from "@/lib/supabase/server";
+import { hasAuthCookie, paperOwnerDenied } from "@/lib/auth/paper-access";
 
 export const runtime = "nodejs";
 
 const turnSchema = z.union([
   z.object({ role: z.literal("student"), text: z.string().max(2000) }),
-  z.object({ role: z.literal("pau"), paras: z.array(z.string().max(2000)).max(12) }),
+  z.object({
+    role: z.literal("pau"),
+    paras: z.array(z.string().max(2000)).max(12),
+  }),
 ]);
 
 const bodySchema = z.object({
@@ -53,40 +56,38 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const pendingAsk = body.pendingAsk ?? null;
   const rules = rulesClassify(body.message, pendingAsk);
-  if (isQuickConfirm(body.message)) return NextResponse.json({ ...rules, source: "rules" });
+  if (isQuickConfirm(body.message))
+    return NextResponse.json({ ...rules, source: "rules" });
 
   const demo = await getDemoSession();
-  if (!demo) {
-    if (!hasSupabaseConfig()) return NextResponse.json({ ...rules, source: "rules" });
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { data: paper } = await supabase
-      .from("papers")
-      .select("id")
-      .eq("id", paperId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
+  if (!demo && !hasSupabaseConfig())
+    return NextResponse.json({ ...rules, source: "rules" });
+  // Owner check and model call side by side (QA 8:08 PM); the model answer is dropped if the check fails.
+  const denied = demo ? Promise.resolve(null) : paperOwnerDenied(paperId);
+  const early = demo || (await hasAuthCookie());
+  const call = early
+    ? grokChatJson({
+        model: MODEL_FAST,
+        system: CONFIRM_REPLY_SYSTEM,
+        user: confirmUserPrompt({
+          card: cardForModel(body.requirements),
+          sheetExcerpt: body.sheetExcerpt,
+          pendingAsk,
+          history: body.history ?? [],
+          message: body.message,
+        }),
+        jsonSchema: {
+          name: "confirm_reply",
+          schema: CONFIRM_REPLY_SCHEMA as unknown as Record<string, unknown>,
+        },
+        timeoutMs: 9_000,
+      })
+    : null;
+  const deny = await denied;
+  if (deny) return deny;
+  const res = call ? await call : null;
   let result: ConfirmResult | null = null;
-  const res = await grokChatJson({
-    model: MODEL_FAST,
-    system: CONFIRM_REPLY_SYSTEM,
-    user: confirmUserPrompt({
-      card: cardForModel(body.requirements),
-      sheetExcerpt: body.sheetExcerpt,
-      pendingAsk,
-      history: body.history ?? [],
-      message: body.message,
-    }),
-    jsonSchema: { name: "confirm_reply", schema: CONFIRM_REPLY_SCHEMA as unknown as Record<string, unknown> },
-    timeoutMs: 9_000,
-  });
-  if (res.ok) {
+  if (res?.ok) {
     try {
       result = parseModelResult(JSON.parse(res.text));
     } catch {
@@ -95,12 +96,14 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const out = finalizeResult(result, rules, pendingAsk);
   if (!demo) {
-    await logSessionEvent({
-      paperId,
-      stage: 1,
-      event: "confirm_reply",
-      detail: { intent: out.intent, source: result ? "model" : "rules" },
-    });
+    after(() =>
+      logSessionEvent({
+        paperId,
+        stage: 1,
+        event: "confirm_reply",
+        detail: { intent: out.intent, source: result ? "model" : "rules" },
+      }),
+    );
   }
   return NextResponse.json({ ...out, source: result ? "model" : "rules" });
 }

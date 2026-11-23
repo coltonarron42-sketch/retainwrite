@@ -5,6 +5,9 @@ import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+
+/** Typed-send cap for the intent check; the rules answer after it (QA 8:08 PM). */
+const STANCE_INTENT_CLIENT_MS = 2200;
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
@@ -664,10 +667,12 @@ export function CoachingLoop({
   /** Content, or a request/question to Pau Pau? Model first, rules if it fails. */
   async function classifyIntent(text: string, ask: string): Promise<StanceIntent> {
     const rules = rulesStanceIntent(text);
-    if (!needsModel(text)) return rules;
+    // Explicit help/questions already have a safe deterministic intent. Don't
+    // make the student wait for a model to repeat that decision.
+    if (rules !== "content" || !needsModel(text)) return rules;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 7000);
+      const timer = setTimeout(() => controller.abort(), STANCE_INTENT_CLIENT_MS);
       const res = await fetch(`/api/papers/${paperId}/stance/intent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

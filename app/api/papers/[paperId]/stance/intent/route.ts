@@ -12,9 +12,12 @@ import {
   STANCE_INTENT_SYSTEM,
   type StanceIntent,
 } from "@/lib/stages/stance-intent";
-import { createClient } from "@/lib/supabase/server";
+import { hasAuthCookie, paperOwnerDenied } from "@/lib/auth/paper-access";
 
 export const runtime = "nodejs";
+
+/** Under the client cap (STANCE_INTENT_CLIENT_MS) so the server answers first. */
+const INTENT_MODEL_TIMEOUT_MS = 1_800;
 
 const bodySchema = z.object({
   message: z.string().min(1).max(4000),
@@ -41,34 +44,33 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const rules = rulesStanceIntent(body.message);
-  if (!needsModel(body.message)) return NextResponse.json({ intent: rules, source: "rules" });
+  // A clear request/question is final on the rules (finalStanceIntent), so no model call.
+  if (rules !== "content" || !needsModel(body.message)) return NextResponse.json({ intent: rules, source: "rules" });
 
   const demo = await getDemoSession();
-  if (!demo) {
-    if (!hasSupabaseConfig()) return NextResponse.json({ intent: rules, source: "rules" });
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { data: paper } = await supabase.from("papers").select("id").eq("id", paperId).eq("user_id", user.id).maybeSingle();
-    if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!demo && !hasSupabaseConfig()) return NextResponse.json({ intent: rules, source: "rules" });
+  // Typed-send latency (QA 8:08 PM): the owner check and the model call run
+  // side by side; the model answer is dropped if the check fails.
+  const denied = demo ? Promise.resolve(null) : paperOwnerDenied(paperId);
+  const call = demo || (await hasAuthCookie()) ? classify(body) : null;
+  const deny = await denied;
+  if (deny) return deny;
+  const model = call ? await call : null;
+  return NextResponse.json({ intent: finalStanceIntent(model, rules), source: model ? "model" : "rules" });
+}
 
-  let model: StanceIntent | null = null;
+async function classify(body: z.infer<typeof bodySchema>): Promise<StanceIntent | null> {
   const res = await grokChatJson({
     model: MODEL_FAST,
     system: STANCE_INTENT_SYSTEM,
     user: JSON.stringify({ coach_asked: body.ask ?? "", section: body.section ?? "", student_message: body.message }),
     jsonSchema: { name: "stance_intent", schema: STANCE_INTENT_SCHEMA as unknown as Record<string, unknown> },
-    timeoutMs: 6_000,
+    timeoutMs: INTENT_MODEL_TIMEOUT_MS,
   });
-  if (res.ok) {
-    try {
-      model = parseStanceIntent(JSON.parse(res.text));
-    } catch {
-      model = null;
-    }
+  if (!res.ok) return null;
+  try {
+    return parseStanceIntent(JSON.parse(res.text));
+  } catch {
+    return null;
   }
-  return NextResponse.json({ intent: finalStanceIntent(model, rules), source: model ? "model" : "rules" });
 }

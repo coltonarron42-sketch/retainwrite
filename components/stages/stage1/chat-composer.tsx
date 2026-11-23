@@ -355,7 +355,8 @@ export function ChatComposer({
 
   // A tap on Unmute (prefs change) clears an earlier "blocked"/"error".
   useEffect(() => {
-    if (!micMuted) setCallTrouble(null);
+    setCallTrouble(null);
+    if (micMuted) setMicNote(null);
   }, [micMuted]);
 
   const callOn = voice && canDictate;
@@ -367,10 +368,10 @@ export function ChatComposer({
       ? speechSupported()
         ? "unsupported"
         : "off"
-      : callTrouble
-        ? callTrouble
-        : micMuted
-          ? "muted"
+      : micMuted
+        ? "muted"
+        : callTrouble
+          ? callTrouble
           : speaking
             ? audible
               ? "paused"
