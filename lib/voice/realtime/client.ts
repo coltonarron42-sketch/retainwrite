@@ -26,8 +26,8 @@ export type RtEvents = {
 const RATE = 24_000;
 const CHUNK = 2_400; // 100 ms
 const LEAD_S = 0.06;
-/** Mic must be this much louder than her playback to count as the student (echo gate). */
-const ECHO_K = 1.0;
+/** Mic must be this much louder than her measured echo to count as the student (echo gate). */
+const ECHO_MARGIN = 2.5;
 /** Room echo and capture delay after her last sample. */
 const ECHO_TAIL_MS = 250;
 const VOICE_RMS = 0.02;
@@ -104,6 +104,7 @@ export class RealtimeVoice {
   private outFrames: { t: number; rms: number }[] = [];
   private echoTailUntil = 0;
   private bargeRoll: ArrayBuffer[] = [];
+  private echoRatios: number[] = [];
 
   constructor(
     private paperId: string,
@@ -261,7 +262,15 @@ export class RealtimeVoice {
     // server VAD nor the transcript ever hears her echo.
     const playing = this.sources.size > 0;
     const echoWindow = playing || now < this.echoTailUntil;
-    const voiced = rms > Math.max(0.05, ECHO_K * this.outRms());
+    const out = this.outRms();
+    // How much of her playback reaches the mic (headphones ~0, speakers more):
+    // the quietest recent ratio is the echo floor, since the student isn't always talking.
+    if (playing && out > 0.02) {
+      this.echoRatios.push(rms / out);
+      if (this.echoRatios.length > 40) this.echoRatios.shift();
+    }
+    const coupling = this.echoRatios.length >= 3 ? Math.min(...this.echoRatios.slice(-20)) : 1;
+    const voiced = rms > Math.max(0.05, ECHO_MARGIN * coupling * out);
     if (echoWindow) {
       this.voicedRun = voiced ? this.voicedRun + 1 : 0;
       this.bargeRoll.push(pcm);
