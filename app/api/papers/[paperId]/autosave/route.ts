@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { autosaveResumeAllowed } from "@/lib/stages/gate-guard";
 
 export const runtime = "nodejs";
 
@@ -139,12 +140,14 @@ export async function POST(request: Request, ctx: Ctx) {
     );
   }
   if (body.resume) {
-    const resumeMovesForward = body.resume.stage >= auth.currentStage;
+    // Autosave never moves the paper's stage (preserved gates); only the progress
+    // route can, after the student's explicit confirm. The pointer moves within it.
+    const resumeHere = autosaveResumeAllowed(body.resume.stage, auth.currentStage);
     writes.push(
       auth.supabase
         .from("papers")
         .update({
-          ...(resumeMovesForward ? { resume: body.resume, current_stage: body.resume.stage } : {}),
+          ...(resumeHere ? { resume: body.resume } : {}),
           updated_at: now,
         })
         .eq("id", paperId)

@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { stageRedirect } from "@/lib/stages/gate-guard";
 import { StageShell } from "@/components/stages/stage-shell";
 import { requireUser } from "@/lib/auth/require-user";
 import { loadAccountPaper } from "@/lib/papers/load";
@@ -16,6 +17,9 @@ export default async function StagePage({ params }: Props) {
   if (access.kind === "user") {
     const loaded = await loadAccountPaper(access.session.id, paperId);
     if (!loaded) notFound();
+    // Preserved gates: a URL past the paper's stage never opens (or moves) it.
+    const back = stageRedirect(stage, loaded.paper.current_stage);
+    if (back !== null) redirect(`/app/papers/${paperId}/stage/${back}`);
     return (
       <StageShell
         paperId={paperId}
