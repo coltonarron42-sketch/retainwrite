@@ -84,9 +84,11 @@ function useRecognitionSupported() {
 /**
  * Voice call mute (PLAN.md 9): while Voice is on the student's mic listens
  * between Pau Pau's turns. Mute keeps it off (remembered on the account);
- * Pau Pau still speaks.
+ * Pau Pau still speaks. It lives on the composer, where the mic is (QA 7:21
+ * PM, like Grok's voice mode): `compact` is the round 48px mic button there,
+ * and the call status beside it says "Your mic is muted" when it is.
  */
-export function MicMuteButton({ className }: { className?: string }) {
+export function MicMuteButton({ className, compact = false }: { className?: string; compact?: boolean }) {
   const { voice, micMuted } = useChatPrefs();
   const canListen = useRecognitionSupported();
   if (!voice || !canListen) return null;
@@ -100,19 +102,22 @@ export function MicMuteButton({ className }: { className?: string }) {
         unlockSpeech();
         setChatPref("micMuted", !micMuted);
       }}
+      title={micMuted ? "Unmute" : "Mute"}
       className={cn(
-        "ds-focus inline-flex min-h-[48px] items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors duration-150",
-        micMuted ? "bg-ds-ink text-white" : "text-ds-ink hover:bg-ds-surface",
+        compact
+          ? "ds-focus flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors duration-150"
+          : "ds-focus inline-flex min-h-[48px] items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors duration-150",
+        micMuted ? "bg-ds-ink text-white" : compact ? "text-ds-accent hover:bg-ds-page" : "text-ds-ink hover:bg-ds-surface",
         className,
       )}
     >
       {micMuted ? <MicOff aria-hidden className="size-5" /> : <Mic aria-hidden className="size-5" />}
-      {micMuted ? "Unmute" : "Mute"}
+      {compact ? null : micMuted ? "Unmute" : "Mute"}
     </button>
   );
 }
 
-/** Eyebrow row with the voice switch (and, on a voice call, Mute) on the right. */
+/** Eyebrow row with the voice switch on the right (Mute is on the composer, by the mic). */
 export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eyebrowClassName: string }) {
   return (
     <div className="flex min-h-[48px] items-center justify-between gap-2">
@@ -122,7 +127,6 @@ export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eye
         <p className={eyebrowClassName}>{eyebrow}</p>
       </div>
       <div className="flex items-center gap-1">
-        <MicMuteButton />
         <VoiceToggle />
       </div>
     </div>

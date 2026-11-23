@@ -259,6 +259,12 @@ export function CoachingLoop({
   const [active, setActive] = useState(0);
   const [moving, setMoving] = useState(false);
   const [outlineSaving, setOutlineSaving] = useState(false);
+  // Server copies of each section's unsent Stage 2 note, from the last load.
+  const unsentDrafts = useRef<Record<string, { text: string; updatedAt: string | null }>>({});
+  const unsentFor = (sectionKey: string | null | undefined): string => {
+    const draftKey = stanceDraftKey(sectionKey);
+    return draftKey ? newerDraftText(readLocalDraft(paperId, draftKey), unsentDrafts.current[draftKey] ?? null) : "";
+  };
   const noteStatus = useDraftSave({
     paperId,
     fieldKey: stanceDraftKey(session?.sections[active]?.key) ?? "stance:note:draft",
@@ -267,6 +273,14 @@ export function CoachingLoop({
     localCopy: true,
     resume: draftPointer({ stage: 2, sectionKey: session?.sections[active]?.key ?? null }),
   });
+  // Moving to another section brings back that section's unsent note (if the box is empty).
+  const activeKey = session?.sections[active]?.key ?? null;
+  useEffect(() => {
+    if (stage !== 2 || !sessionLoaded || !activeKey) return;
+    const unsent = unsentFor(activeKey);
+    if (unsent.trim()) setIdea((cur) => (cur.trim() ? cur : unsent));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- per section, not per keystroke
+  }, [stage, sessionLoaded, activeKey, paperId]);
   const paste = usePasteMeta();
   // The shell passes a fresh stageProgress array on every render. Read it from
   // a ref so a parent re-render does not reload the saved session over the
@@ -333,17 +347,22 @@ export function CoachingLoop({
         outlineDrafts.current[section.key] = keptIdeas(section.ideas).join("\n");
       }
       setSession(base);
-      const index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
-      setActive(index >= 0 ? index : 0);
-      // Stage 2: the unsent note comes back in the box, per paper, section and
+      // Stage 2: unsent notes come back in the box, per paper, section and
       // device (the newer of this browser's copy and the server's), never over
-      // anything typed already (QA 6:53 PM #1).
-      const draftKey = stage === 2 ? stanceDraftKey(base.sections[index >= 0 ? index : 0]?.key) : null;
-      if (draftKey) {
-        const row = drafts.find((d) => d.fieldKey === draftKey);
-        const unsent = newerDraftText(readLocalDraft(paperId, draftKey), row ? { text: row.text, updatedAt: row.updatedAt ?? null } : null);
-        if (unsent.trim()) setIdea((cur) => (cur.trim() ? cur : unsent));
+      // anything typed already (QA 6:53 PM #1). The server copies are kept so
+      // switching sections restores each one.
+      unsentDrafts.current = {};
+      for (const d of drafts) if (/^stance:.+:draft$/.test(d.fieldKey)) unsentDrafts.current[d.fieldKey] = { text: d.text, updatedAt: d.updatedAt ?? null };
+      let index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
+      // The resume pointer belongs to another stage (e.g. Stage 3 after a trip
+      // there): open the section the student left an unsent note in.
+      if (stage === 2 && resume?.stage !== 2) {
+        const waiting = unsentSection(base.sections.map((item) => item.key), (key) => unsentFor(key));
+        if (waiting >= 0) index = waiting;
       }
+      setActive(index >= 0 ? index : 0);
+      const unsent = stage === 2 ? unsentFor(base.sections[index >= 0 ? index : 0]?.key) : "";
+      if (unsent.trim()) setIdea((cur) => (cur.trim() ? cur : unsent));
     };
     if (!persist) {
       finish(saved, []);
@@ -1187,6 +1206,7 @@ export function CoachingLoop({
             // Sent (or cleared): the saved draft goes too, here and on the server.
             const key = stanceDraftKey(section?.key);
             if (!value.trim() && idea.trim() && key) {
+              delete unsentDrafts.current[key];
               clearLocalDraft(paperId, key);
               if (persist) void persistField(paperId, { fieldKey: key, text: "", submitted: false, resume: draftPointer({ stage: 2, sectionKey: section?.key ?? null }) });
             }
@@ -1567,4 +1587,9 @@ function StageFive({
 /** Where a Stage 2 section's unsent note is saved (server field and device copy). */
 export function stanceDraftKey(sectionKey: string | null | undefined): string | null {
   return sectionKey ? `stance:${sectionKey}:draft` : null;
+}
+
+/** The first section with an unsent Stage 2 note, or -1. */
+export function unsentSection(keys: string[], unsent: (key: string) => string): number {
+  return keys.findIndex((key) => unsent(key).trim().length > 0);
 }

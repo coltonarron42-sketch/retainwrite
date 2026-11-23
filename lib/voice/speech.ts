@@ -86,6 +86,36 @@ let serverVoice: "unknown" | "on" | "off" = "unknown";
 let serverFailures = 0;
 let audioEl: HTMLAudioElement | null = null;
 const clips = new Map<string, Promise<string | null>>();
+/**
+ * Silence at each end of a clip (seconds). xAI clips carry ~150 ms of lead and
+ * 170-420 ms of tail silence; played back to back that is a 0.3-0.6 s hole
+ * between clips (QA 7:21 PM "chunked"). We skip most of it.
+ */
+export type ClipTrim = { lead: number; end: number };
+const trims = new Map<string, ClipTrim>();
+/** Natural breath kept at a seam: a little before the words, a little after. */
+export const KEEP_LEAD_S = 0.03;
+export const KEEP_TAIL_S = 0.08;
+/** Where the words start and end, in seconds, keeping a short breath at each side. */
+export function silenceTrim(samples: Float32Array, sampleRate: number, floor = 0.01): ClipTrim | null {
+  let lead = 0;
+  while (lead < samples.length && Math.abs(samples[lead]!) < floor) lead++;
+  if (lead >= samples.length) return null;
+  let tail = samples.length - 1;
+  while (tail > lead && Math.abs(samples[tail]!) < floor) tail--;
+  return { lead: Math.max(0, lead / sampleRate - KEEP_LEAD_S), end: Math.min(samples.length / sampleRate, tail / sampleRate + KEEP_TAIL_S) };
+}
+async function measureTrim(url: string, blob: Blob) {
+  try {
+    const Ctx = (window as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
+    if (!Ctx || typeof blob.arrayBuffer !== "function") return;
+    const audio = await new Ctx(1, 1, 24000).decodeAudioData(await blob.arrayBuffer());
+    const t = silenceTrim(audio.getChannelData(0), audio.sampleRate);
+    if (t) trims.set(url, t);
+  } catch {
+    /* no trim: the clip plays whole */
+  }
+}
 // 0.05s of silence, played inside the first tap so later play() calls are allowed (iOS).
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
@@ -131,7 +161,11 @@ function fetchClip(text: string): Promise<string | null> {
       if (!blob.size) throw new Error("empty");
       serverVoice = "on";
       serverFailures = 0;
-      return URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
+      // Measure its silence first (a few ms; never more than 150 ms), so the
+      // seam is trimmed from the first play.
+      await Promise.race([measureTrim(url, blob), new Promise((r) => setTimeout(r, 150))]);
+      return url;
     })
     .catch(() => {
       if (++serverFailures >= 3) serverVoice = "off";
@@ -444,6 +478,37 @@ export function utteranceBudgetMs(text: string): number {
   return 4000 + text.length * 90;
 }
 
+/**
+ * One spoken turn as few clips as possible (QA 7:21 PM): the first sentence
+ * alone, so her voice starts fast (~0.8 s for a short clip vs 1.4-2.3 s for a
+ * whole reply), then the rest of the turn as ONE clip, fetched while the first
+ * plays, so the rest is one continuous read with natural prosody.
+ */
+export const GROUP_MAX_CHARS = 420;
+export function voiceGroups(sentences: string[]): string[] {
+  const s = sentences.map((x) => x.trim()).filter(Boolean);
+  if (s.length <= 1) return s;
+  let first = s[0]!;
+  let i = 1;
+  // A very short opener ("Okay.") rides with the next sentence.
+  if (first.length < 9 && first.length + s[1]!.length < 140) first = `${first} ${s[i++]!}`;
+  const out = [first];
+  let cur = "";
+  for (; i < s.length; i++) {
+    if (cur && cur.length + 1 + s[i]!.length > GROUP_MAX_CHARS) {
+      out.push(cur);
+      cur = s[i]!;
+    } else cur = cur ? `${cur} ${s[i]!}` : s[i]!;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+/** Sentences inside a grouped clip (the browser voice reads one at a time). */
+export function splitGroup(text: string): string[] {
+  const parts = text.match(/[^.!?…]+[.!?…]+["”’)]*|[^.!?…]+$/g)?.map((x) => x.trim()).filter(Boolean);
+  return parts?.length ? parts : [text];
+}
+
 /** Long sentences are split at commas/semicolons (Chrome stops mid-utterance after ~15s). */
 export function chunkSentence(text: string, max = 180): string[] {
   if (text.length <= max) return [text];
@@ -486,7 +551,7 @@ function pump() {
   if (audioSupported() && serverVoice !== "off") {
     const clip = fetchClip(next);
     // Fetch ahead so the next sentence starts without a gap.
-    for (const t of queue.slice(0, 2)) void fetchClip(t);
+    for (const t of queue.slice(0, 3)) void fetchClip(t);
     void clip.then((url) => {
       if (gen !== generation) return;
       if (url) playClip(url, next, gen);
@@ -519,11 +584,14 @@ function playClip(url: string, next: string, gen: number) {
   if (!a) return speakWithSynth(next, gen);
   let finished = false;
   let started = false;
+  const trim = trims.get(url);
+  let seam: ReturnType<typeof setTimeout> | null = null;
   const done = () => {
     if (finished) return;
     finished = true;
     if (watchdog) clearTimeout(watchdog);
     watchdog = null;
+    if (seam) clearTimeout(seam);
     if (gen !== generation) return;
     audibleEnded = queue.length === 0;
     setAudible(null);
@@ -539,6 +607,20 @@ function playClip(url: string, next: string, gen: number) {
     // Playing: allow its real length, then move on even without 'ended'.
     if (watchdog) clearTimeout(watchdog);
     watchdog = setTimeout(done, utteranceBudgetMs(next) + 2000);
+    // Gapless: hand over where this clip's words end, not after its silence.
+    if (trim && !seam) {
+      const ms = ((trim.end - (a.currentTime || 0)) / (a.playbackRate || 1)) * 1000;
+      if (ms > 0)
+        seam = setTimeout(() => {
+          if (finished || gen !== generation) return;
+          try {
+            a.pause();
+          } catch {
+            /* ignore */
+          }
+          done();
+        }, ms);
+    }
   };
   a.onended = done;
   a.onerror = () => {
@@ -551,6 +633,14 @@ function playClip(url: string, next: string, gen: number) {
   };
   a.muted = false;
   a.src = url;
+  // Skip the clip's leading silence (applied once its metadata loads).
+  if (trim && trim.lead > 0) {
+    try {
+      a.currentTime = trim.lead;
+    } catch {
+      /* ignore */
+    }
+  }
   let p: Promise<void> | undefined;
   try {
     p = a.play();
@@ -580,6 +670,11 @@ function playClip(url: string, next: string, gen: number) {
 }
 
 function speakWithSynth(next: string, gen: number) {
+  const parts = splitGroup(next).flatMap((x) => chunkSentence(x));
+  if (parts.length > 1) {
+    queue.unshift(...parts.slice(1));
+    next = parts[0]!;
+  }
   const synth = window.speechSynthesis;
   const u = new SpeechSynthesisUtterance(next);
   const voice = pickVoice();
@@ -682,7 +777,10 @@ export function speak(texts: string[], opts: { interrupt?: boolean; welcome?: bo
   setTapNeeded(false);
   installUnlockListeners();
   if (opts.interrupt && !opts.welcome) stopSpeech();
-  for (const t of texts) for (const s of speakableSentences(t)) queue.push(...chunkSentence(s));
+  // Server voice: one clip per thought (voiceGroups); the browser voice reads
+  // a grouped clip sentence by sentence (speakWithSynth splits it again).
+  const sentences = texts.flatMap((t) => speakableSentences(t)).flatMap((x) => chunkSentence(x));
+  queue.push(...(audioSupported() && serverVoice !== "off" ? voiceGroups(sentences) : sentences));
   if (queue.length) setSpeaking(true);
   pump();
   // Held for a tap: not "speaking" yet, so the mic is not paused for nothing.

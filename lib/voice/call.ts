@@ -34,9 +34,14 @@ export function subscribeCall(l: () => void) {
   return () => listeners.delete(l);
 }
 
-/** Silence before a heard reply sends itself. Longer while words are still "in progress". */
-export const SILENCE_SEND_MS = 1600;
-export const SILENCE_INTERIM_MS = 2800;
+/**
+ * Silence before a heard reply sends itself (QA 7:21 PM: 1.6 s felt laggy).
+ * After a FINAL result: 0.85 s. While the recognizer still shows words "in
+ * progress" (an interim result), the student is likely mid-thought, so wait
+ * longer before cutting them off.
+ */
+export const SILENCE_SEND_MS = 850;
+export const SILENCE_INTERIM_MS = 1500;
 
 /** How long to wait before restarting after the browser ends a listening session. */
 export function restartDelayMs(recentRestarts: number): number {

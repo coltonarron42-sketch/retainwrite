@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { demoTtsAllowed } from "@/lib/voice/demo-tts-limit";
 import { isTtsCandidate, ttsFallbackVoice, TTS_MAX_CHARS, TTS_SPEED, ttsVoiceId } from "@/lib/voice/tts-config";
 
 export const runtime = "nodejs";
@@ -27,7 +28,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const demo = await getDemoSession();
-  if (!demo) {
+  if (demo) {
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "ip";
+    if (!demoTtsAllowed(`${demo.createdAt}|${ip}`)) return NextResponse.json({ error: "demo_tts_limit" }, { status: 429 });
+  } else {
     if (!hasSupabaseConfig()) return NextResponse.json({ error: "tts_unavailable" }, { status: 503 });
     const supabase = await createClient();
     const {

@@ -13,6 +13,7 @@ import {
   type CallStatus,
 } from "@/lib/voice/call";
 import { useChatPrefs } from "@/lib/voice/prefs";
+import { MicMuteButton } from "@/components/stages/stage1/voice";
 import { armSpeech, audibleSentence, isSpeaking, speechSupported, stopSpeech, subscribeAudible, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
 
 import {
@@ -674,6 +675,8 @@ export function ChatComposer({
                 {listening ? <Square aria-hidden className="h-4 w-4" /> : <Mic aria-hidden className="h-5 w-5" />}
               </button>
             ) : null}
+            {/* On a voice call the mic button is Mute/Unmute, right on the composer. */}
+            {callOn ? <MicMuteButton compact /> : null}
             {listening ? <span className="text-[13px] text-ds-muted" role="status">Listening…</span> : null}
             {callOn && !troubleStatus ? (
               <span
