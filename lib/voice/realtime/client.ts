@@ -264,12 +264,14 @@ export class RealtimeVoice {
     const echoWindow = playing || now < this.echoTailUntil;
     const out = this.outRms();
     // How much of her playback reaches the mic (headphones ~0, speakers more):
-    // the quietest recent ratio is the echo floor, since the student isn't always talking.
+    // the median recent ratio is the echo level (the student talks over her only now and then;
+    // the minimum undershoots while her echo is still arriving).
     if (playing && out > 0.02) {
       this.echoRatios.push(rms / out);
       if (this.echoRatios.length > 40) this.echoRatios.shift();
     }
-    const coupling = this.echoRatios.length >= 3 ? Math.min(...this.echoRatios.slice(-20)) : 1;
+    const recent = this.echoRatios.slice(-20).sort((a, b) => a - b);
+    const coupling = recent.length >= 3 ? recent[Math.floor(recent.length / 2)]! : 1;
     const voiced = rms > Math.max(0.05, ECHO_MARGIN * coupling * out);
     if (echoWindow) {
       this.voicedRun = voiced ? this.voicedRun + 1 : 0;

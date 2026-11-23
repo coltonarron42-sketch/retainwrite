@@ -28,6 +28,9 @@ Ask what they think or know about what the section needs. When they answer with 
 
 `;
 
-export function buildInstructions(stateBlock: string): string {
-  return `${REALTIME_RULES}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
+export function buildInstructions(stateBlock: string, alreadyAsked: string[] = []): string {
+  const asked = alreadyAsked.length
+    ? `# Questions you already asked this session\nNever ask any of these again, even reworded. Ask something new, or move the student on:\n${alreadyAsked.map((q) => `- ${q}`).join("\n")}\n\n`
+    : "";
+  return `${REALTIME_RULES}${asked}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
 }

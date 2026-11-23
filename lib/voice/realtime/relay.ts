@@ -206,12 +206,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       screen.choices.length
         ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
         : null,
-      asked.length ? `Questions you already asked this session (never ask any of these again; ask something new or move on): ${asked.map((q) => `"${q}"`).join(" / ")}` : null,
     ]
       .filter(Boolean)
       .join("\n");
   const instructions = () =>
-    buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`);
+    buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked);
 
   await refreshFlow();
 
