@@ -11,7 +11,7 @@ import {
   type ConfirmResult,
 } from "@/lib/stage1/confirm-reply";
 import { pauPauSummaryBubbles, reconfirmParas, SUMMARY_OPENERS } from "@/lib/stage1/pau-pau";
-import { __resetSpeech, takeNew } from "@/lib/voice/speech";
+import { __resetSpeech, armSpeech, takeNew } from "@/lib/voice/speech";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
@@ -134,8 +134,11 @@ describe("5: a reload never re-reads old bubbles", () => {
     // Reload: upload screen, then the restored confirm screen swaps in (same scope).
     expect(takeNew("p1", [{ key: "ask", text: "What's the assignment?" }])).toEqual([]);
     expect(takeNew("p1", [{ key: "ask", text: "x" }, { key: "confirm:0", text: "This is for ENG 101." }])).toEqual([]);
-    // The student taps: only a NEW turn is read.
+    // Sticky browser activation alone (an in-app return) never arms her voice.
     vi.stubGlobal("navigator", { userActivation: { hasBeenActive: true } });
+    expect(takeNew("p1", [{ key: "ask", text: "x" }, { key: "confirm:0", text: "This is for ENG 101." }, { key: "confirm:1", text: "Restored late." }])).toEqual([]);
+    // The student acts (a reply or a choice): only a NEW turn is read.
+    armSpeech();
     const fresh = takeNew("p1", [
       { key: "ask", text: "x" },
       { key: "confirm:0", text: "This is for ENG 101." },

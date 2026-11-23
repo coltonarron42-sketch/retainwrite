@@ -199,27 +199,74 @@ function gestureSeen(): boolean {
   return Boolean(nav.userActivation.hasBeenActive);
 }
 
-let interacted = false;
-/** A real tap/click/key on this page load (not a reload's restored screen). */
-function interactedThisLoad(): boolean {
-  if (interacted) return true;
-  if (typeof window === "undefined") return true; // unit tests / server
-  const nav = navigator as Navigator & { userActivation?: { hasBeenActive?: boolean } };
-  return Boolean(nav.userActivation?.hasBeenActive);
-}
+
 /** Called from the gesture listeners (and the Voice toggle, itself a tap). */
 export function noteInteraction() {
-  interacted = true;
+  armSpeech();
+  armSpeech();
+}
+
+/*
+ * ---- the restore barrier (Colton 5:03 PM, real device) ----
+ * Her queue may only hold turns that arrived AFTER the student did something
+ * on this visit (sent a reply, picked a choice, pressed a step button), plus
+ * the welcome-back line. Restored history never qualifies, whatever woke the
+ * audio: a mount, a late server restore, another device's history (no local
+ * "heard" marks), the Voice switch, Unmute, an unlock or "Tap to hear" tap.
+ * Taps on the voice controls themselves never arm it. Sticky browser
+ * activation (navigator.userActivation, true after any tap before an in-app
+ * return) is not used. A new route disarms it unless the student's action
+ * led there a moment ago (moving on to the next stage).
+ */
+let armedAt = 0;
+let armedPath = "";
+const CARRY_MS = 15_000;
+const VOICE_CONTROLS = "[data-voice-toggle],[data-replay],[data-tap-to-hear],[data-mic-mute],[data-barge-in],[data-no-arm]";
+export function armSpeech() {
+  armedAt = Date.now();
+  armedPath = typeof window === "undefined" ? "" : (window.location?.pathname ?? "");
+}
+export function speechArmed(): boolean {
+  if (typeof window === "undefined") return true; // unit tests / server
+  if (!armedAt) return false;
+  const path = (window.location?.pathname ?? "");
+  if (path === armedPath) return true;
+  if (Date.now() - armedAt < CARRY_MS) {
+    armedPath = path;
+    return true;
+  }
+  armedAt = 0;
+  return false;
+}
+/** A student action (not a voice control): arms her queue for what comes next. */
+function armFromEvent(e: Event) {
+  const el = e.target as Element | null;
+  if (!el || typeof el.closest !== "function") return;
+  if (e.type === "keydown") {
+    const k = e as KeyboardEvent;
+    if (k.key === "Enter" && !k.shiftKey && el.closest("textarea, input")) armSpeech();
+    return;
+  }
+  const btn = el.closest("button, [role=button]");
+  if (btn && !btn.closest(VOICE_CONTROLS)) armSpeech();
+}
+let armInstalled = false;
+function installArm() {
+  if (armInstalled || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  armInstalled = true;
+  window.addEventListener("click", armFromEvent, { capture: true, passive: true });
+  window.addEventListener("keydown", armFromEvent, { capture: true, passive: true });
 }
 
 let installed = false;
 /** Listens once for the first tap or key and for late-loading voices. */
 export function installSpeechUnlock() {
+  installArm();
   if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
   if (!synthSupported()) {
     installed = true;
     const onTap = () => {
-      interacted = true;
+      armSpeech();
       unlockSpeech();
     };
     for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
@@ -229,7 +276,7 @@ export function installSpeechUnlock() {
   }
   installed = true;
   const onGesture = () => {
-    interacted = true;
+    armSpeech();
     unlockSpeech();
   };
   for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
@@ -261,7 +308,7 @@ export function installSpeechUnlock() {
  */
 let audioUnlocked = false;
 export function unlockSpeech() {
-  interacted = true;
+  armSpeech();
   if (!speechSupported()) return;
   preferPlaybackRoute();
   // A "Tap to hear" tap: unlock again inside this gesture.
@@ -569,8 +616,6 @@ export type SpeakItem = { key: string; text: string; turn?: boolean };
  * only bubbles that arrive afterwards are read.
  */
 export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
-  const turn = items.filter((i) => i.turn).map((i) => i.text);
-  if (turn.length) latestTurn = turn;
   // Anything this paper already showed or said, on any earlier visit, is never
   // read again (Colton 3:46 PM): restored history stays silent even if it
   // arrives late or under a new key after a reload or a return.
@@ -579,6 +624,9 @@ export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
   const fresh0 = takeNewInner(scope, items).filter((i) => !heard.has(textMark(i.text)));
   for (const i of items) heard.add(textMark(i.text));
   if (heard.size !== before) saveHeard(scope, heard);
+  // "Read it now" on the Voice switch only ever means a turn from this visit.
+  const turn = fresh0.filter((i) => i.turn).map((i) => i.text);
+  if (turn.length) latestTurn = turn;
   return fresh0;
 }
 
@@ -627,10 +675,10 @@ export function markHeard(scope: string, texts: string[]) {
 
 function takeNewInner(scope: string, items: SpeakItem[]): SpeakItem[] {
   let set = seen.get(scope);
-  // Until the student taps or types on this page load, everything on screen is
-  // restored history (a reload can swap screens and redraw old bubbles), so
-  // nothing is read aloud and nothing is queued to play on the first tap.
-  if (!interactedThisLoad()) {
+  // Until the student acts on this visit (see the restore barrier), everything
+  // on screen is restored history (a reload or return can swap screens and
+  // redraw old bubbles, late), so nothing is read aloud or queued for a tap.
+  if (!speechArmed()) {
     if (!set) seen.set(scope, (set = new Set()));
     items.forEach((i) => set!.add(i.key));
     return [];
@@ -652,9 +700,10 @@ export function currentTurn(): string[] {
 
 /** Test helper. */
 export function __resetSpeech() {
+  armedAt = 0;
+  armedPath = "";
   seen.clear();
   heardCache.clear();
-  interacted = false;
   latestTurn = [];
   queue = [];
   active = false;

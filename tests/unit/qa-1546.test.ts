@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetSpeech, beginSpeakScope, noteInteraction, takeNew, textMark } from "@/lib/voice/speech";
+import { readFileSync } from "node:fs";
+import { __resetSpeech, armSpeech, beginSpeakScope, currentTurn, noteInteraction, speechArmed, takeNew, textMark } from "@/lib/voice/speech";
 import { parseWelcomeState, welcomeBackLine, WELCOME_BACK_GAP_MS, WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { setLocalUser } from "@/lib/local/user-scope";
 import { citationComfortQuestion } from "@/lib/stage1/comfort";
@@ -14,6 +15,7 @@ describe("3:46 PM: restored turns are never replayed", () => {
   it("persists the per-paper seen marker under the signed-in user, including turns rendered with voice off", () => {
     vi.stubGlobal("window", { localStorage: storage });
     vi.stubGlobal("navigator", { userActivation: { hasBeenActive: true } });
+    noteInteraction(); // the student acted on this visit
     const a = { key: "a", text: "A line already rendered." };
     const b = { key: "b", text: "Her new line." };
     expect(takeNew("paper1", [a])).toEqual([]);
@@ -66,5 +68,58 @@ describe("citation comfort question names the style", () => {
     const q = citationComfortQuestion(style === "ASA" ? { citationStyle: { value: "other" }, citationStyleOther: "ASA" } : { citationStyle: { value: style } });
     expect(q).toContain(`${style} citations`);
     expect(q).not.toMatch(/other citations/);
+  });
+});
+
+describe("5:03 PM: the queue only ever holds turns from after the restore", () => {
+  const g = globalThis as Record<string, unknown>;
+  afterEach(() => {
+    delete g.window;
+    vi.unstubAllGlobals();
+    __resetSpeech();
+  });
+  const restored = [
+    { key: "r0", text: "Hi, I'm Pau Pau. What's the assignment?", turn: true },
+    { key: "r1", text: "Okay, I've read it through.", turn: true },
+  ];
+  it("sticky activation, late restores and a second chat on the same paper stay silent (no heard marks: another device)", () => {
+    __resetSpeech();
+    g.window = { location: { pathname: "/app/papers/p/stage/1" } };
+    vi.stubGlobal("navigator", { userActivation: { hasBeenActive: true } });
+    expect(takeNew("p", [])).toEqual([]);
+    expect(takeNew("p", restored)).toEqual([]);
+    expect(takeNew("p", [...restored, { key: "confirm:0", text: "This is for ENG 101." }])).toEqual([]);
+    expect(currentTurn()).toEqual([]);
+  });
+  it("after a real reply only the new turn is read; the Voice switch never re-reads history", () => {
+    __resetSpeech();
+    g.window = { location: { pathname: "/app/papers/p/stage/2" } };
+    expect(takeNew("p:stage2", restored)).toEqual([]);
+    expect(currentTurn()).toEqual([]);
+    armSpeech();
+    const reply = { key: "n0", text: "On to your body.", turn: true };
+    expect(takeNew("p:stage2", [...restored, reply])).toEqual([reply]);
+    expect(currentTurn()).toEqual(["On to your body."]);
+  });
+  it("a new route disarms (an in-app return), unless the student's action led there a moment ago", () => {
+    __resetSpeech();
+    const w = { location: { pathname: "/app/papers/p/stage/1" } };
+    g.window = w;
+    armSpeech();
+    w.location.pathname = "/app/papers/p/stage/2";
+    expect(speechArmed()).toBe(true); // moved on by the student's tap
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 60_000);
+    w.location.pathname = "/app";
+    expect(speechArmed()).toBe(false);
+    w.location.pathname = "/app/papers/p/stage/3";
+    expect(takeNew("p:stage3", restored)).toEqual([]);
+    vi.useRealTimers();
+  });
+  it("taps on the voice controls never arm her; Send and choice buttons do", () => {
+    const src = readFileSync("lib/voice/speech.ts", "utf8");
+    expect(src).toMatch(/\[data-voice-toggle\],\[data-replay\],\[data-tap-to-hear\],\[data-mic-mute\],\[data-barge-in\]/);
+    expect(src).not.toMatch(/function interactedThisLoad/);
+    expect(readFileSync("components/stages/stage1/chat-composer.tsx", "utf8")).toMatch(/armSpeech\(\);\n\s*onSend\(\);/);
   });
 });

@@ -13,7 +13,7 @@ import {
   type CallStatus,
 } from "@/lib/voice/call";
 import { useChatPrefs } from "@/lib/voice/prefs";
-import { audibleSentence, isSpeaking, speechSupported, stopSpeech, subscribeAudible, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
+import { armSpeech, audibleSentence, isSpeaking, speechSupported, stopSpeech, subscribeAudible, subscribeSpeaking, unlockSpeech } from "@/lib/voice/speech";
 
 import {
   useCallback,
@@ -516,6 +516,9 @@ export function ChatComposer({
     setListening(false);
     clearCallTimers();
     dropCallRecognizer();
+    // A real reply (typed, or spoken in a voice call): what she says next is
+    // new and may be read aloud; restored history never is (Colton 5:03 PM).
+    armSpeech();
     onSend();
   }
   useEffect(() => {
