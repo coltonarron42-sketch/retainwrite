@@ -26,6 +26,8 @@ export type RelayContext = {
   apiKey: string;
   resumeToken: string | null;
   effort: "high" | "none";
+  /** "client": the browser decides end of turn (faster); "server": xAI server VAD. */
+  vad: "client" | "server";
 };
 
 const TOOLS = [
@@ -102,6 +104,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     paper: ctx.paperId.slice(0, 8),
     resumed: Boolean(resumeId),
     effort: ctx.effort,
+    vad: ctx.vad,
     audioInBytes: 0,
     audioOutBytes: 0,
     textInputs: 0,
@@ -192,7 +195,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         voice: REALTIME_VOICE,
         instructions: instructions(),
         reasoning: { effort: ctx.effort },
-        turn_detection: { type: "server_vad" },
+        turn_detection: ctx.vad === "client" ? null : { type: "server_vad" },
         tools: TOOLS,
         audio: {
           input: {
@@ -483,6 +486,16 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     switch (e.type) {
       case "response.cancel":
         upSend({ type: "response.cancel" });
+        return;
+      case "rw.clear":
+        if (ctx.vad === "client") upSend({ type: "input_audio_buffer.clear" });
+        return;
+      case "rw.commit":
+        // Client end-of-turn: commit what they said and answer (no instructions from the browser).
+        if (ctx.vad !== "client") return;
+        speechStoppedAt = Date.now();
+        upSend({ type: "input_audio_buffer.commit" });
+        upSend({ type: "response.create" });
         return;
       case "rw.text": {
         const text = String(e.text ?? "").trim().slice(0, MAX_TEXT_CHARS);

@@ -56,6 +56,7 @@ export function useRealtimeCall(opts: {
     const w = optsRef.current.welcome();
     const params = typeof window !== "undefined" ? new URLSearchParams(location.search) : null;
     const effort = params?.get("rtEffort") === "high" ? "high" : undefined;
+    const vad = params?.get("rtVad") === "server" ? "server" : "client";
     const voice = new RealtimeVoice(
       optsRef.current.paperId,
       {
@@ -85,7 +86,7 @@ export function useRealtimeCall(opts: {
           if (m.bargeMs !== undefined) w2.__rwRt.barge.push(m.bargeMs);
         },
       },
-      { welcome: w.welcome, welcomeIndex: w.index, effort },
+      { welcome: w.welcome, welcomeIndex: w.index, effort, vad },
     );
     rt.current = voice;
     voice.setMuted(muted);

@@ -25,6 +25,10 @@ const RATE = 24_000;
 const CHUNK = 2_400; // 100 ms
 const LEAD_S = 0.06;
 const VOICE_RMS = 0.02;
+/** Client end-of-turn: this much silence after speech ends her wait (server VAD waits ~0.5-0.9 s more). */
+const END_SILENCE_MS = 360;
+const MIN_SPEECH_MS = 250;
+const PREROLL = 3;
 
 const WORKLET = `
 class Cap extends AudioWorkletProcessor {
@@ -84,11 +88,17 @@ export class RealtimeVoice {
   private resume: string | null = null;
   private started = false;
   private levelBuf = new Uint8Array(256);
+  private inSpeech = false;
+  private voicedRun = 0;
+  private onsetAt = 0;
+  private speechStartAt = 0;
+  private silenceSince = 0;
+  private preroll: ArrayBuffer[] = [];
 
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high" },
+    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server" },
   ) {}
 
   /** Call inside the tap. */
@@ -131,6 +141,7 @@ export class RealtimeVoice {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const q = new URLSearchParams({ paperId: this.paperId });
     if (this.opts.effort) q.set("effort", this.opts.effort);
+    q.set("vad", this.opts.vad ?? "client");
     if (this.resume) q.set("resume", this.resume);
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
@@ -158,7 +169,71 @@ export class RealtimeVoice {
     };
   }
 
+  private sendAudio(pcm: ArrayBuffer) {
+    const ws = this.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(pcm);
+    else if (this.early.length < 80) this.early.push(pcm);
+  }
+
+  /** Client VAD: stream only while they talk (plus a short pre-roll), commit after a short silence. */
+  private onMicClient(pcm: ArrayBuffer, rms: number) {
+    const now = performance.now();
+    if (this.muted || this.stopped) {
+      this.inSpeech = false;
+      this.voicedRun = 0;
+      return;
+    }
+    const playing = this.sources.size > 0;
+    const voiced = rms > (playing ? 0.05 : 0.025);
+    if (!this.inSpeech) {
+      this.voicedRun = voiced ? this.voicedRun + 1 : 0;
+      if (this.voicedRun === 1) this.onsetAt = now - 100;
+      this.preroll.push(pcm);
+      if (this.preroll.length > PREROLL) this.preroll.shift();
+      if (this.voicedRun >= (playing ? 2 : 1)) {
+        this.inSpeech = true;
+        this.speechStartAt = now;
+        this.silenceSince = 0;
+        this.lastVoiceAt = now;
+        if (playing || this.responding) {
+          this.stopPlayback();
+          this.send({ type: "response.cancel" });
+          if (playing) {
+            const barge = Math.round(performance.now() - this.onsetAt);
+            this.on.metric?.({ bargeMs: barge });
+            this.send({ type: "rw.metric", barge_ms: barge });
+          }
+        }
+        this.pendingE2E = null;
+        this.send({ type: "rw.clear" });
+        for (const b of this.preroll.splice(0)) this.sendAudio(b);
+        this.setPhase("listening");
+      }
+      return;
+    }
+    this.sendAudio(pcm);
+    if (voiced) {
+      this.lastVoiceAt = now;
+      this.silenceSince = 0;
+      return;
+    }
+    if (!this.silenceSince) this.silenceSince = now;
+    if (now - this.silenceSince < END_SILENCE_MS) return;
+    this.inSpeech = false;
+    this.voicedRun = 0;
+    if (this.lastVoiceAt - this.speechStartAt + 100 < MIN_SPEECH_MS) {
+      this.send({ type: "rw.clear" });
+      return;
+    }
+    // The chunk is posted at its end; voice ended somewhere inside it (about 50 ms earlier on average).
+    this.pendingE2E = this.lastVoiceAt - 50;
+    this.speechStoppedAt = now;
+    this.send({ type: "rw.commit" });
+    this.setPhase("thinking");
+  }
+
   private onMic(pcm: ArrayBuffer, rms: number) {
+    if ((this.opts.vad ?? "client") === "client") return this.onMicClient(pcm, rms);
     const now = performance.now();
     if (rms > VOICE_RMS) {
       if (this.sources.size && !this.voiceOnsetAt) this.voiceOnsetAt = now; // barge-in timing
