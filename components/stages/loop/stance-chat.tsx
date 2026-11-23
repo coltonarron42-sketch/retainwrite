@@ -829,7 +829,7 @@ export const STOCK_POOLS = {
     "Totally up to you. It's your paper.",
     "You decide. You know this paper better than I do.",
     "Your paper, your call.",
-    "Up to you. I'm just the cartoon with opinions.",
+    "Up to you. I just have opinions.",
     "Keep it or change it. Either way, it's your call.",
     "You've got the final say here.",
     "Your words, your rules.",

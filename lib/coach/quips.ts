@@ -9,7 +9,7 @@
 export const STAGE2_QUIPS = [
   "I'd write it for you, but I'm legally a cartoon.",
   "I'd hold the pencil, but no thumbs.",
-  "I'm a cartoon, and even I'm into this.",
+  "I'm weirdly into this.",
   "Rubrics love this stuff.",
   "Teachers notice this stuff.",
   "Deadlines scare me, and I don't even have one.",
@@ -42,6 +42,19 @@ function hash(s: string): number {
 /** Every paper hears this one once: section 1, the first quip slot (QA 5:44 PM). */
 export const SIGNATURE_QUIP = "I'd write it for you, but I'm legally a cartoon.";
 
+/**
+ * The "cartoon" joke family (QA 6:53 PM #3): one pool, one use per paper. Its
+ * only line is the signature, dealt once (section 1); no other pool, template,
+ * welcome line or model reply calls Pau Pau a cartoon.
+ */
+export const CARTOON_FAMILY = [SIGNATURE_QUIP] as const;
+const CARTOON = /\bcartoon\b/i;
+
+/** Is this sentence a cartoon joke? */
+export function isCartoonJoke(sentence: string): boolean {
+  return CARTOON.test(sentence);
+}
+
 export function quipDeck(seed: string): string[] {
   const deck = (STAGE2_QUIPS as readonly string[]).filter((q) => q !== SIGNATURE_QUIP);
   let h = hash(seed || "rw");
@@ -70,8 +83,6 @@ const KNOWN = [
   "Let's get into it.",
   "Painless, mostly.",
   "No crystal ball required.",
-  "I'd write it for you, but I'm legally a cartoon.",
-  "Legally, I'm a cartoon.",
   "No thumbs, so no pencil.",
   "Scout's honor.",
   "Love a quick yes.",
@@ -93,6 +104,8 @@ export function oneQuip(text: string): string {
   if (!parts) return text;
   let seen = false;
   const kept = parts.filter((p) => {
+    // The cartoon joke is the app's, once per paper; model text never adds one.
+    if (isCartoonJoke(p)) return false;
     if (!isQuip(p)) return true;
     if (seen) return false;
     seen = true;

@@ -76,6 +76,7 @@ import { applyOutlineDrafts } from "@/lib/papers/outline";
 import { draftPointer } from "@/lib/papers/draft-resume";
 import { persistField } from "@/lib/papers/persist";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
+import { clearLocalDraft, newerDraftText, readLocalDraft } from "@/lib/papers/local-draft";
 import { SaveStatus } from "@/components/stages/save-status";
 import { refreshStoredLogic, revisionPrefill } from "@/lib/coaching/logicRevision";
 import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
@@ -260,9 +261,10 @@ export function CoachingLoop({
   const [outlineSaving, setOutlineSaving] = useState(false);
   const noteStatus = useDraftSave({
     paperId,
-    fieldKey: `stance:${session?.sections[active]?.key ?? "note"}:draft`,
+    fieldKey: stanceDraftKey(session?.sections[active]?.key) ?? "stance:note:draft",
     text: idea,
     enabled: persist && stage === 2 && Boolean(session),
+    localCopy: true,
     resume: draftPointer({ stage: 2, sectionKey: session?.sections[active]?.key ?? null }),
   });
   const paste = usePasteMeta();
@@ -283,7 +285,7 @@ export function CoachingLoop({
     const saved = savedRaw ? (JSON.parse(savedRaw) as Session) : null;
     const finish = (
       base: Session | null,
-      drafts: { fieldKey: string; text: string }[],
+      drafts: { fieldKey: string; text: string; updatedAt?: string | null }[],
       sectionKey?: string | null,
       resume?: { stage?: number; screen?: string | null } | null,
     ) => {
@@ -333,6 +335,15 @@ export function CoachingLoop({
       setSession(base);
       const index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
       setActive(index >= 0 ? index : 0);
+      // Stage 2: the unsent note comes back in the box, per paper, section and
+      // device (the newer of this browser's copy and the server's), never over
+      // anything typed already (QA 6:53 PM #1).
+      const draftKey = stage === 2 ? stanceDraftKey(base.sections[index >= 0 ? index : 0]?.key) : null;
+      if (draftKey) {
+        const row = drafts.find((d) => d.fieldKey === draftKey);
+        const unsent = newerDraftText(readLocalDraft(paperId, draftKey), row ? { text: row.text, updatedAt: row.updatedAt ?? null } : null);
+        if (unsent.trim()) setIdea((cur) => (cur.trim() ? cur : unsent));
+      }
     };
     if (!persist) {
       finish(saved, []);
@@ -1173,6 +1184,12 @@ export function CoachingLoop({
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
+            // Sent (or cleared): the saved draft goes too, here and on the server.
+            const key = stanceDraftKey(section?.key);
+            if (!value.trim() && idea.trim() && key) {
+              clearLocalDraft(paperId, key);
+              if (persist) void persistField(paperId, { fieldKey: key, text: "", submitted: false, resume: draftPointer({ stage: 2, sectionKey: section?.key ?? null }) });
+            }
             setIdea(value);
           }}
           onPaste={paste.onPaste}
@@ -1545,4 +1562,9 @@ function StageFive({
       ))}
     </div>
   );
+}
+
+/** Where a Stage 2 section's unsent note is saved (server field and device copy). */
+export function stanceDraftKey(sectionKey: string | null | undefined): string | null {
+  return sectionKey ? `stance:${sectionKey}:draft` : null;
 }

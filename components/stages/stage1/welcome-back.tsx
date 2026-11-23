@@ -18,6 +18,51 @@ export function welcomeStateName(paperId: string, stage: number): string {
   return `welcome:${paperId}:s${stage}`;
 }
 
+/** The paper in a /papers/<id>/… path, or null (the dashboard, anything else). */
+export function paperFromPath(path: string): string | null {
+  const m = /\/papers\/([^/?#]+)/.exec(path);
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+
+// One welcome decision per RETURN (QA 6:53 PM #2). A return is a page load or
+// new session (this module starts fresh) or arriving from outside the paper
+// (the dashboard). Moving between a paper's stages in the same session is not
+// a return, so it never adds a second welcome.
+let returnPaper: string | null = null;
+let watching = false;
+
+function notePath(): void {
+  if (returnPaper && paperFromPath(window.location.pathname) !== returnPaper) returnPaper = null;
+}
+
+function watchPaths(): void {
+  if (watching || typeof window === "undefined") return;
+  watching = true;
+  for (const name of ["pushState", "replaceState"] as const) {
+    const original = window.history[name];
+    window.history[name] = function (this: History, ...args: Parameters<History["pushState"]>) {
+      const out = original.apply(this, args);
+      notePath();
+      return out;
+    } as History["pushState"];
+  }
+  window.addEventListener("popstate", notePath);
+}
+
+/** True the first time a paper's chat opens on this return; false for stage-to-stage moves. */
+export function claimReturn(paperId: string): boolean {
+  watchPaths();
+  notePath();
+  if (returnPaper === paperId) return false;
+  returnPaper = paperId;
+  return true;
+}
+
+/** Tests only. */
+export function resetReturnForTests(): void {
+  returnPaper = null;
+}
+
 /**
  * Decides ONCE per visit, when the restored history is ready, whether Pau Pau
  * says a welcome-back line (Colton 3:46 PM). Call it in the component that
@@ -33,6 +78,7 @@ export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: bool
     decided.current = true;
     // Any restored history opens at the bottom, welcome line or not.
     if (hasHistory) setRestored(true);
+    if (!claimReturn(paperId)) return;
     // Per paper AND stage (QA 4:42 #6a): a Stage 2 welcome never silences Stage 3.
     const name = welcomeStateName(paperId, stageFromPath(window.location.pathname));
     const pick = welcomeBackLine({ hasHistory, last: parseWelcomeState(readScoped(name)), now: Date.now() });

@@ -173,7 +173,7 @@ describe("E: chat model, persistence and the student's words", () => {
   it("Pau Pau never fills the box with her own text (only the student's notes)", () => {
     const sets = [...loop.matchAll(/setIdea\((.*)\);/g)].map((m) => m[1]);
     expect(sets.length).toBeGreaterThan(3);
-    for (const arg of sets) expect(arg).toMatch(/^(""|value|\(cur\) => \(cur\.trim\(\) === sent\.trim\(\) \? "" : cur\)|\(cur\) => \(cur\.trim\(\) \? cur : sent\)|keptIdeas\(section\.ideas\)\.at\(-1\) \?\? ""|revisionPrefill\(section\.ideas\))$/);
+    for (const arg of sets) expect(arg).toMatch(/^(""|value|\(cur\) => \(cur\.trim\(\) === sent\.trim\(\) \? "" : cur\)|\(cur\) => \(cur\.trim\(\) \? cur : sent\)|\(cur\) => \(cur\.trim\(\) \? cur : unsent\)|keptIdeas\(section\.ideas\)\.at\(-1\) \?\? ""|revisionPrefill\(section\.ideas\))$/);
   });
   it("voice reads only Pau Pau's words (lead names and the student's notes are not spoken)", () => {
     const section = { key: "body", title: "Body", needs: "x", mode: "lesson" as const, status: "open", concept: null, teachAspect: null, chosenLead: "Dr. Mary Carskadon", logic: null };
