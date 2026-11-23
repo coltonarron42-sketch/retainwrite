@@ -169,8 +169,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const up = new WebSocket(url, { headers: { Authorization: `Bearer ${ctx.apiKey}` } });
   const early: Buffer[] = [];
   let upOpen = false;
+  const earlyJson: string[] = [];
   const upSend = (e: Json) => {
     if (up.readyState === WebSocket.OPEN) up.send(JSON.stringify(e));
+    else if (up.readyState === WebSocket.CONNECTING && earlyJson.length < 20) earlyJson.push(JSON.stringify(e));
   };
 
   const sessionUpdate = () =>
@@ -305,6 +307,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   up.on("open", () => {
     upOpen = true;
     sessionUpdate();
+    for (const j of earlyJson.splice(0)) up.send(j);
     for (const b of early.splice(0)) up.send(b);
   });
   up.on("message", (data: RawData, isBinary: boolean) => {
