@@ -5,7 +5,7 @@ import { AudioLines, Mic, MicOff } from "lucide-react";
 import { RealtimeVoice, type RtPhase } from "@/lib/voice/realtime/client";
 import { cn } from "@/lib/utils";
 
-export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; sources?: { title: string; url: string; why?: string }[] };
+export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; sources?: { title: string; url: string; why?: string }[] };
 
 /** Is the Grok Voice realtime PoC on for this student and paper? (server flag) */
 export function useRealtimeEnabled(paperId: string): boolean {
@@ -67,7 +67,12 @@ export function useRealtimeCall(opts: {
           upsert(`p:${rid}`, "pau", (c) => c + d);
         },
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
-        saveNote: (_id, text) => optsRef.current.saveNote(text),
+        saveNote: async (_id, text, itemId) => {
+          const r = await optsRef.current.saveNote(text);
+          // Saved words already show in the chat history as their message.
+          if (r.result === "saved" && itemId) setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x)));
+          return r;
+        },
         sources: (links) => {
           const rid = lastPau.current ?? `s${Date.now()}`;
           upsert(`p:${rid}`, "pau", (c) => c, { sources: links });

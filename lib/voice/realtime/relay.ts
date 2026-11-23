@@ -38,17 +38,6 @@ const TOOLS = [
   },
   {
     type: "function",
-    name: "save_note",
-    description:
-      "Save what the student just said as their reply to the app's current turn: their OWN idea for the section, or their spoken answer to a choice the app shows (e.g. \"yes, check it\"). Verbatim, their words. The app classifies it and applies its gates. Never pass your own wording.",
-    parameters: {
-      type: "object",
-      properties: { text: { type: "string", description: "The student's own words, verbatim." } },
-      required: ["text"],
-    },
-  },
-  {
-    type: "function",
     name: "show_sources",
     description: "Show 2-4 real links you found with web_search as clickable cards in the chat. The app checks every link first and drops dead or made-up ones.",
     parameters: {
@@ -122,6 +111,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     clientLatency: [] as number[],
     bargeIn: [] as number[],
     guardTrips: 0,
+    notesApplied: 0,
     dropped: 0,
     usage: [] as unknown[],
     errors: [] as string[],
@@ -143,6 +133,26 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let welcomeSent = false;
   let rotateTimer: ReturnType<typeof setTimeout> | null = null;
   let guardIdx = 0;
+  const committed = new Set<string>();
+  const dispatched = new Set<string>();
+  const noteTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // The student's own words go to the app as their reply (its classifier and
+  // gates decide), straight from the transcript: no model round trip, and the
+  // model can never put its own wording in their notes.
+  const dispatchNote = (id: string) => {
+    noteTimers.delete(id);
+    if (dispatched.has(id) || closed) return;
+    const text = (said.find((x) => x.id === id)?.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
+    if (text.split(/\s+/).filter(Boolean).length < 1) return;
+    dispatched.add(id);
+    m.tools.auto_note = (m.tools.auto_note ?? 0) + 1;
+    toClient({ type: "rw.save_note", call_id: `n_${id}`, item_id: id, text });
+  };
+  const scheduleNote = (id: string, ms: number) => {
+    const t = noteTimers.get(id);
+    if (t) clearTimeout(t);
+    noteTimers.set(id, setTimeout(() => dispatchNote(id), ms));
+  };
 
   const toClient = (e: Json) => {
     if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(e));
@@ -338,6 +348,15 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         speechStoppedAt = Date.now();
         toClient(e);
         return;
+      case "input_audio_buffer.committed": {
+        const id = String(e.item_id ?? "");
+        if (id) {
+          committed.add(id);
+          scheduleNote(id, 900);
+        }
+        toClient(e);
+        return;
+      }
       case "conversation.item.input_audio_transcription.updated":
       case "conversation.item.input_audio_transcription.completed": {
         const id = String(e.item_id ?? "");
@@ -347,6 +366,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           if (row) row.text = t;
           else said.push({ id, text: t });
           if (said.length > 20) said.splice(0, said.length - 20);
+          if (committed.has(id) && type.endsWith("completed")) scheduleNote(id, 250);
         }
         toClient(e);
         return;
@@ -505,6 +525,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         return;
       }
       case "rw.applied": {
+        if (String(e.call_id ?? "").startsWith("n_")) {
+          m.notesApplied = (m.notesApplied ?? 0) + (e.result === "saved" ? 1 : 0);
+          void refreshFlow().then((f) => f && sessionUpdate());
+          return;
+        }
         const w = applyWaiters.get(String(e.call_id ?? ""));
         if (w) {
           applyWaiters.delete(String(e.call_id));
