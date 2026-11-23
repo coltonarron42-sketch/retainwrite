@@ -72,7 +72,7 @@ describe("welcome once per return (QA 6:53 #2)", () => {
   });
   it("the hook claims the return before picking a line", () => {
     const src = readFileSync("components/stages/stage1/welcome-back.tsx", "utf8");
-    expect(src).toMatch(/if \(hasHistory\) setRestored\(true\);\n\s*if \(!claimReturn\(paperId\)\) return;/);
+    expect(src).toMatch(/if \(!hasHistory \|\| !claimReturn\(paperId\)\) return;/);
   });
 });
 

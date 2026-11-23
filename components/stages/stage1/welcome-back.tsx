@@ -78,7 +78,9 @@ export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: bool
     decided.current = true;
     // Any restored history opens at the bottom, welcome line or not.
     if (hasHistory) setRestored(true);
-    if (!claimReturn(paperId)) return;
+    // Only a chat with history spends this return's one welcome, so a mount
+    // that renders before its history (then remounts) never eats it.
+    if (!hasHistory || !claimReturn(paperId)) return;
     // Per paper AND stage (QA 4:42 #6a): a Stage 2 welcome never silences Stage 3.
     const name = welcomeStateName(paperId, stageFromPath(window.location.pathname));
     const pick = welcomeBackLine({ hasHistory, last: parseWelcomeState(readScoped(name)), now: Date.now() });
