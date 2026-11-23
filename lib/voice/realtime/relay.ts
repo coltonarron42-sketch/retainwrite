@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
+import { gateSpoken } from "@/lib/stages/soft-gate";
 import { buildInstructions } from "./persona";
 import { loadFlowState, stateBlock, type FlowState } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
@@ -31,6 +32,8 @@ export type RelayContext = {
   vad: "client" | "server";
   /** Test-only server VAD tuning (undocumented by xAI; omitted when unset). */
   vadTuning?: { silence_duration_ms?: number; threshold?: number };
+  /** Soft-gated stage: speak the scripted gate line once; no listening, tools or notes. */
+  gate?: { stage: number; paperStage: number };
 };
 
 const TOOLS = [
@@ -145,6 +148,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const idleWaiters: (() => void)[] = [];
   let closed = false;
   let welcomeSent = false;
+  // Soft gate: the scripted line's response, then the browser ends the call.
+  let gateRid: string | null = null;
   let rotateTimer: ReturnType<typeof setTimeout> | null = null;
   let guardIdx = 0;
   // What the app shows right now (app copy: data only) and the choices waiting for a tap.
@@ -168,7 +173,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // model can never put its own wording in their notes.
   const dispatchNote = (id: string) => {
     noteTimers.delete(id);
-    if (dispatched.has(id) || closed) return;
+    // A soft-gated stage never writes anything.
+    if (dispatched.has(id) || closed || ctx.gate) return;
     const text = (said.find((x) => x.id === id)?.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
     if (text.split(/\s+/).filter(Boolean).length < 1) return;
     // Her own voice through the student's speakers is never their note (or their "yes").
@@ -247,8 +253,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         voice: REALTIME_VOICE,
         instructions: instructions(),
         reasoning: { effort: ctx.effort },
-        turn_detection: ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
-        tools: TOOLS,
+        turn_detection: ctx.gate || ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
+        tools: ctx.gate ? [] : TOOLS,
         audio: {
           input: {
             format: { type: "audio/pcm", rate: REALTIME_RATE },
@@ -362,6 +368,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       const f = await refreshFlow();
       return out(f ? { state: stateBlock(f) } : { error: "unavailable" });
     }
+    if (name === "save_note" && ctx.gate) return out({ saved: false, reason: "This stage isn't open yet." });
     if (name === "save_note") {
       const text = String(args.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
       if (!text) return out({ saved: false, reason: "empty" });
@@ -525,6 +532,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         return;
       case "response.done": {
         responding = false;
+        if (ctx.gate && gateRid) {
+          gateRid = null;
+          toClient({ type: "rw.gate_done" });
+        }
         const r = e.response as { id?: string; usage?: unknown; status?: string } | undefined;
         if (r?.usage) m.usage.push(r.usage);
         toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
@@ -608,7 +619,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   client.on("message", (data: RawData, isBinary: boolean) => {
     if (isBinary) {
       const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
-      if (buf.length > 96_000 || buf.length % 2) return void m.dropped++;
+      if (buf.length > 96_000 || buf.length % 2 || ctx.gate) return void m.dropped++;
       m.audioInBytes += buf.length;
       if (upOpen && up.readyState === WebSocket.OPEN) up.send(buf);
       else if (early.length < 60) early.push(buf);
@@ -629,12 +640,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         return;
       case "rw.commit":
         // Client end-of-turn: commit what they said and answer (no instructions from the browser).
-        if (ctx.vad !== "client") return;
+        if (ctx.vad !== "client" || ctx.gate) return;
         speechStoppedAt = Date.now();
         upSend({ type: "input_audio_buffer.commit" });
         upSend({ type: "response.create" });
         return;
       case "rw.text": {
+        if (ctx.gate) return;
         const text = String(e.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
         if (!text) return;
         m.textInputs++;
@@ -647,6 +659,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.start": {
         if (resumeId || welcomeSent) return;
         welcomeSent = true;
+        if (ctx.gate) {
+          gateRid = "pending";
+          upSend(say(gateSpoken(ctx.gate.stage, ctx.gate.paperStage)));
+          return;
+        }
         if (e.welcome === true) {
           const i = Math.abs(Number(e.welcomeIndex) || 0) % WELCOME_BACK_LINES.length;
           upSend(say(WELCOME_BACK_LINES[i]!));
@@ -661,6 +678,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         return;
       }
       case "rw.turn": {
+        if (ctx.gate) return;
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
         const text = String(e.text ?? "").slice(0, 800);
         if (!text || responding || speechActive) return;

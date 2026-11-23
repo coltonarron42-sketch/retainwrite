@@ -105,11 +105,12 @@ export class RealtimeVoice {
   private echoTailUntil = 0;
   private bargeRoll: ArrayBuffer[] = [];
   private echoRatios: number[] = [];
+  private gateDone = false;
 
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string> },
+    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number },
   ) {}
 
   /** Call inside the tap. */
@@ -130,6 +131,17 @@ export class RealtimeVoice {
     this.analyser.fftSize = 256;
     this.out.connect(this.analyser);
     this.analyser.connect(ctx.destination);
+    if (this.opts.gate) {
+      // Soft gate: speak-only. No mic; if the browser blocks audio, say nothing (text shows).
+      await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 400))]);
+      if (ctx.state !== "running") {
+        this.on.error?.("audio_blocked");
+        this.stop();
+        return;
+      }
+      this.connect();
+      return;
+    }
     this.connect();
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
@@ -155,6 +167,7 @@ export class RealtimeVoice {
     q.set("vad", this.opts.vad ?? "server");
     for (const [k, v] of Object.entries(this.opts.tuning ?? {})) q.set(k, v);
     if (this.resume) q.set("resume", this.resume);
+    if (this.opts.gate) q.set("gate", String(this.opts.gate));
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -363,6 +376,10 @@ export class RealtimeVoice {
     }
     src.onended = () => {
       this.sources.delete(src);
+      if (!this.sources.size && this.gateDone) {
+        this.stop();
+        return;
+      }
       if (!this.sources.size) {
         this.echoTailUntil = performance.now() + ECHO_TAIL_MS;
         if (!this.responding) {
@@ -454,6 +471,11 @@ export class RealtimeVoice {
         return;
       case "rw.sources":
         this.on.sources?.((e.links as { title: string; url: string; why?: string }[]) ?? []);
+        return;
+      case "rw.gate_done":
+        // The scripted gate line is out: hang up once it has finished playing.
+        this.gateDone = true;
+        if (!this.sources.size) this.stop();
         return;
       case "rw.rotate":
         this.resume = String(e.resume ?? "") || null;
