@@ -7,15 +7,16 @@
 
 /** Stage 2 pool. Each teases the situation, never the student; no repeated pattern. */
 export const STAGE2_QUIPS = [
+  "I'd write it for you, but I'm legally a cartoon.",
   "I'd hold the pencil, but no thumbs.",
   "I'm a cartoon, and even I'm into this.",
   "Rubrics love this stuff.",
   "Teachers notice this stuff.",
-  "Deadlines fear this energy.",
+  "Deadlines scare me, and I don't even have one.",
   "Look at us, being organized.",
   "I've never turned in a paper, and I'm still proud.",
   "Plot twist: this part is easy.",
-  "Librarians live for this.",
+  "My only skill is cheering. I'm cheering.",
   "Zero printer jams so far.",
   "Honestly, I'm a little jealous.",
   "Research, but make it quick.",
@@ -38,15 +39,18 @@ function hash(s: string): number {
 }
 
 /** The paper's own order of the pool (stable for a reload). */
+/** Every paper hears this one once: section 1, the first quip slot (QA 5:44 PM). */
+export const SIGNATURE_QUIP = "I'd write it for you, but I'm legally a cartoon.";
+
 export function quipDeck(seed: string): string[] {
-  const deck = [...STAGE2_QUIPS] as string[];
+  const deck = (STAGE2_QUIPS as readonly string[]).filter((q) => q !== SIGNATURE_QUIP);
   let h = hash(seed || "rw");
   for (let i = deck.length - 1; i > 0; i--) {
     h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
     const j = h % (i + 1);
     [deck[i], deck[j]] = [deck[j]!, deck[i]!];
   }
-  return deck;
+  return [SIGNATURE_QUIP, ...deck];
 }
 
 /** The quip for one slot in one section, or null (pool used up / no seed). */

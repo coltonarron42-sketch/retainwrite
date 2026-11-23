@@ -442,7 +442,10 @@ export function AssignmentIntake({
             opened: stanceOpen,
             serverDone: false,
           };
-          if (stanceOpen) setDraftAnswer(local?.text ?? savedStance);
+          if (stanceOpen) {
+            const text = local?.text ?? savedStance;
+            setDraftAnswer((current) => (current.trim() ? current : text));
+          }
           // Show "Restoring your draft…" until the text is in the box, even when
           // this browser has a copy (the question can open a beat before it).
           setRestoringDraft(true);
@@ -625,7 +628,9 @@ export function AssignmentIntake({
       setScreen("coaching");
       const restore = draftRestore.current;
       if (restore && !restore.opened && coachingPlan[index]?.id === restore.questionId && restore.text) {
-        setDraftAnswer(restore.text);
+        // Prefill once, and never over words already in the box (QA 5:44 PM).
+        const text = restore.text;
+        setDraftAnswer((current) => (current.trim() ? current : text));
       }
     }
     settleRestore();
@@ -714,7 +719,9 @@ export function AssignmentIntake({
     },
   });
 
-  if (!paper || resumePending) {
+  // Nothing (no intro, no prefill, no speech) until the restore completes,
+  // including the saved read-back turns (QA 5:44 PM).
+  if (!paper || resumePending || !confirmReady) {
     return (
       <div className="mx-auto max-w-2xl py-16" role="status" aria-live="polite">
         <div className="flex items-center gap-3">

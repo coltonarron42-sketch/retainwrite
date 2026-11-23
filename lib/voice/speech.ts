@@ -2,6 +2,7 @@
 
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { speakableSentences } from "@/lib/voice/speakable";
+import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 
 /**
  * One shared read-aloud queue for Pau Pau's own words (browser speechSynthesis).
@@ -221,20 +222,85 @@ let armedAt = 0;
 let armedPath = "";
 const CARRY_MS = 15_000;
 const VOICE_CONTROLS = "[data-voice-toggle],[data-replay],[data-tap-to-hear],[data-mic-mute],[data-barge-in],[data-no-arm]";
-export function armSpeech() {
+/** Arms her queue for what comes next (a step or choice button). Never ends the hold. */
+function armOnly() {
   armedAt = Date.now();
   armedPath = typeof window === "undefined" ? "" : (window.location?.pathname ?? "");
+}
+/**
+ * The student sent a new message (the composer's Send, typed or spoken): a
+ * real action. Arms her queue AND ends the restore hold (below). Toggles,
+ * unlock taps, Mute and other buttons never end it.
+ */
+export function armSpeech() {
+  armOnly();
+  holdUntil = 0;
+  welcomePlaying = false;
+}
+export const studentSent = armSpeech;
+/** The paper a stage route belongs to (null for the dashboard and others). */
+export function stagePaper(path: string): string | null {
+  const m = /^\/app\/papers\/([^/]+)\/stage\//.exec(path);
+  return m ? m[1]! : null;
 }
 export function speechArmed(): boolean {
   if (typeof window === "undefined") return true; // unit tests / server
   if (!armedAt) return false;
   const path = (window.location?.pathname ?? "");
   if (path === armedPath) return true;
-  if (Date.now() - armedAt < CARRY_MS) {
+  // Only a step from one stage to the next of the SAME paper carries the arm
+  // (QA 5:44 PM: a dashboard "reopen" tap armed the restored chat).
+  const from = stagePaper(armedPath);
+  if (from && from === stagePaper(path) && Date.now() - armedAt < CARRY_MS) {
     armedPath = path;
     return true;
   }
   armedAt = 0;
+  return false;
+}
+
+/*
+ * ---- the restore hold (QA 5:44 PM) ----
+ * For the first moments after any chat mounts or restores (until the welcome
+ * line has finished), only the welcome line may be queued. Everything else is
+ * dropped, whatever asked for it (a remount, the Voice switch, Unmute, an
+ * unlock tap). An explicit Read aloud tap on a turn still plays that turn.
+ * It ends when the welcome line finishes playing, or when the student sends
+ * a new message (studentSent). With no welcome line coming (cooldown, Voice
+ * off, nothing restored), it lapses after RESTORE_HOLD_MS.
+ */
+export const RESTORE_HOLD_MS = 8_000;
+let holdUntil = 0;
+let holdPath = "";
+let explicitTapAt = 0;
+let welcomePlaying = false;
+function currentPath(): string {
+  return typeof window === "undefined" ? "" : (window.location?.pathname ?? "");
+}
+/** A chat mounted or restored: start (or restart) the hold. */
+export function beginRestoreHold(ms = RESTORE_HOLD_MS) {
+  if (typeof window === "undefined") return;
+  holdUntil = Date.now() + ms;
+  holdPath = currentPath();
+  latestTurn = [];
+}
+/**
+ * A chat component mounted. Unless the student's own action on this page led
+ * here, it's a mount/restore: hold for the welcome line, and forget what was
+ * "her current turn" on an earlier page (QA 5:44 PM: Voice on after a reopen
+ * re-read the old section intro from the previous visit).
+ */
+export function chatMounted() {
+  if (typeof window === "undefined") return;
+  if (latestTurnPath !== currentPath()) latestTurn = [];
+  if (!speechArmed()) beginRestoreHold();
+}
+export function restoreHoldActive(): boolean {
+  if (!holdUntil) return false;
+  if (currentPath() !== holdPath) return false;
+  if (welcomePlaying) return true;
+  if (Date.now() < holdUntil) return true;
+  holdUntil = 0;
   return false;
 }
 /** A student action (not a voice control): arms her queue for what comes next. */
@@ -243,11 +309,13 @@ function armFromEvent(e: Event) {
   if (!el || typeof el.closest !== "function") return;
   if (e.type === "keydown") {
     const k = e as KeyboardEvent;
-    if (k.key === "Enter" && !k.shiftKey && el.closest("textarea, input")) armSpeech();
+    if (k.key === "Enter" && !k.shiftKey && el.closest("textarea, input")) armOnly();
     return;
   }
+  // An explicit Read aloud tap on a turn plays that turn, even in the hold.
+  if (el.closest("[data-replay]")) explicitTapAt = Date.now();
   const btn = el.closest("button, [role=button]");
-  if (btn && !btn.closest(VOICE_CONTROLS)) armSpeech();
+  if (btn && !btn.closest(VOICE_CONTROLS)) armOnly();
 }
 let armInstalled = false;
 function installArm() {
@@ -258,8 +326,16 @@ function installArm() {
 }
 
 let installed = false;
-/** Listens once for the first tap or key and for late-loading voices. */
+/**
+ * A chat mounted (SpeakNew's mount effect): start listening for taps and, if
+ * this is a mount or restore, the restore hold (chatMounted).
+ */
 export function installSpeechUnlock() {
+  chatMounted();
+  installUnlockListeners();
+}
+/** Listens once for the first tap or key and for late-loading voices. */
+function installUnlockListeners() {
   installArm();
   if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
   if (!synthSupported()) {
@@ -562,11 +638,47 @@ function speakWithSynth(next: string, gen: number) {
 }
 
 /** Queue Pau Pau's words. `interrupt` replaces anything already playing. */
-export function speak(texts: string[], opts: { interrupt?: boolean } = {}) {
+export function speak(texts: string[], opts: { interrupt?: boolean; welcome?: boolean; explicit?: boolean } = {}) {
   if (!speechSupported()) return;
+  // The welcome-back line is recognised by its text; an explicit Read aloud
+  // tap by the tap that's running right now.
+  const welcome = opts.welcome || (texts.length === 1 && (WELCOME_BACK_LINES as readonly string[]).includes(texts[0]!.trim()));
+  const explicit = opts.explicit || Date.now() - explicitTapAt < 250;
+  opts = { ...opts, welcome };
+  // The restore hold: only the welcome line (or an explicit Read aloud tap).
+  if (!welcome && !explicit && restoreHoldActive()) return;
+  if (opts.welcome) {
+    if (opts.interrupt) stopSpeech();
+    welcomePlaying = true;
+    const gen = generation;
+    let started = false;
+    const done = () => {
+      if (generation !== gen) {
+        // Cut off (Voice off): not finished, so the hold goes on by time.
+        welcomePlaying = false;
+        listeners.delete(done);
+        return;
+      }
+      if (speakingNow) {
+        started = true;
+        return;
+      }
+      if (!started) return;
+      listeners.delete(done);
+      welcomePlaying = false;
+      // Held for a tap (blocked audio) is not finished; played to the end is.
+      if (!tapNeeded && !queue.length) holdUntil = 0;
+    };
+    listeners.add(done);
+    // Never hold longer than the welcome could take.
+    setTimeout(() => {
+      welcomePlaying = false;
+      listeners.delete(done);
+    }, 20_000);
+  }
   setTapNeeded(false);
-  installSpeechUnlock();
-  if (opts.interrupt) stopSpeech();
+  installUnlockListeners();
+  if (opts.interrupt && !opts.welcome) stopSpeech();
   for (const t of texts) for (const s of speakableSentences(t)) queue.push(...chunkSentence(s));
   if (queue.length) setSpeaking(true);
   pump();
@@ -604,6 +716,7 @@ export function stopSpeech() {
 
 const seen = new Map<string, Set<string>>();
 let latestTurn: string[] = [];
+let latestTurnPath = "";
 
 export type SpeakItem = { key: string; text: string; turn?: boolean };
 
@@ -623,7 +736,12 @@ export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
   if (heard.size !== before) saveHeard(scope, heard);
   // "Read it now" on the Voice switch only ever means a turn from this visit.
   const turn = fresh0.filter((i) => i.turn).map((i) => i.text);
-  if (turn.length) latestTurn = turn;
+  if (turn.length) {
+    latestTurn = turn;
+    latestTurnPath = currentPath();
+  }
+  // The restore hold drops anything that isn't the welcome line.
+  if (restoreHoldActive()) return [];
   return fresh0;
 }
 
@@ -662,6 +780,7 @@ function saveHeard(scope: string, set: Set<string>) {
 /** A chat (re)mounted: what's on screen at its first pass is restored history. */
 export function beginSpeakScope(scope: string) {
   seen.delete(scope);
+  beginRestoreHold();
 }
 /** Mark lines as already said (e.g. the welcome-back line we just spoke). */
 export function markHeard(scope: string, texts: string[]) {
@@ -672,6 +791,9 @@ export function markHeard(scope: string, texts: string[]) {
 
 function takeNewInner(scope: string, items: SpeakItem[]): SpeakItem[] {
   let set = seen.get(scope);
+  // First pass of a chat on this visit: a mount or restore, unless the
+  // student's own step just led here (moving on to the next stage).
+  if (!set && !speechArmed()) beginRestoreHold();
   // Until the student acts on this visit (see the restore barrier), everything
   // on screen is restored history (a reload or return can swap screens and
   // redraw old bubbles, late), so nothing is read aloud or queued for a tap.
@@ -692,16 +814,22 @@ function takeNewInner(scope: string, items: SpeakItem[]): SpeakItem[] {
 
 /** Pau Pau's current turn, for "read it now" when voice is switched on. */
 export function currentTurn(): string[] {
+  if (restoreHoldActive() || latestTurnPath !== currentPath()) return [];
   return latestTurn;
 }
 
 /** Test helper. */
 export function __resetSpeech() {
+  holdUntil = 0;
+  holdPath = "";
+  explicitTapAt = 0;
+  welcomePlaying = false;
   armedAt = 0;
   armedPath = "";
   seen.clear();
   heardCache.clear();
   latestTurn = [];
+  latestTurnPath = "";
   queue = [];
   active = false;
   unlocked = false;

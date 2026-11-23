@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, EchoBubble, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
@@ -44,11 +45,26 @@ type Props = {
 export const OUTLINE_INTRO =
   "I pulled in your notes from Stance. We'll shape one section at a time into a short outline in your own words: one line per point, your main claim first, then the example that shows it.";
 
-export function outlineAsk(section: OutlineSectionView, first: boolean): string[] {
+/** The section intro line (once per section in the conversation). */
+export function sectionIntroLine(section: OutlineSectionView): string {
+  return `Let's shape your ${section.title.toLowerCase()} (${section.needs.toLowerCase()}).`;
+}
+
+/**
+ * Has this section's intro already been said in the saved conversation (by
+ * section id)? Then a remount, a late restore or a toggle during hydration
+ * never says it again (QA 5:44 PM: a duplicate intro on reopen).
+ */
+export function introInHistory(transcript: LoopLine[], section: OutlineSectionView): boolean {
+  const intro = sectionIntroLine(section);
+  return transcript.some((line) => line.who === "pau" && line.k === section.key && line.text.includes(intro));
+}
+
+export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
   return [
-    ...(first ? [OUTLINE_INTRO] : []),
-    `Let's shape your ${section.title.toLowerCase()} (${section.needs.toLowerCase()}).`,
+    ...(first && !introSaid ? [OUTLINE_INTRO] : []),
+    introSaid ? `Back to your ${section.title.toLowerCase()}.` : sectionIntroLine(section),
     notes
       ? "Your Stance notes are in the box. Rework them into outline lines, or keep them as they are."
       : "You don't have notes for this one yet. Write a line or two, or keep going and come back to it.",
@@ -66,23 +82,40 @@ export function OutlineChat(props: Props) {
   const index = nextOutlineIndex(sections, done);
   const current = index >= 0 ? sections[index]! : null;
   const notes = current ? keptIdeas(current.ideas).join("\n") : "";
-  // Keep the raw text the student typed (the saved note is trimmed); reset per section.
-  const [text, setText] = useState(notes);
-  const [forKey, setForKey] = useState(current?.key ?? null);
-  if ((current?.key ?? null) !== forKey) {
-    setForKey(current?.key ?? null);
-    setText(notes);
-  }
+  // Keep the raw text the student typed (the saved note is trimmed). The box is
+  // prefilled with a section's notes ONCE (QA 5:44 PM): a remount, a restore or
+  // a Voice/Mute toggle during hydration brings back what was in the box, never
+  // the notes again over it.
+  // The box and the section it belongs to change together (the draft save
+  // sees one switch, not an edit).
+  const curKey = current?.key ?? null;
+  const [boxState, setBoxState] = useState<{ key: string | null; text: string }>(() => ({
+    key: curKey,
+    text: current ? composerText(paperId, current.key, notes) : "",
+  }));
+  useEffect(() => {
+    // A new section: its box, read once here (never during render).
+    if (boxState.key === curKey) return;
+    setBoxState({ key: curKey, text: curKey ? composerText(paperId, curKey, notes) : "" });
+    // notes are read for the section that just opened only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId, curKey]);
+  const text = boxState.key === curKey ? boxState.text : "";
+  const setText = (next: string) => {
+    setBoxState({ key: curKey, text: next });
+    if (curKey) rememberComposer(paperId, curKey, next, notes);
+  };
+
   const status = useDraftSave({
     paperId,
-    fieldKey: `outline:${current?.key ?? "done"}`,
-    text,
-    enabled: Boolean(props.persist && current),
+    fieldKey: `outline:${boxState.key ?? "done"}`,
+    text: boxState.text,
+    enabled: Boolean(props.persist && current && boxState.key === curKey),
     resume: draftPointer({ stage: 3, sectionKey: current?.key ?? null }),
   });
 
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0)
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current))
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });
@@ -237,4 +270,38 @@ export function OutlineChat(props: Props) {
       ) : null}
     </div>
   );
+}
+
+/* ---- the box's text per section, kept across remounts (QA 5:44 PM) ---- */
+type Box = { n: string; t: string };
+const boxName = (paperId: string) => `outline-box:${paperId}`;
+function readBoxes(paperId: string): Record<string, Box> {
+  try {
+    const v = JSON.parse(readScoped(boxName(paperId)) ?? "null") as unknown;
+    return v && typeof v === "object" ? (v as Record<string, Box>) : {};
+  } catch {
+    return {};
+  }
+}
+function writeBox(paperId: string, key: string, box: Box) {
+  const boxes = readBoxes(paperId);
+  const cur = boxes[key];
+  if (cur && cur.n === box.n && cur.t === box.t) return;
+  boxes[key] = box;
+  writeScoped(boxName(paperId), JSON.stringify(boxes));
+}
+/**
+ * What the box shows for a section: what was last in it, or, the first time
+ * only, the section's notes (and that prefill is remembered). If the saved
+ * notes changed since (another device), the newer saved notes win.
+ */
+export function composerText(paperId: string, key: string, notes: string): string {
+  const box = readBoxes(paperId)[key];
+  if (box && typeof box.t === "string" && box.n === notes) return box.t;
+  writeBox(paperId, key, { n: notes, t: notes });
+  return notes;
+}
+export function rememberComposer(paperId: string, key: string, text: string, notes: string) {
+  const box = readBoxes(paperId)[key];
+  writeBox(paperId, key, { n: box?.n ?? notes, t: text });
 }

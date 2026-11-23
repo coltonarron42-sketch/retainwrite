@@ -261,7 +261,12 @@ export function StanceChat(props: Props) {
   const asideParas = asideHere ? props.aside!.paras : [];
   // After she answers, she never re-asks the opener: a short follow-up instead.
   const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror";
-  const paras = asideHere && freeText ? [asideFollowUp(props.aside?.intent, section.title)] : turnParas;
+  const paras0 = asideHere && freeText ? [asideFollowUp(props.aside?.intent, section.title)] : turnParas;
+  // Idempotent turns (QA 5:44 PM): a turn already said AND answered in the
+  // saved history for this section (by section id) is never said again
+  // verbatim, whatever re-rendered it (a remount, a late restore, a toggle).
+  const said = alreadyAnswered(transcript, section.key, paras0.join(" "));
+  const paras = said ? [resumeLine(section.title, freeText)] : paras0;
   const ask = paras.join(" ");
 
   async function send() {
@@ -827,7 +832,7 @@ export const STOCK_POOLS = {
     "Up to you. I'm just the cartoon with opinions.",
     "Keep it or change it. Either way, it's your call.",
     "You've got the final say here.",
-    "I'd write it for you, but I'm legally a cartoon. You've got this.",
+    "Your words, your rules.",
   ],
 } as const;
 
@@ -854,4 +859,24 @@ export function stockLine(slot: StockSlot, seed?: string, index?: number): strin
   if (!seed || index === undefined || index < 0) return pool[0]!;
   const offset = FIXED_START.has(slot) ? 0 : hash(`${seed}:${slot}`) % pool.length;
   return pool[(offset + index) % pool.length]!;
+}
+
+/** Was this exact turn already said for this section and answered after? */
+export function alreadyAnswered(transcript: LoopLine[], key: string, text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const line = transcript[i]!;
+    if (line.k !== key || line.who !== "pau") continue;
+    if (line.text.replace(/\s+/g, " ").trim() !== t) continue;
+    return transcript.slice(i + 1).some((l) => l.k === key && l.who !== "pau");
+  }
+  return false;
+}
+
+/** Her short line instead of a repeat. */
+export function resumeLine(title: string, freeText: boolean): string {
+  return freeText
+    ? `Back to your ${title.toLowerCase()}. Pick up in the box whenever you're ready.`
+    : `Back to your ${title.toLowerCase()}. Your call is below.`;
 }
