@@ -26,7 +26,7 @@ describe("realtime relay", () => {
   });
   const front = new WebSocketServer({ port: 0 });
   front.on("connection", (client) => {
-    void runRelay({ client, supabase: fakeDb, userId: "u", paperId: "00000000-0000-4000-8000-000000000000", apiKey: "k", resumeToken: null, effort: "none" });
+    void runRelay({ client, supabase: fakeDb, userId: "u", paperId: "00000000-0000-4000-8000-000000000000", apiKey: "k", resumeToken: null, effort: "none", vad: "server" });
   });
   afterAll(() => {
     xai.close();
