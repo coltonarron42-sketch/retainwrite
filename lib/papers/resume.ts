@@ -14,8 +14,8 @@ export function continueHref(paper: {
 }): string {
   const resumeStage = paper.resume?.stage;
   const current = paper.current_stage;
-  const resumeIsAhead = Boolean(resumeStage && resumeStage >= current && resumeStage <= 6);
-  const safeStage = resumeIsAhead && resumeStage ? resumeStage : current;
+  // Preserved gates: Continue always opens the paper's own stage, never one ahead.
+  const safeStage = current;
   const params = new URLSearchParams();
   if (resumeStage === safeStage) {
     if (paper.resume?.sectionKey) params.set("section", paper.resume.sectionKey);

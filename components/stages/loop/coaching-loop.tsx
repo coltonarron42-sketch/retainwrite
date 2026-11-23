@@ -153,6 +153,8 @@ type Session = {
 type Props = {
   paperId: string;
   stage: number;
+  /** The paper's real stage (server). The URL stage never decides a gate. */
+  paperStage?: number;
   assignmentPrompt: string | null;
   confirmedTopic?: string | null;
   confirmedPrompt?: string | null;
@@ -239,6 +241,7 @@ const TERMS_WAIT_MS = 15000;
 export function CoachingLoop({
   paperId,
   stage,
+  paperStage,
   assignmentPrompt,
   confirmedTopic = null,
   confirmedPrompt = null,
@@ -336,7 +339,8 @@ export function CoachingLoop({
         return { ...section, ideas: refreshed.ideas, logic: refreshed.logic };
       });
       const healed = healStuckOutlineSession({
-        currentStage: stage,
+        // The paper's own stage, never the URL's: opening /stage/N must not confirm sections.
+        currentStage: Math.min(stage, paperStage ?? stage),
         progress: stageProgressRef.current,
         sections: base.sections,
         resume,

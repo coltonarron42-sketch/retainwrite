@@ -121,6 +121,7 @@ export function StageShell({
           <CoachingLoop
             paperId={paperId}
             stage={stage}
+            paperStage={paper.current_stage}
             assignmentPrompt={paper.assignment_prompt}
             confirmedTopic={initialRequirements?.topic.value ?? null}
             confirmedPrompt={initialRequirements?.promptQuestion.value ?? null}
