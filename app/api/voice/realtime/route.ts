@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return no(401, "signed out");
   if (!realtimeAllowed(user.email)) return upgrade ? no(403, "not enabled") : NextResponse.json({ enabled: false });
-  const { data: paper } = await supabase.from("papers").select("id").eq("id", paperId).eq("user_id", user.id).maybeSingle();
+  const { data: paper } = await supabase.from("papers").select("id, current_stage").eq("id", paperId).eq("user_id", user.id).maybeSingle();
   if (!paper) return no(404, "not found");
   const apiKey = process.env.GROK_API_KEY?.trim();
   if (!apiKey) return no(503, "voice unavailable");
@@ -60,11 +60,18 @@ export async function GET(request: Request) {
         resumeToken: url.searchParams.get("resume"),
         effort,
         vadTuning: vadTuning(url),
+        gate: gateFor(url, (paper.current_stage as number | null) ?? 1),
         vad: url.searchParams.get("vad") === "server" ? "server" : url.searchParams.get("vad") === "client" ? "client" : process.env.PAU_REALTIME_VAD === "client" ? "client" : "server",
       });
     },
     { maxPayload: 128 * 1024 },
   );
+}
+
+/** A soft-gated stage (later than the paper's): she says the scripted gate line once, nothing else. */
+function gateFor(url: URL, paperStage: number): { stage: number; paperStage: number } | undefined {
+  const stage = Number(url.searchParams.get("gate"));
+  return Number.isInteger(stage) && stage >= 2 && stage <= 6 && stage > paperStage ? { stage, paperStage } : undefined;
 }
 
 /** Test-only server VAD tuning from the query (?sil=300&thr=0.6); omitted when unset. */

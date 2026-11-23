@@ -8,6 +8,58 @@ import { cn } from "@/lib/utils";
 export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; sources?: { title: string; url: string; why?: string }[] };
 
 /** Is the Grok Voice realtime PoC on for this student and paper? (server flag) */
+/** Voice on for this tab (kept across stage pages): a soft gate speaks its line only then. */
+const RT_ON_KEY = "rw:rt:on";
+const RT_MUTED_KEY = "rw:rt:muted";
+function rememberVoice(on: boolean, muted?: boolean) {
+  try {
+    if (on) sessionStorage.setItem(RT_ON_KEY, "1");
+    else sessionStorage.removeItem(RT_ON_KEY);
+    if (muted !== undefined) {
+      if (muted) sessionStorage.setItem(RT_MUTED_KEY, "1");
+      else sessionStorage.removeItem(RT_MUTED_KEY);
+    }
+  } catch {}
+}
+export function voiceWasOn(): boolean {
+  try {
+    return sessionStorage.getItem(RT_ON_KEY) === "1" && sessionStorage.getItem(RT_MUTED_KEY) !== "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The soft gate's scripted line on a Grok Voice call (Colton, Nov 23): spoken once
+ * per visit when voice was on and the mic isn't muted; text-only otherwise. Speak-only
+ * session (no mic, no notes); the relay ends it after the line.
+ */
+export function useGateVoice(paperId: string, stage: number, enabled: boolean) {
+  const spoken = useRef(false);
+  const [phase, setPhase] = useState<RtPhase>("off");
+  useEffect(() => {
+    if (!enabled || spoken.current || !voiceWasOn()) return;
+    spoken.current = true;
+    const w = window as unknown as { __rwGate?: { sessions: number; text: string } };
+    w.__rwGate ??= { sessions: 0, text: "" };
+    w.__rwGate.sessions++;
+    const voice = new RealtimeVoice(
+      paperId,
+      {
+        phase: setPhase,
+        pauDelta: (_rid, d) => {
+          w.__rwGate!.text += d;
+        },
+        error: () => undefined,
+      },
+      { welcome: false, welcomeIndex: 0, gate: stage },
+    );
+    void voice.start();
+    return () => voice.stop();
+  }, [enabled, paperId, stage]);
+  return phase;
+}
+
 export function useRealtimeEnabled(paperId: string): boolean {
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -118,10 +170,12 @@ export function useRealtimeCall(opts: {
     welcomed.current = true;
     welcomeText.current = w.welcome ? (w.text ?? null) : null;
     voice.setMuted(muted);
+    rememberVoice(true, muted);
     void voice.start();
   }, [muted]);
 
   const stop = useCallback(() => {
+    rememberVoice(false);
     rt.current?.stop();
     rt.current = null;
     setPhase("off");
@@ -131,6 +185,7 @@ export function useRealtimeCall(opts: {
   // A dropped call ends cleanly: text-only until they tap again.
   useEffect(() => {
     if (phase === "error") {
+      rememberVoice(false);
       rt.current?.stop();
       rt.current = null;
     }
@@ -139,6 +194,7 @@ export function useRealtimeCall(opts: {
   const toggleMute = useCallback(() => {
     setMuted((m) => {
       rt.current?.setMuted(!m);
+      if (rt.current) rememberVoice(true, !m);
       return !m;
     });
   }, []);
