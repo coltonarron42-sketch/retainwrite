@@ -104,6 +104,8 @@ export type ChatComposerProps = {
   minRows?: number;
   /** Desktop Enter sends (Shift+Enter for a new line). Off for paragraph answers. */
   enterSends?: boolean;
+  /** Grok Voice realtime (Stage 2 PoC): its controls replace the old call loop and dictation mic. */
+  realtimeSlot?: React.ReactNode;
 };
 
 /** 12px top padding + three 16px/1.6 lines: the phone composer never changes height. */
@@ -132,6 +134,7 @@ export function ChatComposer({
   inputProps,
   minRows = 2,
   enterSends = true,
+  realtimeSlot,
 }: ChatComposerProps) {
   const menuId = useId();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -377,7 +380,7 @@ export function ChatComposer({
     if (micMuted) setMicNote(null);
   }, [micMuted]);
 
-  const callOn = voice && canDictate;
+  const callOn = voice && canDictate && !realtimeSlot;
   const wantListen =
     callOn && !micMuted && !speaking && !sending && !listening && owner === callId && callId !== 0 && !callTrouble;
   const callStatus: CallStatus = !voice
@@ -685,7 +688,8 @@ export function ChatComposer({
                 <Plus aria-hidden className="h-5 w-5" />
               </button>
             ) : null}
-            {canDictate && !callOn ? (
+            {realtimeSlot ?? null}
+            {canDictate && !callOn && !realtimeSlot ? (
               <button
                 type="button"
                 aria-label={listening ? "Stop voice typing" : "Voice typing: speak and it types into the box"}

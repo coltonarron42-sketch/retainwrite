@@ -118,7 +118,7 @@ export function MicMuteButton({ className, compact = false }: { className?: stri
 }
 
 /** Eyebrow row with the voice switch on the right (Mute is on the composer, by the mic). */
-export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eyebrowClassName: string }) {
+export function ChatHeader({ eyebrow, eyebrowClassName, hideVoice = false }: { eyebrow: string; eyebrowClassName: string; hideVoice?: boolean }) {
   return (
     <div className="flex min-h-[48px] items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2" data-pau-presence>
@@ -127,7 +127,7 @@ export function ChatHeader({ eyebrow, eyebrowClassName }: { eyebrow: string; eye
         <p className={eyebrowClassName}>{eyebrow}</p>
       </div>
       <div className="flex items-center gap-1">
-        <VoiceToggle />
+        {hideVoice ? null : <VoiceToggle />}
       </div>
     </div>
   );

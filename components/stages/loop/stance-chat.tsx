@@ -31,6 +31,8 @@ import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
+import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 
 
 /** Typing pause before the intent check starts early. */
@@ -266,6 +268,46 @@ export function StanceChat(props: Props) {
   const section = sections[active];
   // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
   const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
+  // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
+  const rtMode = useRealtimeEnabled(paperId);
+  const sendNowRef = useRef<(text: string) => Promise<string>>(async () => "none");
+  const screenRef = useRef("");
+  const noteBusy = useRef(0);
+  const mountLen = useRef(transcript.length);
+  const rt = useRealtimeCall({
+    paperId,
+    saveNote: async (text) => {
+      noteBusy.current = Date.now() + 60_000;
+      try {
+        const result = await sendNowRef.current(text);
+        await new Promise((r) => setTimeout(r, 80));
+        return { ok: true, result, screen: screenRef.current };
+      } finally {
+        noteBusy.current = Date.now() + 1_500;
+      }
+    },
+    welcome: () => ({
+      welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
+      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+    }),
+  });
+  const rtTurnKey = section ? `${section.key}:${kind}:${transcript.length}` : "";
+  const rtSeenKey = useRef<string | null>(null);
+  // A new scripted turn after a tap (not a restore, not her own save_note): she says it.
+  useEffect(() => {
+    if (!rt.on) {
+      rtSeenKey.current = null;
+      return;
+    }
+    if (rtSeenKey.current === null || rtSeenKey.current === rtTurnKey) {
+      rtSeenKey.current = rtTurnKey;
+      return;
+    }
+    rtSeenKey.current = rtTurnKey;
+    if (Date.now() < noteBusy.current) return;
+    rt.sayTurn(screenRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- per turn
+  }, [rtTurnKey, rt.on]);
   if (!section) return null;
   const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger, seed: paperId, index: active });
   const logicAsk = logicOpenerText(paperId, active);
@@ -307,7 +349,7 @@ export function StanceChat(props: Props) {
     }
   }
 
-  async function sendNow(text: string) {
+  async function sendNow(text: string): Promise<string> {
     // Put the words back only if nothing new was typed (a hint, a thin note).
     const restore = () => props.onIdea(text);
     setHint(null);
@@ -320,54 +362,57 @@ export function StanceChat(props: Props) {
       if (intent !== "content") {
         const turn: IntentTurn = choiceTurn ? "choice" : kind === "teach_card" || kind === "mirror" || kind === "probe" || kind === "name_lead" || kind === "pick_lead" ? kind : "probe";
         props.onAside(intent, turn, [pau(ask), you(text)]);
-        return;
+        return "aside";
       }
     }
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
         await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true });
-        return;
+        return "saved";
       case "mirror":
         await h.mirrorSave([pau(ask), you(text)]);
-        return;
+        return "saved";
       case "probe":
         await h.probeSave([pau(paras[0] ?? ""), you(text)]);
-        return;
+        return "saved";
       case "name_lead":
       case "pick_lead":
         h.nameLead(text, [pau(paras[0] ?? ""), you(text)]);
-        return;
+        return "saved";
       case "confirm":
         if (isPlainYes(text)) {
           props.onIdea("");
           h.confirm([pau(paras[0] ?? ""), you(text)]);
-          return;
+          return "saved";
         }
         break;
       case "logic_opener":
         if (isPlainYes(text)) {
           props.onIdea("");
           h.logicOpener("yes", [pau(logicAsk), you(text)]);
-          return;
+          return "saved";
         }
         break;
       case "logic_result":
         if (r?.tier === "pass" && isPlainYes(text)) {
           props.onIdea("");
           h.logicResult("pass", [pau(logicPassText(paperId, active)), you(text)]);
-          return;
+          return "saved";
         }
         break;
     }
     // Words typed over a choice are a revised note, sent as their reply.
     if (choiceTurn && kind !== "none" && kind !== "locked_in") {
       await h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true });
-      return;
+      return "saved";
     }
     restore();
     setHint(TAP_HINT);
+    return "tap_needed";
   }
+  // eslint-disable-next-line react-hooks/refs -- latest send for her save_note tool
+  sendNowRef.current = sendNow;
 
   const placeholder =
     kind === "mirror"
@@ -440,7 +485,9 @@ export function StanceChat(props: Props) {
   const trailing = groups.length && groups[groups.length - 1]!.who === "pau" && groups[groups.length - 1]!.k === section.key ? groups.pop()!.texts : [];
   const introInCurrent = groups.length === 0;
   const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
-  const speak: SpeakItem[] = [
+  // eslint-disable-next-line react-hooks/refs -- latest screen text for her tools
+  screenRef.current = [...trailing, ...asideParas, ...paras].join(" ");
+  const speak: SpeakItem[] = rtMode ? [] : [
     { key: "s2:intro", text: `${intro.heading}. ${intro.body}`, opener: !transcript.some((l) => l.who !== "pau") },
     { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
   ];
@@ -466,7 +513,7 @@ export function StanceChat(props: Props) {
   return (
     <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
-      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} />
+      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
         {history}
 
@@ -722,8 +769,9 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} />
-        <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}`} />
+        {rtMode ? <LiveTurns rows={rt.live} /> : null}
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} />
+        <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
       </div>
 
@@ -742,6 +790,7 @@ export function StanceChat(props: Props) {
           placeholder={placeholder}
           sending={checking || Boolean(props.busy)}
           onSend={() => void send()}
+          realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
         />
         <SaveStatus status={props.noteStatus} />
       </ComposerDock>
@@ -910,4 +959,41 @@ export function sectionResume(transcript: LoopLine[], key: string, title: string
   const line = resumeLine(title, freeText);
   const mark = (s: string) => s.replace(/\s+/g, " ").trim();
   return transcript.some((l) => l.k === key && l.who === "pau" && mark(l.text) === mark(line)) ? [] : [line];
+}
+
+/** Grok Voice turns from this call, shown as normal chat turns (not saved history). */
+function LiveTurns({ rows }: { rows: import("@/components/stages/loop/realtime-voice").LiveTurn[] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="space-y-4" data-rt-live>
+      {rows
+        .filter((r) => r.text.trim() || r.sources?.length)
+        .map((r) =>
+          r.who === "you" ? (
+            <StudentBubble key={r.id} message={{ text: r.text, files: [], at: 0 }} />
+          ) : (
+            <PauPauGroup
+              key={r.id}
+              bubbles={[
+                r.text,
+                ...(r.sources?.length
+                  ? [
+                      <ul key="src" className="space-y-2" data-rt-sources>
+                        {r.sources.map((l) => (
+                          <li key={l.url}>
+                            <a href={l.url} target="_blank" rel="noopener noreferrer" className={dsLink}>
+                              {l.title}
+                            </a>
+                            {l.why ? <span className="block text-[13px] text-ds-muted">{l.why}</span> : null}
+                          </li>
+                        ))}
+                      </ul>,
+                    ]
+                  : []),
+              ].filter(Boolean)}
+            />
+          ),
+        )}
+    </div>
+  );
 }
