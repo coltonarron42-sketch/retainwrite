@@ -762,16 +762,17 @@ export function CoachingLoop({
     log("teach_skipped_known");
   }
 
-  async function onMirrorSave(more: LoopLine[]) {
-    if (!session || !section || !idea.trim()) return;
-    const mirrorProbe = probeForThinNote(idea);
+  async function onMirrorSave(more: LoopLine[], text?: string) {
+    const note = text ?? idea;
+    if (!session || !section || !note.trim()) return;
+    const mirrorProbe = probeForThinNote(note);
     if (mirrorProbe) {
       setThinNote(mirrorProbe);
-      restore(idea);
+      restore(note);
       return;
     }
     setThinNote(null);
-    const step = afterMirror(section, idea);
+    const step = afterMirror(section, note);
     const transcript = withLines(more);
     const nextSession: Session = {
       ...session,
@@ -780,11 +781,11 @@ export function CoachingLoop({
         item.key === section.key ? { ...item, ideas: step.ideas, loopStep: step.loopStep } : item,
       ),
     };
-    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) {
-      restore(idea);
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, note, { stage: 2, sectionKey: section.key }))) {
+      restore(note);
       return;
     }
-    const safety = safetyNoteFor(idea);
+    const safety = safetyNoteFor(note);
     const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
     updateSection(
       section.key,
@@ -801,7 +802,7 @@ export function CoachingLoop({
           ...session.answers,
           {
             kind: "mirror",
-            text: idea,
+            text: note,
             pasteRatio: ratio,
             pastedChars: paste.meta.pastedChars,
             typedChars: paste.meta.typedChars,
@@ -810,22 +811,24 @@ export function CoachingLoop({
       },
     );
     paste.reset();
-    clearSent(idea);
+    clearSent(note);
   }
 
-  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) {
+  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string }) {
+    // A Grok Voice note arrives as text (the box is empty): same checks and gates.
+    const note = opts?.text ?? idea;
     if (!session || !section) return;
-    if (!idea.trim()) return;
-    const probe = probeForThinNote(idea);
+    if (!note.trim()) return;
+    const probe = probeForThinNote(note);
     if (probe) {
       setThinNote(probe);
-      restore(idea);
+      restore(note);
       return;
     }
     setThinNote(null);
     if (opts?.replace) replacingClaim.current = true;
     const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
-    const step = afterProbe(section, idea, replacingClaim.current);
+    const step = afterProbe(section, note, replacingClaim.current);
     replacingClaim.current = false;
     const transcript = withLines(more);
     const nextSession: Session = {
@@ -835,13 +838,13 @@ export function CoachingLoop({
         item.key === section.key ? { ...item, ...teach, ideas: step.ideas, loopStep: step.loopStep } : item,
       ),
     };
-    if (!(await saveLoop(nextSession, `stance:${section.key}`, idea, { stage: 2, sectionKey: section.key }))) {
-      restore(idea);
+    if (!(await saveLoop(nextSession, `stance:${section.key}`, note, { stage: 2, sectionKey: section.key }))) {
+      restore(note);
       return;
     }
     const reel =
       section.mode === "lesson" && section.concept
-        ? highlightReelFor({ answer: idea, concept: section.concept })
+        ? highlightReelFor({ answer: note, concept: section.concept })
         : null;
     const seeded = reel ? seedLeadFromHighlight(reel) : null;
     const ratio = paste.meta.pastedChars + paste.meta.typedChars > 0 ? paste.meta.pasteRatio : 0;
@@ -860,7 +863,7 @@ export function CoachingLoop({
           ...session.answers,
           {
             kind: "probe",
-            text: idea,
+            text: note,
             pasteRatio: ratio,
             pastedChars: paste.meta.pastedChars,
             typedChars: paste.meta.typedChars,
@@ -869,7 +872,7 @@ export function CoachingLoop({
       },
     );
     paste.reset();
-    clearSent(idea);
+    clearSent(note);
   }
 
   function onNameLead(text: string, more: LoopLine[]) {
@@ -1246,7 +1249,7 @@ export function CoachingLoop({
           handlers={{
             teachAspect: onTeachAspect,
             teachSkip: onTeachSkip,
-            mirrorSave: (more) => onMirrorSave(more),
+            mirrorSave: (more, text) => onMirrorSave(more, text),
             probeSave: (more, opts) => onProbeSave(more, opts),
             followUpAspect: (aspect) => {
               if (!section) return;
