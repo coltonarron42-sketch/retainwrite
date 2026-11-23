@@ -302,7 +302,7 @@ export function StanceChat(props: Props) {
       return;
     }
     // What's on screen and the choices waiting for a tap, so she can point to them.
-    const choices = Array.from(rootRef.current?.querySelectorAll<HTMLButtonElement>('[role="group"] button:not(:disabled)') ?? [])
+    const choices = Array.from(rootRef.current?.querySelectorAll<HTMLButtonElement>('[role="group"] button') ?? [])
       .map((b) => b.textContent?.trim() ?? "")
       .filter(Boolean);
     if (rtSeenKey.current === null || rtSeenKey.current === rtTurnKey) {

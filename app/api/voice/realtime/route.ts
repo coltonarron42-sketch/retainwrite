@@ -11,8 +11,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /** Vercel Pro cap; the relay rotates the socket (with resumption) before it. */
 export const maxDuration = 800;
-/** xAI realtime is served from us-east-1: run the relay next to it. */
-export const preferredRegion = "iad1";
 
 /**
  * Grok Voice realtime relay (Stage 2 PoC, flag-gated).
