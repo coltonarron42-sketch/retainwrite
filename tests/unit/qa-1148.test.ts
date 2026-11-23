@@ -133,10 +133,10 @@ describe("#3 history is append-only; the opener never re-asks", () => {
 describe("#4 typed text over chips is the student's reply, not a chip pick", () => {
   const src = read("components/stages/loop/stance-chat.tsx");
   it("teach card: typed words are saved as their note (no 'Picked: Something else')", () => {
-    expect(src).toMatch(/case "teach_card":\s*\/\/[^\n]*\n\s*(await )?h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true \}\);/);
+    expect(src).toMatch(/case "teach_card":\s*\/\/[^\n]*\n\s*(await )?h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true(, text)? \}\);/);
   });
   it("choice turns: typed words are sent as a revised note, after classification", () => {
-    expect(src).toMatch(/h\.probeSave\(\[pau\(paras\[0\] \?\? ask\), you\(text\)\], \{ replace: true \}\);/);
+    expect(src).toMatch(/h\.probeSave\(\[pau\(paras\[0\] \?\? ask\), you\(text\)\], \{ replace: true(, text)? \}\);/);
     expect(src).toMatch(/const intent = await props\.classify\(text, ask\);/);
   });
 });

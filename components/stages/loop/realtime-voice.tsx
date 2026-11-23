@@ -28,7 +28,7 @@ export type RealtimeCall = ReturnType<typeof useRealtimeCall>;
 export function useRealtimeCall(opts: {
   paperId: string;
   saveNote: (text: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
-  welcome: () => { welcome: boolean; index: number };
+  welcome: () => { welcome: boolean; index: number; text?: string | null };
 }) {
   const [phase, setPhase] = useState<RtPhase>("off");
   const [muted, setMuted] = useState(false);
@@ -40,6 +40,8 @@ export function useRealtimeCall(opts: {
     optsRef.current = opts;
   });
   const lastPau = useRef<string | null>(null);
+  const welcomed = useRef(false);
+  const welcomeText = useRef<string | null>(null);
 
   const upsert = (id: string, who: LiveTurn["who"], fn: (cur: string) => string, extra?: Partial<LiveTurn>) =>
     setLive((rows) => {
@@ -57,6 +59,12 @@ export function useRealtimeCall(opts: {
     const params = typeof window !== "undefined" ? new URLSearchParams(location.search) : null;
     const effort = params?.get("rtEffort") === "high" ? "high" : undefined;
     const vad = params?.get("rtVad") === "client" ? "client" : "server";
+    // Test-only VAD tuning passthrough (validated on the server).
+    const tuning: Record<string, string> = {};
+    for (const k of ["sil", "thr"]) {
+      const v = params?.get(`rt_${k}`);
+      if (v) tuning[k] = v;
+    }
     const voice = new RealtimeVoice(
       optsRef.current.paperId,
       {
@@ -66,6 +74,22 @@ export function useRealtimeCall(opts: {
         pauDelta: (rid, d) => {
           lastPau.current = rid;
           upsert(`p:${rid}`, "pau", (c) => c + d);
+          // The welcome-back line already shows once at the top of the return; no copy below.
+          const wt = welcomeText.current;
+          if (wt)
+            setLive((rows) => {
+              const row = rows.find((x) => x.id === `p:${rid}`);
+              if (!row) return rows;
+              const a = norm(row.text);
+              const b = norm(wt);
+              if (a === b) {
+                welcomeText.current = null;
+                return rows.filter((x) => x !== row);
+              }
+              const hide = b.startsWith(a);
+              if (!hide) welcomeText.current = null;
+              return rows.map((x) => (x === row ? { ...x, saved: hide } : x));
+            });
         },
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
         saveNote: async (_id, text, itemId) => {
@@ -86,9 +110,12 @@ export function useRealtimeCall(opts: {
           if (m.bargeMs !== undefined) w2.__rwRt.barge.push(m.bargeMs);
         },
       },
-      { welcome: w.welcome, welcomeIndex: w.index, effort, vad },
+      { welcome: w.welcome && !welcomed.current, welcomeIndex: w.index, effort, vad, tuning },
     );
     rt.current = voice;
+    // The welcome-back line is said once per visit, never again on a restart.
+    welcomed.current = true;
+    welcomeText.current = w.welcome ? (w.text ?? null) : null;
     voice.setMuted(muted);
     void voice.start();
   }, [muted]);
@@ -125,10 +152,13 @@ export function useRealtimeCall(opts: {
     stop,
     toggleMute,
     sayTurn: (text: string) => rt.current?.sayTurn(text),
+    setScreen: (text: string, choices: string[], followUp = false) => rt.current?.setScreen(text, choices, followUp),
     interrupt: () => rt.current?.interrupt(),
     level: () => rt.current?.level() ?? 0,
   };
 }
+
+const norm = (t: string) => t.toLowerCase().replace(/[^a-z]+/g, "");
 
 const STATUS: Record<RtPhase, string> = {
   off: "Talk with Pau Pau",

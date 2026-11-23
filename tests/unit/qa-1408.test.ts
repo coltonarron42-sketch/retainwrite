@@ -25,7 +25,7 @@ describe("#4 one send at a time, box clears on send, no duplicate replies", () =
     expect(loop).toMatch(/probeSave: \(more, opts\) => onProbeSave\(more, opts\)/);
   });
   it("an unsaved note goes back in the box; the same aside is never appended twice", () => {
-    expect(loop).toMatch(/setThinNote\(probe\);\s*restore\(idea\);/);
+    expect(loop).toMatch(/setThinNote\(probe\);\s*restore\((idea|note)\);/);
     expect(loop).toMatch(/Never the same answer twice in a row/);
   });
 });

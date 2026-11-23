@@ -96,7 +96,7 @@ describe("E gate parity: transitions are the old ones", () => {
     expect(probeForThinNote("idk")).toBeTruthy();
     for (const fn of ["async function onMirrorSave", "async function onProbeSave"]) {
       const body = loop.slice(loop.indexOf(fn), loop.indexOf(fn) + 700);
-      expect(body).toMatch(/probeForThinNote\(idea\)[\s\S]*setThinNote\([a-zA-Z]+\);\s*(restore\(idea\);\s*)?return;/);
+      expect(body).toMatch(/probeForThinNote\((idea|note)\)[\s\S]*setThinNote\([a-zA-Z]+\);\s*(restore\((idea|note)\);\s*)?return;/);
     }
   });
   it("outline continue: blank or untouched drafts keep the Stance ideas (old onContinue)", () => {
