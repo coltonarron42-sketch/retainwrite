@@ -7,6 +7,7 @@ import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, EchoBubble, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
 import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
+import { IntentWarm } from "@/components/stages/loop/stance-chat";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { dsCaption, dsEyebrow, dsLink } from "@/lib/ds/classes";
@@ -250,6 +251,7 @@ export function OutlineChat(props: Props) {
         </PauPauGroup>
         <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} />
         <ScrollToNewest signal={`${transcript.length}:${current?.key ?? "done"}:${props.error ?? ""}`} />
+        <IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")} classify={props.classify} />
       </div>
 
       {current ? (

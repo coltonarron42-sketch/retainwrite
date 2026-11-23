@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/button";
 
 /** Typed-send cap for the intent check; the rules answer after it (QA 8:08 PM). */
 const STANCE_INTENT_CLIENT_MS = 2200;
+
+/** Cache key for an intent check: one section, one ask, the same words. */
+export function intentKey(sectionKey: string, ask: string, text: string): string {
+  return `${sectionKey}|${ask.trim()}|${text.trim().replace(/\s+/g, " ")}`;
+}
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
@@ -291,6 +296,8 @@ export function CoachingLoop({
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
+  /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
+  const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
   const stageProgressRef = useRef(stageProgress);
   useEffect(() => {
     stageProgressRef.current = stageProgress;
@@ -664,12 +671,25 @@ export function CoachingLoop({
   // also records the exchange so the chat rebuilds after a reload.
   const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
 
-  /** Content, or a request/question to Pau Pau? Model first, rules if it fails. */
-  async function classifyIntent(text: string, ask: string): Promise<StanceIntent> {
+  /**
+   * Content, or a request/question to Pau Pau? Model first, rules if it fails.
+   * Same words + same ask reuse the check already started while typing (QA 8:08 PM).
+   */
+  function classifyIntent(text: string, ask: string): Promise<StanceIntent> {
     const rules = rulesStanceIntent(text);
     // Explicit help/questions already have a safe deterministic intent. Don't
     // make the student wait for a model to repeat that decision.
-    if (rules !== "content" || !needsModel(text)) return rules;
+    if (rules !== "content" || !needsModel(text)) return Promise.resolve(rules);
+    const key = intentKey(section?.key ?? "", ask, text);
+    const hit = intentCache.current.get(key);
+    if (hit) return hit;
+    if (intentCache.current.size > 24) intentCache.current.clear();
+    const run = fetchIntent(text, ask, rules);
+    intentCache.current.set(key, run);
+    return run;
+  }
+
+  async function fetchIntent(text: string, ask: string, rules: StanceIntent): Promise<StanceIntent> {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), STANCE_INTENT_CLIENT_MS);

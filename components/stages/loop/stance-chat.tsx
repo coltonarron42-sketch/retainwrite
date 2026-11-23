@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
@@ -27,10 +27,33 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { isPlainYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
 
+
+/** Typing pause before the intent check starts early. */
+export const INTENT_WARM_MS = 600;
+
+/**
+ * Typed-send latency (QA 8:08 PM): when typing pauses, start the intent check
+ * for those exact words so Send usually finds it already answered.
+ */
+export function IntentWarm(props: { idea: string; ask: string; classify: (text: string, ask: string) => Promise<unknown> }) {
+  const { idea, ask, classify } = props;
+  const classifyRef = useRef(classify);
+  useEffect(() => {
+    classifyRef.current = classify;
+  });
+  useEffect(() => {
+    const text = idea.trim();
+    if (wordCount(text) < 2) return;
+    const timer = setTimeout(() => void classifyRef.current(text, ask), INTENT_WARM_MS);
+    return () => clearTimeout(timer);
+  }, [idea, ask]);
+  return null;
+}
 export type LogicChoice = "yes" | "tweak" | "keep" | "adjust" | "new_angle" | "revise" | "reframe" | "continued";
 
 export type StanceSectionView = {
@@ -701,6 +724,7 @@ export function StanceChat(props: Props) {
         </PauPauGroup>
         <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} />
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}`} />
+        <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
       </div>
 
       <ComposerDock>

@@ -50,7 +50,7 @@ describe("#2 typed sends", () => {
   it("explicit requests/questions use the rules answer without a model round trip", () => {
     expect(rulesStanceIntent("can you help me")).not.toBe("content");
     expect(needsModel("can you help me")).toBe(true); // the server would still ask the model
-    expect(loop).toMatch(/if \(rules !== "content" \|\| !needsModel\(text\)\) return rules;/);
+    expect(loop).toMatch(/if \(rules !== "content" \|\| !needsModel\(text\)\) return Promise\.resolve\(rules\);/);
   });
   it("the intent check is capped so a slow model can't hold the reply (rules decide after the cap)", () => {
     expect(loop).toContain("const STANCE_INTENT_CLIENT_MS = 2200;");
@@ -85,6 +85,27 @@ describe("#2 typed sends", () => {
     const route = read("app/api/papers/[paperId]/assignment/reply/route.ts");
     expect(route).toMatch(/after\(\(\) =>\s*logSessionEvent\(/);
     expect(route).not.toMatch(/await logSessionEvent/);
+  });
+});
+
+describe("#2 the intent check starts while typing pauses", () => {
+  const loop = read("components/stages/loop/coaching-loop.tsx");
+  const chat = read("components/stages/loop/stance-chat.tsx");
+  const outline = read("components/stages/loop/outline-chat.tsx");
+  it("same section, ask and words reuse one check (whitespace-insensitive)", async () => {
+    const { intentKey } = await import("@/components/stages/loop/coaching-loop");
+    expect(intentKey("intro", " Ask? ", "My  brother sleeps\n in class ")).toBe(intentKey("intro", "Ask?", "My brother sleeps in class"));
+    expect(intentKey("intro", "Ask?", "a b")).not.toBe(intentKey("body", "Ask?", "a b"));
+    expect(loop).toMatch(/const hit = intentCache\.current\.get\(key\);\s*if \(hit\) return hit;/);
+  });
+  it("a 600 ms typing pause warms the check in Stage 2 and Stage 3; plain yes and untouched notes don't", async () => {
+    const { INTENT_WARM_MS } = await import("@/components/stages/loop/stance-chat");
+    expect(INTENT_WARM_MS).toBe(600);
+    expect(chat).toContain('<IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />');
+    expect(outline).toContain('<IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")}');
+    // Send uses the same ask string as the warm-up, so the cache key matches.
+    expect(chat).toMatch(/await props\.classify\(text, ask\)/);
+    expect(outline).toMatch(/const askText = ask\.slice\(-2\)\.join\(" "\);[\s\S]*props\.classify\(value, askText\)/);
   });
 });
 
