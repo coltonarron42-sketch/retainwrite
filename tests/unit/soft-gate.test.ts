@@ -35,3 +35,17 @@ describe("soft gate copy (Stages 2-6): overview, then what we still need", () =>
     expect(voice).toMatch(/sessionStorage\.getItem\(RT_MUTED_KEY\) !== "1"/);
   });
 });
+
+describe("way back + gate voice timeout (Nov 23, t158u)", () => {
+  it("back buttons are plain full-load links, not client nav", () => {
+    const gate = readFileSync("components/stages/soft-gate-view.tsx", "utf8");
+    const shell = readFileSync("components/stages/stage-shell.tsx", "utf8");
+    expect(gate).toMatch(/<a href=\{`\/app\/papers\/\$\{paperId\}\/stage\/\$\{paperStage\}`\} data-stage-back>/);
+    expect(shell).toMatch(/<a href=\{backHref\} data-stage-back>/);
+  });
+  it("a gate line that never starts is dropped after GATE_CONNECT_MS", () => {
+    const client = readFileSync("lib/voice/realtime/client.ts", "utf8");
+    expect(client).toMatch(/GATE_CONNECT_MS = 8000/);
+    expect(client).toMatch(/!this\.gateHeard\) \{\s*this\.on\.error\?\.\("gate_timeout"\);\s*this\.stop\(\);/);
+  });
+});

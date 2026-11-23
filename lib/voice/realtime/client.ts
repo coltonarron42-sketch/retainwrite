@@ -72,6 +72,9 @@ function b64ToPcm(b64: string): Float32Array {
   return out;
 }
 
+/** Soft gate: give up on the spoken line if her reply hasn't started by then. */
+export const GATE_CONNECT_MS = 8000;
+
 export class RealtimeVoice {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -106,6 +109,7 @@ export class RealtimeVoice {
   private bargeRoll: ArrayBuffer[] = [];
   private echoRatios: number[] = [];
   private gateDone = false;
+  private gateHeard = false;
 
   constructor(
     private paperId: string,
@@ -140,6 +144,13 @@ export class RealtimeVoice {
         return;
       }
       this.connect();
+      // A gate line that hasn't started within GATE_CONNECT_MS is dropped (text stays).
+      setTimeout(() => {
+        if (!this.stopped && !this.gateHeard) {
+          this.on.error?.("gate_timeout");
+          this.stop();
+        }
+      }, GATE_CONNECT_MS);
       return;
     }
     this.connect();
@@ -427,6 +438,7 @@ export class RealtimeVoice {
         return;
       case "response.created":
         this.responding = true;
+        this.gateHeard = true;
         return;
       case "response.output_audio.delta": {
         const rid = String(e.response_id ?? "");

@@ -96,7 +96,7 @@ export function StageShell({
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-[12px] bg-ds-page px-4 py-3 font-ds-sans text-[15px] text-ds-ink">
             <span>Stage {stage} is done. You&apos;re looking back at your saved work (read-only).</span>
             <Button asChild size="sm">
-              <Link href={backHref}>{backLabel}</Link>
+              <a href={backHref} data-stage-back>{backLabel}</a>
             </Button>
           </div>
         </div>
