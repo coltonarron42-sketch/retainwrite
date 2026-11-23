@@ -13,6 +13,8 @@ export type RtEvents = {
   userTranscript?: (itemId: string, text: string, final: boolean) => void;
   userCommitted?: (itemId: string) => void;
   pauDelta?: (responseId: string, text: string) => void;
+  /** A "student" turn that was really her own voice through speakers: hide it. */
+  echo?: (itemId: string) => void;
   pauDone?: (responseId: string, status: string | undefined) => void;
   pauCancelled?: (responseId: string) => void;
   saveNote?: (callId: string, text: string, itemId: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
@@ -24,6 +26,10 @@ export type RtEvents = {
 const RATE = 24_000;
 const CHUNK = 2_400; // 100 ms
 const LEAD_S = 0.06;
+/** Mic must be this much louder than her playback to count as the student (echo gate). */
+const ECHO_K = 1.0;
+/** Room echo and capture delay after her last sample. */
+const ECHO_TAIL_MS = 250;
 const VOICE_RMS = 0.02;
 /** Client end-of-turn: this much silence after speech ends her wait (server VAD waits ~0.5-0.9 s more). */
 const END_SILENCE_MS = 360;
@@ -95,6 +101,9 @@ export class RealtimeVoice {
   private silenceSince = 0;
   private preroll: ArrayBuffer[] = [];
   private screenMsg: Record<string, unknown> | null = null;
+  private outFrames: { t: number; rms: number }[] = [];
+  private echoTailUntil = 0;
+  private bargeRoll: ArrayBuffer[] = [];
 
   constructor(
     private paperId: string,
@@ -246,22 +255,50 @@ export class RealtimeVoice {
       this.voicedRun = 0;
       return;
     }
-    // Local barge-in: stop her the moment the student talks over her (server VAD confirms later).
+    // Speakers without headphones: her own voice comes back through the mic. While
+    // she plays (and a short tail after), only sound clearly louder than what she is
+    // playing counts as the student; anything else goes up as silence, so neither the
+    // server VAD nor the transcript ever hears her echo.
     const playing = this.sources.size > 0;
-    this.voicedRun = playing && rms > 0.05 ? this.voicedRun + 1 : 0;
-    if (playing && this.voicedRun >= 2) {
+    const echoWindow = playing || now < this.echoTailUntil;
+    const voiced = rms > Math.max(0.05, ECHO_K * this.outRms());
+    if (echoWindow) {
+      this.voicedRun = voiced ? this.voicedRun + 1 : 0;
+      this.bargeRoll.push(pcm);
+      if (this.bargeRoll.length > 3) this.bargeRoll.shift();
+      if (this.voicedRun < 2) {
+        this.sendAudio(new ArrayBuffer(pcm.byteLength));
+        return;
+      }
+      // Local barge-in: the student really is talking over her.
       this.voicedRun = 0;
-      this.stopPlayback();
-      this.send({ type: "response.cancel" });
-      const barge = Math.round(now - (this.voiceOnsetAt || now) + 100);
-      this.on.metric?.({ bargeMs: barge });
-      this.send({ type: "rw.metric", barge_ms: barge });
+      if (playing) {
+        this.stopPlayback();
+        this.send({ type: "response.cancel" });
+        const barge = Math.round(now - (this.voiceOnsetAt || now) + 100);
+        this.on.metric?.({ bargeMs: barge });
+        this.send({ type: "rw.metric", barge_ms: barge });
+      }
+      this.echoTailUntil = 0;
       this.voiceOnsetAt = 0;
       this.setPhase("listening");
+      for (const b of this.bargeRoll.splice(0)) this.sendAudio(b);
+      return;
     }
-    const ws = this.ws;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(pcm);
-    else if (this.early.length < 80) this.early.push(pcm);
+    this.voicedRun = 0;
+    this.bargeRoll.length = 0;
+    this.sendAudio(pcm);
+  }
+
+  /** Loudness of what she is playing right now (last ~150 ms), from the scheduled PCM. */
+  private outRms(): number {
+    const ctx = this.ctx;
+    if (!ctx || !this.outFrames.length) return 0;
+    const t = ctx.currentTime;
+    while (this.outFrames.length && this.outFrames[0]!.t < t - 1) this.outFrames.shift();
+    let max = 0;
+    for (const f of this.outFrames) if (f.t >= t - 0.15 && f.t <= t + 0.02 && f.rms > max) max = f.rms;
+    return max;
   }
 
   private setPhase(p: RtPhase) {
@@ -281,7 +318,11 @@ export class RealtimeVoice {
       } catch {}
     }
     this.sources.clear();
-    if (this.ctx) this.nextTime = this.ctx.currentTime;
+    if (this.ctx) {
+      this.nextTime = this.ctx.currentTime;
+      const t = this.ctx.currentTime;
+      this.outFrames = this.outFrames.filter((f) => f.t <= t);
+    }
   }
 
   private play(pcm: Float32Array) {
@@ -293,6 +334,12 @@ export class RealtimeVoice {
     src.buffer = buf;
     src.connect(this.out);
     const at = Math.max(this.nextTime, ctx.currentTime + LEAD_S);
+    for (let i = 0; i < pcm.length; i += 480) {
+      let sum = 0;
+      const end = Math.min(pcm.length, i + 480);
+      for (let j = i; j < end; j++) sum += pcm[j]! * pcm[j]!;
+      this.outFrames.push({ t: at + i / RATE, rms: Math.sqrt(sum / Math.max(1, end - i)) });
+    }
     src.start(at);
     this.nextTime = at + buf.duration;
     this.sources.add(src);
@@ -306,6 +353,7 @@ export class RealtimeVoice {
     src.onended = () => {
       this.sources.delete(src);
       if (!this.sources.size) {
+        this.echoTailUntil = performance.now() + ECHO_TAIL_MS;
         if (!this.responding) {
           this.setPhase("listening");
           this.send({ type: "rw.idle" });
@@ -390,6 +438,9 @@ export class RealtimeVoice {
           .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen }));
         return;
       }
+      case "rw.echo":
+        this.on.echo?.(String(e.item_id ?? ""));
+        return;
       case "rw.sources":
         this.on.sources?.((e.links as { title: string; url: string; why?: string }[]) ?? []);
         return;

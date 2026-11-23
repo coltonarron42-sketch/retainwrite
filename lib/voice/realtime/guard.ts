@@ -47,3 +47,29 @@ export function wordsFromStudent(note: string, studentSaid: string[]): number {
   if (!words.length) return 0;
   return words.filter((w) => said.has(w)).length / words.length;
 }
+
+
+const words = (t: string) =>
+  t
+    .toLowerCase()
+    .replace(/[\u2019]/g, "'")
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+/**
+ * Is this "student" transcript really her own voice coming back through
+ * speakers? True when most of its word pairs (or, for one or two words, all of
+ * its words while she was talking) appear in what she just said.
+ */
+export function isEcho(transcript: string, herRecent: string[], duringPlayback: boolean): boolean {
+  const w = words(transcript);
+  if (!w.length) return false;
+  const her = words(herRecent.join(" "));
+  if (!her.length) return false;
+  if (w.length <= 2) return duringPlayback && w.every((x) => her.includes(x));
+  const pairs = new Set(her.slice(1).map((x, i) => `${her[i]} ${x}`));
+  let hit = 0;
+  for (let i = 1; i < w.length; i++) if (pairs.has(`${w[i - 1]} ${w[i]}`)) hit++;
+  return hit / (w.length - 1) >= 0.5;
+}

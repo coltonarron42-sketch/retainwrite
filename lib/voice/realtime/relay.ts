@@ -5,7 +5,7 @@ import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { buildInstructions } from "./persona";
 import { loadFlowState, stateBlock, type FlowState } from "./flow-state";
-import { essayGuard, GUARD_REDIRECTS, wordsFromStudent } from "./guard";
+import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
   MAX_TEXT_CHARS,
   REALTIME_RATE,
@@ -116,6 +116,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     clientLatency: [] as number[],
     bargeIn: [] as number[],
     guardTrips: 0,
+    echoDropped: 0,
     notesApplied: 0,
     dropped: 0,
     usage: [] as unknown[],
@@ -133,6 +134,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const studentSaid = { slice: (n: number) => said.slice(n).map((x) => x.text), push: (text: string) => said.push({ id: `t${said.length}`, text }) };
   const pendingCalls = new Map<string, Promise<{ call_id: string; output: string }>>();
   const pendingNames = new Set<string>();
+  const herDone: string[] = [];
+  let currentRid: string | null = null;
+  let lastCommitted: string | null = null;
+  const responseAfter = new Map<string, string>();
+  const playingAtCommit = new Set<string>();
+  const herRecent = () => [...herDone.slice(-3), currentRid ? (replyText.get(currentRid) ?? "") : ""];
   const applyWaiters = new Map<string, (v: { ok: boolean; result?: string; screen?: string }) => void>();
   const idleWaiters: (() => void)[] = [];
   let closed = false;
@@ -155,6 +162,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (dispatched.has(id) || closed) return;
     const text = (said.find((x) => x.id === id)?.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
     if (text.split(/\s+/).filter(Boolean).length < 1) return;
+    // Her own voice through the student's speakers is never their note (or their "yes").
+    if (isEcho(text, herRecent(), playingAtCommit.has(id))) {
+      dispatched.add(id);
+      m.echoDropped = (m.echoDropped ?? 0) + 1;
+      toClient({ type: "rw.echo", item_id: id });
+      if (responding && currentRid && responseAfter.get(currentRid) === id) {
+        guarded.add(currentRid);
+        upSend({ type: "response.cancel" });
+        toClient({ type: "rw.guard", response_id: currentRid });
+      }
+      return;
+    }
     dispatched.add(id);
     m.tools.auto_note = (m.tools.auto_note ?? 0) + 1;
     toClient({ type: "rw.save_note", call_id: `n_${id}`, item_id: id, text });
@@ -185,7 +204,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     [
       screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
       screen.choices.length
-        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. End your reply by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
+        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
         : null,
       asked.length ? `Questions you already asked this session (never ask any of these again; ask something new or move on): ${asked.map((q) => `"${q}"`).join(" / ")}` : null,
     ]
@@ -389,6 +408,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const id = String(e.item_id ?? "");
         if (id) {
           committed.add(id);
+          lastCommitted = id;
+          if (clientPlaying || responding) playingAtCommit.add(id);
           scheduleNote(id, 900);
         }
         toClient(e);
@@ -412,7 +433,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         responding = true;
         m.responses++;
         const r = e.response as { id?: string } | undefined;
-        if (r?.id) replyText.set(r.id, "");
+        if (r?.id) {
+          replyText.set(r.id, "");
+          currentRid = r.id;
+          if (lastCommitted) responseAfter.set(r.id, lastCommitted);
+          lastCommitted = null;
+        }
         toClient(e);
         return;
       }
@@ -463,6 +489,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (r?.usage) m.usage.push(r.usage);
         toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
         const spoken = r?.id ? (replyText.get(r.id) ?? "") : "";
+        if (spoken) herDone.push(spoken);
+        if (herDone.length > 6) herDone.splice(0, herDone.length - 6);
+        if (r?.id === currentRid) currentRid = null;
         let learned = false;
         if (r?.status !== "cancelled") {
           for (const q of spoken.match(/[^.!?]*\?/g) ?? []) {
