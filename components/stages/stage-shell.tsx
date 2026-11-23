@@ -7,7 +7,8 @@ import { AssignmentIntake } from "@/components/stages/stage1/assignment-intake";
 import { CoachingLoop } from "@/components/stages/loop/coaching-loop";
 import { StageProgress } from "@/components/stages/stage-progress";
 import type { StageProgressRow } from "@/lib/stages/assert";
-import { softGateMessage, stageView } from "@/lib/stages/gate-guard";
+import { stageView } from "@/lib/stages/gate-guard";
+import { SoftGateView } from "@/components/stages/soft-gate-view";
 import { STAGE_LABELS } from "@/lib/config";
 import { getDemoPaper, upsertDemoPaper, type DemoPaper } from "@/lib/demo/store";
 import { Button } from "@/components/ui/button";
@@ -22,16 +23,6 @@ type Props = {
   initialRawText?: string;
   storyAnswer?: string | null;
 };
-
-/** One line per stage for the soft-gate look. */
-const STAGE_PREVIEWS = [
-  "Intake: share the assignment and a little about how you write.",
-  "Stance: find what you think, section by section, and lock it in.",
-  "Outline: your locked-in ideas become the skeleton of the whole paper.",
-  "Sources: find and check the sources that back up each section.",
-  "Drafting: write each paragraph yourself, with Pau Pau coaching.",
-  "Revise: tighten your draft and get it ready to hand in.",
-];
 
 export function StageShell({
   paperId,
@@ -84,26 +75,11 @@ export function StageShell({
   const backLabel = `Back to Stage ${here}: ${STAGE_LABELS[here - 1] ?? ""}`;
   if (view === "ahead") {
     return (
-      <div className="flex min-h-[70vh] flex-1 flex-col" data-stage-view="ahead">
+      <div className="flex min-h-[70vh] flex-1 flex-col">
         <div className={stage <= 3 ? "mx-auto w-full max-w-[728px] px-6 pt-2" : "px-6 pt-2 md:px-16"}>
           <StageProgress paperId={paperId} current={stage} statuses={statuses} />
         </div>
-        <div className="mx-auto w-full max-w-[728px] flex-1 px-6 pb-12 pt-4 font-ds-sans text-ds-ink">
-          <p className="text-[13px] font-semibold uppercase tracking-wide text-ds-muted">
-            Stage {stage} · {STAGE_LABELS[stage - 1]}
-          </p>
-          <p className="mt-3 text-[17px] leading-[1.6]" data-soft-gate>
-            {softGateMessage(stage)}
-          </p>
-          <Button asChild className="mt-6">
-            <Link href={backHref}>{backLabel}</Link>
-          </Button>
-          {/* A look at the stage: nothing here is live until the earlier stage is done. */}
-          <div inert className="mt-8 rounded-[12px] border border-ds-border p-4 opacity-60" aria-label="Preview, not active yet">
-            <p className="text-[15px] leading-[1.6] text-ds-muted">{STAGE_PREVIEWS[stage - 1]}</p>
-            <textarea disabled rows={2} className="mt-3 w-full resize-none rounded-[8px] border border-ds-border bg-transparent p-2 text-[15px]" placeholder="Pau Pau opens here once the earlier stage is done." />
-          </div>
-        </div>
+        <SoftGateView paperId={paperId} stage={stage} paperStage={here} />
       </div>
     );
   }

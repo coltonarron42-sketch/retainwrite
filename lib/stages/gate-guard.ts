@@ -55,11 +55,11 @@ export function stageView(requested: number, serverStage: number): StageView {
   return requested > serverStage ? "ahead" : requested < serverStage ? "review" : "current";
 }
 
-export const SOFT_GATE_DEFAULT = "We need a bit more info from an earlier stage before we can start building here.";
-export const SOFT_GATE_STAGE3 =
-  "In this stage we really start putting the whole project together. Get your Stage 2 info in and we can help make something incredible.";
-export function softGateMessage(stage: number): string {
-  return stage === 3 ? SOFT_GATE_STAGE3 : SOFT_GATE_DEFAULT;
+export { SOFT_GATE_DEFAULT, SOFT_GATE_STAGE3 } from "./soft-gate";
+import { gateNeed } from "./soft-gate";
+/** The need line alone (the full turn is gateParas in soft-gate.ts). */
+export function softGateMessage(stage: number, paperStage = stage - 1): string {
+  return gateNeed(stage, paperStage);
 }
 
 /** Intake complete only ever moves a Stage 1 paper; it never rewinds a later one. */
