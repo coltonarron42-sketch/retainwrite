@@ -56,7 +56,7 @@ export function useRealtimeCall(opts: {
     const w = optsRef.current.welcome();
     const params = typeof window !== "undefined" ? new URLSearchParams(location.search) : null;
     const effort = params?.get("rtEffort") === "high" ? "high" : undefined;
-    const vad = params?.get("rtVad") === "server" ? "server" : "client";
+    const vad = params?.get("rtVad") === "client" ? "client" : "server";
     const voice = new RealtimeVoice(
       optsRef.current.paperId,
       {

@@ -59,7 +59,7 @@ export async function GET(request: Request) {
         apiKey,
         resumeToken: url.searchParams.get("resume"),
         effort,
-        vad: url.searchParams.get("vad") === "server" ? "server" : url.searchParams.get("vad") === "client" ? "client" : process.env.PAU_REALTIME_VAD === "server" ? "server" : "client",
+        vad: url.searchParams.get("vad") === "server" ? "server" : url.searchParams.get("vad") === "client" ? "client" : process.env.PAU_REALTIME_VAD === "client" ? "client" : "server",
       });
     },
     { maxPayload: 128 * 1024 },

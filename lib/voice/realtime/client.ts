@@ -141,7 +141,7 @@ export class RealtimeVoice {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const q = new URLSearchParams({ paperId: this.paperId });
     if (this.opts.effort) q.set("effort", this.opts.effort);
-    q.set("vad", this.opts.vad ?? "client");
+    q.set("vad", this.opts.vad ?? "server");
     if (this.resume) q.set("resume", this.resume);
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
@@ -233,13 +233,29 @@ export class RealtimeVoice {
   }
 
   private onMic(pcm: ArrayBuffer, rms: number) {
-    if ((this.opts.vad ?? "client") === "client") return this.onMicClient(pcm, rms);
+    if ((this.opts.vad ?? "server") === "client") return this.onMicClient(pcm, rms);
     const now = performance.now();
     if (rms > VOICE_RMS) {
       if (this.sources.size && !this.voiceOnsetAt) this.voiceOnsetAt = now; // barge-in timing
       this.lastVoiceAt = now;
     }
-    if (this.muted || this.stopped) return;
+    if (this.muted || this.stopped) {
+      this.voicedRun = 0;
+      return;
+    }
+    // Local barge-in: stop her the moment the student talks over her (server VAD confirms later).
+    const playing = this.sources.size > 0;
+    this.voicedRun = playing && rms > 0.05 ? this.voicedRun + 1 : 0;
+    if (playing && this.voicedRun >= 2) {
+      this.voicedRun = 0;
+      this.stopPlayback();
+      this.send({ type: "response.cancel" });
+      const barge = Math.round(now - (this.voiceOnsetAt || now) + 100);
+      this.on.metric?.({ bargeMs: barge });
+      this.send({ type: "rw.metric", barge_ms: barge });
+      this.voiceOnsetAt = 0;
+      this.setPhase("listening");
+    }
     const ws = this.ws;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(pcm);
     else if (this.early.length < 80) this.early.push(pcm);
