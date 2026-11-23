@@ -49,7 +49,8 @@ export function StageProgress({ paperId, current, statuses }: Props) {
             const srText = `Stage ${stage}: ${name}${active ? " (current)" : status === "complete" ? " (done)" : unlocked ? "" : " (locked)"}`;
             return (
               <li key={name} className="min-w-0 flex-1">
-                {unlocked && !active ? (
+                {/* Done stages open read-only; later ones open a soft-gate look (gates stay on the server). */}
+                {!active ? (
                   <Link
                     href={`/app/papers/${paperId}/stage/${stage}`}
                     className="ds-focus flex min-h-[48px] items-center rounded-[8px]"

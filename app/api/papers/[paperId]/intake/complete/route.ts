@@ -11,6 +11,7 @@ import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { logSessionEvent } from "@/lib/session-events";
 import { createClient } from "@/lib/supabase/server";
+import { intakeCompleteAllowed } from "@/lib/stages/gate-guard";
 import { wordCount } from "@/lib/utils";
 
 export const runtime = "nodejs";
@@ -128,6 +129,13 @@ export async function POST(request: Request, ctx: Ctx) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Never re-run a finished Stage 1 or rewind a later paper (past stages are review only).
+  const { data: current } = await supabase.from("papers").select("current_stage").eq("id", paperId).eq("user_id", user.id).maybeSingle();
+  if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!intakeCompleteAllowed((current.current_stage as number | null) ?? 1)) {
+    return NextResponse.json({ ok: true, stage2Url, already: true, currentStage: current.current_stage });
   }
 
   const now = new Date().toISOString();
