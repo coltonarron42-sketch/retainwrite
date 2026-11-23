@@ -1,5 +1,6 @@
 /**
- * Server-side stage gates (preserved gates). Opening a URL never moves a paper:
+ * Server-side stage gates (preserved gates). Past stages are viewable (review),
+ * later stages show a soft gate, and the data gates stay hard. Opening a URL never moves a paper:
  * current_stage only advances one step at a time, through the progress route,
  * and leaving Stance (2 -> 3) needs every section confirmed or skipped in the
  * saved session. Autosave never moves current_stage.
@@ -43,9 +44,27 @@ export function autosaveResumeAllowed(resumeStage: number, serverStage: number):
   return resumeStage === serverStage;
 }
 
-/** A /stage/N page past the paper's stage sends the student back to where they are. */
-export function stageRedirect(requested: number, serverStage: number): number | null {
-  return requested > serverStage ? serverStage : null;
+/**
+ * How a /stage/N page opens (Colton, Nov 23): past stages are viewable (read-only
+ * review), the paper's own stage is live, and a later stage is a soft gate (a
+ * friendly message and a look, inputs and Pau Pau inactive, nothing written).
+ * Data gates stay hard on the server (progress route, autosave, intake complete).
+ */
+export type StageView = "current" | "review" | "ahead";
+export function stageView(requested: number, serverStage: number): StageView {
+  return requested > serverStage ? "ahead" : requested < serverStage ? "review" : "current";
+}
+
+export const SOFT_GATE_DEFAULT = "We need a bit more info from an earlier stage before we can start building here.";
+export const SOFT_GATE_STAGE3 =
+  "In this stage we really start putting the whole project together. Get your Stage 2 info in and we can help make something incredible.";
+export function softGateMessage(stage: number): string {
+  return stage === 3 ? SOFT_GATE_STAGE3 : SOFT_GATE_DEFAULT;
+}
+
+/** Intake complete only ever moves a Stage 1 paper; it never rewinds a later one. */
+export function intakeCompleteAllowed(serverStage: number): boolean {
+  return serverStage < 2;
 }
 
 export function screenForStage(stage: number): "outline" | "sources" | "draft" | "stance" {
