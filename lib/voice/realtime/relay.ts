@@ -3,6 +3,7 @@ import WebSocket, { type RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
+import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { buildInstructions } from "./persona";
 import { loadFlowState, stateBlock, type FlowState } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
@@ -149,6 +150,14 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // What the app shows right now (app copy: data only) and the choices waiting for a tap.
   let screen: { text: string; choices: string[] } = { text: "", choices: [] };
   let followUpPending = false;
+  // The app is waiting on "Want me to swap that in?" (a clear replacement over a choice).
+  let swapAskPending = false;
+  // The student is talking now (server VAD), and the last time they started.
+  let speechActive = false;
+  let speechAt = 0;
+  // She was cut off mid-reply: her next reply must not finish or wrap up the old one.
+  let cutOff = false;
+  let swapWaiting = false;
   // Her questions so far this session, so she never asks the same one twice.
   const asked: string[] = [];
   const committed = new Set<string>();
@@ -203,6 +212,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const extraState = () =>
     [
       screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
+      cutOff
+        ? "You were just cut off mid-reply; the student heard only part of it. Don't finish, repeat or wrap up that reply. Answer what they just said."
+        : null,
+      swapWaiting
+        ? `The student asked to replace their saved note. Nothing is saved yet: the app asked "${SWAP_ASK}" and waits for their yes or no. Don't say it's saved.`
+        : null,
       screen.choices.length
         ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
         : null,
@@ -262,14 +277,31 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const runFollowUp = async () => {
     if (responding || closed) return;
     followUpPending = false;
+    const asked0 = Date.now();
+    const choices0 = screen.choices.join("|");
     await waitIdle(6_000);
-    if (responding || closed || !screen.choices.length) return;
+    // A late prompt is worse than none: skip it once the student talks, the
+    // choices change, or her last reply already pointed to them.
+    if (responding || closed || !screen.choices.length || speechActive || speechAt > asked0) return;
+    if (screen.choices.join("|") !== choices0 || Date.now() - asked0 > 8_000) return;
+    if (/\b(tap|say yes|just say)\b/i.test(herDone[herDone.length - 1] ?? "")) return;
     upSend({
       type: "response.create",
       response: {
         instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${screen.choices.map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes." Don't repeat what you just said and don't ask another question.`,
       },
     });
+  };
+
+  // She says the app's swap question in its exact words, once, after her reply ends.
+  const runSwapAsk = async () => {
+    if (responding || closed) return;
+    swapAskPending = false;
+    const asked0 = Date.now();
+    await waitIdle(6_000);
+    if (responding || closed || !swapWaiting || speechActive || speechAt > asked0) return;
+    if (/\bswap\b/i.test(herDone[herDone.length - 1] ?? "")) return;
+    upSend(say(SWAP_ASK));
   };
 
   const finish = (code: number, reason: string) => {
@@ -397,10 +429,19 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       }
       case "input_audio_buffer.speech_started":
         speechStoppedAt = 0;
+        speechActive = true;
+        speechAt = Date.now();
+        if (responding || clientPlaying) {
+          cutOff = true;
+          followUpPending = false;
+          swapAskPending = false;
+          sessionUpdate();
+        }
         toClient(e);
         return;
       case "input_audio_buffer.speech_stopped":
         speechStoppedAt = Date.now();
+        speechActive = false;
         toClient(e);
         return;
       case "input_audio_buffer.committed": {
@@ -492,6 +533,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (herDone.length > 6) herDone.splice(0, herDone.length - 6);
         if (r?.id === currentRid) currentRid = null;
         let learned = false;
+        if (r?.status !== "cancelled" && cutOff && spoken) {
+          // Her first full reply after the cut-off is done: back to normal.
+          cutOff = false;
+          learned = true;
+        }
         if (r?.status !== "cancelled") {
           for (const q of spoken.match(/[^.!?]*\?/g) ?? []) {
             const t = q.trim().replace(/^[\u2014\-,\s]+/, "");
@@ -508,7 +554,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           const calls = [...pendingCalls.values()];
           pendingCalls.clear();
           // She already said a full reply before a background lookup: no second reply.
-          const needsReply = names.includes("show_sources") || spoken.trim().split(/\s+/).filter(Boolean).length < 8;
+          // Never "continue" a reply the student cut off: that's a wrap-up they didn't ask for.
+          const needsReply = r?.status !== "cancelled" && !speechActive && (names.includes("show_sources") || spoken.trim().split(/\s+/).filter(Boolean).length < 8);
           void (async () => {
             const results = await Promise.all(calls);
             for (const res of results) upSend({ type: "conversation.item.create", item: { type: "function_call_output", ...res } });
@@ -525,7 +572,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           return;
         }
         if (learned) sessionUpdate();
-        if (followUpPending) void runFollowUp();
+        if (swapAskPending) void runSwapAsk();
+        else if (followUpPending) void runFollowUp();
         return;
       }
       case "conversation.item.created":
@@ -615,7 +663,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.turn": {
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
         const text = String(e.text ?? "").slice(0, 800);
-        if (!text || responding) return;
+        if (!text || responding || speechActive) return;
         void refreshFlow().then(() =>
           upSend({
             type: "response.create",
@@ -629,6 +677,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.applied": {
         if (String(e.call_id ?? "").startsWith("n_")) {
           m.notesApplied = (m.notesApplied ?? 0) + (e.result === "saved" ? 1 : 0);
+          swapWaiting = e.result === "swap_ask";
+          if (swapWaiting) {
+            m.tools.swap_ask = (m.tools.swap_ask ?? 0) + 1;
+            swapAskPending = true;
+            if (!responding) void runSwapAsk();
+          }
           void refreshFlow().then((f) => f && sessionUpdate());
           return;
         }
