@@ -150,6 +150,22 @@ export function ChatComposer({
     return () => window.clearTimeout(t);
   }, [micNote]);
   const [canDictate, setCanDictate] = useState(false);
+  // Mic permission denied (QA 8:45 PM #5): one message, the mic-blocked one,
+  // never "No voice replies in this browser" beside the talk controls.
+  const [micBlocked, setMicBlocked] = useState(false);
+  useEffect(() => {
+    let status: PermissionStatus | null = null;
+    const sync = () => setMicBlocked(status?.state === "denied");
+    void navigator.permissions
+      ?.query({ name: "microphone" as PermissionName })
+      .then((s) => {
+        status = s;
+        sync();
+        s.addEventListener("change", sync);
+      })
+      .catch(() => undefined);
+    return () => status?.removeEventListener("change", sync);
+  }, []);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const baseRef = useRef("");
   const valueRef = useRef(value);
@@ -301,9 +317,11 @@ export function ChatComposer({
       onChange(next);
     };
     rec.onerror = (event) => {
+      const denied = event.error === "not-allowed" || event.error === "service-not-allowed";
+      if (denied) setMicBlocked(true);
       setMicNote(
-        event.error === "not-allowed" || event.error === "service-not-allowed"
-          ? "The microphone is blocked. Allow it in your browser settings, or type instead."
+        denied
+          ? callStatusText("blocked")
           : event.error === "no-speech"
             ? "I didn't hear anything. Tap the mic and try again."
             : "Voice typing stopped. You can tap the mic again or type instead.",
@@ -364,7 +382,11 @@ export function ChatComposer({
     callOn && !micMuted && !speaking && !sending && !listening && owner === callId && callId !== 0 && !callTrouble;
   const callStatus: CallStatus = !voice
     ? "off"
-    : !canDictate
+    : micBlocked
+      ? micMuted && canDictate
+        ? "muted"
+        : "blocked"
+      : !canDictate
       ? speechSupported()
         ? "unsupported"
         : "off"
@@ -437,6 +459,7 @@ export function ChatComposer({
       if (callRecRef.current !== rec) return;
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         dropCallRecognizer();
+        setMicBlocked(true);
         setCallTrouble("blocked");
       }
       // "no-speech", "aborted", "network": onend follows and restarts.

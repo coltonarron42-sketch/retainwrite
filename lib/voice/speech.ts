@@ -1,6 +1,6 @@
 "use client";
 
-import { readScoped, writeScoped } from "@/lib/local/user-scope";
+import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
 import { speakableSentences } from "@/lib/voice/speakable";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 
@@ -745,6 +745,7 @@ export function speak(texts: string[], opts: { interrupt?: boolean; welcome?: bo
   opts = { ...opts, welcome };
   // The restore hold: only the welcome line (or an explicit Read aloud tap).
   if (!welcome && !explicit && restoreHoldActive()) return;
+  if (texts.some((t) => t.trim())) spokeThisVisit = true;
   if (opts.welcome) {
     if (opts.interrupt) stopSpeech();
     welcomePlaying = true;
@@ -819,7 +820,8 @@ const seen = new Map<string, Set<string>>();
 let latestTurn: string[] = [];
 let latestTurnPath = "";
 
-export type SpeakItem = { key: string; text: string; turn?: boolean };
+/** `opener`: her greeting/intro on a chat with no student turns yet. */
+export type SpeakItem = { key: string; text: string; turn?: boolean; opener?: boolean };
 
 /**
  * Returns the items that are new since the last call for this scope. The first
@@ -830,6 +832,9 @@ export function takeNew(scope: string, items: SpeakItem[]): SpeakItem[] {
   // Anything this paper already showed or said, on any earlier visit, is never
   // read again (Colton 3:46 PM): restored history stays silent even if it
   // arrives late or under a new key after a reload or a return.
+  const opener = items.filter((i) => i.opener && i.text.trim()).map((i) => i.text);
+  if (opener.length) visitOpener = { path: currentPath(), texts: opener };
+  else if (visitOpener?.path === currentPath()) visitOpener = null;
   const heard = heardFor(scope);
   const before = heard.size;
   const fresh0 = takeNewInner(scope, items).filter((i) => !heard.has(textMark(i.text)));
@@ -913,10 +918,32 @@ function takeNewInner(scope: string, items: SpeakItem[]): SpeakItem[] {
   return fresh;
 }
 
+/* ---- demo: Voice on with nothing said yet on this visit (QA 8:45 PM #2) ---- */
+let spokeThisVisit = false;
+let visitOpener: { path: string; texts: string[] } | null = null;
+const openerUsed = new Set<string>();
+/**
+ * Demo only: the greeting/intro on screen, once per page per visit, when the
+ * student turns Voice on and nothing has been said yet. Only chats with no
+ * student turns flag an opener, so a return never replays old turns.
+ */
+export function takeVisitOpener(): string[] {
+  if (localUser() !== "demo" || spokeThisVisit) return [];
+  const path = currentPath();
+  if (!visitOpener || visitOpener.path !== path || openerUsed.has(path)) return [];
+  openerUsed.add(path);
+  return visitOpener.texts;
+}
+
 /** Pau Pau's current turn, for "read it now" when voice is switched on. */
 export function currentTurn(): string[] {
-  if (restoreHoldActive() || latestTurnPath !== currentPath()) return [];
-  return latestTurn;
+  const turn = restoreHoldActive() || latestTurnPath !== currentPath() ? [] : latestTurn;
+  if (turn.length) return turn;
+  // Demo, nothing said yet on this visit: the greeting/intro once. The Voice
+  // tap is the student's own action, so it plays through the restore hold.
+  const opener = takeVisitOpener();
+  if (opener.length) explicitTapAt = Date.now();
+  return opener;
 }
 
 /** Test helper. */
@@ -931,6 +958,9 @@ export function __resetSpeech() {
   heardCache.clear();
   latestTurn = [];
   latestTurnPath = "";
+  spokeThisVisit = false;
+  visitOpener = null;
+  openerUsed.clear();
   queue = [];
   active = false;
   unlocked = false;

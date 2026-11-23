@@ -100,7 +100,7 @@ import {
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
-import { Check } from "lucide-react";
+import { Check, Info } from "lucide-react";
 import { citationComfortQuestion } from "@/lib/stage1/comfort";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import {
@@ -1525,7 +1525,7 @@ export function AssignmentIntake({
   if (screen === "upload") {
     const hasFiles = stagedFiles.length > 0;
     const uploadSpeak: SpeakItem[] = [
-      { key: "ask", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`, turn: !error },
+      { key: "ask", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`, turn: !error, opener: true },
       ...(error && /^(Tell me|Give me|I couldn)/.test(error) ? [{ key: `err:${error}`, text: error, turn: true }] : []),
     ];
     return (
@@ -1588,8 +1588,15 @@ export function AssignmentIntake({
           </div>
         </div>
         {demoMode ? (
-          <p className="mt-6 text-[13px] leading-[1.6] text-ds-muted">
-            Demo mode reads your files the same way, but nothing is saved.
+          // Noticeable but calm (QA 8:45 PM #4): a quiet card with an icon, ink text.
+          <p
+            className="mt-6 flex items-start gap-2 rounded-[8px] border border-ds-border bg-ds-surface px-4 py-3 text-[14px] leading-[1.5] text-ds-ink"
+            data-demo-files-note
+          >
+            <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-ds-muted" />
+            <span>
+              <span className="font-semibold">Demo mode</span> reads your files the same way, but nothing is saved.
+            </span>
           </p>
         ) : null}
       </div>

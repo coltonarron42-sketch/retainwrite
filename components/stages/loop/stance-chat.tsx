@@ -289,7 +289,7 @@ export function StanceChat(props: Props) {
   // saved history for this section (by section id) is never said again
   // verbatim, whatever re-rendered it (a remount, a late restore, a toggle).
   const said = alreadyAnswered(transcript, section.key, paras0.join(" "));
-  const paras = said ? [resumeLine(section.title, freeText)] : paras0;
+  const paras = said ? sectionResume(transcript, section.key, section.title, freeText) : paras0;
   const ask = paras.join(" ");
 
   async function send() {
@@ -332,16 +332,16 @@ export function StanceChat(props: Props) {
         await h.mirrorSave([pau(ask), you(text)]);
         return;
       case "probe":
-        await h.probeSave([pau(paras[0]!), you(text)]);
+        await h.probeSave([pau(paras[0] ?? ""), you(text)]);
         return;
       case "name_lead":
       case "pick_lead":
-        h.nameLead(text, [pau(paras[0]!), you(text)]);
+        h.nameLead(text, [pau(paras[0] ?? ""), you(text)]);
         return;
       case "confirm":
         if (isPlainYes(text)) {
           props.onIdea("");
-          h.confirm([pau(paras[0]!), you(text)]);
+          h.confirm([pau(paras[0] ?? ""), you(text)]);
           return;
         }
         break;
@@ -441,7 +441,7 @@ export function StanceChat(props: Props) {
   const introInCurrent = groups.length === 0;
   const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
   const speak: SpeakItem[] = [
-    { key: "s2:intro", text: `${intro.heading}. ${intro.body}` },
+    { key: "s2:intro", text: `${intro.heading}. ${intro.body}`, opener: !transcript.some((l) => l.who !== "pau") },
     { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
   ];
   const history = groups.map((group, i) => {
@@ -568,7 +568,7 @@ export function StanceChat(props: Props) {
                     <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">To verify</span>
                   </p>
                   <p className="text-ds-muted">{lead.whyFits}</p>
-                  <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0]!), pick(lead.name)])}>
+                  <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0] ?? ""), pick(lead.name)])}>
                     Try this direction
                   </DsButton>
                 </li>
@@ -584,7 +584,7 @@ export function StanceChat(props: Props) {
                     size="sm"
                     variant="secondary"
                     className="mt-1"
-                    onClick={() => h.pickLead(props.batch!.wildcard!, [pau(paras[0]!), pick(props.batch!.wildcard!.name)])}
+                    onClick={() => h.pickLead(props.batch!.wildcard!, [pau(paras[0] ?? ""), pick(props.batch!.wildcard!.name)])}
                   >
                     Try this stretch
                   </DsButton>
@@ -619,7 +619,7 @@ export function StanceChat(props: Props) {
                 </dl>
               ) : null}
               <Choices label="Lock it in">
-                <DsButton type="button" size="sm" onClick={() => h.confirm([pau(paras[0]!), pick("Yes, lock it in")])}>
+                <DsButton type="button" size="sm" onClick={() => h.confirm([pau(paras[0] ?? ""), pick("Yes, lock it in")])}>
                   Yes, lock it in
                 </DsButton>
               </Choices>
@@ -655,25 +655,25 @@ export function StanceChat(props: Props) {
                   </DsButton>
                 ) : r.tier === "moderate" ? (
                   <>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras[0]!), pick("Keep my angle")])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras[0] ?? ""), pick("Keep my angle")])}>
                       Keep my angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(paras[0]!), pick("Adjust it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(paras[0] ?? ""), pick("Adjust it")])}>
                       Adjust it
                     </DsButton>
                   </>
                 ) : (
                   <>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(paras[0]!), pick("Pick a new angle")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(paras[0] ?? ""), pick("Pick a new angle")])}>
                       Pick a new angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(paras[0]!), pick("Revise my claim")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(paras[0] ?? ""), pick("Revise my claim")])}>
                       Revise my claim
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(paras[0]!), pick("Reframe it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(paras[0] ?? ""), pick("Reframe it")])}>
                       Reframe it
                     </DsButton>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(paras[0]!), pick(LOGIC_CONTINUE)])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(paras[0] ?? ""), pick(LOGIC_CONTINUE)])}>
                       {LOGIC_CONTINUE}
                     </DsButton>
                   </>
@@ -903,4 +903,11 @@ export function resumeLine(title: string, freeText: boolean): string {
   return freeText
     ? `Back to your ${title.toLowerCase()}. Pick up in the box whenever you're ready.`
     : `Back to your ${title.toLowerCase()}. Your call is below.`;
+}
+
+/** A resume line already used in this section is silence, never another canned repeat. */
+export function sectionResume(transcript: LoopLine[], key: string, title: string, freeText: boolean): string[] {
+  const line = resumeLine(title, freeText);
+  const mark = (s: string) => s.replace(/\s+/g, " ").trim();
+  return transcript.some((l) => l.k === key && l.who === "pau" && mark(l.text) === mark(line)) ? [] : [line];
 }
