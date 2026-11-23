@@ -200,9 +200,8 @@ function gestureSeen(): boolean {
 }
 
 
-/** Called from the gesture listeners (and the Voice toggle, itself a tap). */
+/** A real student action (tests and callers that know one happened). */
 export function noteInteraction() {
-  armSpeech();
   armSpeech();
 }
 
@@ -265,8 +264,8 @@ export function installSpeechUnlock() {
   if (installed || typeof window === "undefined" || typeof window.addEventListener !== "function" || !speechSupported()) return;
   if (!synthSupported()) {
     installed = true;
+    // A tap only unlocks audio; it never arms her queue (the restore barrier).
     const onTap = () => {
-      armSpeech();
       unlockSpeech();
     };
     for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
@@ -276,7 +275,6 @@ export function installSpeechUnlock() {
   }
   installed = true;
   const onGesture = () => {
-    armSpeech();
     unlockSpeech();
   };
   for (const type of ["pointerdown", "touchend", "keydown", "click"] as const) {
@@ -308,7 +306,6 @@ export function installSpeechUnlock() {
  */
 let audioUnlocked = false;
 export function unlockSpeech() {
-  armSpeech();
   if (!speechSupported()) return;
   preferPlaybackRoute();
   // A "Tap to hear" tap: unlock again inside this gesture.

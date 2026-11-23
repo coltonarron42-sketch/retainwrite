@@ -7,19 +7,19 @@
 
 /** Stage 2 pool. Each teases the situation, never the student; no repeated pattern. */
 export const STAGE2_QUIPS = [
-  "No crystal ball required.",
-  "Painless, mostly.",
+  "I'd hold the pencil, but no thumbs.",
+  "I'm a cartoon, and even I'm into this.",
   "Rubrics love this stuff.",
   "Teachers notice this stuff.",
   "Deadlines fear this energy.",
   "Look at us, being organized.",
-  "Gold star energy.",
+  "I've never turned in a paper, and I'm still proud.",
   "Plot twist: this part is easy.",
   "Librarians live for this.",
   "Zero printer jams so far.",
-  "Peak homework efficiency.",
+  "Honestly, I'm a little jealous.",
   "Research, but make it quick.",
-  "We love a plan.",
+  "Big plan energy.",
   "Fancy, right?",
   "Easier than group projects.",
   "Sources: the real MVPs.",
@@ -64,11 +64,16 @@ const KNOWN = [
   "No pop quiz, I promise.",
   "This is totally doable.",
   "Let's get into it.",
+  "Painless, mostly.",
+  "No crystal ball required.",
+  "I'd write it for you, but I'm legally a cartoon.",
+  "Legally, I'm a cartoon.",
+  "No thumbs, so no pencil.",
   "Scout's honor.",
   "Love a quick yes.",
 ];
 const QUIPPY =
-  /\b(lol|haha|kidding|honestly|i promise|my favorite genre|plot twist|riveting|thrilling|spoiler|no pressure|scout's honor|gold star|fun kind|crystal ball|not gonna lie)\b/i;
+  /\b(lol|haha|kidding|honestly|i promise|my favorite genre|plot twist|riveting|thrilling|spoiler|no pressure|scout's honor|gold star|fun kind|crystal ball|not gonna lie|cartoon|no thumbs)\b/i;
 
 export function isQuip(sentence: string): boolean {
   const t = sentence.trim();

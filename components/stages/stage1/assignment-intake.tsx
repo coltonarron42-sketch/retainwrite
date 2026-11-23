@@ -2648,13 +2648,19 @@ export function AssignmentIntake({
               />
             )}
             {minNote ? (
-              <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="note">
+              // Floats above the box (QA 4:42 #1): typing never changes the dock's height.
+              <p
+                className="pointer-events-none absolute inset-x-4 bottom-full mb-1 rounded-[8px] border border-ds-border bg-ds-surface px-3 py-2 text-[13px] leading-[1.6] text-ds-muted shadow-ds-card sm:inset-x-0"
+                role="note"
+                data-min-note
+              >
                 {minNote}
                 <span className="sr-only">{minNoteSr}</span>
               </p>
             ) : null}
-            <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 text-[13px] leading-[1.6] text-ds-muted">
-              <div className="flex flex-wrap items-center gap-x-1">
+            {/* Fixed height whatever the screen shows here (Skip, Saving…, the voice meter). */}
+            <div className="mt-1 flex h-[48px] items-center justify-between gap-x-4 overflow-hidden text-[13px] leading-[1.6] text-ds-muted" data-dock-footer>
+              <div className="flex min-w-0 flex-1 items-center gap-x-1 overflow-x-auto whitespace-nowrap">
                 {editing ? (
                   <button
                     type="button"
@@ -2685,7 +2691,7 @@ export function AssignmentIntake({
                   </>
                 ) : null}
               </div>
-              <p className="flex items-center gap-2 px-2">
+              <p className="flex shrink-0 items-center gap-2 whitespace-nowrap px-2">
                 {restoringDraft && !draftAnswer ? <span role="status">Restoring your draft… </span> : null}
                 {submitting ? <span role="status">Saving… </span> : null}
                 {isVoiceQuestion || stanceMode ? (

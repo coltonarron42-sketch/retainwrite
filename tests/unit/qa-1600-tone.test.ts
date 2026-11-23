@@ -26,6 +26,11 @@ const TEMPLATE_LINES: string[] = [
 describe("4:00 PM: a younger, relaxed, conversational voice in writing", () => {
   it("the shared personality describes the down-to-earth comic voice and keeps the guardrails", () => {
     expect(PAU_PERSONALITY).toMatch(/down-to-earth stand-up comic/);
+    // Colton 5:00 PM: the style only, clean, never naming a real comedian.
+    expect(PAU_PERSONALITY).toMatch(/blunt but warm, a little self-deprecating, dry, conversational, a little cheeky/);
+    expect(PAU_PERSONALITY).toMatch(/never imitate, quote or name any real comedian/);
+    expect(PAU_PERSONALITY).toMatch(/nothing crude, sexual, edgy or mean/);
+    expect(PAU_PERSONALITY).not.toMatch(/Glaser|Handler/i);
     expect(PAU_PERSONALITY).toMatch(/contractions/);
     expect(PAU_PERSONALITY).toMatch(/short sentences/);
     expect(PAU_PERSONALITY).toMatch(/Never stiff, polished or corporate/);
