@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PauPauBubble } from "@/components/stages/stage1/chat-bubbles";
 import { useGateVoice, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
@@ -39,9 +38,10 @@ export function SoftGateView({ paperId, stage, paperStage }: { paperId: string; 
         </div>
       </PauPauBubble>
       <Button asChild className="mt-6">
-        <Link href={`/app/papers/${paperId}/stage/${paperStage}`}>
+        {/* A plain link (full load), not client nav: the way back must always work. */}
+        <a href={`/app/papers/${paperId}/stage/${paperStage}`} data-stage-back>
           Back to Stage {paperStage}: {STAGE_LABELS[paperStage - 1] ?? ""}
-        </Link>
+        </a>
       </Button>
       <div inert className="mt-8 rounded-[12px] border border-ds-border p-4 opacity-60" aria-label="Preview, not active yet">
         <p className="text-[15px] leading-[1.6] text-ds-muted">{STAGE_PREVIEWS[stage - 1]}</p>
