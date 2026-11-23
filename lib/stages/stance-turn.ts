@@ -106,6 +106,24 @@ export function appendLines(prev: LoopLine[] | undefined, lines: LoopLine[]): Lo
 }
 
 /** Typed replies on a choice turn: a plain yes picks the main choice. */
+const SPOKEN_YES_WORDS = new Set(
+  "yes yeah yep yup ya sure ok okay alright lock it in looks sounds good great perfect lets let's go ahead do please that that's thats is right correct ready one i'm im happy with".split(" "),
+);
+const SPOKEN_YES_CORE = /\b(yes|yeah|yep|yup|sure|ok(ay)?|alright|lock it in|looks good|sounds good|let'?s go|go ahead|do it|perfect)\b/;
+const SPOKEN_NO = /\b(no|not|don'?t|nope|wait|but|change|instead|actually|hold|stop|never)\b/;
+/**
+ * A clear spoken yes to a waiting choice ("Yes, lock it in", "yeah sounds
+ * good"): short, only yes-words, no negation. Anything else is not a yes.
+ * Grok Voice only; typed text keeps isPlainYes.
+ */
+export function isSpokenYes(text: string): boolean {
+  const t = text.toLowerCase().replace(/[\u2019]/g, "'").replace(/[^a-z' ]+/g, " ").replace(/\b(um+|uh+|so|like)\b/g, " ").trim();
+  if (!t || SPOKEN_NO.test(t)) return false;
+  const words = t.split(/\s+/);
+  if (words.length > 8) return false;
+  return words.every((w) => SPOKEN_YES_WORDS.has(w)) && SPOKEN_YES_CORE.test(t);
+}
+
 export function isPlainYes(text: string): boolean {
   return /^(y(es|ep|eah|up)?|sure|ok(ay)?|lock it in|looks good|sounds good|let'?s go|check it|go ahead|do it)[.!\s]*$/i.test(text.trim());
 }

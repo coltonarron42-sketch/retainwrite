@@ -1,5 +1,6 @@
 "use client";
 
+import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { joinTranscript } from "@/lib/stage1/transcript";
 import {
   SILENCE_INTERIM_MS,
@@ -193,7 +194,7 @@ export function ChatComposer({
   // is done. A send is never dropped (QA 12:25 #4).
   const [queued, setQueued] = useState(false);
 
-  useEffect(() => setCanDictate(Boolean(speechRecognition())), []);
+  useEffect(() => setCanDictate(legacyVoiceOn() && Boolean(speechRecognition())), []);
   useEffect(() => () => recRef.current?.abort(), []);
 
   // Grow with the text, up to about eight lines (fixed on phones).

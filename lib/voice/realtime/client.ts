@@ -94,11 +94,12 @@ export class RealtimeVoice {
   private speechStartAt = 0;
   private silenceSince = 0;
   private preroll: ArrayBuffer[] = [];
+  private screenMsg: Record<string, unknown> | null = null;
 
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server" },
+    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string> },
   ) {}
 
   /** Call inside the tap. */
@@ -142,6 +143,7 @@ export class RealtimeVoice {
     const q = new URLSearchParams({ paperId: this.paperId });
     if (this.opts.effort) q.set("effort", this.opts.effort);
     q.set("vad", this.opts.vad ?? "server");
+    for (const [k, v] of Object.entries(this.opts.tuning ?? {})) q.set(k, v);
     if (this.resume) q.set("resume", this.resume);
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
@@ -152,6 +154,7 @@ export class RealtimeVoice {
         this.started = true;
         ws.send(JSON.stringify({ type: "rw.start", welcome: this.opts.welcome, welcomeIndex: this.opts.welcomeIndex }));
       }
+      if (this.screenMsg) ws.send(JSON.stringify({ ...this.screenMsg, followUp: false }));
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
@@ -414,6 +417,12 @@ export class RealtimeVoice {
     this.stopPlayback();
     this.pendingE2E = performance.now();
     this.send({ type: "rw.turn", text });
+  }
+
+  /** What the app shows now and the choices waiting for a tap (data for her). */
+  setScreen(text: string, choices: string[], followUp: boolean) {
+    this.screenMsg = { type: "rw.screen", text: text.slice(0, 800), choices: choices.slice(0, 6), followUp };
+    this.send(this.screenMsg);
   }
 
   interrupt() {

@@ -1,5 +1,6 @@
 "use client";
 
+import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { useEffect, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
@@ -121,10 +122,19 @@ export function resetChatPrefs() {
   listeners.forEach((l) => l());
 }
 
+const voiceOff = new WeakMap<ChatPrefs, ChatPrefs>();
+/** Old voice stopped (lib/voice/legacy.ts): the voice pref always reads off. */
+function withLegacy(p: ChatPrefs): ChatPrefs {
+  if (legacyVoiceOn() || !p.voice) return p;
+  let v = voiceOff.get(p);
+  if (!v) voiceOff.set(p, (v = { ...p, voice: false }));
+  return v;
+}
+
 export function useChatPrefs(): ChatPrefs {
   const prefs = useSyncExternalStore(subscribe, snapshot, () => DEFAULTS);
   useEffect(() => {
     void loadRemote();
   });
-  return prefs;
+  return withLegacy(prefs);
 }

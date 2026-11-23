@@ -28,6 +28,8 @@ export type RelayContext = {
   effort: "high" | "none";
   /** "client": the browser decides end of turn (faster); "server": xAI server VAD. */
   vad: "client" | "server";
+  /** Test-only server VAD tuning (undocumented by xAI; omitted when unset). */
+  vadTuning?: { silence_duration_ms?: number; threshold?: number };
 };
 
 const TOOLS = [
@@ -130,12 +132,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const said: { id: string; text: string }[] = [];
   const studentSaid = { slice: (n: number) => said.slice(n).map((x) => x.text), push: (text: string) => said.push({ id: `t${said.length}`, text }) };
   const pendingCalls = new Map<string, Promise<{ call_id: string; output: string }>>();
+  const pendingNames = new Set<string>();
   const applyWaiters = new Map<string, (v: { ok: boolean; result?: string; screen?: string }) => void>();
   const idleWaiters: (() => void)[] = [];
   let closed = false;
   let welcomeSent = false;
   let rotateTimer: ReturnType<typeof setTimeout> | null = null;
   let guardIdx = 0;
+  // What the app shows right now (app copy: data only) and the choices waiting for a tap.
+  let screen: { text: string; choices: string[] } = { text: "", choices: [] };
+  let followUpPending = false;
+  // Her questions so far this session, so she never asks the same one twice.
+  const asked: string[] = [];
   const committed = new Set<string>();
   const dispatched = new Set<string>();
   const noteTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -173,7 +181,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     }
     return flow;
   };
-  const instructions = () => buildInstructions(flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)");
+  const extraState = () =>
+    [
+      screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
+      screen.choices.length
+        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. End your reply by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
+        : null,
+      asked.length ? `Questions you already asked this session (never ask any of these again; ask something new or move on): ${asked.map((q) => `"${q}"`).join(" / ")}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  const instructions = () =>
+    buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`);
 
   await refreshFlow();
 
@@ -195,7 +214,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         voice: REALTIME_VOICE,
         instructions: instructions(),
         reasoning: { effort: ctx.effort },
-        turn_detection: ctx.vad === "client" ? null : { type: "server_vad" },
+        turn_detection: ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
         tools: TOOLS,
         audio: {
           input: {
@@ -219,6 +238,21 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         resolve();
       });
     });
+
+  // A voice note moved the app to a turn with choices: one short pointer to them
+  // after her current reply (never a second full reply).
+  const runFollowUp = async () => {
+    if (responding || closed) return;
+    followUpPending = false;
+    await waitIdle(6_000);
+    if (responding || closed || !screen.choices.length) return;
+    upSend({
+      type: "response.create",
+      response: {
+        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${screen.choices.map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes." Don't repeat what you just said and don't ask another question.`,
+      },
+    });
+  };
 
   const finish = (code: number, reason: string) => {
     if (closed) return;
@@ -417,6 +451,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "response.function_call_arguments.done": {
         const callId = String(e.call_id ?? "");
         pendingCalls.set(callId, runTool(String(e.name ?? ""), callId, String(e.arguments ?? "")));
+        pendingNames.add(String(e.name ?? ""));
         toClient({ type: "rw.tool", name: e.name });
         return;
       }
@@ -427,16 +462,42 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const r = e.response as { id?: string; usage?: unknown; status?: string } | undefined;
         if (r?.usage) m.usage.push(r.usage);
         toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
+        const spoken = r?.id ? (replyText.get(r.id) ?? "") : "";
+        let learned = false;
+        if (r?.status !== "cancelled") {
+          for (const q of spoken.match(/[^.!?]*\?/g) ?? []) {
+            const t = q.trim().replace(/^[\u2014\-,\s]+/, "");
+            if (t.split(/\s+/).length >= 4 && !asked.includes(t)) {
+              asked.push(t.slice(0, 160));
+              learned = true;
+            }
+          }
+          if (asked.length > 8) asked.splice(0, asked.length - 8);
+        }
         if (pendingCalls.size) {
+          const names = [...pendingNames];
+          pendingNames.clear();
           const calls = [...pendingCalls.values()];
           pendingCalls.clear();
+          // She already said a full reply before a background lookup: no second reply.
+          const needsReply = names.includes("show_sources") || spoken.trim().split(/\s+/).filter(Boolean).length < 8;
           void (async () => {
             const results = await Promise.all(calls);
             for (const res of results) upSend({ type: "conversation.item.create", item: { type: "function_call_output", ...res } });
+            if (!needsReply) {
+              if (learned) sessionUpdate();
+              return;
+            }
             await waitIdle(4_000);
-            upSend({ type: "response.create" });
+            upSend({
+              type: "response.create",
+              response: { instructions: `${instructions()}\n# This response only\nContinue from what you just said in one or two short sentences. Don't repeat yourself or re-ask a question.` },
+            });
           })();
+          return;
         }
+        if (learned) sessionUpdate();
+        if (followUpPending) void runFollowUp();
         return;
       }
       case "conversation.item.created":
@@ -547,6 +608,21 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (w) {
           applyWaiters.delete(String(e.call_id));
           w({ ok: e.ok === true, result: typeof e.result === "string" ? e.result.slice(0, 40) : undefined, screen: typeof e.screen === "string" ? e.screen : undefined });
+        }
+        return;
+      }
+      case "rw.screen": {
+        const text = String(e.text ?? "").slice(0, 800);
+        const choices = (Array.isArray(e.choices) ? e.choices : [])
+          .map((c) => String(c).trim().slice(0, 60))
+          .filter(Boolean)
+          .slice(0, 6);
+        const changed = text !== screen.text || choices.join("|") !== screen.choices.join("|");
+        screen = { text, choices };
+        if (changed) void refreshFlow().then(() => sessionUpdate());
+        if (e.followUp === true && choices.length) {
+          followUpPending = true;
+          if (!responding) void runFollowUp();
         }
         return;
       }

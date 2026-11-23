@@ -26,7 +26,7 @@ import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
-import { isPlainYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import { isPlainYes, isSpokenYes, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
 import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
@@ -82,9 +82,9 @@ export type StanceSectionView = {
 export type StanceHandlers = {
   teachAspect: (aspect: string, lines: LoopLine[]) => void;
   teachSkip: (lines: LoopLine[]) => void;
-  mirrorSave: (lines: LoopLine[]) => void | Promise<unknown>;
+  mirrorSave: (lines: LoopLine[], text?: string) => void | Promise<unknown>;
   /** Typed words saved as the note. fromTeach: typed over the teach chips; replace: typed over a choice turn (a revised claim). */
-  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean }) => void | Promise<unknown>;
+  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string }) => void | Promise<unknown>;
   followUpAspect: (aspect: string) => void;
   followUpSkip: () => void;
   triggerPick: (trigger: MemoryTrigger) => void;
@@ -289,22 +289,34 @@ export function StanceChat(props: Props) {
     welcome: () => ({
       welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
       index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      text: welcomeLine,
     }),
   });
   const rtTurnKey = section ? `${section.key}:${kind}:${transcript.length}` : "";
   const rtSeenKey = useRef<string | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   // A new scripted turn after a tap (not a restore, not her own save_note): she says it.
   useEffect(() => {
     if (!rt.on) {
       rtSeenKey.current = null;
       return;
     }
+    // What's on screen and the choices waiting for a tap, so she can point to them.
+    const choices = Array.from(rootRef.current?.querySelectorAll<HTMLButtonElement>('[role="group"] button:not(:disabled)') ?? [])
+      .map((b) => b.textContent?.trim() ?? "")
+      .filter(Boolean);
     if (rtSeenKey.current === null || rtSeenKey.current === rtTurnKey) {
       rtSeenKey.current = rtTurnKey;
+      rt.setScreen(screenRef.current, choices);
       return;
     }
     rtSeenKey.current = rtTurnKey;
-    if (Date.now() < noteBusy.current) return;
+    if (Date.now() < noteBusy.current) {
+      // Her voice note moved the app on: she points to any new choices after her reply.
+      rt.setScreen(screenRef.current, choices, true);
+      return;
+    }
+    rt.setScreen(screenRef.current, choices);
     rt.sayTurn(screenRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per turn
   }, [rtTurnKey, rt.on]);
@@ -353,8 +365,10 @@ export function StanceChat(props: Props) {
     // Put the words back only if nothing new was typed (a hint, a thin note).
     const restore = () => props.onIdea(text);
     setHint(null);
+    // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
+    const yes = isPlainYes(text) || (fromVoice && isSpokenYes(text));
     const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "locked_in" || kind === "none";
-    if (choiceTurn && isPlainYes(text)) {
+    if (choiceTurn && yes) {
       // handled below
     } else {
       // Content, or something said TO Pau Pau? Requests are never saved as notes.
@@ -370,34 +384,34 @@ export function StanceChat(props: Props) {
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
-        await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true });
+        await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true, text });
         return "saved";
       case "mirror":
-        await h.mirrorSave([pau(ask), you(text)]);
+        await h.mirrorSave([pau(ask), you(text)], text);
         return "saved";
       case "probe":
-        await h.probeSave([pau(paras[0] ?? ""), you(text)]);
+        await h.probeSave([pau(paras[0] ?? ""), you(text)], { text });
         return "saved";
       case "name_lead":
       case "pick_lead":
         h.nameLead(text, [pau(paras[0] ?? ""), you(text)]);
         return "saved";
       case "confirm":
-        if (isPlainYes(text)) {
+        if (yes) {
           props.onIdea("");
           h.confirm([pau(paras[0] ?? ""), you(text)]);
           return "saved";
         }
         break;
       case "logic_opener":
-        if (isPlainYes(text)) {
+        if (yes) {
           props.onIdea("");
           h.logicOpener("yes", [pau(logicAsk), you(text)]);
           return "saved";
         }
         break;
       case "logic_result":
-        if (r?.tier === "pass" && isPlainYes(text)) {
+        if (r?.tier === "pass" && yes) {
           props.onIdea("");
           h.logicResult("pass", [pau(logicPassText(paperId, active)), you(text)]);
           return "saved";
@@ -406,7 +420,7 @@ export function StanceChat(props: Props) {
     }
     // Words typed over a choice are a revised note, sent as their reply.
     if (choiceTurn && kind !== "none" && kind !== "locked_in") {
-      await h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true });
+      await h.probeSave([pau(paras[0] ?? ask), you(text)], { replace: true, text });
       return "saved";
     }
     restore();
@@ -513,7 +527,7 @@ export function StanceChat(props: Props) {
   });
 
   return (
-    <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
+    <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
       <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
@@ -771,8 +785,9 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
-        {rtMode ? <LiveTurns rows={rt.live} /> : null}
+        {/* The welcome-back line belongs to the start of the return: above this call's turns, once. */}
         <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} />
+        {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
       </div>

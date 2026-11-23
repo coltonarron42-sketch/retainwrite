@@ -11,6 +11,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /** Vercel Pro cap; the relay rotates the socket (with resumption) before it. */
 export const maxDuration = 800;
+/** xAI realtime is served from us-east-1: run the relay next to it. */
+export const preferredRegion = "iad1";
 
 /**
  * Grok Voice realtime relay (Stage 2 PoC, flag-gated).
@@ -59,9 +61,20 @@ export async function GET(request: Request) {
         apiKey,
         resumeToken: url.searchParams.get("resume"),
         effort,
+        vadTuning: vadTuning(url),
         vad: url.searchParams.get("vad") === "server" ? "server" : url.searchParams.get("vad") === "client" ? "client" : process.env.PAU_REALTIME_VAD === "client" ? "client" : "server",
       });
     },
     { maxPayload: 128 * 1024 },
   );
+}
+
+/** Test-only server VAD tuning from the query (?sil=300&thr=0.6); omitted when unset. */
+function vadTuning(url: URL): { silence_duration_ms?: number; threshold?: number } | undefined {
+  const sil = Number(url.searchParams.get("sil"));
+  const thr = Number(url.searchParams.get("thr"));
+  const out: { silence_duration_ms?: number; threshold?: number } = {};
+  if (Number.isInteger(sil) && sil >= 100 && sil <= 2000) out.silence_duration_ms = sil;
+  if (Number.isFinite(thr) && thr >= 0.1 && thr <= 0.9) out.threshold = thr;
+  return Object.keys(out).length ? out : undefined;
 }
