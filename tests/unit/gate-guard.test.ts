@@ -14,17 +14,20 @@ describe("preserved gates: opening a URL never moves a paper", () => {
     expect(stageView(3, 2)).toBe("ahead");
     expect(stageView(4, 2)).toBe("ahead");
     expect(stageView(2, 4)).toBe("review");
-    expect(softGateMessage(3)).toBe(SOFT_GATE_STAGE3);
-    expect(softGateMessage(4)).toBe(SOFT_GATE_DEFAULT);
+    expect(softGateMessage(3, 2)).toBe(SOFT_GATE_STAGE3);
+    expect(softGateMessage(4, 2)).toBe("We need a bit more info from an earlier stage (Stage 2: Stance) before we can start building here.");
     expect(SOFT_GATE_DEFAULT).toBe("We need a bit more info from an earlier stage before we can start building here.");
     expect(SOFT_GATE_STAGE3).toMatch(/^In this stage we really start putting the whole project together\. Get your Stage 2 info in/);
   });
   it("the shell: soft gate mounts no live stage (nothing can write), review is inert with a way back", () => {
     const shell = readFileSync("components/stages/stage-shell.tsx", "utf8");
     const ahead = shell.slice(shell.indexOf('if (view === "ahead")'), shell.indexOf('const review = view === "review"'));
-    expect(ahead).toMatch(/softGateMessage\(stage\)/);
-    expect(ahead).toMatch(/backLabel/);
+    expect(ahead).toMatch(/<SoftGateView paperId=\{paperId\} stage=\{stage\} paperStage=\{here\} \/>/);
     expect(ahead).not.toMatch(/<CoachingLoop|<AssignmentIntake/);
+    const gate = readFileSync("components/stages/soft-gate-view.tsx", "utf8");
+    expect(gate).toMatch(/gateParas\(stage, paperStage\)/);
+    expect(gate).toMatch(/Back to Stage \{paperStage\}/);
+    expect(gate).not.toMatch(/fetch\(|persistField|onStageProgress/);
     expect(shell).toMatch(/disabled=\{review\}/);
     expect(shell).not.toMatch(/Stage locked/);
     const page = readFileSync("app/app/papers/[paperId]/stage/[n]/page.tsx", "utf8");
