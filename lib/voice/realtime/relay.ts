@@ -102,6 +102,11 @@ const pct = (xs: number[], p: number) => {
  */
 export async function runRelay(ctx: RelayContext): Promise<void> {
   const { client } = ctx;
+  // Hold browser messages that arrive while the flow state loads (before the real
+  // handler is attached below); otherwise rw.start was dropped and she never spoke.
+  const preMsgs: [RawData, boolean][] = [];
+  const holdMsg = (data: RawData, isBinary: boolean) => void (preMsgs.length < 80 && preMsgs.push([data, isBinary]));
+  client.on("message", holdMsg);
   const started = Date.now();
   const sid = Math.random().toString(16).slice(2, 10);
   const resumeId = readResume(ctx.resumeToken, ctx.userId, ctx.paperId);
@@ -616,7 +621,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   });
 
   /* ---------------------------- client events ---------------------------- */
-  client.on("message", (data: RawData, isBinary: boolean) => {
+  const onClient = (data: RawData, isBinary: boolean) => {
     if (isBinary) {
       const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
       if (buf.length > 96_000 || buf.length % 2 || ctx.gate) return void m.dropped++;
@@ -742,7 +747,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         // force_message and anything else from the browser is dropped.
         m.dropped++;
     }
-  });
+  };
+  client.off("message", holdMsg);
+  client.on("message", onClient);
+  for (const [d, b] of preMsgs.splice(0)) onClient(d, b);
   client.on("close", () => finish(1000, "client closed"));
   client.on("error", () => finish(1011, "client error"));
+  if (client.readyState >= WebSocket.CLOSING) finish(1000, "client closed");
 }

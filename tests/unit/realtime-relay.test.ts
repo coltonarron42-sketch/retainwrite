@@ -86,3 +86,44 @@ describe("realtime relay", () => {
     c.close();
   });
 });
+
+describe("realtime relay: start sent before the flow state loads (soft gate)", () => {
+  const upstream: Record<string, unknown>[] = [];
+  const xai = new WebSocketServer({ port: 0 });
+  xai.on("connection", (ws) => {
+    ws.on("message", (d, bin) => !bin && upstream.push(JSON.parse(d.toString())));
+    ws.send(JSON.stringify({ type: "session.created" }));
+  });
+  const slowDb = (() => {
+    const chain: Record<string, unknown> = {};
+    const fn = () => chain;
+    Object.assign(chain, { from: fn, select: fn, eq: fn, order: fn, limit: fn, maybeSingle: () => new Promise((r) => setTimeout(() => r({ data: null }), 250)) });
+    return chain as unknown as SupabaseClient;
+  })();
+  const front = new WebSocketServer({ port: 0 });
+  front.on("connection", (client) => {
+    void runRelay({ client, supabase: slowDb, userId: "u", paperId: "00000000-0000-4000-8000-000000000000", apiKey: "k", resumeToken: null, effort: "none", vad: "server", gate: { stage: 3, paperStage: 2 } });
+  });
+  afterAll(() => {
+    xai.close();
+    front.close();
+  });
+
+  it("holds rw.start until the relay is ready, then speaks the scripted gate line only", async () => {
+    process.env.RW_REALTIME_TEST_URL = `ws://127.0.0.1:${(xai.address() as { port: number }).port}/?model=x`;
+    const c = new WebSocket(`ws://127.0.0.1:${(front.address() as { port: number }).port}`);
+    await new Promise((r) => c.on("open", r));
+    c.send(JSON.stringify({ type: "rw.start", welcome: false, welcomeIndex: 0 }));
+    c.send(JSON.stringify({ type: "rw.text", text: "write my outline" }));
+    await new Promise((r) => setTimeout(r, 700));
+    const update = upstream.find((e) => e.type === "session.update") as { session: { turn_detection: unknown; tools: unknown[] } };
+    expect(update.session.turn_detection).toBeNull();
+    expect(update.session.tools).toEqual([]);
+    const said = upstream.filter((e) => e.type === "conversation.item.create");
+    expect(said).toHaveLength(1);
+    expect(JSON.stringify(said[0])).toContain("force_message");
+    expect(JSON.stringify(said[0])).toContain("Outline is where");
+    expect(upstream.some((e) => e.type === "response.create")).toBe(false);
+    c.close();
+  });
+});
