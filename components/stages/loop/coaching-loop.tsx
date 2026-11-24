@@ -67,7 +67,7 @@ import {
   sectionContinueTarget,
 } from "@/lib/stages/advance";
 import type { StageProgressRow } from "@/lib/stages/assert";
-import { contextTeachCard, defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
+import { conceptTeachCard, contextTeachCard, defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
 import {
   checklistItem5Resolved,
   VOICE_NUDGE_EVENTS,
@@ -907,7 +907,7 @@ export function CoachingLoop({
     clearSent(note);
   }
 
-  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string }) {
+  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string; append?: boolean }) {
     // A Grok Voice note arrives as text (the box is empty): same checks and gates.
     const note = opts?.text ?? idea;
     if (!session || !section) return;
@@ -920,6 +920,8 @@ export function CoachingLoop({
     }
     setThinNote(null);
     if (opts?.replace) replacingClaim.current = true;
+    // A new reply over the confirm is added to their note, never swapped in silently (QA 8:31 AM).
+    if (opts?.append) replacingClaim.current = false;
     const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
     const step = afterProbe(section, note, replacingClaim.current);
     replacingClaim.current = false;
@@ -1222,7 +1224,7 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? contextTeachCard(pctx, section.rubricRef) ?? defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
+      ? conceptTeachCard(pctx, section.rubricRef) ?? contextTeachCard(pctx, section.rubricRef) ?? defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =

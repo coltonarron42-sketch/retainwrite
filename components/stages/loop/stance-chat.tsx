@@ -87,7 +87,7 @@ export type StanceHandlers = {
   teachSkip: (lines: LoopLine[]) => void;
   mirrorSave: (lines: LoopLine[], text?: string) => void | Promise<unknown>;
   /** Typed words saved as the note. fromTeach: typed over the teach chips; replace: typed over a choice turn (a revised claim). */
-  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string }) => void | Promise<unknown>;
+  probeSave: (lines: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string; append?: boolean }) => void | Promise<unknown>;
   followUpAspect: (aspect: string) => void;
   followUpSkip: () => void;
   triggerPick: (trigger: MemoryTrigger) => void;
@@ -152,6 +152,9 @@ type Props = {
   voiceNote: string | null;
   handlers: StanceHandlers;
 };
+
+/** Said when a new reply joins their note (QA 8:31 AM: never a silent overwrite). */
+export const ADDED_NOTE = "I added that to your note, and your earlier words stay too. If it should replace them instead, say \"change it to\" and the new words.";
 
 const TAP_HINT = "Tap one of the choices in my message to keep going. Your words stay in the box.";
 
@@ -403,7 +406,8 @@ export function StanceChat(props: Props) {
     // The box empties the moment it's sent; anything typed next is its own message.
     props.onIdea("");
     // QA 7:02 AM: "Digging it up…" at send time for anything that may need a lookup.
-    setLookupNote(mayNeedLookup(text) ? "Digging it up…" : null);
+    // QA 8:31 AM: optimistic, same tick as send, never waiting on the server.
+    setLookupNote(mayNeedLookup(text) ? "Digging it up…" : "Thinking…");
     try {
       await sendNow(text);
     } finally {
@@ -508,7 +512,7 @@ export function StanceChat(props: Props) {
     // turned away ("Your note is still the one above…"). Replacing still asks first.
     if ((kind === "confirm" || kind === "logic_opener") && substantiveNote(text) && !isVagueNote(text)) {
       props.onIdea("");
-      await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text)], { text });
+      await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text), pau(ADDED_NOTE)], { text, append: true });
       return "saved";
     }
     // Other words over a choice are discussion: the saved note never changes.
@@ -752,7 +756,7 @@ export function StanceChat(props: Props) {
                   <p className="font-semibold">
                     {lead.rank === 1 ? <span className="mr-2 text-[13px] uppercase text-ds-accent">Best fit</span> : null}
                     {lead.name}
-                    <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">Check it yourself</span>
+                    {" "}<span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">Check it yourself</span>
                   </p>
                   <p className="text-ds-muted">{lead.whyFits}</p>
                   <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0] ?? ""), pick(lead.name)])}>
@@ -825,7 +829,21 @@ export function StanceChat(props: Props) {
           ) : null}
 
           {kind === "logic_result" && r ? (
-            <div data-logic-tier={r.tier} className="space-y-2" {...(r.tier === "strong" ? { role: "region", "aria-label": LOGIC_ALERT_LABEL } : {})}>
+            <div
+              data-logic-tier={r.tier}
+              className={r.tier === "strong" ? "space-y-2 border-l-4 border-ds-error pl-3" : r.tier === "moderate" ? "space-y-2 border-l-4 border-ds-amber pl-3" : "space-y-2"}
+              {...(r.tier !== "pass" ? { role: "region", "aria-label": LOGIC_ALERT_LABEL } : {})}
+            >
+              {/* QA 8:31 AM: the alert is visibly flagged (Design System amber for a soft flag, error red for a strong one). */}
+              {r.tier !== "pass" ? (
+                <p
+                  data-logic-flag={r.tier}
+                  className={`inline-flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider ${r.tier === "strong" ? "text-ds-error" : "text-ds-ink"}`}
+                >
+                  <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-full ${r.tier === "strong" ? "bg-ds-error" : "bg-ds-amber"}`} />
+                  {r.tier === "strong" ? LOGIC_ALERT_LABEL : "Worth a second look"}
+                </p>
+              ) : null}
               {r.tier === "strong" && r.studentClaimRef?.quote ? <p className="text-ds-muted">Your claim: “{r.studentClaimRef.quote}”</p> : null}
               {r.tier === "strong" && r.citedTerm?.quote ? <p className="text-ds-muted">Your assignment asks: “{r.citedTerm.quote}”</p> : null}
               {r.tier !== "pass" && r.alternativeAngles.length ? (

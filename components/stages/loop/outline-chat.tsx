@@ -76,9 +76,16 @@ export function introInHistory(transcript: LoopLine[], section: OutlineSectionVi
   return transcript.some((line) => line.who === "pau" && line.k === section.key && line.text.includes(intro));
 }
 
-export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false): string[] {
+/** Their thesis for the gap check: the Introduction's notes, in their words. */
+export function thesisFrom(sections: { title: string; ideas: string[] }[]): string | null {
+  const intro = sections.find((s) => /intro/i.test(s.title));
+  const t = intro ? keptIdeas(intro.ideas).join(" ").trim() : "";
+  return t || null;
+}
+
+export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
-  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n"))) : null;
+  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis) : null;
   return [
     ...(first && !introSaid ? [OUTLINE_INTRO] : []),
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
@@ -133,7 +140,7 @@ export function OutlineChat(props: Props) {
   });
 
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current))
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections))
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });

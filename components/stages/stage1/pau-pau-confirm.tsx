@@ -15,7 +15,7 @@ import {
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
-import { decisionQuestion, mayNeedLookup, parseStance, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { decisionQuestion, looksLikePastedReading, mayNeedLookup, parseStance, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
@@ -217,6 +217,27 @@ export function PauPauConfirm({
     }
 
     setReplying(true);
+    // A long paste here is material (QA 8:31 AM walk B): saved and summarized, never parsed as a pick.
+    if (looksLikePastedReading(text)) {
+      setReplyStatus("Reading it now…");
+      try {
+        const v = (await briefPost({ action: "reading", title: "Pasted reading", text: text.slice(0, 200_000) })) as { summaries?: MaterialSummary[]; summary?: MaterialSummary | null } | null;
+        const s0 = v?.summaries?.find((x) => x.title === "Pasted reading") ?? v?.summary ?? null;
+        if (s0) void briefPost({ action: "material_shown" });
+        push({
+          role: "pau",
+          paras: [
+            "That looks like part of a reading, so I saved it as material for this paper.",
+            ...(s0 ? summaryParas(s0).slice(0, 4) : ["I couldn't pull the key points out of it yet. Paste a bit more, or upload the file."]),
+            "Anything else, or does the rest look right?",
+          ],
+        });
+      } finally {
+        setReplying(false);
+        setReplyStatus("Thinking…");
+      }
+      return;
+    }
     // QA 7:02 AM: "Digging it up…" shows at send time, and the lookup starts now, in parallel
     // with the classify call, instead of ~8 s later.
     if (mayNeedLookup(text)) {
