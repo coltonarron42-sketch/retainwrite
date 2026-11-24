@@ -539,7 +539,8 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
     const grounded = cleanOptions(o.options).filter((x) => optionGrounded(x.label, corpus));
     const modelPeople = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
     const people = modelPeople.length >= 2 ? modelPeople : (general?.people ?? []);
-    const question = clip(o.question, 200);
+    const q0 = clip(o.question, 200);
+    const question = q0 && /^[a-z]/.test(q0) ? q0.charAt(0).toUpperCase() + q0.slice(1) : q0;
     // QA 8:31 AM live: "Which real leader…" answered with abstract descriptions ("Leader whose skills
     // failed…") is not a real choice. A person question needs real names; else the field's options.
     const asksPerson = /\b(?:which|what)\s+(?:real\s+|one\s+)?(?:leader|person|people|example|ceo|figure)\b|\bwho\b/i.test(question ?? "");

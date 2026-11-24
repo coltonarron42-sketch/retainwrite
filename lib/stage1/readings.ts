@@ -43,6 +43,10 @@ export function titlesInText(text: string): string[] {
       out.push(m[2] ? `${title} by ${m[2].trim().replace(/[.,;]+$/, "")}` : title);
     }
   }
+  // QA 3:51: an unquoted textbook chapter ("Using Chapter 6 of Myers' Psychology (memory)") is a named work too.
+  for (const m of t.matchAll(/\b(?:Chapter|Ch\.)\s*\d{1,2}(?:\s*\([^)]{2,40}\))?\s+(?:of|in|from)\s+(?:the\s+)?[A-Z][\w-]+(?:'s|’s|'|’)\s+[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,4}(?:\s*\([^)]{2,40}\))?/g)) {
+    out.push(m[0].trim());
+  }
   return out;
 }
 

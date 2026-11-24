@@ -18,6 +18,18 @@ export function toSecondPerson(text: string): string {
     .replace(/\byou was\b/gi, "you were");
 }
 
+/**
+ * QA 3:51 nit: "…a shared vision.\nBecause of that Microsoft started…" reads clunky in the recap.
+ * A follow-on effect sentence joins the reason as ", and as a result, …" (with its comma).
+ */
+export function smoothCause(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  const m = t.match(/^(.*?[^.!?])[.!?]\s+(?:because of (?:that|this|it)|as a result|that led to|this led to|so)\b,?\s*(.+)$/i);
+  if (!m) return t.replace(/\b(because of (?:that|this)|as a result)\s+(?=[A-Z])/gi, "$1, ");
+  const effect = m[2]!.replace(/,?\s+and (?:that|this) matters because\b.*$/i, "").replace(/[\s.!,;:]+$/, "");
+  return `${m[1]}, and as a result, ${effect}`;
+}
+
 const REASON_RE = /\b(because|since|bc|cuz|'cause|so that|as it|it fits|it shows|it would|that's why|which is why)\b\s*(.*)$/i;
 
 /**
@@ -30,7 +42,7 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
   const pick = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
   const who = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
   const m = said.match(REASON_RE);
-  const tidy = (t: string) => clipWords(toSecondPerson(t).replace(/[\s.!,;:]+$/, ""), 220);
+  const tidy = (t: string) => clipWords(toSecondPerson(smoothCause(t)).replace(/[\s.!,;:]+$/, ""), 220);
   const reason = m ? tidy(/^(because|since|bc|cuz|'cause)$/i.test(m[1]) ? m[2] : `${m[1]} ${m[2]}`) : "";
   if (pick) {
     const ex = who ? ` with ${who} as your example` : "";

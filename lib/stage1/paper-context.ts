@@ -230,11 +230,13 @@ export function cleanPoints(points: unknown, max = 6): string[] {
     .slice(0, max);
 }
 
+const capFirst = (s: string) => (s && /^[a-z]/.test(s) ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 export function cleanOptions(raw: unknown): DecisionOption[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((o) => (o && typeof o === "object" ? (o as { label?: unknown; why?: unknown }) : {}))
-    .map((o) => ({ label: clip(String(o.label ?? ""), 80), why: clip(String(o.why ?? ""), 160) }))
+    // QA 3:51: labels start with a capital ("Spacing effect", never "spacing effect").
+    .map((o) => ({ label: capFirst(clip(String(o.label ?? ""), 80)), why: clip(String(o.why ?? ""), 160) }))
     .filter((o) => o.label.length >= 2 && !PAPER_TEXT.test(`${o.label} ${o.why}`))
     .slice(0, 3)
     // A "why" repeated across options says nothing (QA run 12:21 AM): drop the copies.
@@ -311,6 +313,17 @@ export function decisionQuestion(opts: NonNullable<PaperContext["options"]>, ctx
  * Labeled as general knowledge, never as what a chapter or handout says.
  */
 const GENERAL_CATALOG: { when: RegExp; question: string; options: DecisionOption[]; people: DecisionOption[] }[] = [
+  {
+    // QA 3:51: the options are parts of the serial position effect itself, never neighboring study tips.
+    when: /\bserial[- ]position\b/i,
+    question: "Which part of the serial position effect do you want to build your study advice around",
+    options: [
+      { label: "Primacy effect", why: "Lets you argue for putting the hardest material first in each study session." },
+      { label: "Recency effect", why: "Lets you argue for reviewing the key material last, right before the exam." },
+      { label: "Both: many short sessions", why: "Lets you argue that short blocks create more first and last moments to remember." },
+    ],
+    people: [],
+  },
   {
     when: /\bleadership (?:styles?|approach(?:es)?|theor(?:y|ies)|models?)\b|\bwhich (?:style of )?leadership\b|\bleadership style\b/i,
     question: "Which leadership style do you want to argue works best here",
