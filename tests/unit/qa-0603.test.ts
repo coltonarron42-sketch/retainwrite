@@ -176,7 +176,7 @@ describe("4. gate and checklist", () => {
   it("the checklist has the four north-star items", () => {
     expect(northstarChecklist({ confirmed: true, catchUpDone: true, decided: false, stanceOk: false }).map((i) => i.label)).toEqual([
       "Assignment confirmed",
-      "Material: caught up on the readings",
+      "Material: caught up",
       "Decision made, with your reason",
       "Early take: a few sentences in your own words",
     ]);
