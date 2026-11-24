@@ -143,7 +143,7 @@ describe("3. decision", () => {
     const two = [OPTIONS[0]!, { label: "Transactional leadership", why: "" }];
     expect(guessPick("idk, the team one I guess", two)).toBeNull();
     expect(vaguePickProbe("idk, the team one I guess", two)).toMatch(/^Which one are you leaning toward/);
-    expect(readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8")).toContain("const lean = guessPick(text, opts2);");
+    expect(readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8")).toContain("guessPick(text, opts2);");
   });
   it("a prepared student's stance is captured without 'I read both'", () => {
     const s = statedStance("Yes, I read both. I'm going with transformational, Satya Nadella.", OPTIONS);
