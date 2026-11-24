@@ -144,6 +144,17 @@ function hasConcept(prompt: string): boolean {
   );
 }
 
+/**
+ * QA 7:02 AM: an argument essay was labeled "Prompt type: Lesson". The stored enum stays
+ * (drafting schemas use it); this is only the label the student sees for "lesson".
+ */
+export function lessonKindLabel(assignment: string): "Argument" | "Analysis" | "Lesson" {
+  const t = assignment ?? "";
+  if (/\b(argue|argument(?:ative)?|persuasive|persuade|take a (?:stance|position)|your position|thesis|agree or disagree|whether you agree|make (?:a|the) case|defend)\b/i.test(t)) return "Argument";
+  if (/\b(analy[sz]e|analysis|compare|contrast|evaluate|critique)\b/i.test(t)) return "Analysis";
+  return "Lesson";
+}
+
 export function classifyPrompt(prompt: string): {
   type: PromptType;
   confidence: number;

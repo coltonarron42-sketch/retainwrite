@@ -42,11 +42,17 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
   return text;
 }
 
+/** QA 7:02 AM: JSTOR doesn't carry course textbooks, so never point a textbook search there. */
+export const TEXTBOOK_TERM = /\b(textbook|chapter|ch\.|edition|northouse|theory and practice|course reading|assigned reading)\b/i;
+export function searchWhere(term: string): string {
+  return TEXTBOOK_TERM.test(term) ? "Google Scholar or your school library" : "JSTOR, Google Scholar, or your school library";
+}
+
 export function sourceSearchDirections(topic: string, _note?: string): string {
   const subject = topicSearchTerms(topic);
   const term = subject ? searchPhrase(subject) : "";
   const where = term
-    ? `Try “${term}” in JSTOR, Google Scholar, or your school library, then add a word or two of your own.`
+    ? `Try “${term}” in ${searchWhere(term)}, then add a word or two of your own.`
     : "Try a few words from your topic in JSTOR, Google Scholar, or your school library.";
   return `What would you search first? ${where} Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
@@ -153,7 +159,7 @@ function exampleLeadBatchRaw(input: {
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Try searching JSTOR or your school library for “${searchPhrase(search)}”, then narrow it with a word or two of your own. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
+      whyFits: `Try searching ${searchWhere(searchPhrase(search)).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${searchPhrase(search)}”, then narrow it with a word or two of your own. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
       name: question
@@ -279,7 +285,7 @@ function sectionLeadBatch(ctx: {
         rubricMatch: 0.9,
         rubricRef: ref,
         lessonLink: `For your ${part}`,
-        whyFits: `Try searching JSTOR or your school library for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
+        whyFits: `Try searching ${searchWhere(term).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
       },
       {
         name: second,
