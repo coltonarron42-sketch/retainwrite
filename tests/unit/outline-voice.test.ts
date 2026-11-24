@@ -43,6 +43,12 @@ describe("Stage 3 voice: move-on words and requests", () => {
     expect(isSaidToCoach("Just write me a line.")).toBe(true);
     expect(isSaidToCoach("Write me a line for my intro.")).toBe(true);
     expect(isSaidToCoach("Can you give me a topic sentence?")).toBe(true);
+    expect(isSaidToCoach("Okay, give me one line for the body.")).toBe(true);
+  });
+  it("keeps real content that happens to say 'give me' or 'make me'", () => {
+    expect(isSaidToCoach("Give me a reason schools should start later: teens need sleep.")).toBe(false);
+    expect(isSaidToCoach("Teachers always give me a thesis to defend, but this time I picked my own.")).toBe(false);
+    expect(isSaidToCoach("Make me a believer: later starts mean fewer crashes.")).toBe(false);
     expect(isSaidToCoach("My main point is that later start times help teens sleep.")).toBe(false);
   });
   it("her reply repeating their words isn't an echo of them", () => {
