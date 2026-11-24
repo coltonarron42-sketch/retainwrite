@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
@@ -10,9 +10,18 @@ import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
+  decisionHasReason,
   decisionQuestion,
   isLostSaying,
+  isPreparedSaying,
+  isReadingQuestion,
+  looksLikePastedReading,
+  isVaguePick,
   overlapsTeaching,
+  statedStance,
+  stripReadingRefusal,
+  vaguePickProbe,
+  withoutDarkWeb,
   STAGE_PURPOSE,
   summaryLabel,
   summaryParas,
@@ -97,6 +106,9 @@ import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
 import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerReason, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
+import { clipWords } from "@/lib/copy/clip";
+import { isContentQuestion } from "@/lib/coach/answer";
+import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
 import {
   evaluateStage1VoiceMinimum,
   readyVoiceLine,
@@ -115,6 +127,9 @@ import {
   resumeIntake,
   stanceStartBlockers,
   voiceShortNote,
+  northstarChecklist,
+  northstarGateFrom,
+  shortNoteNudge,
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
@@ -222,11 +237,61 @@ function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: st
   );
 }
 
+type MoreResult = {
+  id: number;
+  mode: string;
+  points?: string[];
+  groups?: { title: string; kind?: string; points: string[] }[];
+  videos?: { title: string; url: string }[];
+};
+
+/** One "Go deeper" / "Say it simpler" / video result: every reading keeps its own heading (QA 6:03 AM). */
+function moreBubbles(more: MoreResult): ReactNode[] {
+  if (more.mode === "video") {
+    return more.videos?.length
+      ? [
+          "Here's a video that explains it:",
+          <ul key="v" className="space-y-1 text-[14px]">
+            {more.videos.map((v) => (
+              <li key={v.url}>
+                <a href={v.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                  {v.title}
+                </a>
+              </li>
+            ))}
+          </ul>,
+        ]
+      : ["I couldn't find a video I'd trust for this one. Want me to go deeper or say it simpler instead?"];
+  }
+  const head = more.mode === "depth" ? "One level deeper:" : "Simpler version:";
+  const groups = (more.groups ?? []).filter((g) => g.points.length);
+  if (groups.length > 1) {
+    return [
+      head,
+      <div key="g" className="space-y-3" data-more-groups>
+        {groups.map((g) => (
+          <div key={g.title}>
+            <p className="font-semibold">{g.title}</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {g.points.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>,
+    ];
+  }
+  const pts = groups[0]?.points ?? more.points ?? [];
+  return pts.length ? [groups[0] ? `${head} ${groups[0].title}` : head, ...pts.map((p) => `• ${p}`)] : ["I couldn't pull that together just now. Try again in a sec?"];
+}
+
 /** Every summary she has (each labeled by where it came from), then her honest ask with legit links. */
 function MaterialBubbles({
   brief,
   lead,
   paperId,
+  darkWebOk = true,
 }: {
   brief: {
     summary: MaterialSummary | null;
@@ -236,9 +301,12 @@ function MaterialBubbles({
   };
   lead: string;
   paperId?: string;
+  /** "I'm not going to the dark web!" at most once per paper. */
+  darkWebOk?: boolean;
 }) {
   const list = brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : [];
-  const [more, setMore] = useState<{ mode: string; points?: string[]; videos?: { title: string; url: string }[] } | null>(null);
+  // Results stack up (QA 6:03 AM): a new tap appends, never replaces the last one.
+  const [more, setMore] = useState<MoreResult[]>([]);
   const [moreBusy, setMoreBusy] = useState<string | null>(null);
   const ask = async (mode: "depth" | "simpler" | "video") => {
     if (!paperId || moreBusy) return;
@@ -249,17 +317,23 @@ function MaterialBubbles({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "material_more", mode }),
       });
-      const d = (await res.json().catch(() => null)) as { points?: string[]; videos?: { title: string; url: string }[] } | null;
-      setMore({ mode, points: d?.points, videos: d?.videos });
+      const d = (await res.json().catch(() => null)) as Omit<MoreResult, "id" | "mode"> | null;
+      setMore((prev) => [...prev, { id: Date.now(), mode, points: d?.points, groups: d?.groups, videos: d?.videos }].slice(-6));
     } finally {
       setMoreBusy(null);
     }
   };
-  const offers = (brief.whereToGet ?? []).flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })));
+  const offers = (brief.whereToGet ?? [])
+    .flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })))
+    .filter((o, i, all) => all.findIndex((x) => x.url === o.url || (x.title === o.title && x.seller === o.seller)) === i);
+  const missingAsk = brief.missingAsk ? (darkWebOk ? brief.missingAsk : withoutDarkWeb(brief.missingAsk)) : null;
   return (
     <div className="space-y-4">
       {list.map((s, i) => (
         <SummaryBubbles key={`${s.kind}:${s.title}`} summary={s} lead={i === 0 ? lead : undefined} />
+      ))}
+      {more.map((m) => (
+        <PauPauGroup key={m.id} bubbles={moreBubbles(m)} />
       ))}
       {list.length && paperId ? (
         <div className="flex flex-wrap gap-2 pl-11" role="group" aria-label="More on the material">
@@ -276,34 +350,10 @@ function MaterialBubbles({
           ))}
         </div>
       ) : null}
-      {more ? (
-        <PauPauGroup
-          bubbles={
-            more.mode === "video"
-              ? more.videos?.length
-                ? [
-                    "Here's a video that explains it:",
-                    <ul key="v" className="space-y-1 text-[14px]">
-                      {more.videos.map((v) => (
-                        <li key={v.url}>
-                          <a href={v.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
-                            {v.title}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>,
-                  ]
-                : ["I couldn't find a video I'd trust for this one. Want me to go deeper or say it simpler instead?"]
-              : more.points?.length
-                ? [more.mode === "depth" ? "One level deeper:" : "Simpler version:", ...more.points.map((p) => `• ${p}`)]
-                : ["I couldn't pull that together just now. Try again in a sec?"]
-          }
-        />
-      ) : null}
-      {brief.missingAsk ? (
+      {missingAsk ? (
         <PauPauGroup
           bubbles={[
-            brief.missingAsk,
+            missingAsk,
             ...(offers.length
               ? [
                   <ul key="offers" className="space-y-1 text-[14px] leading-[1.6]" aria-label="Where to get the reading" data-reading-offers>
@@ -421,6 +471,7 @@ export function AssignmentIntake({
     summary: MaterialSummary | null;
     options: PaperContext["options"] | null;
     decision: PaperContext["decision"] | null;
+    leader?: PaperContext["leader"] | null;
     lostAtStart: boolean;
     hasReading: boolean;
     missing?: string[];
@@ -433,6 +484,9 @@ export function AssignmentIntake({
   const [summaryBusy, setSummaryBusy] = useState(false);
   /** The question where they said they were lost again: the key points are offered there. */
   const [reoffer, setReoffer] = useState<string | null>(null);
+  /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
+  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
+  const [asideBusy, setAsideBusy] = useState<string | null>(null);
   const [readingOpen, setReadingOpen] = useState(false);
   const [readingText, setReadingText] = useState("");
   const [readingBusy, setReadingBusy] = useState(false);
@@ -707,25 +761,51 @@ export function AssignmentIntake({
       "this assignment";
     const plan: { id: string; kind: IntakeAnswer["kind"]; text: string }[] = [];
     const northstar = Boolean(brief?.northstar);
+    const has = (id: string) => answers.some((a) => a.questionId === id && a.answerText.trim());
+    // A prepared student who already said what they think (QA 6:03 AM): no hobby, story or APA-comfort detour.
+    const materialSaid = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
+    const stated = brief?.decision?.source === "stated";
+    const prepared = northstar && (stated || (Boolean(materialSaid) && isPreparedSaying(materialSaid) && !isLostSaying(materialSaid)));
     if (northstar) {
       // Meet them where they are (Colton t161u): the material first, then a real decision.
       plan.push({ id: "material_check", kind: "background", text: MATERIAL_CHECK_TEXT });
-      plan.push({
-        id: "decision_pick",
-        kind: "coaching",
-        text: brief?.options ? decisionQuestion(brief.options) : "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
-      });
+      // Their stated stance is the decision: never re-asked, only its reason when it's missing.
+      if (!stated || has("decision_pick")) {
+        plan.push({
+          id: "decision_pick",
+          kind: "coaching",
+          text: brief?.options ? decisionQuestion(brief.options) : "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
+        });
+      }
+      if (stated && (has("decision_why") || !decisionHasReason(brief?.decision?.answer ?? ""))) {
+        plan.push({
+          id: "decision_why",
+          kind: "coaching",
+          text: `Got it, you're going with “${clipWords((brief?.decision?.answer ?? "").replace(/[.!?\s]+$/, ""), 160)}.” What's your main reason? One sentence is plenty.`,
+        });
+      }
+      // The assignment needs one real person: a leader choice grounded in the readings.
+      const people = brief?.options?.people ?? [];
+      const leaderStated = brief?.leader?.question === "stated";
+      if (people.length >= 2 && (!leaderStated || has("leader_pick"))) {
+        plan.push({
+          id: "leader_pick",
+          kind: "coaching",
+          text: `This one needs a real leader as your example. Who fits your pick best? ${people.map((p) => `${p.label} (${p.why.replace(/[.\s]+$/, "")})`).join("; ")}. Or name someone else, and say why.`,
+        });
+      }
     }
-    if (!skippedInterest) {
+    if (!skippedInterest && !prepared) {
       INTEREST_Qs.forEach((q) =>
         plan.push({ id: q.id, kind: "interest", text: q.text }),
       );
     }
-    plan.push({
-      id: "bg_comfort",
-      kind: "background",
-      text: citationComfortQuestion(requirements),
-    });
+    if (!prepared || has("bg_comfort"))
+      plan.push({
+        id: "bg_comfort",
+        kind: "background",
+        text: citationComfortQuestion(requirements),
+      });
     // The plain read-back and their decision already cover this one on north-star papers.
     if (!northstar)
       plan.push({
@@ -754,7 +834,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers]);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
@@ -909,10 +989,12 @@ export function AssignmentIntake({
   const cardGate = { ok: checklistConfirmed };
   // North star: clarify (read-back) + catch up (offered or declined) + decide (direction with a reason).
   const northstarGate = brief?.northstar
-    ? {
-        catchUpDone: answers.some((a) => a.questionId === "material_check" && a.answerText.trim()),
-        decided: Boolean(brief.decision?.answer?.trim()) || answers.some((a) => a.questionId === "decision_pick" && wordCount(a.answerText) >= 6),
-      }
+    ? northstarGateFrom({
+        answers,
+        decisionAnswer: brief.decision?.answer ?? null,
+        needsLeader: (brief.options?.people?.length ?? 0) >= 2,
+        leaderAnswer: brief.leader?.answer ?? null,
+      })
     : undefined;
 
   // Step 4: read-aloud and hesitation help (both optional, saved per user).
@@ -1411,7 +1493,13 @@ export function AssignmentIntake({
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
     // North star: their decision (their words, with their reason) IS the direction; no second angle picker.
-    const decided = brief?.northstar ? (nextAnswers.find((a) => a.questionId === "decision_pick")?.answerText.trim() ?? "").slice(0, 500) : "";
+    const said = (id: string) => nextAnswers.find((a) => a.questionId === id)?.answerText.trim() ?? "";
+    // Their stated stance plus its reason (and leader) when they came in prepared.
+    const statedDecision = brief?.decision?.source === "stated" ? [brief.decision.answer, said("decision_why")].filter(Boolean).join(" ") : "";
+    const leaderSaid = said("leader_pick");
+    const decided = brief?.northstar
+      ? [said("decision_pick") || statedDecision, leaderSaid && !(said("decision_pick") || statedDecision).includes(leaderSaid) ? leaderSaid : ""].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 500)
+      : "";
     // (The server's story-pick gate needs 15+ words of their own; shorter picks still see the angle cards.)
     if (decided && !storyAngle && wordCount(decided) >= 15) {
       setStoryAngle({ text: decided, source: "student" });
@@ -1458,6 +1546,59 @@ export function AssignmentIntake({
     };
   }
 
+  /** Her answer to a question asked mid-interview ("what does Notes on the Quiet Kitchen say?"). Never saved. */
+  async function answerAside(qid: string, ask: string, said: string) {
+    setAsideBusy("Digging it up…");
+    let paras: string[] = [];
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "answer", message: said.slice(0, 2000), stage: 1, ask: ask.slice(0, 1000) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const d = (await res.json().catch(() => null)) as { paras?: string[] } | null;
+      paras = (d?.paras ?? []).map((p) => stripReadingRefusal(p)).filter(Boolean);
+    } catch {
+      paras = [];
+    }
+    setAsideBusy(null);
+    if (!paras.length) paras = ["I couldn't pull that together just now. Ask me again in a sec, or add the reading and I'll work from it."];
+    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: [...paras, "Back to my question whenever you're ready."] }].slice(-12));
+  }
+
+  /** A pasted reading paragraph goes in as material, never as their answer or angle. */
+  async function takePastedReading(qid: string, text: string) {
+    const works = requirements ? namedWorksFrom(requirements, rawText) : [];
+    const named = works
+      .filter((w) => text.toLowerCase().includes((w.match(/[“"]([^”"]{4,90})[”"]/)?.[1] ?? w.replace(/\s+by\s+.*$/i, "")).toLowerCase().trim()))
+      .map((w) => displayWork(w).replace(/[“”]/g, ""))[0];
+    const missing = brief?.missing ?? [];
+    const title = named ?? (missing.length === 1 ? missing[0]! : "Pasted reading");
+    setAsideBusy("Reading it now…");
+    const v = await briefCall({ action: "reading", title, text: text.slice(0, 200_000) });
+    setAsideBusy(null);
+    const s0 = v?.summaries?.find((x) => x.title === title) ?? v?.summary ?? null;
+    setQaAsides((prev) =>
+      [
+        ...prev,
+        {
+          id: Date.now(),
+          qid,
+          said: `${text.split(/\s+/).slice(0, 18).join(" ")}…`,
+          paras: [
+            `That looks like part of the reading${title !== "Pasted reading" ? ` (${title})` : ""}, so I saved it as material for this paper instead of as your answer.`,
+            ...(s0 ? summaryParas(s0).slice(0, 4) : []),
+            "Now, in your own words: what do you make of it?",
+          ],
+        },
+      ].slice(-12),
+    );
+  }
+
   async function submitAnswer(opts?: { skip?: boolean; text?: string }) {
     const q = coachingPlan[qIndex];
     if (!q) {
@@ -1478,8 +1619,44 @@ export function AssignmentIntake({
       setError(q.id === "decision_pick" ? "Tell me which one you'd pick and why, even one sentence." : "Tell me a little, even a few words.");
       return;
     }
+    // A question about a reading or the topic gets an answer and is never saved (QA 6:03 AM).
+    if (
+      !opts?.skip &&
+      text &&
+      brief?.northstar &&
+      q.id !== "stance_early" &&
+      !(q.id === "material_check" && isLostSaying(text)) &&
+      (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))
+    ) {
+      setDraftAnswer("");
+      setError(null);
+      await answerAside(q.id, q.text, text);
+      return;
+    }
+    // A pasted reading paragraph is material, never their answer.
+    if (!opts?.skip && text && brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
+      setDraftAnswer("");
+      setError(null);
+      pasteMeta.reset();
+      await takePastedReading(q.id, text);
+      return;
+    }
+    // A vague pick ("idk, the team one I guess"): name the option and ask why. Nothing saved yet.
+    if ((q.id === "decision_pick" || q.id === "leader_pick") && text && isVaguePick(text) && !decisionHasReason(text)) {
+      const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
+      const probe = vaguePickProbe(text, opts2);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [probe] }].slice(-12));
+      const lean = opts2.find((o) => probe.includes(o.label));
+      setDraftAnswer(lean ? `I'd pick ${lean.label} because ` : "");
+      setError(null);
+      return;
+    }
     if (q.id === "decision_pick" && wordCount(text) < 6) {
       setError("Tell me which one you'd pick and why, even one sentence.");
+      return;
+    }
+    if (q.id === "decision_why" && (opts?.skip || !text)) {
+      setError("Tell me your main reason, even one sentence.");
       return;
     }
     // Pau Pau's summary is teaching content, never their answer.
@@ -1569,6 +1746,11 @@ export function AssignmentIntake({
     setReoffer(null);
     pasteMeta.reset();
     if (q.id === "decision_pick" && text) void briefCall({ action: "decision", question: q.text, answer: text });
+    if (q.id === "leader_pick" && text) void briefCall({ action: "decision", question: q.text, answer: text, slot: "leader" });
+    if (q.id === "decision_why" && text) {
+      const base = (brief?.decision?.answer ?? "").replace(/[.!?\s]+$/, "");
+      void briefCall({ action: "decision", question: brief?.decision?.question ?? q.text, answer: `${base}. ${text}`.slice(0, 2000), source: "stated" });
+    }
     if (q.id === "material_check" && text) {
       // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
       const lost = isLostSaying(text);
@@ -1581,6 +1763,17 @@ export function AssignmentIntake({
           if (!v?.options) await briefCall({ action: "options" });
         } else if (!briefRef.current?.options) {
           await briefCall({ action: "options" });
+        }
+        // A prepared student's stated stance ("transformational, Satya Nadella") is the decision: never re-asked.
+        if (!lost) {
+          const o = briefRef.current?.options;
+          const stance = statedStance(text, o?.options ?? [], o?.people ?? []);
+          if (stance) {
+            await briefCall({ action: "decision", question: o?.question ?? "Your pick", answer: stance, source: "stated" });
+            const person = (o?.people ?? []).find((p) => stance.toLowerCase().includes(p.label.toLowerCase().split(" ").slice(-1)[0]!));
+            const named = person ?? (/\b[A-Z][a-z]+ [A-Z][a-z]+\b/.exec(stance.replace(/^\S+\s/, "")) ? { label: "" } : null);
+            if (named) await briefCall({ action: "decision", question: "stated", answer: stance, slot: "leader" });
+          }
         }
       })();
       await Promise.race([work, new Promise((r) => setTimeout(r, 12_000))]);
@@ -1731,6 +1924,16 @@ export function AssignmentIntake({
       return;
     }
     if (pickingStory) return;
+    // A pasted reading paragraph is material, never the angle (QA 6:03 AM).
+    if (brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
+      setOwnStory("");
+      pasteMeta.reset();
+      setError("That looks like part of the reading, so I saved it as material instead of your angle. Tell me your angle in your own words.");
+      const works = requirements ? namedWorksFrom(requirements, rawText) : [];
+      const missing = brief?.missing ?? [];
+      void briefCall({ action: "reading", title: missing.length === 1 ? missing[0]! : works.length === 1 ? displayWork(works[0]!).replace(/[“”]/g, "") : "Pasted reading", text: text.slice(0, 200_000) });
+      return;
+    }
     setPickingStory("own");
     setStoryAngle({ text, source: "student" });
     setAnswers((prev) => [
@@ -2740,16 +2943,32 @@ export function AssignmentIntake({
       stanceOk,
     });
     const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
-    const minNote =
-      stanceMode && draftWords > 0 && draftWords < 25
-        ? "A couple more sentences and your early take is ready."
-        : screen === "story" && draftWords > 0 && draftWords < 15
-          ? "A little more and your own angle is ready."
-          : null;
-    // Exact counts stay available to screen readers only.
-    const minNoteSr = minNote
-      ? ` (about ${stanceMode ? 25 : 15} words needed; ${draftWords} so far)`
-      : null;
+    // The gate checklist (north star: confirmed, material, decision with reason, early take).
+    const gateChecks = northstarGate ? (
+                  <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]" data-gate-checklist>
+                    {northstarChecklist({ confirmed: cardGate.ok, catchUpDone: northstarGate.catchUpDone, decided: northstarGate.decided, stanceOk }).map((item) => (
+                      <li key={item.label}>
+                        {item.done ? "✓" : "○"} {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
+                  <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
+                  <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
+                  <li>
+                    {voiceWordsMet
+                      ? "✓ Voice sample: plenty to match your voice"
+                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
+                    <span className="sr-only">
+                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
+                    </span>
+                  </li>
+                  <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
+                </ul>
+                );
+    // A friendly nudge while the note is short, never a bare word counter (QA 6:03 AM).
+    const minNote = stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
     const isVoiceQuestion = Boolean(q && q.kind !== "background");
     // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
     const readingTools = q ? (readingOpen ? (
@@ -2828,7 +3047,7 @@ export function AssignmentIntake({
                         </p>
                       ) : null}
                       <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
-                        Paste the reading (or the part you were assigned). I'll use it for the key points.
+                        Paste the reading (or the part you were assigned). I&apos;ll use it for the key points.
                       </label>
                       <textarea
                         id="reading-paste"
@@ -3010,7 +3229,7 @@ export function AssignmentIntake({
                   <MaterialBubbles brief={brief} paperId={paperId} lead="No problem. Here's what I've got to get you started." />
                 ) : null}
                 {item.id === "material_check" && summaryBusy ? (
-                  <ReadingBubble status="Pulling together the key points…" startedAt={Date.now()} />
+                  <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
                 ) : null}
               </div>
             );
@@ -3048,8 +3267,20 @@ export function AssignmentIntake({
           ) : null}
 
           {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
-            <MaterialBubbles brief={brief} paperId={paperId} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
+            <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
           ) : null}
+          {/* Questions and pastes she answered in place for this question (never saved as answers). */}
+          {q
+            ? qaAsides
+                .filter((a) => a.qid === q.id)
+                .map((a) => (
+                  <div key={a.id} className="space-y-4" data-interview-aside>
+                    <StudentBubble message={{ text: a.said, files: [], at: 0 }} />
+                    <PauPauGroup bubbles={a.paras} />
+                  </div>
+                ))
+            : null}
+          {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
           {/* Pau Pau's current turn. */}
           {q ? (
             <PauPauGroup
@@ -3103,6 +3334,20 @@ export function AssignmentIntake({
                   ) : null}
                 </div>
                 {readingTools}
+                </div>
+              ) : q.id === "leader_pick" && brief?.options?.people?.length ? (
+                <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Leaders">
+                  {brief.options.people.map((o) => (
+                    <DsButton
+                      key={o.label}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setDraftAnswer((d) => (d.trim() ? d : `I'd go with ${o.label} because `))}
+                    >
+                      {o.label}
+                    </DsButton>
+                  ))}
                 </div>
               ) : q.kind === "background" ? (
                 <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
@@ -3201,19 +3446,7 @@ export function AssignmentIntake({
                 metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords)
                   ? readyVoiceLine(voiceEval.totalWords)
                   : null,
-                <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
-                  <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
-                  <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
-                  <li>
-                    {voiceWordsMet
-                      ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
-                    <span className="sr-only">
-                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
-                    </span>
-                  </li>
-                  <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
-                </ul>,
+                gateChecks,
                 voiceShortNote({ voiceOk: voiceWordsMet }) || null,
               ].filter((b) => b !== null)}
               headingIndex={leadsBubbles.length}
@@ -3311,7 +3544,6 @@ export function AssignmentIntake({
                 data-min-note
               >
                 {minNote}
-                <span className="sr-only">{minNoteSr}</span>
               </p>
             ) : null}
             {/* Fixed height whatever the screen shows here (Skip, Saving…, the voice meter). */}
