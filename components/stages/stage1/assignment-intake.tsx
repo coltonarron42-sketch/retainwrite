@@ -858,6 +858,8 @@ export function AssignmentIntake({
           kind: "coaching",
           text: `Got it, you're going with ${clipWords(
             (brief?.decision?.answer ?? "")
+              // "I read both… I want to argue X": only the stance part is read back (QA 10:21 suite).
+              .replace(/^[\s\S]*?(?=\b(?:i (?:want|plan|intend) to|i'?m going (?:to|with)|i'?d (?:argue|go with|pick)|my (?:pick|stance|choice) is)\b)/i, "")
               .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked)|i (?:want|plan|intend) to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?m going to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?d (?:argue(?: for)?|go with|pick|choose|use))\s*:?\s*/i, "")
               .replace(/[.!?\s]+$/, ""),
             160,
@@ -2370,17 +2372,28 @@ export function AssignmentIntake({
     setStartingStance(true);
 
     try {
-      const res = await fetch(`/api/papers/${paperId}/intake/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requirements,
-          answers,
-          leads,
-          useInterestProfile: !skippedInterest,
-          storyAngle: storyAngle ?? undefined,
-        }),
-      });
+      const post = () =>
+        fetch(`/api/papers/${paperId}/intake/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requirements,
+            answers,
+            leads,
+            useInterestProfile: !skippedInterest,
+            storyAngle: storyAngle ?? undefined,
+          }),
+        });
+      let res = await post();
+      // QA 10:21 suite: a confirmed read-back the server lost (a write race) is re-saved and
+      // the start retried once, never a dead "Finish the Stage 1 steps first".
+      if (res.status === 400 && cardGate.ok) {
+        const peek = (await res.clone().json().catch(() => ({}))) as { reasons?: string[] };
+        if (peek.reasons?.includes("readback")) {
+          await briefCall({ action: "confirm_readback" });
+          res = await post();
+        }
+      }
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string; reasons?: string[]; reask?: string };
         setStartingStance(false);

@@ -21,26 +21,61 @@ export async function readPaperContext(supabase: SupabaseClient, paperId: string
   return parseContext(data?.draft_text ?? null);
 }
 
+/**
+ * QA 10:21 suite (lost readback/decision): parallel brief calls (decision, leader,
+ * confirm_readback) each read-modify-wrote the whole context, so the last one won and
+ * erased the others. Writes are now compare-and-swap on updated_at, retried on a race.
+ */
 export async function writePaperContext(
   supabase: SupabaseClient,
   paperId: string,
   userId: string,
   update: (prev: PaperContext) => PaperContext,
 ): Promise<PaperContext> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const { data: row } = await supabase
+      .from("paper_autosaves")
+      .select("draft_text, updated_at")
+      .eq("paper_id", paperId)
+      .eq("field_key", PAPER_CONTEXT_FIELD)
+      .maybeSingle();
+    const prev = parseContext(row?.draft_text ?? null);
+    const next = { ...update(prev), v: 1 as const };
+    const now = new Date().toISOString();
+    if (!row) {
+      const { error } = await supabase.from("paper_autosaves").insert({
+        paper_id: paperId,
+        user_id: userId,
+        field_key: PAPER_CONTEXT_FIELD,
+        draft_text: JSON.stringify(next),
+        submitted: true,
+        updated_at: now,
+      });
+      if (!error) return next;
+      if (error.code === "23505") continue; // another request created it first: merge into theirs
+      throw new Error(`paper_context save: ${error.code ?? error.message}`);
+    }
+    const { data: done, error } = await supabase
+      .from("paper_autosaves")
+      .update({ draft_text: JSON.stringify(next), submitted: true, updated_at: now })
+      .eq("paper_id", paperId)
+      .eq("field_key", PAPER_CONTEXT_FIELD)
+      .eq("updated_at", row.updated_at)
+      .select("paper_id");
+    if (error) throw new Error(`paper_context save: ${error.code ?? error.message}`);
+    if (done && done.length) return next;
+    // Lost the race: re-read and apply this change on top of the newer context.
+    await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 60)));
+  }
+  // Never fail the student's step on contention: last-resort plain write (the old behavior).
   const prev = await readPaperContext(supabase, paperId);
   const next = { ...update(prev), v: 1 as const };
   const { error } = await supabase.from("paper_autosaves").upsert(
-    {
-      paper_id: paperId,
-      user_id: userId,
-      field_key: PAPER_CONTEXT_FIELD,
-      draft_text: JSON.stringify(next),
-      submitted: true,
-      updated_at: new Date().toISOString(),
-    },
+    { paper_id: paperId, user_id: userId, field_key: PAPER_CONTEXT_FIELD, draft_text: JSON.stringify(next), submitted: true, updated_at: new Date().toISOString() },
     { onConflict: "paper_id,field_key" },
   );
   if (error) throw new Error(`paper_context save: ${error.code ?? error.message}`);
+  console.warn("[paper_context] CAS gave up after 8 tries", { paperId });
   return next;
 }
 

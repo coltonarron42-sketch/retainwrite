@@ -110,7 +110,10 @@ export function northstarGateFrom(input: {
   const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why"), ...(hasPick ? said("stance_early") : [])].filter(Boolean);
   const joined = [input.decisionAnswer ?? "", ...said("decision_why")].join(" ").trim();
   const hasReason = texts.some((t) => decisionHasReason(t)) || (joined ? decisionHasReason(joined) : false);
-  const leaderOk = !input.needsLeader || Boolean((input.leaderAnswer ?? "").trim()) || said("leader_pick").length > 0;
+  // A leader already named in their own words ("using Satya Nadella at Microsoft") counts (QA 10:21 suite).
+  const NOT_PERSON = /^(?:Transformational|Situational|Servant|Behavioral|Authentic|Leadership|Theory|Practice|Emotional|Intelligence|Chapter|What|Makes|The|This|I)$/;
+  const namesLeader = texts.some((t) => [...t.matchAll(/\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g)].some((m) => !NOT_PERSON.test(m[1]!) && !NOT_PERSON.test(m[2]!)));
+  const leaderOk = !input.needsLeader || Boolean((input.leaderAnswer ?? "").trim()) || said("leader_pick").length > 0 || namesLeader;
   return { catchUpDone, decided: hasReason && leaderOk };
 }
 

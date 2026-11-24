@@ -104,3 +104,27 @@ describe("5b. a complete intro is still coached on their own lines", () => {
     expect(g).toContain("Satya Nadella");
   });
 });
+
+describe("suite r4: a leader named in the stance counts for the gate", () => {
+  it("'using Satya Nadella at Microsoft' satisfies the leader step", () => {
+    const g = northstarGateFrom({
+      answers: [{ questionId: "material_check", answerText: "I read both" }],
+      decisionAnswer: "I want to argue transformational leadership, using Satya Nadella at Microsoft, because people buy into the vision.",
+      needsLeader: true,
+      leaderAnswer: null,
+    });
+    expect(g.decided).toBe(true);
+  });
+  it("a style name alone is not a leader", () => {
+    const g = northstarGateFrom({ answers: [], decisionAnswer: "I want to argue Transformational Leadership because people buy into the vision.", needsLeader: true });
+    expect(g.decided).toBe(false);
+  });
+});
+
+describe("suite r4: paper context writes never erase each other", () => {
+  it("writePaperContext is compare-and-swap on updated_at with retries", () => {
+    const src = readFileSync("lib/server/paper-context/store.ts", "utf8");
+    expect(src).toContain('.eq("updated_at", row.updated_at)');
+    expect(src).toContain("Lost the race");
+  });
+});
