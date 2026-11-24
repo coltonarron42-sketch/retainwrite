@@ -531,6 +531,8 @@ export function ChatComposer({
 
   function send() {
     if (blocked) return;
+    // QA 9:37 AM: one send at a time. While a reply is in flight the button is off and Enter
+    // keeps the text in the box (never dropped, never sent twice).
     if (sending) {
       setQueued(true);
       return;
@@ -552,13 +554,8 @@ export function ChatComposer({
   }
   useEffect(() => {
     if (!queued) return;
-    if (!value.trim() && attachments.length === 0) {
-      setQueued(false);
-      return;
-    }
-    if (!sending) send();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queued, sending, value]);
+    if (!sending || (!value.trim() && attachments.length === 0)) setQueued(false);
+  }, [queued, sending, value, attachments.length]);
   useEffect(() => {
     sendRef.current = () => {
       if (!valueRef.current.trim()) return;
@@ -743,7 +740,7 @@ export function ChatComposer({
           <button
             type="button"
             aria-label={sendLabel}
-            disabled={blocked || queued}
+            disabled={blocked || queued || sending}
             aria-busy={sending || reading || undefined}
             data-send-queued={queued || undefined}
             className="ds-focus flex h-11 w-11 items-center justify-center rounded-full bg-ds-accent text-white shadow-ds-button transition-colors duration-150 hover:brightness-95 disabled:cursor-not-allowed disabled:bg-ds-border disabled:text-ds-muted disabled:shadow-none"
@@ -757,7 +754,7 @@ export function ChatComposer({
       {queued ? (
         // Floats just above the box, so it never changes the dock's height.
         <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note>
-          Pau Pau is still replying. Your message sends as soon as she&apos;s done.
+          Pau Pau is still replying. Your message is still in the box: send it when she&apos;s done.
         </p>
       ) : null}
 

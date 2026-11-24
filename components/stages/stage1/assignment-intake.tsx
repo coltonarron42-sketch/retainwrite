@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
@@ -492,6 +493,7 @@ export function AssignmentIntake({
   // Continue awaits the answer save (~1s, longer on a cold start). Show that and
   // ignore repeat clicks so the button never looks dead or double-submits.
   const [submitting, setSubmitting] = useState(false);
+  const sendLock = useRef(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -541,11 +543,16 @@ export function AssignmentIntake({
     async (body: Record<string, unknown>): Promise<BriefView | null> => {
       if (demoMode) return null;
       try {
-        const res = await fetch(`/api/papers/${paperId}/intake/brief`, {
+        // A stalled call never hangs the chat (QA 9:37 AM).
+        const res = await fetchWithTimeout(`/api/papers/${paperId}/intake/brief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-        });
+        }, 30_000);
+        if (!res) {
+          setError("That took longer than it should on my end. Send it again, or keep going.");
+          return null;
+        }
         const data = (await res.json().catch(() => null)) as (BriefView & { ok?: boolean; error?: string }) | null;
         if (!res.ok || !data?.ok) {
           if (data?.error) setError(data.error);
@@ -1729,7 +1736,8 @@ export function AssignmentIntake({
     }
     const text = opts?.skip ? "" : typed;
     // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
-    const lookup = Boolean(text && brief?.northstar && mayNeedLookup(text));
+    // The status shows even before the brief has loaded (QA 9:37 AM: "Digging it up…" at 4-5 s).
+    const lookup = Boolean(text && (brief?.northstar ?? true) && mayNeedLookup(text));
     if (q?.id === "material_check" && text && isLostSaying(text)) setAsideBusy("Digging it up… pulling together the key points.");
     else if (lookup) setAsideBusy("Digging it up…");
     if (!opts?.skip && !text && q.kind !== "background") {
@@ -3234,11 +3242,14 @@ export function AssignmentIntake({
                     </div>
                   ) : null) : null;
     const send = (text?: string) => {
-      if (submitting) return;
+      // QA 9:37 AM: one send at a time, even for two taps in the same tick.
+      if (submitting || sendLock.current) return;
+      sendLock.current = true;
       setSubmitting(true);
-      void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() =>
-        setSubmitting(false),
-      );
+      void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() => {
+        sendLock.current = false;
+        setSubmitting(false);
+      });
     };
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>

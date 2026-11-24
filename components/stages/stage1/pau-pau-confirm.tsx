@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
 import { dsCaption } from "@/lib/ds/classes";
@@ -198,7 +199,19 @@ export function PauPauConfirm({
     return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
+  // QA 9:37 AM: one send at a time, even for two taps in the same tick (idempotent).
+  const sendLock = useRef(false);
   async function sendReply(spoken?: string) {
+    if (sendLock.current) return;
+    sendLock.current = true;
+    try {
+      await sendReplyNow(spoken);
+    } finally {
+      sendLock.current = false;
+    }
+  }
+
+  async function sendReplyNow(spoken?: string) {
     const text = (spoken ?? draft).replace(/\s+$/, "");
     if (!text.trim() || replying || confirming) return;
     if (spoken === undefined) setDraft("");
@@ -281,7 +294,8 @@ export function PauPauConfirm({
         return;
       }
 
-      const res = await fetch(`/api/papers/${paperId}/assignment/reply`, {
+      // A stalled reply falls back to the same rules the server uses (QA 9:37 AM: 45 s with no reply).
+      const res = await fetchWithTimeout(`/api/papers/${paperId}/assignment/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -293,9 +307,9 @@ export function PauPauConfirm({
             t.role === "student" ? { role: "student", text: t.text.slice(0, 2000) } : { role: "pau", paras: t.paras.slice(0, 12) },
           ),
         }),
-      });
-      // Offline or the server failed: the same rules the server falls back to.
-      const result = ((res.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, liveAsk);
+      }, 15_000);
+      // Offline, stalled, or the server failed: the same rules the server falls back to.
+      const result = ((res?.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, liveAsk);
 
       const skip = result.skipAsk && currentAsk ? currentAsk : undefined;
       const after = skip ? new Set(dismissed).add(skip) : dismissed;
@@ -359,8 +373,8 @@ export function PauPauConfirm({
 
   /** The catch-up, the options, or the assignment in plain words, right here before the confirm. */
   function briefPost(body: Record<string, unknown>): Promise<unknown> {
-    return fetch(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then((r) => (r.ok ? r.json() : null))
+    return fetchWithTimeout(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 25_000)
+      .then((r) => (r?.ok ? r.json() : null))
       .then((v: unknown) => {
         if (v && typeof v === "object" && "northstar" in v) onBrief?.(v as Record<string, unknown>);
         return v;
@@ -393,6 +407,7 @@ export function PauPauConfirm({
       const early = summaryEarly.current;
       summaryEarly.current = null;
       const v = ((early ? await early : null) as View | null) ?? (await briefPost({ action: "summary" }) as View | null);
+      if (!v) return ["I couldn't pull the key points together just now. Ask me again in a sec, and I'll pick it right back up."];
       const list0 = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
       // The reading they asked about first ("what is Goleman saying?"), then the rest.
       const asked = said.toLowerCase();
