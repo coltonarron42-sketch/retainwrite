@@ -281,7 +281,10 @@ export function logicCheckFromNotes(input: {
   // named as off-prompt before any critique of how it reasons.
   const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
   const onPrompt = typeof input.onPrompt === "boolean" ? input.onPrompt : notesOnPrompt(notes, promptText, input.assignmentText);
-  if (promptText && notes.trim() && !onPrompt) {
+  // QA 11:40 suite: a note that turns against their own thesis is on their topic by definition, so the
+  // specific contradiction wins over a (model) off-prompt verdict.
+  const againstFirst = input.thesis ? contradictsThesis(notes, input.thesis) : null;
+  if (promptText && notes.trim() && !onPrompt && !againstFirst) {
     const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
     return {
       tier: "strong",
