@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
 import { generalBackground, generateOptions, generateReadback, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { materialPolicy } from "@/lib/config/material-policy";
 import { bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
 
 export const runtime = "nodejs";
@@ -49,6 +50,11 @@ async function basics(supabase: SupabaseClient, paperId: string): Promise<Assign
     paperType: str("paperType"),
     rubric,
     structure: arr("structuralRequirements").map(String),
+    namedWorks: (src?.notes ?? "")
+      .replace(/^\s*must (include|use|cite):?\s*/i, "")
+      .split(/;\s*/)
+      .map((x) => x.trim())
+      .filter((x) => x.length >= 6),
     sources: src ? [src.countMin ? `at least ${src.countMin}` : null, src.types, src.notes].filter(Boolean).join(", ") || null : null,
     length: len?.raw ?? (len?.wordsMin ? `${len.wordsMin}-${len.wordsMax ?? ""} words` : null),
     text: (asg?.raw_text as string | null) || (paper?.assignment_prompt as string | null) || "",
@@ -67,7 +73,10 @@ async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: Paper
     const s = await summarizeText({ kind: "assignment", title: "your assignment sheet", text: a.text, ask });
     if (s) return s;
   }
-  return generalBackground(a, ask);
+  // No reading: the one source-policy switch (lib/config/material-policy.ts) decides.
+  const policy = materialPolicy();
+  if (policy === "uploads_only") return null;
+  return generalBackground(a, ask, { works: policy === "overview" ? a.namedWorks : [] });
 }
 
 /** Summary + options, once, so a lost student doesn't wait (runs after the confirm response). */
@@ -85,7 +94,7 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
 
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {

@@ -29,6 +29,8 @@ export type AssignmentBasics = {
   rubric: string[];
   structure: string[];
   sources: string | null;
+  /** Each named required work ("Chapter 4 of … Northouse…", "'What Makes a Leader?' by Daniel Goleman"). */
+  namedWorks: string[];
   length: string | null;
   text: string;
 };
@@ -102,8 +104,13 @@ export async function summarizeText(input: { kind: Exclude<MaterialKind, "genera
   }
 }
 
-/** No reading: topic background from the web, labeled general background, with link-checked sources. */
-export async function generalBackground(a: AssignmentBasics, ask: string | null): Promise<MaterialSummary | null> {
+/**
+ * No reading: from the web, with link-checked sources. With named works (policy
+ * "overview") it's a general-knowledge overview of each well-known work, labeled
+ * "not your course copy"; otherwise general topic background.
+ */
+export async function generalBackground(a: AssignmentBasics, ask: string | null, opts: { works?: string[] } = {}): Promise<MaterialSummary | null> {
+  const works = (opts.works ?? []).slice(0, 3);
   const key = process.env.GROK_API_KEY?.trim();
   if (!key) return null;
   const controller = new AbortController();
@@ -118,10 +125,17 @@ export async function generalBackground(a: AssignmentBasics, ask: string | null)
         store: false,
         tools: [{ type: "web_search" }],
         input: [
-          { role: "system", content: `${RULES}\nThe student has no course reading. Search the web and give general background on the topic so they can engage right away.` },
+          {
+            role: "system",
+            content: works.length
+              ? `${RULES}\nThe student hasn't read the assigned works and doesn't have them here. These are well-known published works: give a general-knowledge overview of what each one says (its main ideas, the named styles, models or examples it uses), confirmed by searching the web. Name the actual ideas (e.g. the specific styles or components), not "the reading discusses leadership". This is background for them to learn from, not text for their paper.`
+              : `${RULES}\nThe student has no course reading. Search the web and give general background on the topic so they can engage right away. Name the actual ideas, people and examples.`,
+          },
           {
             role: "user",
-            content: `${ask ? `What the assignment asks: ${ask}\n` : ""}Topic: ${clip(a.topic ?? a.prompt, 300)}\n\nReturn JSON: "points" = 3-5 short, jargon-free background points (facts, key people or events, the main sides), each under 30 words; "sources" = 2-3 real, reputable pages you actually used (title + full url).`,
+            content: works.length
+              ? `${ask ? `What the assignment asks: ${ask}\n` : ""}Topic: ${clip(a.topic ?? a.prompt, 300)}\nThe assigned works:\n${works.map((w) => `- ${clip(w, 200)}`).join("\n")}\n\nReturn JSON: "points" = 4-7 short, jargon-free points, each naming which work it's from (e.g. "Northouse Ch. 4: …", "Goleman: …"), covering the key ideas the assignment needs (the specific styles/components/terms, each explained in plain words, plus 1-2 well-known real examples if the works use them), each under 35 words; "sources" = 2-4 real, reputable pages about these works that you actually used (title + full url).`
+              : `${ask ? `What the assignment asks: ${ask}\n` : ""}Topic: ${clip(a.topic ?? a.prompt, 300)}\n\nReturn JSON: "points" = 3-6 short, jargon-free background points (the specific ideas, key people or examples, the main sides), each under 30 words; "sources" = 2-3 real, reputable pages you actually used (title + full url).`,
           },
         ],
         text: {
@@ -152,16 +166,34 @@ export async function generalBackground(a: AssignmentBasics, ask: string | null)
       body.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text ??
       "";
     const o = JSON.parse(text) as { points?: unknown; sources?: SourceRef[] };
-    const points = cleanPoints(o.points, 5);
+    const points = cleanPoints(o.points, works.length ? 7 : 6);
     if (points.length < 2) return null;
     const sources = (await checkLinks((o.sources ?? []).slice(0, 4).map((s) => ({ title: clip(s.title, 120), url: String(s.url ?? "") })))).map((s) => ({ title: s.title, url: s.url }));
-    return { kind: "general", title: clip(a.topic ?? a.prompt, 80) || "the topic", points, sources: sources.slice(0, 3), at: Date.now() };
+    return {
+      kind: works.length ? "overview" : "general",
+      title: works.length ? works.map(shortWork).join(" and ") : clip(a.topic ?? a.prompt, 80) || "the topic",
+      points,
+      sources: sources.slice(0, 4),
+      at: Date.now(),
+    };
   } catch (e) {
     console.warn("[brief] background error", { message: String((e as Error).message ?? e).slice(0, 120) });
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** "the assigned HBR article 'What Makes a Leader?' by Daniel Goleman" → "Goleman's “What Makes a Leader?”". */
+export function shortWork(w: string): string {
+  const t = w.replace(/\s+/g, " ").trim();
+  const title = t.match(/[“"']([^”"']{4,90})[”"']/)?.[1];
+  const by = t.match(/\bby\s+(?:[A-Z][\w.-]*\s+)*([A-Z][\w-]+)\b/)?.[1] ?? t.match(/\(([A-Z][\w-]+)[,)]/)?.[1];
+  const ch = t.match(/\b(?:chapter|ch\.?)\s*(\d+)/i)?.[1];
+  if (by && title) return `${by}'s “${title}”`;
+  if (by && ch) return `${by} Ch. ${ch}`;
+  if (title) return `“${title}”`;
+  return t.length <= 50 ? t : `${t.slice(0, 47).replace(/\s+\S*$/, "")}…`;
 }
 
 /** 2-3 real options the student must choose between (which leader, which style, which angle...). */
