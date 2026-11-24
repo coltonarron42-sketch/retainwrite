@@ -23,6 +23,7 @@ import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { isQuickConfirm } from "@/lib/stage1/confirm-reply";
 import { isControlPhrase, isSaidToCoach } from "@/lib/stage1/voice-turn";
 import { addSpokenLine, outlineChoiceSaid, splitOutlineControl } from "@/lib/stages/outline-voice";
+import { outlineGap, outlineMap, outlinePoints } from "@/lib/stages/outline-map";
 
 export type OutlineSectionView = { key: string; title: string; needs: string; ideas: string[] };
 
@@ -77,11 +78,13 @@ export function introInHistory(transcript: LoopLine[], section: OutlineSectionVi
 
 export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
+  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n"))) : null;
   return [
     ...(first && !introSaid ? [OUTLINE_INTRO] : []),
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
     notes
-      ? "Your Stance notes are in the box. Rework them into outline lines, or keep them as they are."
+      ? // QA 7:11 AM: she coaches the gap she sees in their outline for this section.
+        `${gap ? `${gap} ` : ""}Your Stance notes are in the box. Rework them into outline lines, or keep them as they are.`
       : "You don't have notes for this one yet. Write a line or two, or keep going and come back to it.",
   ];
 }
@@ -287,6 +290,45 @@ export function OutlineChat(props: Props) {
     <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="3">
       <SpeakNew scope={`${paperId}:stage3`} items={speak} />
       <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+      {/* QA 7:11 AM: the mapped outline, visible and editable: each section, its purpose, their points in their words. */}
+      <section className="mt-4 rounded-md border border-ds-border p-4" aria-label="Your outline" data-outline-map>
+        <h2 className={dsEyebrow}>Your outline</h2>
+        <ol className="mt-2 space-y-3">
+          {outlineMap(sections, done, current ? { key: current.key, text } : null).map((row) => (
+            <li key={row.key} data-outline-row={row.key}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-semibold">{row.title}{row.current ? <span className={`ml-2 ${dsCaption}`}>(open now)</span> : null}</p>
+                {row.done ? (
+                  <button type="button" className={`ds-focus min-h-[48px] ${dsLink}`} onClick={() => props.onReopen(row.key)}>
+                    Edit
+                  </button>
+                ) : row.current ? (
+                  <button
+                    type="button"
+                    className={`ds-focus min-h-[48px] ${dsLink}`}
+                    onClick={() => {
+                      const all = document.querySelectorAll<HTMLTextAreaElement>("textarea");
+                      all[all.length - 1]?.focus();
+                    }}
+                  >
+                    Edit in the box
+                  </button>
+                ) : null}
+              </div>
+              <p className={dsCaption}>{row.purpose}</p>
+              {row.points.length ? (
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-[16px]">
+                  {row.points.map((pt, i) => (
+                    <li key={i}>{pt}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-[16px] text-ds-muted">No points yet.</p>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
         {shown.map((line, i) => {
           const head = i === 0 || transcript[i - 1]!.k !== line.k ? sections.find((s) => s.key === line.k)?.title : null;

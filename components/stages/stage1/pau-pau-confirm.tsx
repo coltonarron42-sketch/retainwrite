@@ -15,7 +15,7 @@ import {
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
-import { decisionQuestion, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { decisionQuestion, mayNeedLookup, parseStance, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
@@ -58,6 +58,8 @@ type Props = {
   live?: ReactNode;
   /** On a Grok Voice call she speaks through the call only (no old text-to-speech). */
   oldVoiceOff?: boolean;
+  /** The paper context after a save here (a stated stance, the material shown), so the chat after the confirm is current. */
+  onBrief?: (view: Record<string, unknown>) => void;
 };
 
 export { PauPauAvatar };
@@ -91,6 +93,7 @@ export function PauPauConfirm({
   realtimeSlot,
   live,
   oldVoiceOff = false,
+  onBrief,
 }: Props) {
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
@@ -99,6 +102,8 @@ export function PauPauConfirm({
   const fileInput = useRef<HTMLInputElement>(null);
   const turnsRef = useRef(turns);
   const reqRef = useRef(requirements);
+  /** The material lookup, started the moment a message may need it (QA 7:02 AM latency). */
+  const summaryEarly = useRef<Promise<unknown> | null>(null);
   useEffect(() => {
     turnsRef.current = turns;
   }, [turns]);
@@ -212,6 +217,21 @@ export function PauPauConfirm({
     }
 
     setReplying(true);
+    // QA 7:02 AM: "Digging it up…" shows at send time, and the lookup starts now, in parallel
+    // with the classify call, instead of ~8 s later.
+    if (mayNeedLookup(text)) {
+      setReplyStatus("Digging it up…");
+      summaryEarly.current ??= briefPost({ action: "summary" });
+    }
+    // A stance said here ("I want to argue transformational, using Satya Nadella") is saved now,
+    // so the chat after the confirm never re-asks it.
+    const stance = /\?\s*$/.test(text) ? null : parseStance(text);
+    if (stance && /\b(argue|arguing|thesis|my (?:stance|argument|angle)|write about|focus on|go(?:ing)? with)\b/i.test(stance.stance)) {
+      const leader = stance.leader;
+      void briefPost({ action: "decision", question: "Said before the read-back was confirmed", answer: stance.stance, source: "stated" }).then(() =>
+        leader ? briefPost({ action: "decision", question: "stated", answer: stance.stance, slot: "leader", named: leader }) : null,
+      );
+    }
     try {
       // A link while Pau Pau is asking for sources: check it and keep it.
       const url = currentAsk === "sources" ? linkIn(text) : null;
@@ -308,10 +328,21 @@ export function PauPauConfirm({
       push({ role: "pau", paras: [clarifyingAsk(liveAsk)] });
     } finally {
       setReplying(false);
+      setReplyStatus("Thinking…");
     }
   }
 
   /** The catch-up, the options, or the assignment in plain words, right here before the confirm. */
+  function briefPost(body: Record<string, unknown>): Promise<unknown> {
+    return fetch(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v: unknown) => {
+        if (v && typeof v === "object" && "northstar" in v) onBrief?.(v as Record<string, unknown>);
+        return v;
+      })
+      .catch(() => null);
+  }
+
   async function answerInPlace(route: "material" | "options" | "explain", said = ""): Promise<string[]> {
     if (route === "explain") {
       const p = plain ?? null;
@@ -333,13 +364,17 @@ export function PauPauConfirm({
         if (!v?.options?.options.length) return ["I'll have real options for you right after you confirm the read-back."];
         return [decisionQuestion(v.options), "You'll lock one in right after we confirm the read-back."];
       }
-      const v = await call("summary");
+      // The early lookup (started at send) when there is one; she shows it, so the chat never re-asks "have you read it?".
+      const early = summaryEarly.current;
+      summaryEarly.current = null;
+      const v = ((early ? await early : null) as View | null) ?? (await briefPost({ action: "summary" }) as View | null);
       const list0 = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
       // The reading they asked about first ("what is Goleman saying?"), then the rest.
       const asked = said.toLowerCase();
       const hits = (x: MaterialSummary) => x.title.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && asked.includes(w)).length;
       const list = [...list0].sort((a, b) => hits(b) - hits(a));
       const paras = list.flatMap((x) => summaryParas(x));
+      if (paras.length) void briefPost({ action: "material_shown" });
       const offers = (v?.whereToGet ?? []).flatMap((w) => w.offers.map((o) => `${w.title} at ${o.seller}${o.price ? ` · ${o.price} (price from search; check the page)` : ""}: ${o.url}`));
       return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 28);
     } finally {
