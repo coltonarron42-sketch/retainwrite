@@ -77,9 +77,13 @@ export function outlineGap(title: string, points: string[], thesis?: string | nu
     // Intro coaching (QA 9:37 AM): the reader should know where you're headed.
     const names = exampleNames(allNotes ?? "").filter((n) => !joined.toLowerCase().includes(n.toLowerCase()));
     if (names.length) return `Your intro states your claim. Add a line that previews your example, ${names[0]}, so the reader knows where you're headed.`;
-    return points.length < 2
-      ? `Your intro states your claim, “${lead}” — now add one line on why that matters, so the reader wants to keep going.`
-      : null;
+    if (points.length < 2) return `Your intro states your claim, “${lead}” — now add one line on why that matters, so the reader wants to keep going.`;
+    // Complete intro: still coached on THEIR lines (QA 10:21), never a generic template.
+    const claim = points.find((p) => /\b(i (?:argue|think|believe|will show)|should|because|works? best|most effective)\b/i.test(p)) ?? points[0]!;
+    const shown = exampleNames(joined)[0];
+    return shown
+      ? `Your intro has your claim, “${wholeQuote(claim)}”, and previews ${shown}. Keep the claim as its own line so a reader can find it fast.`
+      : `Your intro has your claim, “${wholeQuote(claim)}”. Keep it as its own line so a reader can find it fast.`;
   }
   const hasExample = BACKING.test(joined) || EVENT.test(joined) || exampleNames(joined).length > 0 || points.some((p) => NAMED_EXAMPLE.test(p));
   if (!hasExample)

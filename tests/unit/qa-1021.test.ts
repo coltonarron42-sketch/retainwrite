@@ -96,3 +96,11 @@ describe("6. the pre-confirm summary stays after the confirm", () => {
     expect(src).toContain("i === lastMaterialTurn");
   });
 });
+
+describe("5b. a complete intro is still coached on their own lines", () => {
+  it("quotes the claim and names the previewed example", () => {
+    const g = outlineGap("Introduction", ["I think transformational leadership works best for change because people buy in.", "Satya Nadella is my example."], null, null, "Transformational");
+    expect(g).toContain("“I think transformational leadership works best for change because people buy in”");
+    expect(g).toContain("Satya Nadella");
+  });
+});
