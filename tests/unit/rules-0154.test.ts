@@ -69,3 +69,11 @@ describe("QA 1:16 PSY: bare yes/no options become the two real sides", async () 
     expect(q).toMatch(/^Gut answer first, even a guess: stress helps memory or stress hurts memory\? Here are a few real options: 1\) Stress helps memory/);
   });
 });
+
+describe("Colton 1:54 R3/R4: homepage leads with the outcome, no unproven learning claims", () => {
+  const home = readFileSync("components/marketing/home-editorial.tsx", "utf8");
+  it("outcome first; no 'learn more than you could', no exam promise", () => {
+    expect(home).toContain("Get the paper done, save time, and actually learn the material");
+    expect(home).not.toMatch(/learn more than you could|on the exam|human concept, human system/);
+  });
+});

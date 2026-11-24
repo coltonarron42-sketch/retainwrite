@@ -31,7 +31,7 @@ const RESULTS = [
   },
   {
     name: "The learning, too",
-    copy: "You come out understanding the material well enough to talk about it in class or on the exam.",
+    copy: "You work through the ideas instead of just submitting them, so you actually understand it and you're not lost when the test comes.",
   },
   {
     name: "A way of working you keep",
@@ -79,9 +79,9 @@ export function HomeEditorial({ startHref }: { startHref: string }) {
           ))}
         </ul>
         <p className="mt-6 text-[16px] leading-[1.6] text-ds-muted">
-          We are a human concept, human system, AI-driven writing Guru. We meet you where you are.
-          How long it takes depends on how prepared you are, but it will be more efficient and you
-          will learn more than you could on your own.
+          Get the paper done, save time, and actually learn the material so you&apos;re not lost
+          when the test comes. How long it takes depends on how prepared you are. Underneath is a
+          simple, repeatable way of working you can use on your next paper too.
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <Link href={startHref} className="ds-btn-primary">
