@@ -1,5 +1,7 @@
 "use client";
 
+import type { DecisionOption } from "@/lib/stage1/paper-context";
+import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -208,6 +210,11 @@ const CITATION_OPTIONS: Array<CitationStyle | ""> = [
   "AMA",
   "other",
 ];
+
+/** QA 11:40 #1: a typed "haven't read", "idk", "not sure", "no clue" gets the catch-up, same as the button. */
+function materialLost(text: string): boolean {
+  return isLostSaying(text) || isUnsureReadSaying(text);
+}
 
 const MATERIAL_CHECK_TEXT =
   "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
@@ -558,7 +565,20 @@ export function AssignmentIntake({
           if (data?.error) setError(data.error);
           return null;
         }
-        if ("northstar" in data) setBrief(data);
+        // Two calls in flight can answer out of order: a slower, older view never drops a decision,
+        // leader, option list or summary the newer one already has (QA 11:40 #5, parallel loads).
+        if ("northstar" in data)
+          setBrief((prev) =>
+            prev
+              ? {
+                  ...data,
+                  decision: data.decision ?? prev.decision,
+                  leader: data.leader ?? prev.leader,
+                  options: data.options ?? prev.options,
+                  summary: data.summary ?? prev.summary,
+                }
+              : data,
+          );
         return data;
       } catch {
         return null;
@@ -803,6 +823,18 @@ export function AssignmentIntake({
     };
   }, [paperId, demoMode]);
 
+  // QA 11:40 #4: they've read it, or had the catch-up (the key points were shown to them).
+  const [catchUpGiven, setCatchUpGiven] = useState(false);
+  const materialAnswerNow = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
+  const caughtUp =
+    Boolean(brief?.materialShown) ||
+    (Boolean(brief?.summary) && (Boolean(brief?.lostAtStart) || materialLost(materialAnswerNow) || catchUpGiven));
+  /** QA 11:40 #2: vague rounds per pick question, the last thing said, and a pending recommendation. */
+  const vagueRounds = useRef<Record<string, number>>({});
+  const lastProbe = useRef<Record<string, string>>({});
+  const recPending = useRef<Record<string, DecisionOption | null>>({});
+  const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
+
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     const topic =
@@ -815,7 +847,10 @@ export function AssignmentIntake({
     // A prepared student who already said what they think (QA 6:03 AM): no hobby, story or APA-comfort detour.
     const materialSaid = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
     const stated = brief?.decision?.source === "stated";
-    const prepared = northstar && (stated || (Boolean(materialSaid) && isPreparedSaying(materialSaid) && !isLostSaying(materialSaid)));
+    const prepared = northstar && (stated || (Boolean(materialSaid) && isPreparedSaying(materialSaid) && !materialLost(materialSaid)));
+    // QA 11:40 #4: no question points at material they haven't read and haven't been caught up on.
+    const unread = northstar && !prepared && !caughtUp;
+    const clean = (t: string) => (unread ? scrubUnreadRefs(t) : t);
     // QA 7:02 AM: "skip the get-to-know-you questions" skips all of them (never the gate steps).
     const getToKnowOff = skippedInterest && northstar;
     if (northstar) {
@@ -828,7 +863,7 @@ export function AssignmentIntake({
           id: "decision_pick",
           kind: "coaching",
           text: brief?.options?.options.length
-            ? decisionQuestion(brief.options, { prepared })
+            ? clean(decisionQuestion(brief.options, { prepared }))
             : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
                 .map((t) => (t ? assignmentDecisionAsk(t) : null))
                 .find(Boolean) ??
@@ -873,16 +908,19 @@ export function AssignmentIntake({
         plan.push({
           id: "leader_pick",
           kind: "coaching",
-          text: `This one needs a real leader as your example. Who fits your pick best? ${people.map((p) => `${p.label} (${p.why.replace(/[.\s]+$/, "")})`).join("; ")}. Or name someone else, and say why.`,
+          text: clean(`This one needs a real leader as your example. Who fits your pick best? ${people.slice(0, 3).map((p) => `${p.label} (${p.why.replace(/[.\s]+$/, "")})`).join("; ")}. Or name someone else, even a leader from your own life like a coach or a boss, and say why.`),
         });
       }
     }
-    if (!skippedInterest && !prepared) {
+    // Colton 11:41: no get-to-know-you questions on north-star papers, for any student
+    // (hobbies, story/show/sport, APA comfort, the generic "seen it in real life"). Every early
+    // question serves the assignment: read-back, catch-up, decision with its reason, early take.
+    if (!northstar && !skippedInterest && !prepared) {
       INTEREST_Qs.forEach((q) =>
         plan.push({ id: q.id, kind: "interest", text: q.text }),
       );
     }
-    if ((!prepared && !getToKnowOff) || has("bg_comfort"))
+    if (!northstar && ((!prepared && !getToKnowOff) || has("bg_comfort")))
       plan.push({
         id: "bg_comfort",
         kind: "background",
@@ -895,7 +933,7 @@ export function AssignmentIntake({
         kind: "coaching",
         text: "In your own words, what do you think this assignment wants you to figure out?",
       });
-    if ((!getToKnowOff && !prepared) || has("personal_1")) plan.push({
+    if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({
       id: "personal_1",
       kind: "personal",
       // QA 11/23: never paste the whole assignment clause into the template.
@@ -908,7 +946,7 @@ export function AssignmentIntake({
             : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
-    if (needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
+    if (!northstar && needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
       plan.push({
         id: "fallback_voice",
         kind: "fallback_voice",
@@ -916,7 +954,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers, caughtUp]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
   // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
@@ -924,12 +962,8 @@ export function AssignmentIntake({
   // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
   const curQId = useRef<string | null>(null);
   const [recovering, setRecovering] = useState(false);
-  const fallbackOff = (() => {
-    if (!brief?.northstar) return false;
-    if (skippedInterest || brief.decision?.source === "stated") return true;
-    const m = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
-    return Boolean(m) && isPreparedSaying(m) && !isLostSaying(m);
-  })();
+  // North star (Colton 11:41): there is no extra voice question at all.
+  const fallbackOff = Boolean(brief?.northstar);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
@@ -1779,6 +1813,22 @@ export function AssignmentIntake({
     );
   }
 
+  // QA 11:40 #2: the catch-up, offered after vague picks when they skipped it.
+  async function catchUpNow(qid: string) {
+    setCatchUpOffer(null);
+    setAsideBusy("Digging it up… pulling together the key points.");
+    setSummaryBusy(true);
+    try {
+      await briefCall({ action: "lost" });
+      await briefCall({ action: "summary" });
+      setCatchUpGiven(true);
+      setReoffer(qid);
+    } finally {
+      setSummaryBusy(false);
+      setAsideBusy(null);
+    }
+  }
+
   // QA 8:31 AM: "Digging it up…" renders in the same tick as send and stays until the answer is in.
   async function submitAnswer(opts0?: { skip?: boolean; text?: string }) {
     try {
@@ -1806,6 +1856,17 @@ export function AssignmentIntake({
       skipInterest();
       return;
     }
+    // QA 11:40 #1: a bare "sure" / "ok" to "Have you read it?" is ambiguous: offer the catch-up as a one-tap yes.
+    if (typed && q.id === "material_check" && isAmbiguousReply(typed)) {
+      setQaAsides((prev) => [
+        ...prev,
+        { id: Date.now(), qid: q.id, said: typed, paras: ["Just to check: want me to catch you up on the key points first? Tap “Yes, catch me up” and I'll pull them together. If you've already read it, tap “I've read it”."] },
+      ].slice(-12));
+      setCatchUpOffer(q.id);
+      setDraftAnswer("");
+      setError(null);
+      return;
+    }
     // A typed "skip" / "n/a" is a skip, never an answer; the gate steps still need their words.
     if (typed && isSkipSaying(typed)) {
       if (["material_check", "decision_pick", "decision_why", "stance_early"].includes(q.id)) {
@@ -1814,11 +1875,11 @@ export function AssignmentIntake({
       }
       opts = { skip: true };
     }
-    const text = opts?.skip ? "" : typed;
+    let text = opts?.skip ? "" : typed;
     // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
     // The status shows even before the brief has loaded (QA 9:37 AM: "Digging it up…" at 4-5 s).
     const lookup = Boolean(text && (brief?.northstar ?? true) && mayNeedLookup(text));
-    if (q?.id === "material_check" && text && isLostSaying(text)) setAsideBusy("Digging it up… pulling together the key points.");
+    if (q?.id === "material_check" && text && materialLost(text)) setAsideBusy("Digging it up… pulling together the key points.");
     else if (lookup) setAsideBusy("Digging it up…");
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Tell me a little, even a sentence, or tap skip.");
@@ -1843,7 +1904,7 @@ export function AssignmentIntake({
       text &&
       brief?.northstar &&
       q.id !== "stance_early" &&
-      !(q.id === "material_check" && isLostSaying(text)) &&
+      !(q.id === "material_check" && materialLost(text)) &&
       (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))
     ) {
       setDraftAnswer("");
@@ -1851,17 +1912,51 @@ export function AssignmentIntake({
       await answerAside(q.id, q.text, text);
       return;
     }
-    // A vague pick ("idk, the team one I guess"): name the option and ask why. Nothing saved yet.
-    if ((q.id === "decision_pick" || q.id === "leader_pick") && text && isVaguePick(text) && !decisionHasReason(text)) {
+    // QA 11:40 #2/#3: a vague or confused pick. Round 1 names the options; from round 2 (or right away
+    // when confused) she teaches the differences, recommends a starting point and asks yes or no plus why.
+    // A yes to her recommendation is their pick; the same question is never sent twice in a row.
+    let tookRec = false;
+    if (q.id === "decision_pick" || q.id === "leader_pick") {
+      const rec = recPending.current[q.id];
+      if (rec && text && isYesSaying(text)) {
+        const rest = text.replace(/^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|sounds good|let'?s do (?:it|that)|that works)[\s,.!-]*/i, "").trim();
+        text = `I'd pick ${rec.label}${rest ? `. ${rest}` : ""}`;
+        recPending.current[q.id] = null;
+        tookRec = true;
+      }
+    }
+    const confused = !tookRec && (q.id === "decision_pick" || q.id === "leader_pick") && Boolean(text) && isConfusedSaying(text) && !decisionHasReason(text);
+    const vagueNo = !tookRec && Boolean(recPending.current[q.id]) && Boolean(text) && isNoSaying(text) && wordCount(text) < 6;
+    if (
+      !tookRec &&
+      (q.id === "decision_pick" || q.id === "leader_pick") &&
+      text &&
+      (confused || vagueNo || (isVaguePick(text) && !decisionHasReason(text)))
+    ) {
       const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
-      const probe = vaguePickProbe(text, opts2);
-      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [probe] }].slice(-12));
-      const lean = guessPick(text, opts2);
-      setDraftAnswer(lean ? `I'd pick ${lean.label} because ` : "");
+      const lean = confused || vagueNo ? null : guessPick(text, opts2);
+      const round = (vagueRounds.current[q.id] = (vagueRounds.current[q.id] ?? 0) + 1);
+      const unreadNow = Boolean(brief?.northstar) && !caughtUp && !isPreparedSaying(materialAnswerNow);
+      const esc = lean && round <= 1
+        ? { paras: [vaguePickProbe(text, opts2)], recommend: null, offerCatchUp: false }
+        : pickEscalation({
+            options: opts2,
+            round: confused ? Math.max(2, round) : vagueNo ? Math.max(3, round) : round,
+            confused,
+            last: lastProbe.current[q.id] ?? null,
+            unread: unreadNow,
+            catchUpSkipped: unreadNow && !brief?.missing?.length,
+            kind: q.id === "leader_pick" ? "leader" : "style",
+          });
+      lastProbe.current[q.id] = esc.paras.join("\n");
+      recPending.current[q.id] = esc.recommend;
+      setCatchUpOffer(esc.offerCatchUp ? q.id : null);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: esc.paras }].slice(-12));
+      setDraftAnswer(lean && round <= 1 ? `I'd pick ${lean.label} because ` : "");
       setError(null);
       return;
     }
-    if (q.id === "decision_pick" && wordCount(text) < 6) {
+    if (q.id === "decision_pick" && !tookRec && wordCount(text) < 6) {
       setError("Tell me which one you'd pick and why, even one sentence.");
       return;
     }
@@ -1977,7 +2072,7 @@ export function AssignmentIntake({
     }
     if (q.id === "material_check" && text) {
       // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
-      const lost = isLostSaying(text);
+      const lost = materialLost(text);
       // Their stance is saved right away (QA 7:02 AM walk): no decision question flashes while options load.
       const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) : null;
       const savedEarly = early
@@ -1985,6 +2080,8 @@ export function AssignmentIntake({
             early.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: early.stance, slot: "leader", named: early.leader }) : null,
           )
         : null;
+      // QA 11:40 #5 (lag): the stance save and the options load run side by side, not one after the other.
+      const optionsEarly = !lost && !briefRef.current?.options ? briefCall({ action: "options" }) : null;
       if (savedEarly) await Promise.race([savedEarly, new Promise((r) => setTimeout(r, 4_000))]);
       const work = (async () => {
         if (lost) {
@@ -1993,6 +2090,8 @@ export function AssignmentIntake({
           const v = await briefCall({ action: "summary" });
           setSummaryBusy(false);
           if (!v?.options) await briefCall({ action: "options" });
+        } else if (optionsEarly) {
+          await optionsEarly;
         } else if (!briefRef.current?.options) {
           await briefCall({ action: "options" });
         }
@@ -3349,7 +3448,7 @@ export function AssignmentIntake({
       const said = (text ?? draftAnswer).trim();
       if (said) {
         setAsideBusy(
-          q?.id === "material_check" && isLostSaying(said)
+          q?.id === "material_check" && materialLost(said)
             ? "Digging it up… pulling together the key points."
             : q?.id === "material_check" || ((brief?.northstar ?? true) && mayNeedLookup(said)) || wordCount(said) >= 25
               ? "Digging it up…"
@@ -3379,6 +3478,8 @@ export function AssignmentIntake({
             questionId: q.id,
             questionText: q.text.slice(0, 600),
             questionKind: q.kind,
+            // QA 11:40 #4: no spark question about material they haven't read.
+            unread: (Boolean(brief?.northstar) && !caughtUp && !isPreparedSaying(materialAnswerNow)) || undefined,
             topic: (requirements.promptQuestion.value || requirements.topic.value || "").slice(0, 500) || undefined,
             interests: ["interest_1", "interest_2"]
               .map((id) => answerFor(id).slice(0, 200))
@@ -3513,7 +3614,7 @@ export function AssignmentIntake({
                   onEdit={() => editAnswer(i)}
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
-                {item.id === "material_check" && brief && (brief.lostAtStart || isLostSaying(said)) ? (
+                {item.id === "material_check" && brief && (brief.lostAtStart || materialLost(said)) ? (
                   <MaterialBubbles brief={brief} paperId={paperId} lead="No problem. Here's what I've got to get you started." />
                 ) : null}
                 {item.id === "material_check" && summaryBusy && !asideBusy ? (
@@ -3595,6 +3696,11 @@ export function AssignmentIntake({
               {q.id === "material_check" ? (
                 <div className="space-y-2 pt-1">
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Quick answers">
+                    {catchUpOffer === q.id ? (
+                      <DsButton type="button" size="sm" disabled={submitting} data-catchup-yes onClick={() => { setCatchUpOffer(null); send("Yes, catch me up on the key points"); }}>
+                        Yes, catch me up
+                      </DsButton>
+                    ) : null}
                     {["I haven't read it yet", "I've read it"].map((choice) => (
                       <DsButton key={choice} type="button" size="sm" variant="secondary" disabled={submitting} onClick={() => send(choice)}>
                         {choice}
@@ -3608,8 +3714,13 @@ export function AssignmentIntake({
                 </div>
               ) : q.id === "decision_pick" && brief?.options?.options.length ? (
                 <div className="space-y-2 pt-1">
+                {catchUpOffer === q.id ? (
+                  <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-offer onClick={() => void catchUpNow(q.id)}>
+                    Catch me up on the reading first
+                  </DsButton>
+                ) : null}
                 <div className="flex flex-wrap gap-2" role="group" aria-label="Options">
-                  {brief.options.options.map((o) => (
+                  {brief.options.options.slice(0, 3).map((o) => (
                     <DsButton
                       key={o.label}
                       type="button"

@@ -533,6 +533,8 @@ export function ChatComposer({
     if (blocked) return;
     // QA 9:37 AM: one send at a time. While a reply is in flight the button is off and Enter
     // keeps the text in the box (never dropped, never sent twice).
+    // Colton 11:41: the composer is locked while a reply is pending. One student turn, one reply:
+    // extra taps or Enters do nothing (the box says why), so rapid sends never double up.
     if (sending) {
       setQueued(true);
       return;
@@ -552,20 +554,10 @@ export function ChatComposer({
     armSpeech();
     onSend();
   }
-  // QA 10:21 walk C: a message sent while Pau Pau is still replying goes out exactly once,
-  // as soon as she's done (it used to sit in the box and look like a hang).
+  // The lock note clears as soon as the reply is in; nothing is sent on its own.
   useEffect(() => {
-    if (!queued) return;
-    if (!value.trim() && attachments.length === 0) {
-      setQueued(false);
-      return;
-    }
-    if (!sending && !blocked) {
-      setQueued(false);
-      send();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queued, sending, blocked, value, attachments.length]);
+    if (!sending) setQueued(false);
+  }, [sending]);
   useEffect(() => {
     sendRef.current = () => {
       if (!valueRef.current.trim()) return;
@@ -666,7 +658,11 @@ export function ChatComposer({
           rows={minRows}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={sending}
+          data-composer-locked={sending || undefined}
+          onChange={(e) => {
+            if (!sending) onChange(e.target.value);
+          }}
           onPaste={onPaste}
           onKeyDown={(e) => {
             // Desktop: Enter sends, Shift+Enter is a new line. Phones keep Enter for new lines.
@@ -764,7 +760,7 @@ export function ChatComposer({
       {queued ? (
         // Floats just above the box, so it never changes the dock's height.
         <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note>
-          Got it. Your message is still in the box, and it goes out as soon as Pau Pau is done replying.
+          One message at a time: Pau Pau is replying to what you sent. You can type again as soon as she is done.
         </p>
       ) : null}
 

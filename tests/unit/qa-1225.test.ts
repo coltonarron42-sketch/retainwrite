@@ -129,7 +129,7 @@ describe("#4 a send during a reply is never dropped, and never sent twice (QA 9:
   it("the composer keeps the text and turns Send off while a reply is in flight", () => {
     const src = read("components/stages/stage1/chat-composer.tsx");
     expect(src).toMatch(/if \(sending\) \{\s*setQueued\(true\);/);
-    expect(src).toMatch(/Your message is still in the box, and it goes out as soon as/);
+    expect(src).toMatch(/One message at a time: Pau Pau is replying/);
     expect(src).toMatch(/disabled=\{blocked \|\| queued \|\| sending\}/);
     expect(src).not.toMatch(/if \(!sending\) send\(\);/);
   });
