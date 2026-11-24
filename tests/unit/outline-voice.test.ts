@@ -64,3 +64,13 @@ describe("Stage 3 voice: no empty 'just say yes' on a section", () => {
     expect(ins).toMatch(/On a section, "yes" does nothing: never say "or just say yes" there/);
   });
 });
+
+describe("Stage 3 voice: wording", () => {
+  const ins = buildStage3Instructions("Section 1 of 3: Introduction.");
+  it("never claims to lock a section", () => {
+    expect(ins).toMatch(/Never say "locking it in", "locked"/);
+  });
+  it("never asks them to repeat a line that's already in the box", () => {
+    expect(ins).toMatch(/already in the box, word for word: never ask them to say it again/);
+  });
+});
