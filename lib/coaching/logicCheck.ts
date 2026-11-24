@@ -29,7 +29,7 @@ export const logicCheckSchema = z.object({
     "contradicts_assignment",
   ]),
   confidence: z.number().min(0).max(1),
-  reason: z.string().max(240),
+  reason: z.string().max(600),
   citedTerm: z
     .object({
       rubricRef: z.string(),
@@ -298,13 +298,14 @@ export function logicCheckFromNotes(input: {
   // A note that turns against their own thesis is named, with continue-anyway (QA 7:11 AM).
   const against = input.thesis ? contradictsThesis(notes, input.thesis) : null;
   if (against) {
-    const said = quoteOnWordBoundary(dropHedges(against.noteQuote), 90);
-    const thesisSaid = quoteOnWordBoundary(dropHedges(against.thesisQuote), 90);
+    // QA 9:37 AM: whole sentences, never cut mid-word ("arg.", "for…").
+    const said = wholeQuote(against.noteQuote);
+    const thesisSaid = wholeQuote(against.thesisQuote);
     return {
       tier: "moderate",
       basis: "defies_logic",
       confidence: 0.8,
-      reason: `This says “${said}”, but your thesis says “${thesisSaid}${thesisSaid.length < against.thesisQuote.trim().length ? "…" : ""}”. Which one does your paper argue?`.slice(0, 240),
+      reason: `This says “${said}”, but your thesis says “${thesisSaid}”. Which one does your paper argue?`,
       citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(against.noteQuote, 160) },
       logicFailure: "The note contradicts the thesis.",
@@ -540,3 +541,9 @@ export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolea
   for (const w of stems(sheet, SHEET_GENERIC)) if (hit(w)) return true;
   return false;
 }
+
+/** A whole sentence to quote back: hedges dropped, end punctuation trimmed, never clipped mid-word. */
+export function wholeQuote(sentence: string): string {
+  return dropHedges(sentence).replace(/\s+/g, " ").replace(/[\s.,;:!?…]+$/, "").trim();
+}
+

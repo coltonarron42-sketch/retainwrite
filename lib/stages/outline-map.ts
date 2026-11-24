@@ -1,6 +1,6 @@
 // SOP: coaching only, never generate submission text.
 import { keptIdeas } from "@/lib/coaching/thin";
-import { contradictsThesis, quoteOnWordBoundary } from "@/lib/coaching/logicCheck";
+import { contradictsThesis, wholeQuote } from "@/lib/coaching/logicCheck";
 import { dropHedges } from "@/lib/copy/tidy";
 import { sectionPurpose } from "@/lib/stage1/paper-context";
 
@@ -35,8 +35,23 @@ const BACKING = /\b(because|since|for example|for instance|e\.g\.|such as|like w
 /** A named example ("Satya Nadella at Microsoft"): a real backing line already there (QA 8:31 AM). */
 const NAMED_EXAMPLE = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/;
 
+/** Capitalized words that start sentences or name the styles, not people or places. */
+const NOT_NAMES = new Set(
+  "The This That These Those It Its He She They We You I My Our Your His Her Their So But And Or In On At When If Because Then Also Even With Without After Before During While Overall First Second Third Finally One A An Transformational Situational Servant Behavioral Authentic Leadership Leaders Leader Team Teams People Change Body Introduction Conclusion Intro Yes No Okay Ok Honestly Maybe Probably".split(" "),
+);
+/** Names in their notes ("Barra", "Satya Nadella", "Microsoft"): a real example is already there (QA 9:37 AM). */
+export function exampleNames(text: string): string[] {
+  const out: string[] = [];
+  for (const m of (text ?? "").matchAll(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*\b/g)) {
+    const words = m[0].split(/\s+/).filter((w) => !NOT_NAMES.has(w));
+    if (words.length) out.push(words.join(" "));
+  }
+  return [...new Set(out)];
+}
+const EVENT = /\b(after|during|when|in \d{4}|recall|crisis|merger|layoffs?|turnaround|launch)\b/i;
+
 /** Pau coaches the gap she sees in this section's outline (never writes the line for them). */
-export function outlineGap(title: string, points: string[], thesis?: string | null): string | null {
+export function outlineGap(title: string, points: string[], thesis?: string | null, allNotes?: string | null): string | null {
   const t = title.toLowerCase();
   if (!points.length) return `Your ${t} has no points yet. What's the one thing it has to say?`;
   if (points.length > 5) return `That's ${points.length} points for one section. Which two or three matter most for your thesis?`;
@@ -45,14 +60,20 @@ export function outlineGap(title: string, points: string[], thesis?: string | nu
   if (thesis && !/intro/.test(t)) {
     const against = contradictsThesis(joined, thesis);
     if (against)
-      return `Your ${t} says “${quoteOnWordBoundary(dropHedges(against.noteQuote), 90)}”, but your thesis says “${quoteOnWordBoundary(dropHedges(against.thesisQuote), 90)}”. Which one does your paper argue? Make them match.`;
+      return `Your ${t} says “${wholeQuote(against.noteQuote)}”, but your thesis says “${wholeQuote(against.thesisQuote)}”. Which one does your paper argue? Make them match.`;
   }
   if (/conclusion/.test(t)) {
     return /\b(so|therefore|overall|in the end|this means|which is why)\b/i.test(joined) ? null : "A conclusion ties back to your thesis. Which line says what it all adds up to?";
   }
   if (/intro/.test(t)) {
-    return /\b(i (?:argue|think|believe|will show)|this paper|my (?:thesis|argument)|should|because)\b/i.test(joined) ? null : "Where does your intro say your main claim? Add a line that states it in your words.";
+    if (!/\b(i (?:argue|think|believe|will show)|this paper|my (?:thesis|argument)|should|because|works? best|most effective)\b/i.test(joined))
+      return "Where does your intro say your main claim? Add a line that states it in your words.";
+    // Intro coaching (QA 9:37 AM): the reader should know where you're headed.
+    const names = exampleNames(allNotes ?? "").filter((n) => !joined.toLowerCase().includes(n.toLowerCase()));
+    if (names.length) return `Your intro states your claim. Add a line that previews your example, ${names[0]}, so the reader knows where you're headed.`;
+    return points.length < 2 ? "Your intro states your claim. Add one line on why it matters for a team going through change, so the reader wants to keep going." : null;
   }
-  if (!BACKING.test(joined) && !points.some((p) => NAMED_EXAMPLE.test(p.replace(/^\S+\s/, "")))) return "You've got the point. What reason or example backs it up? Add it as its own line.";
+  const hasExample = BACKING.test(joined) || EVENT.test(joined) || exampleNames(joined).length > 0 || points.some((p) => NAMED_EXAMPLE.test(p));
+  if (!hasExample) return "You've got the point. What reason or example backs it up? Add it as its own line.";
   return null;
 }

@@ -1,6 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
+import { decisionLabel } from "@/lib/stage1/paper-context";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { wordCount } from "@/lib/utils";
 
@@ -113,12 +114,28 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
  * truncated template): the material's key point and the student's real options.
  */
 export function contextTeachCard(
-  b: { summary: { points: string[] } | null; options?: { question: string; options: { label: string; why: string }[] } | null; decision?: { pick: string } | null } | null,
+  b: { summary: { points: string[] } | null; options?: { question: string; options: { label: string; why: string }[] } | null; decision?: { pick: string; answer?: string } | null } | null,
   rubricRef: string,
 ): TeachCard | null {
   const opts = b?.options?.options ?? [];
-  if (opts.length < 2) return null;
   const point = (b?.summary?.points ?? []).find((p) => wordCount(p) <= 35) ?? null;
+  // QA 9:37 AM: after a pick, the lesson is about THEIR pick (never "You picked their own."),
+  // and the options are not offered again.
+  const picked = b?.decision ? decisionLabel(b.decision) : null;
+  if (b?.decision) {
+    if (!picked) return null;
+    return {
+      concept: picked,
+      rubricRef,
+      affirm: null,
+      definition: point ?? `${picked} is the idea this section has to show in action, with a real moment a reader can picture.`,
+      qualities: ["What it means, in your words", "One moment that shows it", "Why it fits a team going through change"],
+      showsUpAs: ["A decision you can point to", "What changed for the people involved"],
+      debate: null,
+      ask: `You picked ${picked}. Which moment shows it best?`,
+    };
+  }
+  if (opts.length < 2) return null;
   const labels = opts.map((o) => o.label.replace(/[.!?]+$/, "").trim()).filter((l) => l && wordCount(l) <= 10);
   if (labels.length < 2) return null;
   return {
@@ -130,7 +147,7 @@ export function contextTeachCard(
     qualities: labels.slice(0, 3),
     showsUpAs: opts.slice(0, 2).map((o) => o.why.replace(/[.!?]+$/, "")).filter((w) => w && wordCount(w) <= 12),
     debate: null,
-    ask: b?.decision?.pick ? `You picked ${b.decision.pick}. Which of these could you build this section around?` : "Which of these could you build this section around?",
+    ask: "Which of these could you build this section around?",
   };
 }
 

@@ -83,9 +83,9 @@ export function thesisFrom(sections: { title: string; ideas: string[] }[]): stri
   return t || null;
 }
 
-export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null): string[] {
+export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
-  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis) : null;
+  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis, allNotes) : null;
   return [
     ...(first && !introSaid ? [OUTLINE_INTRO] : []),
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
@@ -140,7 +140,7 @@ export function OutlineChat(props: Props) {
   });
 
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections))
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "))
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });
