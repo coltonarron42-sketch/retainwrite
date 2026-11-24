@@ -35,7 +35,7 @@ describe("QA 3:06 #2: rapid sends never lose text", () => {
     expect(composer).toContain("onChange={(e) => onChange(e.target.value)}");
     expect(intake).toContain("onQueue={() => send()}");
     expect(intake).toContain("data-queued-said");
-    expect(intake).toContain("setTimeout(() => latestSendNow.current?.(merged, true), 60);");
+    expect(intake).toContain("const went = latestSendNow.current?.(merged, true);");
   });
   it("a short early take keeps what was already sent and adds the next line", () => {
     expect(intake).toContain("const prevShort = error && shortEcho ? shortEcho : \"\";");
@@ -95,7 +95,7 @@ describe("QA 3:51", () => {
   });
   it("text typed mid-switch moves with the box (answer box <-> story box)", () => {
     expect(intake).toContain("setOwnStory(draftAnswer);");
-    expect(intake).toContain('latestSendNow.current = screen === "story" ? (t: string) => void submitOwnStory(t) : sendNow;');
+    expect(intake).toMatch(/latestSendNow\.current =\s+screen === "story"\s+\? \(t: string\) => void submitOwnStory\(t\)/);
   });
 });
 
@@ -139,5 +139,17 @@ describe("QA 3:51 React #185: the draft-save status never queues a same-value re
   it("guards setStatus with a ref", () => {
     const src = readFileSync("lib/papers/use-draft-save.ts", "utf8");
     expect(src).toContain("if (statusRef.current === next) return;");
+  });
+});
+
+describe("QA 3:51: a message queued during her reply is never silently dropped", () => {
+  const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+  it("retries a queued send that lands before the screen re-rendered", () => {
+    expect(src).toContain("if (submitting || sendLock.current) return false;");
+    expect(src).toMatch(/if \(went === false && n < 80\)/);
+  });
+  it("a queued message that lands after Stage 1 wrapped still shows, with an honest reply", () => {
+    expect(src).toContain("data-gate-said");
+    expect(src).toContain("Stage 1 is wrapped, so I didn't change your answers.");
   });
 });

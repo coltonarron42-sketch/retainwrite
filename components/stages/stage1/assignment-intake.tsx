@@ -217,6 +217,10 @@ function materialLost(text: string): boolean {
   return isLostSaying(text) || isUnsureReadSaying(text);
 }
 
+/** QA 3:51: a message that arrives after Stage 1 wrapped up (sent while her last reply was coming). */
+export const GATE_SAID_REPLY =
+  "Got it. Stage 1 is wrapped, so I didn't change your answers. If this should replace one, tap it above. Otherwise, bring it into the stance interview.";
+
 const CAUSAL_LINK = /\b(because|so|since|led to|leads to|leading to|which meant|as a result|that's why|caused|therefore)\b/i;
 const MATERIAL_CHECK_TEXT =
   "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
@@ -520,7 +524,10 @@ export function AssignmentIntake({
   // QA 3:00: a message typed while Pau Pau is replying waits here (shown in the chat) and goes right after.
   const queuedRef = useRef<string | null>(null);
   const [queuedSaid, setQueuedSaid] = useState<string | null>(null);
-  const latestSendNow = useRef<((text: string, fromBox: boolean) => void) | null>(null);
+  // QA 3:51: a message queued during her last Stage 1 reply lands after the step closed (the gate has
+  // no question to take it). It still shows, in order, with an honest reply; it is never dropped.
+  const [gateSaid, setGateSaid] = useState<{ id: number; said: string }[]>([]);
+  const latestSendNow = useRef<((text: string, fromBox: boolean) => boolean | void) | null>(null);
   // Colton 1:54 R1: what a lost student first said, kept while the summary offer is open.
   const offerSaid = useRef<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
@@ -3665,8 +3672,8 @@ export function AssignmentIntake({
       }
       sendNow(text, false);
     };
-    const sendNow = (text: string | undefined, fromBox: boolean) => {
-      if (submitting || sendLock.current) return;
+    const sendNow = (text: string | undefined, fromBox: boolean): boolean => {
+      if (submitting || sendLock.current) return false;
       sendLock.current = true;
       rejectedRef.current = false;
       setSubmitting(true);
@@ -3684,18 +3691,34 @@ export function AssignmentIntake({
           // The queued message goes right after the reply. If the first was turned back (too short),
           // both go together as one answer, so neither is lost.
           queuedRef.current = null;
-          setQueuedSaid(null);
           const merged = fromBox && rejectedRef.current && text ? `${text}\n${queuedNext}` : queuedNext;
-          setTimeout(() => latestSendNow.current?.(merged, true), 60);
+          // QA 3:51: the screen may not have re-rendered yet (a heavy render can take longer than a
+          // beat), so a send that is still "busy" is retried, never silently dropped. It stays on
+          // screen as queued until it actually goes.
+          const fire = (n: number) => {
+            const went = latestSendNow.current?.(merged, true);
+            if (went === false && n < 80) {
+              setTimeout(() => fire(n + 1), 50);
+              return;
+            }
+            setQueuedSaid(null);
+          };
+          setTimeout(() => fire(0), 60);
           return;
         }
         // Turned back: their words go back in the box, never lost.
         // QA 3:06: a short early take stays in the chat (and counts toward the next send), not back in the box.
         if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
       });
+      return true;
     };
     // A message queued during her reply goes to whatever she's asking now (the story question too).
-    latestSendNow.current = screen === "story" ? (t: string) => void submitOwnStory(t) : sendNow;
+    latestSendNow.current =
+      screen === "story"
+        ? (t: string) => void submitOwnStory(t)
+        : screen === "gate"
+          ? (t: string) => setGateSaid((prev) => [...prev, { id: Date.now(), said: t }].slice(-6))
+          : sendNow;
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
@@ -4177,6 +4200,14 @@ export function AssignmentIntake({
               </div>
             </PauPauGroup>
           ) : null}
+          {screen === "gate"
+            ? gateSaid.map((g) => (
+                <div key={g.id} className="space-y-4" data-gate-said>
+                  <StudentBubble message={{ text: g.said, files: [], at: 0 }} />
+                  <PauPauGroup bubbles={[GATE_SAID_REPLY]} />
+                </div>
+              ))
+            : null}
 
           {/* QA 1:16: on a reload, no "Welcome back…" appended after the conversation already on screen. */}
           {answers.length === 0 ? (
