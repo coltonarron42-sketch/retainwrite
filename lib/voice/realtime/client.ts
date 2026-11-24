@@ -114,7 +114,7 @@ export class RealtimeVoice {
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number; stage?: 1 | 2 },
+    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number; stage?: 1 | 2 | 3 },
   ) {}
 
   /** Call inside the tap. */
@@ -179,7 +179,7 @@ export class RealtimeVoice {
     for (const [k, v] of Object.entries(this.opts.tuning ?? {})) q.set(k, v);
     if (this.resume) q.set("resume", this.resume);
     if (this.opts.gate) q.set("gate", String(this.opts.gate));
-    if (this.opts.stage === 1) q.set("stage", "1");
+    if (this.opts.stage === 1 || this.opts.stage === 3) q.set("stage", String(this.opts.stage));
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;

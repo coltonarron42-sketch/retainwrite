@@ -1684,8 +1684,8 @@ export function AssignmentIntake({
     ];
     return (
       <div className="mx-auto max-w-[680px]">
-        <SpeakNew scope={paperId} items={uploadSpeak} />
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
+        <SpeakNew scope={paperId} items={rtMode ? [] : uploadSpeak} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
         <div className="mt-4 space-y-6">
           <PauPauGroup
             showName
@@ -1761,7 +1761,7 @@ export function AssignmentIntake({
   if (screen === "parsing") {
     return (
       <div className="mx-auto max-w-[680px]">
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
         <div className="mt-4 space-y-6">
           <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -1821,7 +1821,7 @@ export function AssignmentIntake({
   if (screen === "card" && requirements && !editingDetails) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
         <div className="mt-4 space-y-6">
           <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -1840,8 +1840,9 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
-              welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />}
+              welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
               sendRef={confirmSendRef}
+              oldVoiceOff={rtMode}
               realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
               live={rt.on ? <LiveTurns rows={rt.live} /> : null}
             />
@@ -2539,8 +2540,8 @@ export function AssignmentIntake({
 
     return (
       <div className="mx-auto max-w-[680px]">
-        <SpeakNew scope={paperId} items={threadSpeak} />
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} />
+        <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
           {/* The start of the chat, rebuilt from what's saved. */}
           <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
@@ -2769,7 +2770,7 @@ export function AssignmentIntake({
             </PauPauGroup>
           ) : null}
 
-          <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />
+          <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
           {rt.on ? <LiveTurns rows={rt.live} /> : null}
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
