@@ -64,6 +64,7 @@ describe("1. read-back confirm", () => {
   });
   it("the confirm card has a visible Confirm button", () => {
     const src = readFileSync("components/stages/stage1/pau-pau-confirm.tsx", "utf8");
+    expect(src).toContain("noGist");
     expect(src).toContain("Looks right, let's start");
     expect(src).toContain("answerInPlace");
   });
@@ -93,6 +94,7 @@ describe("2. material for every named reading", () => {
     const para =
       "Family meals have long served as a ritual of belonging. In the households studied, the evening table was where news was exchanged, disputes were softened, and children learned the unwritten rules of the family. The kitchen itself became a quiet witness to these exchanges, its routines shaping who spoke and who listened. Over time, these small rituals accumulated into a shared identity that outlasted any single conversation held there.";
     expect(looksLikePastedReading(para, 1)).toBe(true);
+    expect(looksLikePastedReading(para, 0)).toBe(true);
     expect(looksLikePastedReading("I think family meals matter because my mom always made us talk at dinner and I learned a lot from it, honestly more than school.", 0)).toBe(false);
   });
   it("summaries keep every reading (reading, found, knowledge), newest per title", () => {
@@ -214,6 +216,8 @@ describe("5. template bugs", () => {
   it("the topic phrase drops the instruction words", () => {
     expect(cleanTopic(req.topic.value)).toBe("which leadership style is most effective for leading a team through change");
     expect(practitionerReason(req.topic.value)).not.toMatch(/using one real leader|arguing/);
+    expect(practitionerReason("what the two readings say about why family meals matter, and whether you agree")).toMatch(/your question/);
+    expect(practitionerReason("whether stress helps or hurts memory")).not.toMatch(/“hurts memory”/);
   });
   it("Stage 2 has no 'Good question.' opener and declines write requests warmly", () => {
     const sec = { title: "Introduction" };
@@ -228,5 +232,15 @@ describe("5. template bugs", () => {
     expect(stripHollowPraise("That's a great start. Which style?")).toBe("Which style?");
     expect(cleanCoachAnswer(["Love that! Here's the gist."], { mode: "lost", message: "idk" })).toEqual(["Here's the gist."]);
     expect(cleanCoachAnswer(["Nice point about Nadella."], { mode: "answer", message: "who is a good example?" })).toEqual(["Nice point about Nadella."]);
+  });
+});
+
+describe("preview walk follow-ups", () => {
+  it("a shared word like 'team' is not a pick", async () => {
+    const { pickFrom } = await import("@/lib/stage1/paper-context");
+    const grid = [{ label: "Team Management (9,9)", why: "" }, { label: "Authority-Compliance (9,1)", why: "" }];
+    expect(pickFrom("I'd pick transformational because it helps a team get through change", grid)).toBe("their own");
+    expect(pickFrom("Team management, because it balances task and people", grid)).toBe("Team Management (9,9)");
+    expect(stage2Earlier({ question: "q", pick: "Team Management (9,9)", answer: "I'd pick transformational because it helps a team get through change", at: 1 })).toMatch(/^Earlier you said:/);
   });
 });

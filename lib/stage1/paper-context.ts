@@ -225,14 +225,31 @@ export function cleanOptions(raw: unknown): DecisionOption[] {
 }
 
 /** The student's pick: which option their answer names (or "their own"). */
+const GENERIC_PICK_WORD = /^(team|teams|leadership|leader|leaders|style|styles|management|approach|focus|angle|option|people|group|work|change|side|idea|ideas|time|together)$/;
+/** The word right after "I'd pick / going with / choose" ("transformational"), if any. */
+export function namedPickWord(answer: string): string | null {
+  return answer.toLowerCase().match(/\b(?:pick|picking|go with|going with|choose|chose|choosing|argue for|arguing for)\s+(?:the\s+)?([a-z][a-z-]{3,})/)?.[1] ?? null;
+}
+/** Does their answer really name this option (not just share a word like "team")? */
+export function answerNamesOption(answer: string, label: string): boolean {
+  const a = answer.toLowerCase();
+  const words = tok(label).filter((x) => x.length > 3);
+  const distinct = words.filter((x) => !GENERIC_PICK_WORD.test(x));
+  const use = distinct.length ? distinct : words;
+  if (!use.length) return false;
+  const named = namedPickWord(answer);
+  if (named && !GENERIC_PICK_WORD.test(named) && !words.some((w) => w.startsWith(named.slice(0, 5)) || named.startsWith(w.slice(0, 5)))) return false;
+  return use.filter((x) => a.includes(x)).length / use.length >= 0.5;
+}
+
 export function pickFrom(answer: string, options: DecisionOption[]): string {
   const a = answer.toLowerCase();
   let best: { label: string; score: number } | null = null;
   for (const o of options) {
-    const words = tok(o.label).filter((x) => x.length > 3);
-    if (!words.length) continue;
-    const score = words.filter((x) => a.includes(x)).length / words.length;
-    if (score >= 0.5 && (!best || score > best.score)) best = { label: o.label, score };
+    if (!answerNamesOption(answer, o.label)) continue;
+    const words = tok(o.label).filter((x) => x.length > 3 && !GENERIC_PICK_WORD.test(x));
+    const score = words.length ? words.filter((x) => a.includes(x)).length / words.length : 0.5;
+    if (!best || score > best.score) best = { label: o.label, score };
   }
   const m = a.match(/\b(?:option|number|choice)\s*(one|two|three|1|2|3)\b|\bthe (first|second|third) one\b/);
   if (!best && m) {
@@ -390,7 +407,8 @@ export function looksLikePastedReading(text: string, pasteRatio = 0): boolean {
   const firstPerson = words.filter((w) => /^(i|i'm|i've|i'd|i'll|my|me|mine|im|ive)$/i.test(w.replace(/[^a-z']/gi, ""))).length;
   const ratio = firstPerson / words.length;
   if (pasteRatio >= 0.6 && ratio < 0.02) return true;
-  return words.length >= 80 && ratio < 0.01 && !/\b(you|your)\b/i.test(t.slice(0, 200));
+  // Typed or pasted: 60+ words with no first person and no "you" reads like the text itself.
+  return words.length >= 60 && firstPerson === 0 && !/\b(you|your)\b/i.test(t);
 }
 
 /** Colton: "if we know something, share it". Never a "that'd be doing the reading for you" refusal. */

@@ -5,12 +5,12 @@
  * // SOP: coaching only, never generate submission text
  */
 import { clipWords } from "@/lib/copy/clip";
-import { decisionHasReason, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { answerNamesOption, decisionHasReason, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
 export function stage2Earlier(decision: PaperContext["decision"] | null | undefined, leader?: PaperContext["leader"] | null): string | null {
   if (!decision || !decisionHasReason(decision.answer)) return null;
   const said = clipWords(decision.answer.replace(/\s+/g, " ").trim(), 160);
-  const head = decision.pick && decision.pick !== "their own" ? `Earlier you picked ${decision.pick}: “${said}”` : `Earlier you said: “${said}”`;
+  const head = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? `Earlier you picked ${decision.pick}: “${said}”` : `Earlier you said: “${said}”`;
   const who = leader?.pick && leader.pick !== "their own" && !new RegExp(leader.pick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(decision.answer) ? ` Your leader: ${leader.pick}.` : "";
   return head + who;
 }

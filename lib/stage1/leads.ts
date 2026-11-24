@@ -157,7 +157,13 @@ export function topicFocus(topic: string | null | undefined): string {
 export function practitionerReason(topic: string | null | undefined, interest?: { name: string; media: boolean } | null): string {
   // QA 6:03 AM: never an instruction fragment ("using one real leader") or a dangling verb ("leadership style is").
   const raw = topicFocus(topic).replace(/\s+(?:is|are|was|were|has|have|does|do|can|should|will)$/i, "").trim();
-  const focus = /^(?:using|use|one real|your|a real)\b/i.test(raw) || raw.split(/\s+/).length < 2 && raw.length < 5 ? "" : raw;
+  // Never a fragment of the instructions ("two readings say about…") or a verb phrase ("hurts memory").
+  const awkward =
+    /^(?:using|use|one real|your|a real)\b/i.test(raw) ||
+    /\b(?:readings?|says?|said|the two|assignment|prompt|agree|essay|paper|words)\b/i.test(raw) ||
+    /^(?:hurts?|helps?|affects?|changes?|makes?|causes?|leads?|shapes?|improves?|harms?)\b/i.test(raw) ||
+    raw.split(/\s+/).length > 6;
+  const focus = awkward || (raw.split(/\s+/).length < 2 && raw.length < 5) ? "" : raw;
   const base = focus
     ? `A teacher, researcher or official who has dealt with “${focus}” firsthand, in an interview or a case study.`
     : "A teacher, researcher or official who has dealt with your question firsthand, in an interview or a case study.";
