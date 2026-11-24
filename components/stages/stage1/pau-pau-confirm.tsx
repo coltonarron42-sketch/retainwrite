@@ -128,7 +128,7 @@ export function PauPauConfirm({
   });
 
   const dismissed = useMemo(() => dismissedFromTurns(turns), [turns]);
-  const ask = pauPauNextAsk(requirements, dismissed);
+  const ask = pauPauNextAsk(requirements, dismissed, sheetText ?? "");
 
   // North star (Colton t161u): the plain-words read-back (what's asked, what a strong
   // answer needs, how it's graded). Waits a few seconds for it; the sheet facts otherwise.
@@ -192,7 +192,7 @@ export function PauPauConfirm({
 
   /** The next missing thing Pau Pau hasn't asked yet, or null. */
   function nextNewAsk(req: AssignmentRequirements, after: Set<PauPauAsk>): PauPauAsk | null {
-    const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]));
+    const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]), sheetText ?? "");
     return next;
   }
 

@@ -437,13 +437,13 @@ export function sourcesMissing(req: AssignmentRequirements): boolean {
 }
 
 /** The single most important missing thing, or null. Topic cannot be skipped. */
-export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>): PauPauAsk | null {
+export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>, sheetText = ""): PauPauAsk | null {
   const req = trustedView(full).view;
   const topic = cleanTopic(req.topic.value) || cleanTopic(req.promptQuestion.value);
   if (!topic || isPlaceholderTopic(topic)) return "topic";
   // Colton 1:54 R2: a named chapter or reading they haven't given us is asked for right away.
   const provided = (req.providedReadings.value ?? []).length + (req.providedSources?.value ?? []).length;
-  if (!dismissed.has("sources") && (sourcesMissing(req) || (provided === 0 && namedWorksFrom(req).length > 0))) return "sources";
+  if (!dismissed.has("sources") && (sourcesMissing(req) || (provided === 0 && namedWorksFrom(req, sheetText).length > 0))) return "sources";
   if (!dismissed.has("length") && !req.length.value) return "length";
   return null;
 }
