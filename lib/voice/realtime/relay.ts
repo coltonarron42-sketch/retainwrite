@@ -835,6 +835,14 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.applied": {
         if (String(e.call_id ?? "").startsWith("n_")) {
           m.notesApplied = (m.notesApplied ?? 0) + (e.result === "saved" ? 1 : 0);
+          // A said on-screen choice ("keep my notes") already moved the app: her reply to it is stale
+          // (the app's next turn speaks for the new step), so cut it.
+          const item = String(e.call_id).slice(2);
+          if (appOwned && e.result === "saved" && responding && currentRid && responseAfter.get(currentRid) === item) {
+            guarded.add(currentRid);
+            upSend({ type: "response.cancel" });
+            toClient({ type: "rw.guard", response_id: currentRid });
+          }
           swapWaiting = e.result === "swap_ask";
           if (swapWaiting) {
             m.tools.swap_ask = (m.tools.swap_ask ?? 0) + 1;
