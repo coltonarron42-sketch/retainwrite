@@ -276,11 +276,13 @@ export function pickFrom(answer: string, options: DecisionOption[]): string {
 
 /** The decision question with its options, as the app's question text. */
 export function decisionQuestion(opts: NonNullable<PaperContext["options"]>, ctx?: { prepared?: boolean }): string {
-  const list = opts.options.map((o, i) => `${i + 1}) ${o.label}${o.why ? ` (${o.why})` : ""}`).join("; ");
+  // Colton 11:41: 2-3 real options, never a long menu.
+  const few = opts.options.slice(0, 3);
+  const list = few.map((o, i) => `${i + 1}) ${o.label}${o.why ? ` (${o.why})` : ""}`).join("; ");
   const q = opts.question.trim().replace(/[?.!\s]+$/, "") + "?";
   // QA 10:21: a student who has read it gets an open ask; the list is only a nudge.
   if (ctx?.prepared)
-    return `${q} You've done the reading, so tell me your pick and your reason. If it helps, the usual contenders are ${opts.options.map((o) => o.label).join(", ")}.`;
+    return `${q} You've done the reading, so tell me your pick and your reason. If it helps, the usual contenders are ${few.map((o) => o.label).join(", ")}.`;
   if (opts.basis === "general")
     return `${q} I haven't seen your edition yet, so these are general, well-established options from the field, not your chapter's own list: ${list}. Which one would you pick, or something else, and why?`;
   return `${q} Here are a few real options: ${list}. Which one would you pick, or something else, and why?`;
