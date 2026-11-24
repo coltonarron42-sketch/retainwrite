@@ -333,7 +333,7 @@ export async function investigateWork(work: string, ask: string | null): Promise
   // (deterministic, book level for a chapter); the web lookup only adds where to get it.
   const cat = wellKnownWork(work, ask ?? "");
   const catKnowledge: MaterialSummary | null = cat
-    ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points: cat.points, sources: [], at: Date.now() }
+    ? { kind: "knowledge", title: chapter && cat.bookLevel ? bookLevelTitle(title) : title, points: cat.points, sources: [], at: Date.now() }
     : null;
   const empty: WorkInvestigation = { work, title, known: Boolean(cat), knowledge: catKnowledge, found: null, offers: [] };
   const key = process.env.GROK_API_KEY?.trim();
@@ -480,6 +480,9 @@ export function shortWork(w: string): string {
   // "Field Notes on Quiet Persistence by Marisol Tenhagen (course packet, 2019)" → "Tenhagen's “Field Notes on Quiet Persistence”"
   const bare = t.match(/^([A-Z][^()]{3,70}?)\s+by\s+[A-Z]/)?.[1];
   if (by && bare && !/\b(chapter|ch\.)/i.test(bare)) return `${by}'s “${bare.trim()}”`;
+  // QA 3:06: "Chapter 6 (Memory) in Myers' Psychology, 13th edition" → "Myers' Psychology, Ch. 6" (never "Memory Ch. 6").
+  const owned = t.match(/\b([A-Z][\w-]+(?:'s|’s|'|’)\s+[A-Z][^,;()]{2,50}?)(?=\s*[,;()]|\s+\d|$)/)?.[1];
+  if (owned && ch) return `${owned.trim()}, Ch. ${ch}`;
   if (by && ch) return `${by} Ch. ${ch}`;
   // "Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice)" → "Northouse's Leadership: Theory and Practice, Ch. 4"
   const ab = t.match(/\b([A-Z][\w-]+),\s+([A-Z][^,;()]{3,50}?)(?=[,;()]|$)/);

@@ -149,7 +149,9 @@ async function quickKnownMade(supabase: SupabaseClient, paperId: string, ctx: Pa
   const inv = works.map((w) => {
     const chapter = chapterOf(w);
     const title = shortWork(w);
-    return { title, summary: { kind: "knowledge" as const, title: chapter ? bookLevelTitle(title) : title, points: wellKnownWork(w, a.text)!.points, sources: [], at: Date.now() } };
+    const cat = wellKnownWork(w, a.text)!;
+    // A topic-level entry (an intro text's memory chapter) keeps the chapter in its title; book-level ones say "the book overall".
+    return { title, summary: { kind: "knowledge" as const, title: chapter && cat.bookLevel ? bookLevelTitle(title) : title, points: cat.points, sources: [], at: Date.now() } };
   });
   return {
     summary: inv[0]!.summary,

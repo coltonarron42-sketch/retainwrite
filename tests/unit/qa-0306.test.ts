@@ -65,6 +65,13 @@ describe("QA 3:06 #3: standard texts get general background, never 'won't guess'
   });
 });
 
+describe("QA 3:06 #3 titles", () => {
+  it("a chapter of a possessive-titled book is named by the book, not the topic", async () => {
+    const { shortWork } = await import("@/lib/server/paper-context/brief");
+    expect(shortWork("Chapter 6 (Memory) in Myers' Psychology, 13th edition")).toBe("Myers' Psychology, Ch. 6");
+  });
+});
+
 describe("QA 3:06 minors", () => {
   it("'Locked in' quotes the key picks only", () => {
     expect(lockedPicks("I want to use Sam Walton. I think he shows servant and transformational leadership", "Sam Walton", ["servant", "transformational"])).toBe(
