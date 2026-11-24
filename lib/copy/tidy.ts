@@ -19,7 +19,10 @@ export function tidyPunct(text: string): string {
 export function dropHedges(text: string): string {
   const out = text
     .replace(/[\u2018\u2019]/g, "'")
-    .replace(/,?\s*\b(?:i guess|i suppose|idk|i don'?t know|dunno|maybe|probably|kinda|kind of|sort of|or something|or whatever|like,)\b\s*,?/gi, " ")
+    // A hedge between two clauses keeps one comma ("bad for change I guess, situational" → "bad for change, situational").
+    .replace(/(,?)\s*\b(?:i guess|i suppose|idk|i don'?t know|dunno|maybe|probably|kinda|kind of|sort of|or something|or whatever|like,)\b\s*(,?)/gi, (_m, a: string, b: string, off: number) => ((a || b) && off > 0 ? ", " : " "))
+    .replace(/,\s*([.;:?!])/g, "$1")
+    .replace(/,\s*,/g, ",")
     .replace(/^\s*(?:um+|uh+|so|well|yeah|ok(?:ay)?)\b[,\s]+/i, "")
     .replace(/\s+([,.;:?!])/g, "$1")
     .replace(/^[,\s]+|[,\s]+$/g, "")

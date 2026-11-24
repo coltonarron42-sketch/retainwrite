@@ -165,3 +165,12 @@ describe("QA 8:31 live fixes (2)", () => {
     expect(src).toContain("realPick && grounded.length >= 2");
   });
 });
+
+describe("QA 8:31 live fixes (3)", () => {
+  it("dropping a hedge keeps the clause comma", async () => {
+    const { dropHedges } = await import("@/lib/copy/tidy");
+    expect(dropHedges("Transformational leadership is bad for change I guess, situational is way better, so Nadella probably did it wrong.")).toBe("Transformational leadership is bad for change, situational is way better, so Nadella did it wrong.");
+    expect(dropHedges("I'd pick servant, I guess.")).toBe("I'd pick servant.");
+    expect(dropHedges("I guess people stuff")).toBe("people stuff");
+  });
+});
