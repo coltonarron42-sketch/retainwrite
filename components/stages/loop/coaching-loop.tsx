@@ -1268,7 +1268,11 @@ export function CoachingLoop({
                     ? "This is the question your paper answers. We'll work through it one section at a time."
                     : assignmentPurposeLine(subject),
             purpose: STAGE_PURPOSE[2],
-            earlier: pctx?.decision ? `Earlier you picked ${pctx.decision.pick}: “${clipWords(pctx.decision.answer, 160)}”` : null,
+            earlier: pctx?.decision
+              ? pctx.decision.pick && pctx.decision.pick !== "their own"
+                ? `Earlier you picked ${pctx.decision.pick}: “${clipWords(pctx.decision.answer, 160)}”`
+                : `Earlier you said: “${clipWords(pctx.decision.answer, 160)}”`
+              : null,
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
