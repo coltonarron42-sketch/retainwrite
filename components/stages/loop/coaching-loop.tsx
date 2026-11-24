@@ -16,6 +16,7 @@ export function intentKey(sectionKey: string, ask: string, text: string): string
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
+import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -102,7 +103,7 @@ import {
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
-import { isLostSaying, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
+import { isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
 /** Key points from the material, labeled by where they came from (shown under a disclosure). */
 function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
@@ -116,6 +117,8 @@ type PaperBrief = {
   summaries?: MaterialSummary[];
   options: PaperContext["options"] | null;
   decision: PaperContext["decision"] | null;
+  leader?: PaperContext["leader"] | null;
+  readback?: ReadbackPlain | null;
   missingAsk?: string | null;
 };
 
@@ -276,6 +279,7 @@ export function CoachingLoop({
   const [sessionLoaded, setSessionLoaded] = useState(false);
   // North star D: what Stage 1 learned (read-back, material key points, decision), for Stages 2-3.
   const [pctx, setPctx] = useState<PaperBrief | null>(null);
+  const [asideChips, setAsideChips] = useState<string[]>([]);
   useEffect(() => {
     if (!persist || stage < 2 || stage > 3) return;
     let live = true;
@@ -782,10 +786,13 @@ export function CoachingLoop({
     const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
     const ask = more.find((l) => l.who === "pau")?.text ?? "";
     const mode = forced ?? answerModeFor(intent, said);
+    // "just tell me some options": the Stage 1 options again, as chips (QA 6:03 AM).
+    const again = isOptionsRequest(said) ? optionsAgain(pctx?.options?.options, pctx?.options?.people) : null;
     setAnswering(true);
-    const answered = mode ? await coachAnswer(mode, said, section.title, ask) : null;
+    const answered = again ? again.paras : mode ? await coachAnswer(mode, said, section.title, ask) : null;
     setAnswering(false);
-    const paras = answered ?? intentReply(intent === "content" ? "request_help" : intent, { turn, section });
+    setAsideChips(again ? again.chips : []);
+    const paras = answered ?? intentReply(intent === "content" ? "request_help" : intent, { turn, section, text: said });
     // Never the same answer twice in a row for the same words (QA 2:08 #4).
     const prior = session.transcript ?? [];
     const tail = prior.slice(-(more.length + paras.length));
@@ -1187,7 +1194,7 @@ export function CoachingLoop({
     setAnswering(true);
     const answered = mode ? await coachAnswer(mode, said, item.title, more.find((l) => l.who === "pau")?.text ?? "") : null;
     setAnswering(false);
-    const paras = answered ?? intentReply(intent, { turn: "outline", section: item });
+    const paras = answered ?? intentReply(intent, { turn: "outline", section: item, text: said });
     const outlineTranscript = appendLines(session.outlineTranscript, [...more, ...paras.map((text): LoopLine => ({ k: key, who: "pau", text }))]);
     commit({
       ...session,
@@ -1258,21 +1265,19 @@ export function CoachingLoop({
         <StanceChat
           paperId={paperId}
           intro={{
-            heading: stageLessonHeader(subject, lesson.statement),
-            body:
-              session.extraction.promptType === "personal_experience"
-                ? "This looks like a personal-story assignment. We'll help you remember and tell it."
-                : subject === "your topic"
-                  ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-                  : isQuestionTopic(subject)
-                    ? "This is the question your paper answers. We'll work through it one section at a time."
-                    : assignmentPurposeLine(subject),
+            ...stage2IntroText(pctx?.readback, {
+              heading: stageLessonHeader(subject, lesson.statement),
+              body:
+                session.extraction.promptType === "personal_experience"
+                  ? "This looks like a personal-story assignment. We'll help you remember and tell it."
+                  : subject === "your topic"
+                    ? "The assignment topic is still missing. Add it on the checklist before this lesson."
+                    : isQuestionTopic(subject)
+                      ? "This is the question your paper answers. We'll work through it one section at a time."
+                      : assignmentPurposeLine(subject),
+            }),
             purpose: STAGE_PURPOSE[2],
-            earlier: pctx?.decision
-              ? pctx.decision.pick && pctx.decision.pick !== "their own"
-                ? `Earlier you picked ${pctx.decision.pick}: “${clipWords(pctx.decision.answer, 160)}”`
-                : `Earlier you said: “${clipWords(pctx.decision.answer, 160)}”`
-              : null,
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader),
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
@@ -1322,6 +1327,7 @@ export function CoachingLoop({
           }
           transcript={session.transcript ?? []}
           aside={session.aside ?? null}
+          asideChips={asideChips}
           classify={classifyIntent}
           onAside={onAside}
           busy={checkingLogic || answering}

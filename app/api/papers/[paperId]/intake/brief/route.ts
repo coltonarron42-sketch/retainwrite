@@ -6,7 +6,8 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { investigateWork, findNamedWork, findVideo, materialMore, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { workSummaries, authorOf, investigateWork, findNamedWork, findVideo, materialMore, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { namedWorksFrom, sameWork } from "@/lib/stage1/readings";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
 import { currentSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
@@ -30,7 +31,13 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reading_link"), url: z.string().url().max(2000) }),
   z.object({ action: z.literal("options") }),
   z.object({ action: z.literal("material_more"), mode: z.enum(["depth", "simpler", "video"]) }),
-  z.object({ action: z.literal("decision"), question: z.string().max(2000), answer: z.string().min(1).max(20_000) }),
+  z.object({
+    action: z.literal("decision"),
+    question: z.string().max(2000),
+    answer: z.string().min(1).max(20_000),
+    slot: z.enum(["main", "leader"]).optional(),
+    source: z.enum(["asked", "stated"]).optional(),
+  }),
   z.object({ action: z.literal("context") }),
 ]);
 
@@ -53,11 +60,8 @@ async function basics(supabase: SupabaseClient, paperId: string): Promise<Assign
     paperType: str("paperType"),
     rubric,
     structure: arr("structuralRequirements").map(String),
-    namedWorks: (src?.notes ?? "")
-      .replace(/^\s*must (include|use|cite):?\s*/i, "")
-      .split(/;\s*/)
-      .map((x) => x.trim())
-      .filter((x) => x.length >= 6),
+    // QA 6:03 AM: every required reading or handout (sheet notes, provided readings, titles in the text).
+    namedWorks: namedWorksFrom(req as Parameters<typeof namedWorksFrom>[0], `${(asg?.raw_text as string | null) ?? ""} ${(paper?.assignment_prompt as string | null) ?? ""}`),
     sources: src ? [src.countMin ? `at least ${src.countMin}` : null, src.types, src.notes].filter(Boolean).join(", ") || null : null,
     length: len?.raw ?? (len?.wordsMin ? `${len.wordsMin}-${len.wordsMax ?? ""} words` : null),
     text: (asg?.raw_text as string | null) || (paper?.assignment_prompt as string | null) || "",
@@ -71,15 +75,18 @@ type Made = { summary: MaterialSummary | null; more?: MaterialSummary[]; missing
 async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: PaperContext): Promise<Made> {
   const a = await basics(supabase, paperId);
   const ask = ctx.readback?.ask ?? null;
-  const reading = ctx.readings?.at(-1);
-  if (reading)
-    return { summary: await summarizeText({ kind: "reading", title: reading.title, text: reading.text, ask, source: reading.url ? { title: reading.title, url: reading.url } : undefined }) };
   const policy = materialPolicy();
-  // Colton 11:46 PM: share what she genuinely knows, find where it's legitimately available, ask for the rest.
-  if (policy === "smart" && a.namedWorks.length) {
-    const works = a.namedWorks.slice(0, 3);
+  // QA 6:03 AM: EVERY reading gets the material step. What they gave us is summarized
+  // from the text; each other named work is investigated (knowledge, found, or an honest ask).
+  const given = (ctx.readings ?? []).slice(-3);
+  const fromGiven = (
+    await Promise.all(given.map((r) => summarizeText({ kind: "reading", title: r.title, text: r.text, ask, source: r.url ? { title: r.title, url: r.url } : undefined })))
+  ).filter((x): x is MaterialSummary => Boolean(x));
+  const covered = (w: string) => given.some((r) => sameWork(r.title, w) || (authorOf(w) && r.text.toLowerCase().includes(authorOf(w).toLowerCase())));
+  const works = a.namedWorks.filter((w) => !covered(w)).slice(0, 4);
+  if (policy === "smart" && works.length) {
     const inv = await Promise.all(works.map((w) => investigateWork(w, ask)));
-    const sums = inv.flatMap((i) => (i.found ? [i.found] : i.knowledge ? [i.knowledge] : []));
+    const sums = [...fromGiven, ...inv.flatMap(workSummaries)];
     const need = inv.filter((i) => !i.found);
     return {
       summary: sums[0] ?? null,
@@ -88,25 +95,14 @@ async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: Paper
       whereToGet: need.map((i) => ({ title: i.title, known: i.known, offers: i.offers })),
     };
   }
+  if (fromGiven.length) return { summary: fromGiven[0]!, more: fromGiven.slice(1) };
   // Colton 11/23: named readings → find the actual work online; what she can't get, she asks for.
-  if (policy === "find_source" && a.namedWorks.length) {
-    const works = a.namedWorks.slice(0, 3);
+  if (policy === "find_source" && works.length) {
     const found = await Promise.all(works.map((w) => findNamedWork(w, ask).catch(() => null)));
     const got = found.filter((x): x is MaterialSummary => Boolean(x));
     const missing = works.filter((_, i) => !found[i]).map(shortWork);
-    // Nothing found: she can still teach the general ideas the assignment itself names (never "what the reading says").
     if (!got.length) return { summary: await generalBackground(a, ask, { works: [], avoid: works }), missing };
-    const summary: MaterialSummary =
-      got.length === 1
-        ? got[0]!
-        : {
-            kind: "found",
-            title: got.map((g) => g.title).join(" and "),
-            points: got.flatMap((g) => g.points.slice(0, 4).map((p) => `${g.title}: ${p}`)),
-            sources: got.flatMap((g) => g.sources),
-            at: Date.now(),
-          };
-    return { summary, missing };
+    return { summary: got[0]!, more: got.slice(1), missing };
   }
   // The assignment sheet itself, when it carries real material (an excerpt, a case, data).
   if (words(a.text) >= 350) {
@@ -114,9 +110,9 @@ async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: Paper
     if (s) return { summary: s };
   }
   // No reading: the one source-policy switch (lib/config/material-policy.ts) decides.
-  if (policy === "uploads_only") return { summary: null, missing: a.namedWorks.map(shortWork) };
-  if (policy === "find_source") return { summary: await generalBackground(a, ask, { works: [] }) }; // nothing named: topic background
-  return { summary: await generalBackground(a, ask, { works: policy === "overview" ? a.namedWorks : [] }) };
+  if (policy === "uploads_only") return { summary: null, missing: works.map(shortWork) };
+  if (policy === "find_source") return { summary: await generalBackground(a, ask, { works: [] }) };
+  return { summary: await generalBackground(a, ask, { works: policy === "overview" ? works : [] }) };
 }
 
 /** Summary + options, once, so a lost student doesn't wait (runs after the confirm response). */
@@ -135,7 +131,7 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
 function withMade(p: PaperContext, m: Made): PaperContext {
   return {
     ...p,
-    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary, ...(m.more ?? [])].slice(-4) } : {}),
+    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary, ...(m.more ?? [])].slice(-8) } : {}),
     ...(m.missing ? { missing: m.missing } : {}),
     ...(m.whereToGet ? { whereToGet: m.whereToGet } : {}),
   };
@@ -161,7 +157,7 @@ function missingAskFor(ctx: PaperContext): string | null {
 
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -196,18 +192,28 @@ export async function POST(request: Request, ctx: Ctx) {
         const fresh = (paper.current_stage ?? 1) === 1 && !(answered ?? []).length;
         await save((p) => ({ ...p, northstar: p.northstar ?? fresh, ...(rb ? { readback: rb } : {}) }));
       }
+      // QA 6:03 AM latency: the material lookup starts the moment the assignment is read.
+      if (cur.northstar && !cur.prefetchAt) {
+        await save((p) => ({ ...p, prefetchAt: Date.now() }));
+        after(() => prefetch(supabase, paperId, userId).catch(() => undefined));
+      }
       console.info("[brief] readback", { ms: Date.now() - started, ok: Boolean(cur.readback) });
       return NextResponse.json({ ok: true, ...publicView(cur) });
     }
     case "confirm_readback": {
       if (cur.readback) await save((p) => ({ ...p, readback: p.readback ? { ...p.readback, confirmed: true } : p.readback }));
-      if (cur.northstar) after(() => prefetch(supabase, paperId, userId).catch(() => undefined));
+      if (cur.northstar && !cur.prefetchAt) after(() => prefetch(supabase, paperId, userId).catch(() => undefined));
       return NextResponse.json({ ok: true, ...publicView(cur) });
     }
     case "lost":
       await save((p) => ({ ...p, lostAtStart: true }));
       return NextResponse.json({ ok: true });
     case "summary": {
+      // The lookup started at the read-back: wait for it instead of starting a second one.
+      while (!bestSummary(cur) && !cur.missing && cur.prefetchAt && Date.now() - cur.prefetchAt < 40_000 && Date.now() - started < 30_000) {
+        await new Promise((r) => setTimeout(r, 800));
+        cur = await readPaperContext(supabase, paperId);
+      }
       if (!bestSummary(cur) && !cur.missing) {
         const m = await makeSummary(supabase, paperId, cur);
         await save((p) => withMade(p, m));
@@ -221,7 +227,7 @@ export async function POST(request: Request, ctx: Ctx) {
       if (words(text) < 40) return NextResponse.json({ error: "That reading is too short to summarize. Paste more of it, or upload the file." }, { status: 422 });
       await save((p) => ({ ...p, readings: [...(p.readings ?? []), { title, text, at: Date.now() }].slice(-3), missing: stillMissing(p.missing, text) }));
       const s = await summarizeText({ kind: "reading", title, text, ask: cur.readback?.ask ?? null });
-      if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
+      if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-8) }));
       // Options built from the old material are stale once a real reading arrives (until they decide).
       if (s && !cur.decision) {
         const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, s.points);
@@ -245,7 +251,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const text = page.text.slice(0, READING_MAX_CHARS);
       await save((p) => ({ ...p, readings: [...(p.readings ?? []), { title, text, at: Date.now(), url: page.url }].slice(-3), missing: stillMissing(p.missing, `${title} ${text}`) }));
       const s = await summarizeText({ kind: "reading", title, text, ask: cur.readback?.ask ?? null, source: { title, url: page.url } });
-      if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
+      if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-8) }));
       if (s && !cur.decision) {
         const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, s.points);
         if (o) await save((p) => ({ ...p, options: o }));
@@ -253,14 +259,17 @@ export async function POST(request: Request, ctx: Ctx) {
       return NextResponse.json({ ok: true, ...publicView(cur) });
     }
     case "material_more": {
-      const pts = currentSummaries(cur).flatMap((x) => x.points).slice(0, 8);
+      const list = currentSummaries(cur);
       if (body.mode === "video") {
         const a = await basics(supabase, paperId);
-        const videos = await findVideo(a.topic ?? a.prompt ?? "", pts);
+        const videos = await findVideo(a.topic ?? a.prompt ?? "", list.flatMap((x) => x.points).slice(0, 8));
         return NextResponse.json({ ok: true, videos });
       }
-      const points = await materialMore(pts, body.mode, cur.readback?.ask ?? null);
-      return NextResponse.json({ ok: true, points: points ?? [] });
+      // QA 6:03 AM: "Say it simpler" keeps every reading: one group per summary, each still labeled.
+      const groups = await Promise.all(
+        list.slice(0, 4).map(async (x) => ({ title: x.title, kind: x.kind, points: (await materialMore(x.points, body.mode as "depth" | "simpler", cur.readback?.ask ?? null)) ?? [] })),
+      );
+      return NextResponse.json({ ok: true, groups: groups.filter((g) => g.points.length), points: groups.flatMap((g) => g.points) });
     }
     case "options": {
       if (!cur.options) {
@@ -271,8 +280,13 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     case "decision": {
       const answer = body.answer.trim();
+      if (body.slot === "leader") {
+        const pick = pickFrom(answer, cur.options?.people ?? []);
+        await save((p) => ({ ...p, leader: { question: body.question.slice(0, 600), pick, answer, at: Date.now() } }));
+        return NextResponse.json({ ok: true, ...publicView(cur) });
+      }
       const pick = pickFrom(answer, cur.options?.options ?? []);
-      await save((p) => ({ ...p, decision: { question: body.question.slice(0, 600), pick, answer, at: Date.now() } }));
+      await save((p) => ({ ...p, decision: { question: body.question.slice(0, 600), pick, answer, at: Date.now(), source: body.source ?? "asked" } }));
       return NextResponse.json({ ok: true, ...publicView(cur) });
     }
   }

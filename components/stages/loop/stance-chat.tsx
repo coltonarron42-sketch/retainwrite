@@ -133,6 +133,8 @@ type Props = {
   transcript: LoopLine[];
   /** Her answer to a request/question; shown inside the current turn only. */
   aside: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
+  /** The Stage 1 options again as chips after "just tell me some options" (QA 6:03 AM). */
+  asideChips?: string[];
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
   /** Pau Pau is checking (relevance) before she answers. */
@@ -643,6 +645,16 @@ export function StanceChat(props: Props) {
           <p className={dsCaption} data-section-step>
             Section {active + 1} of {sections.length} · {section.title}: {section.needs}
           </p>
+
+          {asideHere && props.asideChips?.length ? (
+            <Choices label="Options from earlier">
+              {props.asideChips.map((chip) => (
+                <DsButton key={chip} type="button" size="sm" variant="secondary" data-option-chip onClick={() => props.onIdea(`I'd go with ${chip} because `)}>
+                  {chip}
+                </DsButton>
+              ))}
+            </Choices>
+          ) : null}
 
           {kind === "teach_card" && card ? (
             <>

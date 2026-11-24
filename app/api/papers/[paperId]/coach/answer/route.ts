@@ -76,7 +76,7 @@ export async function POST(request: Request, ctx: Ctx) {
   let paras: string[] = [];
   if (res.ok) {
     try {
-      paras = cleanCoachAnswer((JSON.parse(res.text) as { paras?: unknown }).paras);
+      paras = cleanCoachAnswer((JSON.parse(res.text) as { paras?: unknown }).paras, { mode: body.mode, message: body.message });
     } catch {
       paras = [];
     }
