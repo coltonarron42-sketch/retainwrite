@@ -14,6 +14,7 @@ import {
   decisionQuestion,
   isLostSaying,
   isPreparedSaying,
+  guessPick,
   isReadingQuestion,
   looksLikePastedReading,
   isVaguePick,
@@ -1651,7 +1652,7 @@ export function AssignmentIntake({
       const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
       const probe = vaguePickProbe(text, opts2);
       setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [probe] }].slice(-12));
-      const lean = opts2.find((o) => probe.includes(o.label));
+      const lean = guessPick(text, opts2);
       setDraftAnswer(lean ? `I'd pick ${lean.label} because ` : "");
       setError(null);
       return;

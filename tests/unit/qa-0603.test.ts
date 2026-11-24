@@ -139,6 +139,11 @@ describe("3. decision", () => {
     expect(vaguePickProbe("idk, the team one I guess", OPTIONS)).toMatch(/leaning toward Team-based leadership\. Why that one\?/);
     expect(decisionHasReason("I'd pick transformational because it helps a team buy into change")).toBe(true);
     expect(decisionHasReason("idk")).toBe(false);
+    // No lean to name: the probe lists the options and nothing is prefilled.
+    const two = [OPTIONS[0]!, { label: "Transactional leadership", why: "" }];
+    expect(guessPick("idk, the team one I guess", two)).toBeNull();
+    expect(vaguePickProbe("idk, the team one I guess", two)).toMatch(/^Which one are you leaning toward/);
+    expect(readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8")).toContain("const lean = guessPick(text, opts2);");
   });
   it("a prepared student's stance is captured without 'I read both'", () => {
     const s = statedStance("Yes, I read both. I'm going with transformational, Satya Nadella.", OPTIONS);
