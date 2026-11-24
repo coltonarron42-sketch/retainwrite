@@ -75,6 +75,7 @@ import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
+import { extractFileText } from "@/lib/assignment/client-extract";
 import {
   emptyField,
   emptyRequirements,
@@ -319,6 +320,8 @@ export function AssignmentIntake({
     decision: PaperContext["decision"] | null;
     lostAtStart: boolean;
     hasReading: boolean;
+    missing?: string[];
+    missingAsk?: string | null;
   };
   const [brief, setBrief] = useState<BriefView | null>(null);
   const [briefLoaded, setBriefLoaded] = useState(demoMode);
@@ -328,6 +331,8 @@ export function AssignmentIntake({
   const [readingOpen, setReadingOpen] = useState(false);
   const [readingText, setReadingText] = useState("");
   const [readingBusy, setReadingBusy] = useState(false);
+  const [readingLink, setReadingLink] = useState("");
+  const [readingNote, setReadingNote] = useState<string | null>(null);
   const briefRef = useRef<BriefView | null>(null);
   briefRef.current = brief;
   const briefCall = useCallback(
@@ -2584,6 +2589,112 @@ export function AssignmentIntake({
       ? ` (about ${stanceMode ? 25 : 15} words needed; ${draftWords} so far)`
       : null;
     const isVoiceQuestion = Boolean(q && q.kind !== "background");
+    // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
+    const readingTools = q ? (readingOpen ? (
+                    <div className="space-y-2">
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-files">
+                        Take photos of the pages (or upload a PDF or Word file):
+                      </label>
+                      <input
+                        id="reading-files"
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.doc,.docx,.txt,.rtf,.odt"
+                        disabled={readingBusy}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? []).slice(0, 12);
+                          e.target.value = "";
+                          if (!files.length) return;
+                          setReadingBusy(true);
+                          setReadingNote("Reading your pages…");
+                          void (async () => {
+                            const texts: string[] = [];
+                            for (const f of files) {
+                              const r = await extractFileText(paperId, f).catch(() => null);
+                              if (r && r.ok && r.text.trim()) texts.push(r.text.trim());
+                            }
+                            const text = texts.join("\n\n");
+                            const v = text ? await briefCall({ action: "reading", title: files.length === 1 ? files[0]!.name : `${files.length} photos of your reading`, text: text.slice(0, 200_000) }) : null;
+                            setReadingBusy(false);
+                            setReadingNote(v ? null : "I couldn't read text from those. Try clearer photos, or paste the text.");
+                            if (v) {
+                              setReadingOpen(false);
+                              setReoffer(q.id);
+                            }
+                          })();
+                        }}
+                        className="block text-[14px]"
+                      />
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-link">
+                        Or send me a link to it:
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="reading-link"
+                          type="url"
+                          inputMode="url"
+                          placeholder="https://…"
+                          value={readingLink}
+                          onChange={(e) => setReadingLink(e.target.value)}
+                          className="ds-focus min-h-[40px] flex-1 rounded-[8px] border border-ds-border bg-ds-page px-3 text-[15px]"
+                        />
+                        <DsButton
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={readingBusy || !/^https?:\/\/\S+\.\S+/.test(readingLink.trim())}
+                          onClick={() => {
+                            setReadingBusy(true);
+                            setReadingNote("Opening your link…");
+                            void briefCall({ action: "reading_link", url: readingLink.trim() }).then((v) => {
+                              setReadingBusy(false);
+                              setReadingNote(null);
+                              if (v) {
+                                setReadingLink("");
+                                setReadingOpen(false);
+                                setReoffer(q.id);
+                              }
+                            });
+                          }}
+                        >
+                          Use this link
+                        </DsButton>
+                      </div>
+                      {readingNote ? (
+                        <p className="text-[13px] text-ds-muted" role="status">
+                          {readingNote}
+                        </p>
+                      ) : null}
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
+                        Paste the reading (or the part you were assigned). I'll use it for the key points.
+                      </label>
+                      <textarea
+                        id="reading-paste"
+                        className="ds-focus min-h-[120px] w-full rounded-[8px] border border-ds-border bg-ds-page p-3 text-[15px]"
+                        value={readingText}
+                        onChange={(e) => setReadingText(e.target.value)}
+                      />
+                      <DsButton
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        disabled={readingBusy || readingText.trim().length < 200}
+                        onClick={() => {
+                          setReadingBusy(true);
+                          void briefCall({ action: "reading", title: "Pasted reading", text: readingText.trim() }).then((v) => {
+                            setReadingBusy(false);
+                            if (v) {
+                              setReadingOpen(false);
+                              setReadingText("");
+                              setReoffer(q.id);
+                            }
+                          });
+                        }}
+                      >
+                        {readingBusy ? "Reading it…" : "Use this reading"}
+                      </DsButton>
+                    </div>
+                  ) : null) : null;
     const send = (text?: string) => {
       if (submitting) return;
       setSubmitting(true);
@@ -2736,6 +2847,9 @@ export function AssignmentIntake({
                 {item.id === "material_check" && brief?.summary && (brief.lostAtStart || isLostSaying(said)) ? (
                   <SummaryBubbles summary={brief.summary} lead="No problem. Here are the key points to get you started." />
                 ) : null}
+                {item.id === "material_check" && brief?.missingAsk && (brief.lostAtStart || isLostSaying(said)) ? (
+                  <PauPauGroup bubbles={[brief.missingAsk]} />
+                ) : null}
                 {item.id === "material_check" && summaryBusy ? (
                   <ReadingBubble status="Pulling together the key points…" startedAt={Date.now()} />
                 ) : null}
@@ -2807,41 +2921,11 @@ export function AssignmentIntake({
                       Add a reading
                     </DsButton>
                   </div>
-                  {readingOpen ? (
-                    <div className="space-y-2">
-                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
-                        Paste the reading (or the part you were assigned). I'll use it for the key points.
-                      </label>
-                      <textarea
-                        id="reading-paste"
-                        className="ds-focus min-h-[120px] w-full rounded-[8px] border border-ds-border bg-ds-page p-3 text-[15px]"
-                        value={readingText}
-                        onChange={(e) => setReadingText(e.target.value)}
-                      />
-                      <DsButton
-                        type="button"
-                        size="sm"
-                        variant="primary"
-                        disabled={readingBusy || readingText.trim().length < 200}
-                        onClick={() => {
-                          setReadingBusy(true);
-                          void briefCall({ action: "reading", title: "Pasted reading", text: readingText.trim() }).then((v) => {
-                            setReadingBusy(false);
-                            if (v) {
-                              setReadingOpen(false);
-                              setReadingText("");
-                              setReoffer(q.id);
-                            }
-                          });
-                        }}
-                      >
-                        {readingBusy ? "Reading it…" : "Use this reading"}
-                      </DsButton>
-                    </div>
-                  ) : null}
+                  {readingTools}
                 </div>
               ) : q.id === "decision_pick" && brief?.options?.options.length ? (
-                <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Options">
+                <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Options">
                   {brief.options.options.map((o) => (
                     <DsButton
                       key={o.label}
@@ -2853,6 +2937,13 @@ export function AssignmentIntake({
                       {o.label}
                     </DsButton>
                   ))}
+                  {brief.missing?.length ? (
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => setReadingOpen((v) => !v)}>
+                      Add a reading
+                    </DsButton>
+                  ) : null}
+                </div>
+                {readingTools}
                 </div>
               ) : q.kind === "background" ? (
                 <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
