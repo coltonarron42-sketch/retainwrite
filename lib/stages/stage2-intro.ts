@@ -1,3 +1,4 @@
+import { dropHedges } from "@/lib/copy/tidy";
 /**
  * Stage 2 opener and carry-over (QA 6:03 AM): the plain-words assignment from
  * the read-back as the teach line, the actual decision and reason from Stage 1
@@ -10,7 +11,7 @@ import { answerNamesOption, decisionHasReason, type DecisionOption, type PaperCo
 /** "I think my team…" → "you think your team…": the student's reason, in second person. */
 export function toSecondPerson(text: string): string {
   const map: Record<string, string> = { "i'm": "you're", "i've": "you've", "i'd": "you'd", "i'll": "you'll", "i": "you", "me": "you", "my": "your", "mine": "yours", "myself": "yourself", "am": "are", "im": "you're", "ive": "you've" };
-  return text
+  return dropHedges(text)
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/\b(i'm|i've|i'd|i'll|im|ive|i|me|my|mine|myself)\b/gi, (w) => map[w.toLowerCase()] ?? w)
     .replace(/\byou am\b/gi, "you are")
