@@ -63,9 +63,17 @@ export function stanceStartBlockers(input: {
   voiceOk: boolean;
   voiceReason?: string;
   stanceOk: boolean;
+  /**
+   * North-star papers (Colton 12:04 AM): the advance check is clarify, catch up,
+   * decide: a confirmed read-back, the catch-up offered or declined, and a chosen
+   * direction with their reason. (The server's own gates still apply.)
+   */
+  northstar?: { catchUpDone: boolean; decided: boolean };
 }): string[] {
   const reasons: string[] = [];
   if (!input.checklistConfirmed) reasons.push("Confirm the assignment card first.");
+  if (input.northstar && !input.northstar.catchUpDone) reasons.push("Tell me whether you've read the material (or want the key points).");
+  if (input.northstar && !input.northstar.decided) reasons.push("Pick a direction and tell me why.");
   if (!input.hasStory) reasons.push("Pick a story angle first.");
   // Voice length is a warning, never a hard stop (PLAN.md): see voiceShortNote.
   if (!input.stanceOk) reasons.push("Add a couple more sentences to your early take.");

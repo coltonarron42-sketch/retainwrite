@@ -6,7 +6,7 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { investigateWork, findNamedWork, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { investigateWork, findNamedWork, findVideo, materialMore, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
 import { currentSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
@@ -29,6 +29,7 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reading"), title: z.string().max(200).optional(), text: z.string().min(1).max(200_000) }),
   z.object({ action: z.literal("reading_link"), url: z.string().url().max(2000) }),
   z.object({ action: z.literal("options") }),
+  z.object({ action: z.literal("material_more"), mode: z.enum(["depth", "simpler", "video"]) }),
   z.object({ action: z.literal("decision"), question: z.string().max(2000), answer: z.string().min(1).max(20_000) }),
   z.object({ action: z.literal("context") }),
 ]);
@@ -250,6 +251,16 @@ export async function POST(request: Request, ctx: Ctx) {
         if (o) await save((p) => ({ ...p, options: o }));
       }
       return NextResponse.json({ ok: true, ...publicView(cur) });
+    }
+    case "material_more": {
+      const pts = currentSummaries(cur).flatMap((x) => x.points).slice(0, 8);
+      if (body.mode === "video") {
+        const a = await basics(supabase, paperId);
+        const videos = await findVideo(a.topic ?? a.prompt ?? "", pts);
+        return NextResponse.json({ ok: true, videos });
+      }
+      const points = await materialMore(pts, body.mode, cur.readback?.ask ?? null);
+      return NextResponse.json({ ok: true, points: points ?? [] });
     }
     case "options": {
       if (!cur.options) {

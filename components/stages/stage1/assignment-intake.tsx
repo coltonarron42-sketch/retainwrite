@@ -226,6 +226,7 @@ function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: st
 function MaterialBubbles({
   brief,
   lead,
+  paperId,
 }: {
   brief: {
     summary: MaterialSummary | null;
@@ -234,14 +235,71 @@ function MaterialBubbles({
     whereToGet?: { title: string; offers: { seller: string; url: string; price?: string | null }[] }[];
   };
   lead: string;
+  paperId?: string;
 }) {
   const list = brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : [];
+  const [more, setMore] = useState<{ mode: string; points?: string[]; videos?: { title: string; url: string }[] } | null>(null);
+  const [moreBusy, setMoreBusy] = useState<string | null>(null);
+  const ask = async (mode: "depth" | "simpler" | "video") => {
+    if (!paperId || moreBusy) return;
+    setMoreBusy(mode);
+    try {
+      const res = await fetch(`/api/papers/${paperId}/intake/brief`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "material_more", mode }),
+      });
+      const d = (await res.json().catch(() => null)) as { points?: string[]; videos?: { title: string; url: string }[] } | null;
+      setMore({ mode, points: d?.points, videos: d?.videos });
+    } finally {
+      setMoreBusy(null);
+    }
+  };
   const offers = (brief.whereToGet ?? []).flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })));
   return (
     <div className="space-y-4">
       {list.map((s, i) => (
         <SummaryBubbles key={`${s.kind}:${s.title}`} summary={s} lead={i === 0 ? lead : undefined} />
       ))}
+      {list.length && paperId ? (
+        <div className="flex flex-wrap gap-2 pl-11" role="group" aria-label="More on the material">
+          {(
+            [
+              ["depth", "Go deeper"],
+              ["simpler", "Say it simpler"],
+              ["video", "Find me a video"],
+            ] as const
+          ).map(([mode, label]) => (
+            <DsButton key={mode} type="button" size="sm" variant="secondary" disabled={Boolean(moreBusy)} onClick={() => void ask(mode)}>
+              {moreBusy === mode ? "One sec…" : label}
+            </DsButton>
+          ))}
+        </div>
+      ) : null}
+      {more ? (
+        <PauPauGroup
+          bubbles={
+            more.mode === "video"
+              ? more.videos?.length
+                ? [
+                    "Here's a video that explains it:",
+                    <ul key="v" className="space-y-1 text-[14px]">
+                      {more.videos.map((v) => (
+                        <li key={v.url}>
+                          <a href={v.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                            {v.title}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>,
+                  ]
+                : ["I couldn't find a video I'd trust for this one. Want me to go deeper or say it simpler instead?"]
+              : more.points?.length
+                ? [more.mode === "depth" ? "One level deeper:" : "Simpler version:", ...more.points.map((p) => `• ${p}`)]
+                : ["I couldn't pull that together just now. Try again in a sec?"]
+          }
+        />
+      ) : null}
       {brief.missingAsk ? (
         <PauPauGroup
           bubbles={[
@@ -849,6 +907,13 @@ export function AssignmentIntake({
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
+  // North star: clarify (read-back) + catch up (offered or declined) + decide (direction with a reason).
+  const northstarGate = brief?.northstar
+    ? {
+        catchUpDone: answers.some((a) => a.questionId === "material_check" && a.answerText.trim()),
+        decided: Boolean(brief.decision?.answer?.trim()) || answers.some((a) => a.questionId === "decision_pick" && wordCount(a.answerText) >= 6),
+      }
+    : undefined;
 
   // Step 4: read-aloud and hesitation help (both optional, saved per user).
   useStopSpeechOnUnmount();
@@ -1031,6 +1096,7 @@ export function AssignmentIntake({
       if (screen === "gate") {
         // The same strict yes as typing; anything else is just talk.
         const blocked = stanceStartBlockers({
+          northstar: northstarGate,
           checklistConfirmed: cardGate.ok,
           hasStory: Boolean(storyAngle),
           voiceOk: voiceEval.ok,
@@ -1344,6 +1410,19 @@ export function AssignmentIntake({
   }
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
+    // North star: their decision (their words, with their reason) IS the direction; no second angle picker.
+    const decided = brief?.northstar ? (nextAnswers.find((a) => a.questionId === "decision_pick")?.answerText.trim() ?? "").slice(0, 500) : "";
+    // (The server's story-pick gate needs 15+ words of their own; shorter picks still see the angle cards.)
+    if (decided && !storyAngle && wordCount(decided) >= 15) {
+      setStoryAngle({ text: decided, source: "student" });
+      void fetch(`/api/papers/${paperId}/intake/story-pick`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: decided, source: "student" }),
+      }).catch(() => undefined);
+      afterStoryPicked();
+      return;
+    }
     const phrases = nextAnswers
       .filter((a) => a.isVoiceSample && a.answerText.trim())
       .map((a) => a.answerText.trim());
@@ -2653,6 +2732,7 @@ export function AssignmentIntake({
     // check mark and the "short side" note follow.
     const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
     const blockers = stanceStartBlockers({
+          northstar: northstarGate,
       checklistConfirmed: cardGate.ok,
       hasStory: Boolean(storyAngle),
       voiceOk: voiceEval.ok,
@@ -2927,7 +3007,7 @@ export function AssignmentIntake({
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
                 {item.id === "material_check" && brief && (brief.lostAtStart || isLostSaying(said)) ? (
-                  <MaterialBubbles brief={brief} lead="No problem. Here's what I've got to get you started." />
+                  <MaterialBubbles brief={brief} paperId={paperId} lead="No problem. Here's what I've got to get you started." />
                 ) : null}
                 {item.id === "material_check" && summaryBusy ? (
                   <ReadingBubble status="Pulling together the key points…" startedAt={Date.now()} />
@@ -2968,7 +3048,7 @@ export function AssignmentIntake({
           ) : null}
 
           {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
-            <MaterialBubbles brief={brief} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
+            <MaterialBubbles brief={brief} paperId={paperId} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
           ) : null}
           {/* Pau Pau's current turn. */}
           {q ? (

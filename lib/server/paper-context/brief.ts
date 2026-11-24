@@ -465,3 +465,77 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
     return null;
   }
 }
+
+/** Step 2 extras (Colton 12:04 AM): more depth or a simpler rephrase of what she already taught. */
+export async function materialMore(points: string[], mode: "depth" | "simpler", ask: string | null): Promise<string[] | null> {
+  if (!points.length) return null;
+  const r = await grokChatJson({
+    model: MODEL_FAST,
+    system: `${RULES}\nYou're re-teaching key points you already gave the student. Keep every claim you make inside what these points say or well-established general knowledge of the same ideas; never add quotes, page numbers or reading-specific details.`,
+    user: `${ask ? `What the assignment asks: ${ask}\n` : ""}Your key points: ${points.map((p, i) => `${i + 1}. ${p}`).join(" ")}\n\n${mode === "depth" ? 'Return JSON "points": 3-5 points that go one level deeper (what each idea looks like in practice, one real-world example each), each under 40 words.' : 'Return JSON "points": the same ideas said much more simply, like to a 12-year-old, each under 25 words.'}`,
+    jsonSchema: { name: "more", schema: { type: "object", properties: { points: { type: "array", items: { type: "string" } } }, required: ["points"], additionalProperties: false } },
+    timeoutMs: 9_000,
+  });
+  if (!r.ok) return null;
+  try {
+    const out = cleanPoints((JSON.parse(r.text) as { points?: unknown }).points, 5);
+    return out.length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+const VIDEO_HOST = /(^|\.)(youtube\.com|youtu\.be|khanacademy\.org|ted\.com|pbs\.org|pbslearningmedia\.org)$/i;
+
+/** A real, link-checked explainer video on the concepts (never made up). */
+export async function findVideo(topic: string, points: string[]): Promise<SourceRef[]> {
+  const key = process.env.GROK_API_KEY?.trim();
+  if (!key) return [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: MODEL_FAST,
+        store: false,
+        tools: [{ type: "web_search" }],
+        input: [
+          { role: "system", content: "Find short, student-friendly explainer videos (YouTube, Khan Academy, TED, PBS) that teach the given ideas. Only real videos you found in search results, with their exact urls. JSON only." },
+          { role: "user", content: `Ideas: ${clip(topic, 200)}. ${clip(points.join(" "), 600)}\nReturn JSON "videos": up to 2 (title + url).` },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "videos",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: { videos: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" } }, required: ["title", "url"], additionalProperties: false } } },
+              required: ["videos"],
+              additionalProperties: false,
+            },
+          },
+        },
+      }),
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { output_text?: string; output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+    const text = body.output_text ?? body.output?.flatMap((x) => (x.type === "message" ? (x.content ?? []) : [])).find((c) => c.type === "output_text")?.text ?? "";
+    const o = JSON.parse(text) as { videos?: SourceRef[] };
+    const vids = (o.videos ?? []).filter((v) => {
+      try {
+        return VIDEO_HOST.test(new URL(v.url).hostname.replace(/^www\./, ""));
+      } catch {
+        return false;
+      }
+    });
+    return (await checkLinks(vids.slice(0, 2).map((v) => ({ title: clip(v.title, 120), url: v.url })))).map((v) => ({ title: v.title, url: v.url }));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
