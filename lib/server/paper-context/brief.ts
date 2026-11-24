@@ -5,6 +5,7 @@
  * // SOP: coaching only, never generate submission text
  */
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
+import { wellKnownWork } from "@/lib/stage1/well-known";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { checkLinks } from "@/lib/voice/realtime/links";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
@@ -328,12 +329,19 @@ export function pageShowsChapter(page: string, chapter: string): boolean {
 export async function investigateWork(work: string, ask: string | null): Promise<WorkInvestigation> {
   const chapter = chapterOf(work);
   const title = shortWork(work);
-  const empty: WorkInvestigation = { work, title, known: false, knowledge: null, found: null, offers: [] };
+  // QA 9:37 AM: a well-known work always gets its labeled general-knowledge summary
+  // (deterministic, book level for a chapter); the web lookup only adds where to get it.
+  const cat = wellKnownWork(work);
+  const catKnowledge: MaterialSummary | null = cat
+    ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points: cat.points, sources: [], at: Date.now() }
+    : null;
+  const empty: WorkInvestigation = { work, title, known: Boolean(cat), knowledge: catKnowledge, found: null, offers: [] };
   const key = process.env.GROK_API_KEY?.trim();
   if (!key) return empty;
   const started = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 28_000);
+  // Known works don't wait on a slow web search (QA 9:37 AM: replies took 15-17 s).
+  const timer = setTimeout(() => controller.abort(), cat ? 7_000 : 28_000);
   type Raw = { known?: boolean; author?: string; workTitle?: string; knowledge?: unknown; textPages?: { title: string; url: string }[]; offers?: { seller: string; url: string; price: string }[] };
   let o: Raw = {};
   try {
@@ -401,11 +409,11 @@ JSON only.`,
   } finally {
     clearTimeout(timer);
   }
-  const known = o.known === true;
+  const known = Boolean(cat) || o.known === true;
   // A chapter reading: book-level knowledge only, never "Chapter 4 covers…" (unverified).
-  const points = known ? cleanPoints(o.knowledge, 6).filter((p) => !(chapter && CHAPTER_CLAIM.test(p))) : [];
+  const points = !cat && known ? cleanPoints(o.knowledge, 6).filter((p) => !(chapter && CHAPTER_CLAIM.test(p))) : [];
   const knowledge: MaterialSummary | null =
-    points.length >= 2 ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points, sources: [], at: Date.now() } : null;
+    catKnowledge ?? (points.length >= 2 ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points, sources: [], at: Date.now() } : null);
   // Offers: legit hosts only, link-checked, price only in a real "$NN.NN" shape.
   const rawOffers = (o.offers ?? []).filter((x) => legitHost(String(x.url ?? ""))).slice(0, 3);
   const checked = await checkLinks(rawOffers.map((x) => ({ title: clip(x.seller, 60), url: String(x.url) })));
@@ -419,7 +427,7 @@ JSON only.`,
     .filter((o, i, all) => all.findIndex((x) => hostOf(x.url) === hostOf(o.url) || x.seller.toLowerCase() === o.seller.toLowerCase()) === i);
   // The actual text: fetched by us, checked to be this exact work, summarized from the page only.
   let found: MaterialSummary | null = null;
-  for (const c of (o.textPages ?? []).filter((x) => legitHost(String(x.url ?? ""), { textPage: true })).slice(0, 2)) {
+  for (const c of cat ? [] : (o.textPages ?? []).filter((x) => legitHost(String(x.url ?? ""), { textPage: true })).slice(0, 2)) {
     const page = await fetchPageText(c.url);
     if (!page.ok) continue;
     if (!pageIsAboutWork(`${page.text} ${page.title}`, { author: clip(o.author, 60) || authorOf(work), title: clip(o.workTitle, 160) || titleOf(work) || "" })) continue;

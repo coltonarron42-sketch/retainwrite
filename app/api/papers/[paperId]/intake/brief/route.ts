@@ -6,8 +6,9 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { workSummaries, authorOf, investigateWork, findNamedWork, findVideo, materialMore, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { bookLevelTitle, chapterOf, workSummaries, authorOf, investigateWork, findNamedWork, findVideo, materialMore, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
 import { namedWorksFrom, sameWork } from "@/lib/stage1/readings";
+import { wellKnownWork } from "@/lib/stage1/well-known";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
 import { currentSummaries, verifiedSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
@@ -131,12 +132,35 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
   }
 }
 
+/** Every named work is a well-known one (and nothing was given): the labeled summaries, no wait. */
+async function quickKnownMade(supabase: SupabaseClient, paperId: string, ctx: PaperContext): Promise<Made | null> {
+  if (materialPolicy() !== "smart" || (ctx.readings ?? []).length) return null;
+  const a = await basics(supabase, paperId);
+  const works = a.namedWorks.slice(0, 4);
+  if (!works.length || !works.every((w) => wellKnownWork(w))) return null;
+  const inv = works.map((w) => {
+    const chapter = chapterOf(w);
+    const title = shortWork(w);
+    return { title, summary: { kind: "knowledge" as const, title: chapter ? bookLevelTitle(title) : title, points: wellKnownWork(w)!.points, sources: [], at: Date.now() } };
+  });
+  return {
+    summary: inv[0]!.summary,
+    more: inv.slice(1).map((i) => i.summary),
+    missing: inv.map((i) => i.title),
+    whereToGet: inv.map((i) => ({ title: i.title, known: true, offers: [] })),
+  };
+}
+
 function withMade(p: PaperContext, m: Made): PaperContext {
+  // A later lookup for the same work replaces its summary, never doubles it.
+  const fresh = m.summary ? [m.summary, ...(m.more ?? [])] : [];
+  const kept = (p.summaries ?? []).filter((x) => !fresh.some((f) => f.title === x.title && f.kind === x.kind));
+  const offersOld = new Map((p.whereToGet ?? []).map((w) => [w.title, w]));
   return {
     ...p,
-    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary, ...(m.more ?? [])].slice(-8) } : {}),
+    ...(m.summary ? { summaries: [...kept, ...fresh].slice(-8) } : {}),
     ...(m.missing ? { missing: m.missing } : {}),
-    ...(m.whereToGet ? { whereToGet: m.whereToGet } : {}),
+    ...(m.whereToGet ? { whereToGet: m.whereToGet.map((w) => (w.offers.length ? w : { ...w, offers: offersOld.get(w.title)?.offers ?? [] })) } : {}),
   };
 }
 
@@ -233,6 +257,12 @@ export async function POST(request: Request, ctx: Ctx) {
       await save((p) => ({ ...p, lostAtStart: true }));
       return NextResponse.json({ ok: true });
     case "summary": {
+      // QA 9:37 AM: when every named work is a well-known one, its labeled summary is
+      // ready now; the read-back's lookup still adds where to get it when it lands.
+      if (!bestSummary(cur) && !cur.missing) {
+        const quick = await quickKnownMade(supabase, paperId, cur);
+        if (quick) cur = await save((p) => (bestSummary(p) ? p : withMade(p, quick)));
+      }
       // The lookup started at the read-back: wait for it instead of starting a second one.
       while (!bestSummary(cur) && !cur.missing && cur.prefetchAt && Date.now() - cur.prefetchAt < 40_000 && Date.now() - started < 30_000) {
         await new Promise((r) => setTimeout(r, 800));

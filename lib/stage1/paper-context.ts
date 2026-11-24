@@ -149,7 +149,7 @@ export function summaryParas(s: MaterialSummary): string[] {
     s.kind === "reading"
       ? `Here are the key points from ${s.title || "your reading"}, in plain words:`
       : s.kind === "knowledge"
-        ? `Here's what I know about ${s.title || "the reading"} from my own knowledge (not from your copy, so check it against the actual text):`
+        ? `Here's what's well known about ${s.title || "the reading"}, from general knowledge (not from your copy, so check it against the actual text):`
         : s.kind === "found"
         ? `I found ${s.title || "your reading"} online, so here are its key points in plain words (from the page linked below):`
         : s.kind === "assignment"
