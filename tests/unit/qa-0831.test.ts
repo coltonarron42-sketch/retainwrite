@@ -152,3 +152,16 @@ describe("QA 8:31 live fixes", () => {
     expect(dropChapterClaims("The assignment says to use Chapter 4 and the HBR article.")).toBe("The assignment says to use Chapter 4 and the HBR article.");
   });
 });
+
+describe("QA 8:31 live fixes (2)", () => {
+  it("lock-in keeps every kept note, not only the last", () => {
+    const src = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const onConfirm = src.slice(src.indexOf("function onConfirm("), src.indexOf("async function onLogicOpener("));
+    expect(onConfirm).toContain("ideas: kept,");
+    expect(onConfirm).not.toContain(".at(-1)");
+  });
+  it("a person question needs real names, not abstract descriptions", () => {
+    const src = readFileSync("lib/server/paper-context/brief.ts", "utf8");
+    expect(src).toContain("realPick && grounded.length >= 2");
+  });
+});

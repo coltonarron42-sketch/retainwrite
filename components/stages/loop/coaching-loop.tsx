@@ -1035,7 +1035,9 @@ export function CoachingLoop({
 
   function onConfirm(more: LoopLine[]) {
     if (!session || !section) return;
-    const notes = keptIdeas(section.ideas).at(-1) ?? "";
+    // Every kept note stays at lock-in; an added reply never silently replaces the thesis (QA 8:31 AM).
+    const kept = keptIdeas(section.ideas);
+    const notes = kept.join(" ");
     // Relevance first, on every section: ask the model now, use it at "Yes, check it".
     relevance.current = { key: `${section.key}:${notes}`, verdict: fetchRelevance(notes, section.title) };
     const logic = checkNotes(section, notes, null);
@@ -1045,7 +1047,7 @@ export function CoachingLoop({
         loopStep: "logic_check",
         logic,
         logicRevealed: false,
-        ideas: notes.trim() ? [notes.trim()] : [],
+        ideas: kept,
       },
       { transcript: withLines(more) },
     );
@@ -1055,7 +1057,7 @@ export function CoachingLoop({
   async function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
     if (!section) return;
     if (choice === "yes") {
-      const notes = keptIdeas(section.ideas).at(-1) ?? "";
+      const notes = keptIdeas(section.ideas).join(" ");
       const pending = relevance.current?.key === `${section.key}:${notes}` ? relevance.current.verdict : fetchRelevance(notes, section.title);
       setCheckingLogic(true);
       const verdict = await pending;

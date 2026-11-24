@@ -523,7 +523,12 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
     const modelPeople = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
     const people = modelPeople.length >= 2 ? modelPeople : (general?.people ?? []);
     const question = clip(o.question, 200);
-    if (grounded.length >= 2 && question && safe(question)) return { question, options: grounded, ...(people.length >= 2 ? { people } : {}), basis: "material" };
+    // QA 8:31 AM live: "Which real leader…" answered with abstract descriptions ("Leader whose skills
+    // failed…") is not a real choice. A person question needs real names; else the field's options.
+    const asksPerson = /\b(?:which|what)\s+(?:real\s+|one\s+)?(?:leader|person|people|example|ceo|figure)\b|\bwho\b/i.test(question ?? "");
+    const PERSON = /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/;
+    const realPick = !asksPerson || grounded.every((x) => PERSON.test(x.label));
+    if (realPick && grounded.length >= 2 && question && safe(question)) return { question, options: grounded, ...(people.length >= 2 ? { people } : {}), basis: "material" };
     if (yesNo && sides.length >= 2) return { question: "Where do you stand on the assignment's question so far?", options: sides, basis: "assignment" };
     if (general) return { ...general, ...(people.length >= 2 ? { people } : {}) };
     const fieldOptions = cleanOptions(o.general).filter((x) => !CHAPTER_CLAIM.test(`${x.label} ${x.why}`));
