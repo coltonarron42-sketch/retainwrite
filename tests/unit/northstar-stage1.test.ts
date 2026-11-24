@@ -72,3 +72,23 @@ describe("material policy", () => {
     expect(smartReadingAsk([{ title: "Obscure memo", known: false, offers: [] }]) ?? "").toMatch(/photo|paste|link/);
   });
 });
+
+import { cleanOptions } from "@/lib/stage1/paper-context";
+describe("QA run 12:21 AM fixes", () => {
+  it("drops a why repeated across options", () => {
+    const o = cleanOptions([
+      { label: "Transformational", why: "Lets you use one real leader." },
+      { label: "Servant", why: "Lets you use one real leader." },
+      { label: "Situational", why: "Shows adapting to change." },
+    ]);
+    expect(o.map((x) => x.why)).toEqual(["", "", "Shows adapting to change."]);
+  });
+  it("one summary per work, the newest", () => {
+    const mk = (title: string, p: string) => ({ kind: "found", title, points: [p], at: "x" }) as never;
+    const ctx: PaperContext = { v: 1, summaries: [mk("Goleman", "old"), mk("Goleman", "new")] };
+    expect(currentSummaries(ctx).map((s) => s.points[0])).toEqual(["new"]);
+  });
+  it("no dangling 'Or just' when there's nothing to buy", () => {
+    expect(smartReadingAsk([{ title: "Obscure memo", known: false, offers: [] }])).toMatch(/Can you give me what you have/);
+  });
+});
