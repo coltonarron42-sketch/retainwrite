@@ -18,13 +18,21 @@ const HELP =
 const QUESTION_TO_COACH =
   /^(what|huh|wait|sorry|um+|hm+)?[\s,]*(what (do|did) you mean|what does that mean|what does (this|that|it) mean|i (don'?t|do not) (get|understand)( it| this| that| the question)?|can you explain|could you explain|explain (that|this|please)|what('?s| is) (a|an|the) (lead|angle|logic check|section|probe|stance|outline)|what are you asking|what am i supposed to (do|write|say)|what should i do( here| now)?|do i (have to|need to)|is that (ok|okay|right)|why\??$|what\??$|huh\??$|meaning\??)/i;
 
+/** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
+export const WRITE_REQUEST =
+  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
+
+export function isWriteRequest(text: string): boolean {
+  return WRITE_REQUEST.test(text.replace(/\s+/g, " "));
+}
+
 /** Rule fallback. Long, substantive text is content even if it mentions "questions". */
 export function rulesStanceIntent(text: string): StanceIntent {
   const t = text.trim().replace(/\s+/g, " ");
   if (!t) return "content";
   const words = wordCount(t);
   if (words > 30) return "content";
-  if (QUESTION_TO_COACH.test(t)) return "question";
+  if (QUESTION_TO_COACH.test(t) || isWriteRequest(t)) return "question";
   // A content or teaching question (QA 11/23: "what are the leadership styles?"): she answers it.
   if (isContentQuestion(t)) return "content_question";
   if (PROBE.test(t) && words <= 20) return "request_probe";
@@ -113,7 +121,11 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
 }
 
 /** Pau Pau's reply to a request or question. It rides inside her current turn. */
-export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null } }): string[] {
+export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
+  if (ctx.text && isWriteRequest(ctx.text)) {
+    const part = ctx.section.title.toLowerCase();
+    return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
+  }
   const qs = probingQuestions(ctx.section);
   const list = qs.map((q, i) => `${i + 1}. ${q}`).join(" ");
   switch (intent) {
@@ -130,10 +142,10 @@ export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; secti
           : ctx.turn === "outline"
             ? "I'm asking you to put your notes for this section into short outline lines, one point per line, in your own words."
             : `I'm asking what you want your ${ctx.section.title.toLowerCase()} to say. One or two sentences in your own words is plenty.`;
-      return [`Good question. ${what} If you'd like, say "ask me questions" and I'll walk you through it.`];
+      return [`${what} If you'd like, say "ask me questions" and I'll walk you through it.`];
     }
     case "content_question":
-      return ["Good question. I couldn't pull my answer together just now. Ask me again in a sec, or tell me what you already know about it."];
+      return ["I couldn't pull my answer together just now. Ask me again in a sec, or tell me what you already know about it."];
     default:
       return [];
   }
