@@ -174,6 +174,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let flow3: Stage3State | null = null;
   // Stages where the app owns every step and her only write is submit_answer.
   const appOwned = stage1 || stage3;
+  // A spoken yes only counts where yes is the choice: on a Stage 3 section, they say the choice itself.
+  const tapHint = (c: string) => (stage3 && !/^Continue to sources$/i.test(c) ? `Tap ${c}, or just say "${c.toLowerCase()}".` : `Tap ${c} when you're happy, or just say yes.`);
   let conversationId: string | null = resumeId;
   let speechStoppedAt = 0;
   const firstDeltaSeen = new Set<string>();
@@ -306,7 +308,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         ? `The student asked to replace their saved note. Nothing is saved yet: the app asked "${SWAP_ASK}" and waits for their yes or no. Don't say it's saved.`
         : null,
       screen.choices.length
-        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes."`
+        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "${tapHint(screen.choices[0])}"`
         : null,
     ]
       .filter(Boolean)
@@ -379,7 +381,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     upSend({
       type: "response.create",
       response: {
-        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${screen.choices.map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "Tap ${screen.choices[0]} when you're happy, or just say yes." Don't repeat what you just said and don't ask another question.`,
+        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${screen.choices.map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "${tapHint(screen.choices[0])}" Don't repeat what you just said and don't ask another question.`,
       },
     });
   };

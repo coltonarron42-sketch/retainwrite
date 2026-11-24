@@ -48,3 +48,10 @@ describe("Stage 3 voice: move-on words and requests", () => {
     expect(isEcho("Keep my notes.", [""], false)).toBe(false);
   });
 });
+
+describe("Stage 3 voice: no empty 'just say yes' on a section", () => {
+  it("the instructions say yes does nothing on a section", () => {
+    const ins = buildStage3Instructions("Section 1 of 3: Introduction.");
+    expect(ins).toMatch(/On a section, "yes" does nothing: never say "or just say yes" there/);
+  });
+});
