@@ -151,13 +151,13 @@ export function summaryParas(s: MaterialSummary): string[] {
     s.kind === "reading"
       ? `Here are the key points from ${s.title || "your reading"}, in plain words:`
       : s.kind === "knowledge"
-        ? `Here's what's well known about ${s.title || "the reading"}, from general knowledge (not from your copy, so check it against the actual text):`
+        ? `I don't have your copy of ${s.title || "the reading"}, so this is general background, not from your copy. Check it against the actual text:`
         : s.kind === "found"
         ? `I found ${s.title || "your reading"} online, so here are its key points in plain words (from the page linked below):`
         : s.kind === "assignment"
         ? "Here's what the assignment sheet itself gives you to work with, in plain words:"
         : s.kind === "overview"
-          ? `I don't have your copies, so here's a general overview of ${s.title || "the assigned works"}, from what's widely known about them. It's not your course copy, so check it against your book and notes:`
+          ? `I don't have your copies, so here's general background on ${s.title || "the assigned works"}, from what's widely known about them. It's not your course copy, so check it against your book and notes:`
           : "This isn't from your readings. It's general background on the ideas the assignment names, so check it against what your class covered:";
   return [lead, ...s.points.map((p) => `• ${p}`)];
 }

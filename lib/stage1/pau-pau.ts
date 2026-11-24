@@ -14,7 +14,7 @@ import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
 import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
-import { namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
+import { displayWork, namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
 import type { ReadbackPlain } from "@/lib/stage1/paper-context";
 
 export const COACH_NAME = "Pau Pau";
@@ -373,9 +373,13 @@ export function readBackParas(
   full: AssignmentRequirements,
   opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null; sheetText?: string } = {},
 ): string[] {
-  const paras = readBackParasRaw(full, opts);
+  const works = namedWorksFrom(full, opts.sheetText ?? "");
+  const raw = readBackParasRaw(full, opts);
+  // Colton 1:54 R2: the material is asked for by name, right away.
+  const paras = opts.pendingAsk === "sources" && works.length ? raw.map((x) => x.replace(PAU_PAU_ASK_TEXT.sources, sourcesAskText(works))) : raw;
+  if (opts.pendingAsk === "sources" && works.length) return paras;
   // QA 6:03 AM: the read-back lists every required reading or handout.
-  const line = readingsLine(namedWorksFrom(full, opts.sheetText ?? ""), paras.join(" "));
+  const line = readingsLine(works, paras.join(" "));
   if (!line) return paras;
   return [...paras.slice(0, -1), line, paras.at(-1)!];
 }
@@ -437,7 +441,9 @@ export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlyS
   const req = trustedView(full).view;
   const topic = cleanTopic(req.topic.value) || cleanTopic(req.promptQuestion.value);
   if (!topic || isPlaceholderTopic(topic)) return "topic";
-  if (!dismissed.has("sources") && sourcesMissing(req)) return "sources";
+  // Colton 1:54 R2: a named chapter or reading they haven't given us is asked for right away.
+  const provided = (req.providedReadings.value ?? []).length + (req.providedSources?.value ?? []).length;
+  if (!dismissed.has("sources") && (sourcesMissing(req) || (provided === 0 && namedWorksFrom(req).length > 0))) return "sources";
   if (!dismissed.has("length") && !req.length.value) return "length";
   return null;
 }
@@ -446,7 +452,7 @@ export const PAU_PAU_ASK_TEXT: Record<PauPauAsk, string> = {
   topic:
     "Hmm, I couldn't find the actual prompt or topic on the sheet. Can you paste the prompt, or tell me what the paper is about in a few words?",
   sources:
-    "Do you have any of the sources — a URL or PDF? The assignment calls for referencing them and I'd be a lot more helpful with that.",
+    "Do you have any of the sources: photos, a PDF, the relevant pages, or a link? Best summaries come from the exact material your professor is using.",
   length: "One thing I couldn't spot: how long does it need to be? Words or pages is fine.",
 };
 
@@ -459,4 +465,23 @@ export function lengthFromAnswer(text: string): { wordsMin?: number; wordsMax?: 
   const [a, b = nums[0]] = nums;
   if (/page/i.test(raw) || (a <= 30 && !/word/i.test(raw))) return { pagesMin: a, pagesMax: b, raw };
   return { wordsMin: a, wordsMax: b, raw };
+}
+
+/** Colton 1:54 R2: the marker every material request ends with (so it's asked once). */
+export const SOURCES_MARKER = "Best summaries come from the exact material your professor is using.";
+
+/** True when Pau Pau already made this ask in what she said. */
+export function askWasMade(said: string, key: PauPauAsk): boolean {
+  return key === "sources" ? said.includes(SOURCES_MARKER) : said.includes(PAU_PAU_ASK_TEXT[key]);
+}
+
+/**
+ * Colton 1:54 R2: a named chapter, book or reading is asked for right away, by name:
+ * "It mentions Northouse Ch. 4. Can you upload photos, a PDF, or the relevant pages? Best summaries come from…"
+ */
+export function sourcesAskText(works: string[]): string {
+  if (!works.length) return PAU_PAU_ASK_TEXT.sources;
+  const names = works.slice(0, 3).map(displayWork);
+  const list = names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+  return `It mentions ${list}. Can you upload photos, a PDF, or the relevant pages? ${SOURCES_MARKER}`;
 }

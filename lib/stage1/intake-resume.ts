@@ -132,7 +132,7 @@ export function materialGateLabel(input: { catchUpDone: boolean; materialShown: 
   if (readIt) return "Material: caught up (you read it yourself)";
   if (shown && input.kinds.includes("found")) return "Material: caught up from the source I found online";
   if (shown && input.kinds.some((k) => k === "knowledge" || k === "overview" || k === "general" || k === "assignment"))
-    return "Material: caught up from general knowledge (not your copy yet)";
+    return "Material: caught up from general background (not your copy yet)";
   if (passed) return "Material: you passed on the catch-up";
   return "Material: waiting on the readings";
 }

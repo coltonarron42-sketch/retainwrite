@@ -200,14 +200,21 @@ export function requirementLines(
   const lines: string[] = [];
   if (ctx.needsPerson || ctx.leader) lines.push(ctx.leader ? `✓ A real leader as your example: ${ctx.leader}.` : "○ A real leader as your example.");
   if (ctx.styles.length) lines.push(`✓ Your style${ctx.styles.length > 1 ? "s" : ""}: ${listJoin(ctx.styles)}.`);
+  if (!ctx.leader && !ctx.styles.length && /\b(argue|think|believe|my (side|position|point))\b/i.test(stance)) lines.push("✓ Your position, in your words.");
   lines.push("○ Your case for why it answers the assignment's question. That's next.");
   const said = stance.toLowerCase();
+  // QA 1:16 (PSY): a personal moment they already gave counts ("my finals week last spring").
+  const personal = /\b(my|I)\b/.test(stance) && /\b(when|last|week|year|time|once|summer|spring|fall|winter)\b/i.test(stance);
   for (const raw of ctx.mustInclude.slice(0, 5)) {
     const item = raw.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
     if (!item || /\b(real leader|one leader|leader as|example)\b/i.test(item) && (ctx.needsPerson || ctx.leader)) continue;
     const marks = (item.match(/\b[A-Z][a-z]{3,}\b/g) ?? []).filter((w) => !/^(Chapter|Theory|Practice|Leadership|What|Makes|Leader|Article|Format)$/.test(w));
     const covered = marks.some((w) => said.includes(w.toLowerCase()));
     const format = /\b(words?|APA|MLA|Chicago|format|pages?|double|font|due)\b/i.test(item);
+    if (/\b(own life|personal|your life|your experience|from your)\b/i.test(item) && personal) {
+      lines.push(`✓ ${item}: you've got one.`);
+      continue;
+    }
     lines.push(covered ? `✓ ${item}: you've read it.` : format ? `○ ${item}. We'll handle it when you draft.` : `○ ${item}. I'll help you with this one.`);
   }
   return lines;
@@ -241,4 +248,15 @@ export function lostLead(input: { concept?: string | null; ask?: string | null; 
       ? "I don't have your professor's sources yet, so here's what I need to give you a real summary of them."
       : "Here's a summary of the key ideas from your professor's sources so you get a better grasp.";
   return `That's okay, that's why you're here! ${core ? `${core} ` : ""}${tail}`.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Colton 1:54 R1: a lost student is OFFERED a short plain summary ("Want me to summarize the
+ * main leadership styles?"), then it's straight on to choosing a direction. No lecture.
+ */
+export function lostOffer(ask: string | null | undefined): string {
+  const t = (ask ?? "").replace(/\s+/g, " ");
+  const m = t.match(/\bwhich ([a-z]+(?: [a-z]+)?) (?:is|are|works?|would)\b/i);
+  const what = m ? `the main ${m[1]!.toLowerCase().replace(/y$/, "ie").replace(/(?<!s)$/, "s")}` : "the key ideas you need for this paper";
+  return `That's okay, that's why you're here! Want me to summarize ${what} in plain words? It's short, and then we'll go straight to picking your direction.`;
 }
