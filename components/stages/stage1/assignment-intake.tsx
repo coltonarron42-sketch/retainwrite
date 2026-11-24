@@ -30,6 +30,7 @@ import {
   STAGE_PURPOSE,
   summaryLabel,
   summaryParas,
+  pastedReadingParas,
   summarySpoken,
   type MaterialSummary,
   type PaperContext,
@@ -1677,7 +1678,7 @@ export function AssignmentIntake({
     setAsideBusy("Reading it now…");
     const v = await briefCall({ action: "reading", title, text: text.slice(0, 200_000) });
     setAsideBusy(null);
-    const s0 = v?.summaries?.find((x) => x.title === title) ?? v?.summary ?? null;
+    const s0 = v?.summaries?.find((x) => x.title === title) ?? [...(v?.summaries ?? [])].reverse().find((x) => x.kind === "reading") ?? null;
     setQaAsides((prev) =>
       [
         ...prev,
@@ -1685,11 +1686,7 @@ export function AssignmentIntake({
           id: Date.now(),
           qid,
           said: `${text.split(/\s+/).slice(0, 18).join(" ")}…`,
-          paras: [
-            `That looks like part of the reading${title !== "Pasted reading" ? ` (${title})` : ""}, so I saved it as material for this paper instead of as your answer.`,
-            ...(s0 ? summaryParas(s0).slice(0, 4) : []),
-            "Now, in your own words: what do you make of it?",
-          ],
+          paras: pastedReadingParas({ title, summary: s0, text, tail: "Now, in your own words: what do you make of it?" }),
         },
       ].slice(-12),
     );

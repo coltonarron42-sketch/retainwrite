@@ -611,3 +611,46 @@ export function assignmentDecisionAsk(text: string): string | null {
   if (/\b(whether|should|to what extent|agree)\b/i.test(t)) return "Where do you stand on the assignment's question so far, and why? Even a rough answer works.";
   return null;
 }
+
+/**
+ * QA 9:37 AM: a pasted reading's key points come first, then the ask. When the model
+ * summary isn't back, its own main lines stand in (their text, labeled, never invented).
+ */
+export function pasteKeyLines(text: string, n = 3): string[] {
+  const sentences = (text ?? "").replace(/\s+/g, " ").match(/[^.!?]+[.!?]+/g) ?? [];
+  return sentences
+    .map((x) => x.trim())
+    .filter((x) => x.split(" ").length >= 6)
+    .slice(0, n)
+    .map((x) => (x.split(" ").length > 30 ? `${x.split(" ").slice(0, 30).join(" ")}…` : x));
+}
+
+/** The reply to a pasted reading: what it is, its key points, then what they make of it. */
+export function pastedReadingParas(opts: { title: string; summary: MaterialSummary | null; text: string; tail: string }): string[] {
+  const named = opts.title !== "Pasted reading" ? ` (${opts.title})` : "";
+  const points = opts.summary
+    ? summaryParas(opts.summary).slice(0, 6)
+    : (() => {
+        const lines = pasteKeyLines(opts.text);
+        return lines.length ? ["The main lines from what you pasted:", ...lines.map((l) => `• ${l}`)] : [];
+      })();
+  return [`That looks like part of the reading${named}, so I saved it as material for this paper instead of as your answer.`, ...points, opts.tail];
+}
+
+/**
+ * QA 9:37 AM: what they actually picked, in their words ("their own" is a placeholder,
+ * never shown): the named option, else the part of their answer before the reason.
+ */
+export function decisionLabel(d: { pick?: string | null; answer?: string | null } | null | undefined): string | null {
+  if (!d) return null;
+  if (d.pick && d.pick !== "their own") return d.pick;
+  const a = (d.answer ?? "").replace(/\s+/g, " ").trim();
+  const head = (a.split(/\b(?:because|since|bc|cuz)\b/i)[0] ?? "")
+    .replace(/^(?:yeah|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "")
+    .replace(/^(?:i(?:'d| would)? (?:pick|go with|choose|argue(?: that)?|want to argue(?: that)?)|i(?:'m| am) going with|i think|my pick is)\s+/i, "")
+    .replace(/[\s,.;:!]+$/, "")
+    .trim();
+  if (!head || head.split(" ").length > 10) return null;
+  return head;
+}
+
