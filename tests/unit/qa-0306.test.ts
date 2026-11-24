@@ -153,3 +153,11 @@ describe("QA 3:51: a message queued during her reply is never silently dropped",
     expect(src).toContain("Stage 1 is wrapped, so I didn't change your answers.");
   });
 });
+
+describe("QA 3:51: a queued message between steps waits for the next step", () => {
+  it("is held until a step can take it, then goes back in the box if none does", () => {
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain("(!stanceMode && !coachingPlan[qIndex] ? false : sendNow(t, fromBox))");
+    expect(src).toContain("if (went === false) setDraftAnswer(");
+  });
+});

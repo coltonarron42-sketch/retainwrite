@@ -3698,9 +3698,11 @@ export function AssignmentIntake({
           const fire = (n: number) => {
             const went = latestSendNow.current?.(merged, true);
             if (went === false && n < 80) {
-              setTimeout(() => fire(n + 1), 50);
+              setTimeout(() => fire(n + 1), 75);
               return;
             }
+            // Still nowhere to send it after ~6 s: back in the box, never lost.
+            if (went === false) setDraftAnswer((d) => (d.trim() ? `${merged}\n${d}` : merged));
             setQueuedSaid(null);
           };
           setTimeout(() => fire(0), 60);
@@ -3718,7 +3720,9 @@ export function AssignmentIntake({
         ? (t: string) => void submitOwnStory(t)
         : screen === "gate"
           ? (t: string) => setGateSaid((prev) => [...prev, { id: Date.now(), said: t }].slice(-6))
-          : sendNow;
+          : // QA 3:51: between steps (the last question answered, the early take not up yet) there is
+            // nothing to take it, so wait for the next step instead of losing it.
+            (t: string, fromBox: boolean) => (!stanceMode && !coachingPlan[qIndex] ? false : sendNow(t, fromBox));
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
