@@ -439,8 +439,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         });
         toClient({ type: "rw.save_note", call_id: callId, kind: "submit", text: "" });
       });
-      await refreshFlow();
-      sessionUpdate();
+      // Answer her right away (latency); the state block catches up in the background.
+      void refreshFlow().then(() => sessionUpdate());
       const moved = applied.ok && applied.result === "saved";
       return out({
         submitted: moved,

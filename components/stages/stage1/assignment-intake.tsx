@@ -740,7 +740,6 @@ export function AssignmentIntake({
       if (kind === "submit") submitBusy.current = Date.now() + 60_000;
       try {
         const result = await voiceRef.current(text, kind);
-        await new Promise((r) => setTimeout(r, 150));
         return { ok: true, result, screen: rtScreenRef.current.text };
       } finally {
         if (kind === "submit") submitBusy.current = Date.now() + 1_500;
@@ -780,9 +779,13 @@ export function AssignmentIntake({
   useEffect(() => {
     voiceRef.current = async (text, kind) => {
       const before = rtScreenRef.current.key;
+      // The next step renders a beat after the save resolves: poll briefly instead of a fixed wait.
       const moved = async () => {
-        await new Promise((r) => setTimeout(r, 200));
-        return rtScreenRef.current.key !== before ? "saved" : "needs_more";
+        for (let i = 0; i < 20; i++) {
+          if (rtScreenRef.current.key !== before) return "saved";
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return "needs_more";
       };
       if (kind === "submit") {
         if (screen === "coaching") {
