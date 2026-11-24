@@ -14,6 +14,8 @@ import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
 import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
+import type { ReadbackPlain } from "@/lib/stage1/paper-context";
+
 export const COACH_NAME = "Pau Pau";
 /** For speech synthesis, which otherwise says "paw paw". */
 export const COACH_NAME_SPOKEN = "Pow pow";
@@ -352,10 +354,31 @@ export const RECONFIRM_ASK = "Look right now? If so, we're ready to roll.";
  * The read-back as ONE reply (PLAN.md 9): a few paragraphs in a single message,
  * ending with the one thing Pau Pau needs, or the invitation to confirm.
  */
-export function readBackParas(full: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null; seed?: string | number } = {}): string[] {
+export function readBackParas(
+  full: AssignmentRequirements,
+  opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null } = {},
+): string[] {
   const items = pauPauSummaryBubbles(full, opts);
   const close = items.pop() ?? "";
   const body = items;
+  // North star (Colton t161u): what's asked, what a strong answer needs and how it's graded, in plain words.
+  if (opts.plain?.ask) {
+    const p = opts.plain;
+    const tidy = (x: string) => x.replace(/\s+/g, " ").replace(/[.;,\s]+$/, "").trim();
+    const lower = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+    const list = (xs: string[]) => joinList(xs.map(tidy).map(lower).filter(Boolean));
+    const facts = body[0] ?? "";
+    const plainParas = [
+      facts,
+      `In plain words, here's what it's asking: ${p.ask.replace(/\s+/g, " ").trim()}`,
+      [p.mustInclude.length ? `A strong answer needs ${list(p.mustInclude)}.` : body[1] ?? "", p.graded.length ? `It's graded on ${list(p.graded)}.` : ""]
+        .filter(Boolean)
+        .join(" "),
+    ].filter(Boolean);
+    const due = body.slice(1).join(" ").match(/It's due [^.]+\./)?.[0];
+    const askLine = opts.pendingAsk ? PAU_PAU_ASK_TEXT[opts.pendingAsk] : CONFIRM_INVITE;
+    return [...plainParas, `${due ? `${due} ` : ""}${close} ${askLine}`.replace(/\s+/g, " ").trim()];
+  }
   const paras = body.length > 2 ? [body.slice(0, 2).join(" "), body.slice(2).join(" ")] : body.length ? [body.join(" ")] : [];
   const ask = opts.pendingAsk ? PAU_PAU_ASK_TEXT[opts.pendingAsk] : CONFIRM_INVITE;
   paras.push(`${close} ${ask}`.trim());

@@ -15,6 +15,7 @@ import {
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
+import type { ReadbackPlain } from "@/lib/stage1/paper-context";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
@@ -115,12 +116,36 @@ export function PauPauConfirm({
   const dismissed = useMemo(() => dismissedFromTurns(turns), [turns]);
   const ask = pauPauNextAsk(requirements, dismissed);
 
+  // North star (Colton t161u): the plain-words read-back (what's asked, what a strong
+  // answer needs, how it's graded). Waits a few seconds for it; the sheet facts otherwise.
+  const [plain, setPlain] = useState<ReadbackPlain | null | undefined>(turns.length ? null : undefined);
+  useEffect(() => {
+    if (turns.length || plain !== undefined) return;
+    let done = false;
+    const finish = (v: ReadbackPlain | null) => {
+      if (done) return;
+      done = true;
+      setPlain(v);
+    };
+    const timer = window.setTimeout(() => finish(null), 9_000);
+    void fetch(`/api/papers/${paperId}/intake/brief`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "readback" }),
+    })
+      .then(async (res) => (res.ok ? ((await res.json()) as { readback?: ReadbackPlain | null }) : null))
+      .then((data) => finish(data?.readback ?? null))
+      .catch(() => finish(null))
+      .finally(() => window.clearTimeout(timer));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // The first reply: the read-back, saved as the start of the conversation.
   useEffect(() => {
-    if (turns.length) return;
-    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId }) }]);
+    if (turns.length || plain === undefined) return;
+    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId, plain }) }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns.length]);
+  }, [turns.length, plain]);
 
   function push(...more: ConfirmTurn[]) {
     const next = [...turnsRef.current, ...more];
@@ -286,6 +311,14 @@ export function PauPauConfirm({
     // Title from the file's own first line; the student's file name otherwise.
     const read = await extractFileText(paperId, file).catch(() => null);
     const firstLine = read && read.ok ? read.text.split(/\n/).map((l) => l.trim()).find((l) => l.length >= 6) : null;
+    // The reading's text is what Pau Pau summarizes when they haven't read it (north star B).
+    if (read && read.ok && read.text.trim()) {
+      void fetch(`/api/papers/${paperId}/intake/brief`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reading", title: (firstLine ?? file.name).slice(0, 120), text: read.text.slice(0, 200_000) }),
+      }).catch(() => undefined);
+    }
     addReading({
       title: (firstLine && firstLine.length <= 140 ? firstLine : file.name).slice(0, 300),
       notes: `Uploaded file: ${file.name}`,
@@ -306,6 +339,11 @@ export function PauPauConfirm({
     <>
       <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
       <SpeakNew scope={paperId} items={oldVoiceOff ? [] : speak} />
+      {!turns.length ? (
+        <p className="text-[16px] leading-[1.6] text-ds-muted" role="status" aria-live="polite">
+          Reading it over…
+        </p>
+      ) : null}
       {turns.map((t, i) =>
         t.role === "student" ? (
           <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
