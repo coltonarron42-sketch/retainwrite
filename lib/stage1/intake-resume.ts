@@ -1,4 +1,4 @@
-import { decisionHasReason } from "@/lib/stage1/paper-context";
+import { decisionHasReason, isSkipSaying } from "@/lib/stage1/paper-context";
 
 /** First unanswered question, or the plan length when every question is saved. */
 export function resumeQuestionIndex(planIds: string[], answeredIds: string[]): number {
@@ -97,10 +97,13 @@ export function northstarGateFrom(input: {
   decisionAnswer?: string | null;
   needsLeader?: boolean;
   leaderAnswer?: string | null;
+  /** The summary was shown before the confirm (QA 7:02 AM). */
+  materialShown?: boolean;
 }): { catchUpDone: boolean; decided: boolean } {
+  // A typed "skip" never counts toward the gate (QA 7:02 AM).
   const said = (id: string) =>
-    input.answers.filter((a) => a.questionId === id && !a.skipped && a.answerText.trim()).map((a) => a.answerText.trim());
-  const catchUpDone = said("material_check").length > 0;
+    input.answers.filter((a) => a.questionId === id && !a.skipped && a.answerText.trim() && !isSkipSaying(a.answerText)).map((a) => a.answerText.trim());
+  const catchUpDone = Boolean(input.materialShown) || said("material_check").length > 0;
   const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why")].filter(Boolean);
   const joined = [input.decisionAnswer ?? "", ...said("decision_why")].join(" ").trim();
   const hasReason = texts.some((t) => decisionHasReason(t)) || (joined ? decisionHasReason(joined) : false);
