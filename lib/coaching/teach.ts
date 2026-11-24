@@ -108,6 +108,31 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
   return card;
 }
 
+/**
+ * The quick lesson with real content (QA 11/23: the Body chip was an empty,
+ * truncated template): the material's key point and the student's real options.
+ */
+export function contextTeachCard(
+  b: { summary: { points: string[] } | null; options?: { question: string; options: { label: string; why: string }[] } | null; decision?: { pick: string } | null } | null,
+  rubricRef: string,
+): TeachCard | null {
+  const opts = b?.options?.options ?? [];
+  if (opts.length < 2) return null;
+  const point = (b?.summary?.points ?? []).find((p) => wordCount(p) <= 35) ?? null;
+  const labels = opts.map((o) => o.label.replace(/[.!?]+$/, "").trim()).filter((l) => l && wordCount(l) <= 10);
+  if (labels.length < 2) return null;
+  return {
+    concept: "your options",
+    rubricRef,
+    affirm: null,
+    definition: point ?? `${b!.options!.question.replace(/\?$/, "")}: ${labels.join(", ")}.`.slice(0, 220),
+    qualities: labels.slice(0, 3),
+    showsUpAs: opts.slice(0, 2).map((o) => o.why.replace(/[.!?]+$/, "")).filter((w) => w && wordCount(w) <= 12),
+    debate: null,
+    ask: b?.decision?.pick ? `You picked ${b.decision.pick}. Which of these could you build this section around?` : "Which of these could you build this section around?",
+  };
+}
+
 const VAGUE_CONCEPT =
   /\b(servant leadership|leadership styles?|transformational leadership|theme|theory|framework)\b/i;
 

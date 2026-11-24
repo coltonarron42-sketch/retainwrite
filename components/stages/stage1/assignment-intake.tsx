@@ -678,9 +678,14 @@ export function AssignmentIntake({
     plan.push({
       id: "personal_1",
       kind: "personal",
-      text: isQuestionTopic(topic)
-        ? `When has the question “${asQuestion(topic)}” come up in real life — school, work, family, or something you follow? Write at least a few sentences.`
-        : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
+      // QA 11/23: never paste the whole assignment clause into the template.
+      text: brief?.options?.options.length
+        ? `When have you seen ${brief.options.options.map((o) => o.label.replace(/[.!?]+$/, "")).slice(0, 3).join(", ")} (or something like them) in real life — a coach, a boss, a teacher, a team, or something you follow? Write at least a few sentences.`
+        : isQuestionTopic(topic) || /^(which|what|how|why|whether|who)\b/i.test(topic.trim())
+          ? `When has the big question in this assignment come up in your own life — school, work, family, or something you follow? Write at least a few sentences.`
+          : topic.split(/\s+/).length > 8
+            ? `When have you seen the idea behind this assignment show up in real life — school, work, family, or something you follow? Write at least a few sentences.`
+            : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
     if (needFallback) {
