@@ -210,7 +210,7 @@ export function useRealtimeCall(opts: {
     start,
     stop,
     toggleMute,
-    sayTurn: (text: string) => rt.current?.sayTurn(text),
+    sayTurn: (text: string, opts?: { detail?: boolean }) => rt.current?.sayTurn(text, opts),
     setScreen: (text: string, choices: string[], followUp = false) => rt.current?.setScreen(text, choices, followUp),
     interrupt: () => rt.current?.interrupt(),
     clearLive: () => setLive([]),
