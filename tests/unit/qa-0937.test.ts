@@ -29,7 +29,7 @@ describe("TOP: well-known works get a deterministic, labeled summary", () => {
 
 describe("2. gate material state is accurate", () => {
   it("names the source, a pass, or waiting", () => {
-    expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["knowledge"], materialAnswer: "I haven't read it yet" })).toBe("Material: caught up from general knowledge (not your copy yet)");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["knowledge"], materialAnswer: "I haven't read it yet" })).toBe("Material: caught up from general background (not your copy yet)");
     expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["reading"] })).toBe("Material: caught up from your own reading");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I read both of them" })).toBe("Material: caught up (you read it yourself)");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I haven't read it yet" })).toBe("Material: waiting on the readings");
@@ -114,7 +114,7 @@ describe("7. sends are idempotent and never hang", () => {
 describe("QA 9:37 suite: gate label after the in-chat catch-up", () => {
   it("summaries shown under 'I haven't read it yet' read as caught up from general knowledge", async () => {
     const { materialGateLabel } = await import("@/lib/stage1/intake-resume");
-    expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: ["knowledge", "knowledge"], materialAnswer: "I haven't read it yet" })).toBe("Material: caught up from general knowledge (not your copy yet)");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: ["knowledge", "knowledge"], materialAnswer: "I haven't read it yet" })).toBe("Material: caught up from general background (not your copy yet)");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: ["knowledge"], materialAnswer: "no thanks" })).toBe("Material: you passed on the catch-up");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I haven't read it yet" })).toBe("Material: waiting on the readings");
   });
