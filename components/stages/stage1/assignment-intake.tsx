@@ -8,7 +8,7 @@ import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
-import { appendSpoken, isControlPhrase, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
   CONFIRM_CHAT_FIELD,
   isQuickConfirm,
@@ -804,9 +804,17 @@ export function AssignmentIntake({
           await submitOwnStory(box);
           return moved();
         }
+        // Read-back / checklist: their spoken reply is already on its way through the
+        // typed path; report whether the app moved on rather than a stale "nothing".
+        for (let i = 0; i < 15; i++) {
+          if (rtScreenRef.current.key !== before) return "saved";
+          await new Promise((r) => setTimeout(r, 200));
+        }
         return "nothing_to_submit";
       }
       if ((screen === "coaching" || screen === "story") && isControlPhrase(text)) return "move_on_words";
+      // Requests to Pau Pau are answered by her, never saved as their answer (or voice sample).
+      if ((screen === "coaching" || screen === "story") && isSaidToCoach(text)) return "said_to_coach";
       if (screen === "coaching") {
         // The ref first: her move-on can arrive before the next render.
         draftRef.current = appendSpoken(draftRef.current, text);

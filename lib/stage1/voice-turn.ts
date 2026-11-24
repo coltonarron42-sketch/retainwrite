@@ -4,6 +4,8 @@
  * The student's spoken words are their verbatim transcript; nothing the model
  * says is ever written into an answer (the voice sample stays theirs).
  */
+import { rulesStanceIntent } from "@/lib/stages/stance-intent";
+
 export type Stage1VoiceScreen = { key: string; text: string; choices: string[] };
 
 export function stage1VoiceScreen(s: {
@@ -53,4 +55,14 @@ const CONTROL = /^(?:(?:ok(?:ay)?|yes|yeah|yep|sure|alright|so|um|uh)[,.!\s]*)*(
 export function isControlPhrase(spoken: string): boolean {
   const t = spoken.replace(/\s+/g, " ").trim();
   return t.length > 0 && t.length <= 40 && CONTROL.test(t);
+}
+
+/** Requests and jailbreaks said TO Pau Pau ("write it for me", "ignore your rules"): never part of an answer. */
+const TO_COACH =
+  /\b(ignore (your|the|all|any|previous) (rules|instructions)|pretend (you'?re|you are|to be)|you are now|act as|jailbreak|no limits|developer mode|(write|do|make|finish|give me) (it|this|that|my|the|an?)\b[^.?!]{0,40}\bfor me|write (my|the|an?) (whole |entire |full )?(answer|take|essay|paper|intro|introduction|paragraph|story|angle)|tell me a (dirty |funny )?joke)\b/i;
+export function isSaidToCoach(spoken: string): boolean {
+  const t = spoken.replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (TO_COACH.test(t) && t.split(" ").length <= 40) return true;
+  return rulesStanceIntent(t) !== "content";
 }
