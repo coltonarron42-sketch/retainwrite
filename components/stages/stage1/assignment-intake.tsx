@@ -132,7 +132,7 @@ import {
   resumeIntake,
   stanceStartBlockers,
   voiceShortNote,
-  northstarChecklist,
+  materialGateLabel, northstarChecklist,
   northstarGateFrom,
   shortNoteNudge,
 } from "@/lib/stage1/intake-resume";
@@ -2504,6 +2504,7 @@ export function AssignmentIntake({
               onChange={setRequirements}
               onConfirm={() => void confirmCard()}
               onBrief={(view) => setBrief(view as unknown as BriefView)}
+              materialSlot={brief && (brief.summary || brief.summaries?.length) ? <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="" /> : null}
               onStartOver={() => {
                 setConfirmTurns([]);
                 setScreen("upload");
@@ -3094,7 +3095,18 @@ export function AssignmentIntake({
     // The gate checklist (north star: confirmed, material, decision with reason, early take).
     const gateChecks = northstarGate ? (
                   <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]" data-gate-checklist>
-                    {northstarChecklist({ confirmed: cardGate.ok, catchUpDone: northstarGate.catchUpDone, decided: northstarGate.decided, stanceOk }).map((item) => (
+                    {northstarChecklist({
+                      confirmed: cardGate.ok,
+                      catchUpDone: northstarGate.catchUpDone,
+                      decided: northstarGate.decided,
+                      stanceOk,
+                      materialLabel: materialGateLabel({
+                        catchUpDone: northstarGate.catchUpDone,
+                        materialShown: Boolean(brief?.materialShown),
+                        kinds: (brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : []).map((x) => x.kind),
+                        materialAnswer: answers.filter((a) => a.questionId === "material_check").at(-1)?.answerText ?? null,
+                      }),
+                    }).map((item) => (
                       <li key={item.label}>
                         {item.done ? "✓" : "○"} {item.label}
                       </li>

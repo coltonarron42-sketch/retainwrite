@@ -52,6 +52,8 @@ export type ConfirmTurn =
       apply?: { updates?: ConfirmUpdates; note?: string };
       /** The ask the student declined or answered in this exchange. */
       skip?: PauPauAsk;
+      /** This reply showed the material catch-up (summaries + Go deeper / Say it simpler / Find me a video). */
+      material?: boolean;
     };
 
 /** Re-applies saved corrections and notes (a reload before confirming). */

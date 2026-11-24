@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
@@ -60,6 +60,8 @@ type Props = {
   oldVoiceOff?: boolean;
   /** The paper context after a save here (a stated stance, the material shown), so the chat after the confirm is current. */
   onBrief?: (view: Record<string, unknown>) => void;
+  /** The material catch-up with its buttons (QA 9:37 AM), shown under the reply that taught it. */
+  materialSlot?: ReactNode;
 };
 
 export { PauPauAvatar };
@@ -94,7 +96,9 @@ export function PauPauConfirm({
   live,
   oldVoiceOff = false,
   onBrief,
+  materialSlot,
 }: Props) {
+  const materialShownRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
   const [replyStatus, setReplyStatus] = useState("Thinking…");
@@ -336,11 +340,15 @@ export function PauPauConfirm({
       }
       if (result.intent === "question") {
         // QA 6:03 AM: answered in place, never deflected.
+        materialShownRef.current = false;
         const extra = result.route ? await answerInPlace(result.route, text) : [];
+        const material = materialShownRef.current;
+        materialShownRef.current = false;
         // No "here's the gist" lead-in when all she has is an honest ask (QA 6:03 AM handout walk).
-        const noGist = result.route === "material" && !extra.some((x) => /^Here's what I know|^I found|key points|general overview|general background|^•/.test(x));
+        const noGist = result.route === "material" && !material && !extra.some((x) => /^Here's what I know|^I found|key points|general overview|general background|^•/.test(x));
         const lead = noGist && /\b(gist|here'?s|here it is|key points)\b/i.test(result.reply) ? "" : result.reply;
-        push({ role: "pau", paras: [lead, ...extra, followUp(after)].filter(Boolean), skip });
+        push({ role: "pau", paras: [lead, ...extra, ...(material ? [] : [followUp(after)])].filter(Boolean), skip, ...(material ? { material: true } : {}) });
+        if (material) push({ role: "pau", paras: [followUp(after)] });
         return;
       }
       // Ambiguous: a real clarifying question, never move on.
@@ -396,6 +404,11 @@ export function PauPauConfirm({
       const list = [...list0].sort((a, b) => hits(b) - hits(a));
       const paras = list.flatMap((x) => summaryParas(x));
       if (paras.length) void briefPost({ action: "material_shown" });
+      // The catch-up renders as the material panel, buttons included (QA 9:37 AM).
+      if (paras.length && materialSlot !== undefined) {
+        materialShownRef.current = true;
+        return [];
+      }
       const offers = (v?.whereToGet ?? []).flatMap((w) => w.offers.map((o) => `${w.title} at ${o.seller}${o.price ? ` · ${o.price} (price from search; check the page)` : ""}: ${o.url}`));
       return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 28);
     } finally {
@@ -428,6 +441,7 @@ export function PauPauConfirm({
   }
 
   const lastPau = turns.reduce((last, t, i) => (t.role === "pau" ? i : last), -1);
+  const lastMaterial = turns.reduce((last, t, i) => (t.role === "pau" && t.material ? i : last), -1);
   const speak = turns.flatMap((t, i) =>
     t.role === "pau" ? [{ key: `confirm:${i}`, text: t.paras.join(" "), turn: i === lastPau }] : [],
   );
@@ -446,7 +460,8 @@ export function PauPauConfirm({
         t.role === "student" ? (
           <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
         ) : (
-          <PauPauGroup key={i} bubbles={t.paras} live={i === lastPau && i > 0}>
+          <Fragment key={i}>
+          <PauPauGroup bubbles={t.paras} live={i === lastPau && i > 0}>
             {i === lastPau ? (
               <>
                 {ask === "sources" ? (
@@ -484,6 +499,8 @@ export function PauPauConfirm({
               </>
             ) : null}
           </PauPauGroup>
+          {i === lastMaterial && materialSlot ? <div data-confirm-material>{materialSlot}</div> : null}
+          </Fragment>
         ),
       )}
       {replying ? (

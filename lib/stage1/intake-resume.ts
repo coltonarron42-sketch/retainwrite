@@ -111,11 +111,30 @@ export function northstarGateFrom(input: {
   return { catchUpDone, decided: hasReason && leaderOk };
 }
 
+/**
+ * QA 9:37 AM: the gate names where the material came from (never "caught up on the
+ * readings" when Pau Pau never had them): caught up (and from what), declined, or waiting.
+ */
+export function materialGateLabel(input: { catchUpDone: boolean; materialShown: boolean; kinds: string[]; materialAnswer?: string | null }): string {
+  const said = (input.materialAnswer ?? "").toLowerCase();
+  const readIt = /\b(i(?:'ve| have)? (?:already )?read|i did read|read (?:it|them|both|all)|finished (?:it|them|the reading))\b/.test(said) && !/\b(haven'?t|have not|didn'?t|did not|not yet|never)\b/.test(said);
+  if (input.materialShown && input.kinds.includes("reading")) return "Material: caught up from your own reading";
+  if (readIt) return "Material: caught up (you read it yourself)";
+  if (input.materialShown && input.kinds.includes("found")) return "Material: caught up from the source I found online";
+  if (input.materialShown && input.kinds.some((k) => k === "knowledge" || k === "overview" || k === "general" || k === "assignment"))
+    return "Material: caught up from general knowledge (not your copy yet)";
+  if (/\b(no thanks|don'?t need|no need|not now|skip|pass)\b/.test(said)) return "Material: you passed on the catch-up";
+  return "Material: waiting on the readings";
+}
+
 /** The Stage 1 gate checklist on north-star papers. */
-export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean }): { label: string; done: boolean }[] {
+export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean; materialLabel?: string }): { label: string; done: boolean }[] {
   return [
     { label: "Assignment confirmed", done: input.confirmed },
-    { label: "Material: caught up on the readings", done: input.catchUpDone },
+    {
+      label: input.materialLabel ?? (input.catchUpDone ? "Material: caught up" : "Material: waiting on the readings"),
+      done: input.catchUpDone && !/waiting/.test(input.materialLabel ?? ""),
+    },
     { label: "Decision made, with your reason", done: input.decided },
     { label: "Early take: a few sentences in your own words", done: input.stanceOk },
   ];
