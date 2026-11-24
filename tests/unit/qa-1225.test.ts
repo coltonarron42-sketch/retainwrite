@@ -130,7 +130,7 @@ describe("#4 a send during a reply is never dropped, and never sent twice (QA 9:
     const src = read("components/stages/stage1/chat-composer.tsx");
     expect(src).toMatch(/if \(sending\) \{\s*setQueued\(true\);/);
     expect(src).toMatch(/One message at a time: Pau Pau is replying/);
-    expect(src).toMatch(/disabled=\{blocked \|\| queued \|\| sending\}/);
+    expect(src).toContain("disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}");
     expect(src).not.toMatch(/if \(!sending\) send\(\);/);
   });
   it("the Stance loop clears only the text it sent", () => {

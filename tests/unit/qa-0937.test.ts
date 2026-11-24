@@ -105,9 +105,9 @@ describe("7. sends are idempotent and never hang", () => {
     const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
     expect(confirm).toContain("if (sendLock.current) return;");
     expect(confirm).toContain("}, 15_000);");
-    expect(intake).toContain("if (submitting || sendLock.current) return;");
+    expect(intake).toContain("if (submitting || sendLock.current) {");
     expect(intake).toContain("}, 30_000);");
-    expect(composer).toContain("disabled={blocked || queued || sending}");
+    expect(composer).toContain("disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}");
   });
 });
 
