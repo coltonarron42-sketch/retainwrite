@@ -113,7 +113,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     expect(rulesStanceIntent("what do you mean?")).toBe("question");
     expect(rulesStanceIntent("I don't get it")).toBe("question");
     expect(rulesStanceIntent("I'm stuck")).toBe("request_help");
-    expect(rulesStanceIntent("Can you give me an example?")).toBe("request_help");
+    expect(rulesStanceIntent("Can you give me an example?")).toBe("content_question");
     expect(rulesStanceIntent("Later start times help teens sleep more and focus in first period.")).toBe("content");
     expect(rulesStanceIntent("Should schools start later?")).toBe("content");
     expect(rulesStanceIntent("I think teachers should ask students questions about sleep, because surveys show most teens get under seven hours a night and that hurts their grades in first period.")).toBe("content");

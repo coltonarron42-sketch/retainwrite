@@ -88,7 +88,7 @@ describe("realtime relay: Stage 1", () => {
     await new Promise((r) => c.on("open", r));
     await new Promise((r) => setTimeout(r, 200));
     const update = upstream.find((e) => e.type === "session.update") as { session: { instructions: string; tools: { name: string }[] } };
-    expect(update.session.tools.map((t) => t.name).sort()).toEqual(["get_flow_state", "submit_answer"]);
+    expect(update.session.tools.map((t) => t.name).sort()).toEqual(["get_flow_state", "get_paper_context", "submit_answer"]);
     expect(update.session.instructions).toContain("Stage 1");
 
     // Not enough yet: the app says needs_more
@@ -150,7 +150,7 @@ describe("realtime relay: Stage 3", () => {
     await new Promise((r) => c.on("open", r));
     await new Promise((r) => setTimeout(r, 200));
     const update = upstream.find((e) => e.type === "session.update") as { session: { instructions: string; tools: { name: string }[] } };
-    expect(update.session.tools.map((t) => t.name).sort()).toEqual(["get_flow_state", "submit_answer"]);
+    expect(update.session.tools.map((t) => t.name).sort()).toEqual(["get_flow_state", "get_paper_context", "submit_answer"]);
     expect(update.session.instructions).toContain("Stage 3, Outline");
     c.close();
   });

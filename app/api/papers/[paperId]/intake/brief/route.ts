@@ -9,7 +9,7 @@ import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/
 import { investigateWork, findNamedWork, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
-import { bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
+import { currentSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -156,17 +156,6 @@ function missingAskFor(ctx: PaperContext): string | null {
     return smartReadingAsk(ctx.whereToGet.filter((w) => ctx.missing!.includes(w.title)));
   }
   return missingReadingAsk(ctx.missing);
-}
-
-/** Every summary from the latest material run (her knowledge and found text are labeled apart). */
-function currentSummaries(ctx: PaperContext): MaterialSummary[] {
-  const list = ctx.summaries ?? [];
-  const reading = [...list].reverse().find((s) => s.kind === "reading");
-  if (reading) return [reading];
-  const smart = list.filter((s) => s.kind === "found" || s.kind === "knowledge");
-  if (smart.length) return smart.slice(-3);
-  const best = bestSummary(ctx);
-  return best ? [best] : [];
 }
 
 function publicView(ctx: PaperContext) {

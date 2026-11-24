@@ -90,6 +90,17 @@ export function bestSummary(ctx: PaperContext): MaterialSummary | null {
   return null;
 }
 
+/** Every summary from the latest material run (her knowledge and found text labeled apart). */
+export function currentSummaries(ctx: PaperContext): MaterialSummary[] {
+  const list = ctx.summaries ?? [];
+  const reading = [...list].reverse().find((s) => s.kind === "reading");
+  if (reading) return [reading];
+  const smart = list.filter((s) => s.kind === "found" || s.kind === "knowledge");
+  if (smart.length) return smart.slice(-3);
+  const best = bestSummary(ctx);
+  return best ? [best] : [];
+}
+
 export function summaryLabel(s: MaterialSummary): string {
   if (s.kind === "reading") return `Key points from ${s.title || "your reading"}`;
   if (s.kind === "assignment") return "Key points from your assignment sheet";
@@ -233,11 +244,12 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
     if (ctx.readback.mustInclude.length) lines.push(`A strong answer must include: ${clip(ctx.readback.mustInclude.join("; "), 240)}`);
     if (ctx.readback.graded.length) lines.push(`Graded on: ${clip(ctx.readback.graded.join("; "), 160)}`);
   }
-  const s = bestSummary(ctx);
-  if (s) {
-    lines.push(`${summaryLabel(s)} (your teaching content, never their paper text): ${clip(s.points.join(" | "), 520)}`);
+  for (const s of currentSummaries(ctx).slice(0, 3)) {
+    lines.push(`${summaryLabel(s)} (your teaching content, never their paper text): ${clip(s.points.join(" | "), 420)}`);
     if (s.sources.length) lines.push(`Sources for that: ${s.sources.map((x) => x.title).slice(0, 3).join("; ")}`);
   }
+  if (ctx.missing?.length)
+    lines.push(`Readings you DON'T have the actual text of yet: ${ctx.missing.join("; ")}. Anything you say about them is your own general knowledge (say so) or nothing; never quotes or page details. They can send photos, a paste, a PDF or a link.`)
   if (ctx.lostAtStart) lines.push("At the start they said they hadn't read the material or didn't know where to start: offer the key points again if they seem lost.");
   if (ctx.decision) lines.push(`Their decision (their words): picked "${clip(ctx.decision.pick, 80)}". "${clip(ctx.decision.answer, 260)}"`);
   if (extra.earlyTake) lines.push(`Their early take (their words): "${clip(extra.earlyTake, 260)}"`);
