@@ -21,7 +21,7 @@ import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { isQuickConfirm } from "@/lib/stage1/confirm-reply";
 import { isControlPhrase, isSaidToCoach } from "@/lib/stage1/voice-turn";
-import { addSpokenLine, outlineChoiceSaid } from "@/lib/stages/outline-voice";
+import { addSpokenLine, outlineChoiceSaid, splitOutlineControl } from "@/lib/stages/outline-voice";
 
 export type OutlineSectionView = { key: string; title: string; needs: string; ideas: string[] };
 
@@ -231,10 +231,12 @@ export function OutlineChat(props: Props) {
         await submit(notes, true);
         return moved();
       }
-      if (isControlPhrase(spoken)) return "move_on_words";
       // Requests to Pau Pau are answered by her, never saved as their outline.
       if (isSaidToCoach(spoken)) return "said_to_coach";
-      const next = addSpokenLine(textRef.current, spoken, notes);
+      // "That's my outline for this section" / "let's move on" is said to her, not outline content.
+      const { line } = splitOutlineControl(spoken);
+      if (!line || isControlPhrase(line)) return "move_on_words";
+      const next = addSpokenLine(textRef.current, line, notes);
       textRef.current = next;
       setText(next);
       return "in_box";
