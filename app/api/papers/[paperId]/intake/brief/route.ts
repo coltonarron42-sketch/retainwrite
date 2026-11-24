@@ -6,8 +6,9 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { generalBackground, generateOptions, generateReadback, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
-import { materialPolicy } from "@/lib/config/material-policy";
+import { findNamedWork, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
+import { materialPolicy, missingReadingAsk } from "@/lib/config/material-policy";
 import { bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
 
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("summary") }),
   z.object({ action: z.literal("lost") }),
   z.object({ action: z.literal("reading"), title: z.string().max(200).optional(), text: z.string().min(1).max(200_000) }),
+  z.object({ action: z.literal("reading_link"), url: z.string().url().max(2000) }),
   z.object({ action: z.literal("options") }),
   z.object({ action: z.literal("decision"), question: z.string().max(2000), answer: z.string().min(1).max(20_000) }),
   z.object({ action: z.literal("context") }),
@@ -63,28 +65,52 @@ async function basics(supabase: SupabaseClient, paperId: string): Promise<Assign
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
-async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: PaperContext): Promise<MaterialSummary | null> {
+type Made = { summary: MaterialSummary | null; missing?: string[] };
+
+async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: PaperContext): Promise<Made> {
   const a = await basics(supabase, paperId);
   const ask = ctx.readback?.ask ?? null;
   const reading = ctx.readings?.at(-1);
-  if (reading) return summarizeText({ kind: "reading", title: reading.title, text: reading.text, ask });
+  if (reading)
+    return { summary: await summarizeText({ kind: "reading", title: reading.title, text: reading.text, ask, source: reading.url ? { title: reading.title, url: reading.url } : undefined }) };
+  const policy = materialPolicy();
+  // Colton 11/23: named readings → find the actual work online; what she can't get, she asks for.
+  if (policy === "find_source" && a.namedWorks.length) {
+    const works = a.namedWorks.slice(0, 3);
+    const found = await Promise.all(works.map((w) => findNamedWork(w, ask).catch(() => null)));
+    const got = found.filter((x): x is MaterialSummary => Boolean(x));
+    const missing = works.filter((_, i) => !found[i]).map(shortWork);
+    // Nothing found: she can still teach the general ideas the assignment itself names (never "what the reading says").
+    if (!got.length) return { summary: await generalBackground(a, ask, { works: [], avoid: works }), missing };
+    const summary: MaterialSummary =
+      got.length === 1
+        ? got[0]!
+        : {
+            kind: "found",
+            title: got.map((g) => g.title).join(" and "),
+            points: got.flatMap((g) => g.points.slice(0, 4).map((p) => `${g.title}: ${p}`)),
+            sources: got.flatMap((g) => g.sources),
+            at: Date.now(),
+          };
+    return { summary, missing };
+  }
   // The assignment sheet itself, when it carries real material (an excerpt, a case, data).
   if (words(a.text) >= 350) {
     const s = await summarizeText({ kind: "assignment", title: "your assignment sheet", text: a.text, ask });
-    if (s) return s;
+    if (s) return { summary: s };
   }
   // No reading: the one source-policy switch (lib/config/material-policy.ts) decides.
-  const policy = materialPolicy();
-  if (policy === "uploads_only") return null;
-  return generalBackground(a, ask, { works: policy === "overview" ? a.namedWorks : [] });
+  if (policy === "uploads_only") return { summary: null, missing: a.namedWorks.map(shortWork) };
+  if (policy === "find_source") return { summary: await generalBackground(a, ask, { works: [] }) }; // nothing named: topic background
+  return { summary: await generalBackground(a, ask, { works: policy === "overview" ? a.namedWorks : [] }) };
 }
 
 /** Summary + options, once, so a lost student doesn't wait (runs after the confirm response). */
 async function prefetch(supabase: SupabaseClient, paperId: string, userId: string) {
   let ctx = await readPaperContext(supabase, paperId);
-  if (!bestSummary(ctx)) {
-    const s = await makeSummary(supabase, paperId, ctx);
-    if (s) ctx = await writePaperContext(supabase, paperId, userId, (p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
+  if (!bestSummary(ctx) && !ctx.missing) {
+    const m = await makeSummary(supabase, paperId, ctx);
+    ctx = await writePaperContext(supabase, paperId, userId, (p) => withMade(p, m));
   }
   if (!ctx.options) {
     const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, bestSummary(ctx)?.points ?? []);
@@ -92,9 +118,27 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
   }
 }
 
+function withMade(p: PaperContext, m: Made): PaperContext {
+  return {
+    ...p,
+    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary].slice(-3) } : {}),
+    ...(m.missing ? { missing: m.missing } : {}),
+  };
+}
+
+/** A reading they gave us that covers a missing named work takes it off the missing list. */
+function stillMissing(missing: string[] | undefined, text: string): string[] | undefined {
+  if (!missing) return missing;
+  const t = text.toLowerCase();
+  return missing.filter((w) => {
+    const author = (w.match(/^([A-Z][\w-]+)/)?.[1] ?? "").toLowerCase();
+    return !(author && t.includes(author));
+  });
+}
+
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: ctx.missing?.length ? missingReadingAsk(ctx.missing) : null };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -141,9 +185,9 @@ export async function POST(request: Request, ctx: Ctx) {
       await save((p) => ({ ...p, lostAtStart: true }));
       return NextResponse.json({ ok: true });
     case "summary": {
-      if (!bestSummary(cur)) {
-        const s = await makeSummary(supabase, paperId, cur);
-        if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
+      if (!bestSummary(cur) && !cur.missing) {
+        const m = await makeSummary(supabase, paperId, cur);
+        await save((p) => withMade(p, m));
       }
       await logSessionEvent({ paperId, stage: 1, event: "material_summary", detail: { kind: bestSummary(cur)?.kind ?? null, ms: Date.now() - started } });
       return NextResponse.json({ ok: true, ...publicView(cur) });
@@ -152,10 +196,33 @@ export async function POST(request: Request, ctx: Ctx) {
       const title = (body.title ?? "").trim().slice(0, 120) || "your reading";
       const text = body.text.replace(/\s+\n/g, "\n").trim().slice(0, READING_MAX_CHARS);
       if (words(text) < 40) return NextResponse.json({ error: "That reading is too short to summarize. Paste more of it, or upload the file." }, { status: 422 });
-      await save((p) => ({ ...p, readings: [...(p.readings ?? []), { title, text, at: Date.now() }].slice(-3) }));
+      await save((p) => ({ ...p, readings: [...(p.readings ?? []), { title, text, at: Date.now() }].slice(-3), missing: stillMissing(p.missing, text) }));
       const s = await summarizeText({ kind: "reading", title, text, ask: cur.readback?.ask ?? null });
       if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
       // Options built from the old material are stale once a real reading arrives (until they decide).
+      if (s && !cur.decision) {
+        const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, s.points);
+        if (o) await save((p) => ({ ...p, options: o }));
+      }
+      return NextResponse.json({ ok: true, ...publicView(cur) });
+    }
+    case "reading_link": {
+      const page = await fetchPageText(body.url);
+      if (!page.ok)
+        return NextResponse.json(
+          {
+            error:
+              page.reason === "pdf"
+                ? "That link is a PDF I can't open from here. Download it and upload the file, or take photos of the pages."
+                : "I couldn't open that link. Check it, or paste the text or upload photos of the pages instead.",
+          },
+          { status: 422 },
+        );
+      const title = (page.title || body.url).slice(0, 120);
+      const text = page.text.slice(0, READING_MAX_CHARS);
+      await save((p) => ({ ...p, readings: [...(p.readings ?? []), { title, text, at: Date.now(), url: page.url }].slice(-3), missing: stillMissing(p.missing, `${title} ${text}`) }));
+      const s = await summarizeText({ kind: "reading", title, text, ask: cur.readback?.ask ?? null, source: { title, url: page.url } });
+      if (s) await save((p) => ({ ...p, summaries: [...(p.summaries ?? []), s].slice(-3) }));
       if (s && !cur.decision) {
         const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, s.points);
         if (o) await save((p) => ({ ...p, options: o }));
