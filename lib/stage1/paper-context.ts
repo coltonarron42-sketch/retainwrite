@@ -9,6 +9,7 @@
  * verbatim.
  * // SOP: coaching only, never generate submission text
  */
+import { sameWork } from "@/lib/stage1/readings";
 
 export const PAPER_CONTEXT_FIELD = "paper_context";
 
@@ -65,6 +66,8 @@ export type PaperContext = {
   leader?: { question: string; pick: string; answer: string; at: number };
   /** The student said they hadn't read / were lost (so later stages can re-offer the summary). */
   lostAtStart?: boolean;
+  /** When Pau Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
+  materialShownAt?: number;
 };
 
 export const READING_MAX_CHARS = 12_000;
@@ -99,21 +102,31 @@ export function bestSummary(ctx: PaperContext): MaterialSummary | null {
   return null;
 }
 
+const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
+const NAMED_LIST_RE = /\b(two|three|four|five|six|seven)\b[^.]{0,40}\b(components|elements|styles|traits|factors|stages|types|behaviors|skills|dimensions|principles)\b/i;
+
 /** Every summary from the latest material run (her knowledge and found text labeled apart). */
 export function currentSummaries(ctx: PaperContext): MaterialSummary[] {
   const list = ctx.summaries ?? [];
   // QA 6:03 AM: every reading keeps its summary (their uploads and pastes, her knowledge, found pages).
   const smart = list.filter((s) => s.kind === "reading" || s.kind === "found" || s.kind === "knowledge");
   if (smart.length) {
-    // One per work and kind (the newest): a prefetch and a lost-student run can both save the same one.
-    const seen = new Set<string>();
-    const latest = [...smart].reverse().filter((s) => {
-      const k = `${s.kind}:${s.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+    // One per work with ONE label (QA 7:02 AM): their own copy, else the found page,
+    // else her knowledge (her knowledge wins only when it names the work's list and the page didn't).
+    const rank = (x: MaterialSummary) => (x.kind === "reading" ? 3 : x.kind === "found" ? 2 : 1);
+    const groups: MaterialSummary[][] = [];
+    for (const s0 of [...smart].reverse()) {
+      const g = groups.find((xs) => sameWork(xs[0]!.title, s0.title) || norm(xs[0]!.title) === norm(s0.title));
+      if (g) g.push(s0);
+      else groups.push([s0]);
+    }
+    const pick = groups.map((g) => {
+      const best = [...g].sort((a, b) => rank(b) - rank(a) || b.at - a.at)[0]!;
+      const know = g.find((x) => x.kind === "knowledge");
+      if (best.kind === "found" && know && NAMED_LIST_RE.test(know.points.join(" ")) && !NAMED_LIST_RE.test(best.points.join(" "))) return know;
+      return best;
     });
-    return latest.slice(0, 6).reverse();
+    return pick.slice(0, 6).reverse();
   }
   const best = bestSummary(ctx);
   return best ? [best] : [];
@@ -364,7 +377,7 @@ export function vaguePickProbe(text: string, options: DecisionOption[]): string 
     : `Which one are you leaning toward${options.length ? ` (${options.map((o) => o.label).join(", ")})` : ""}, and why? One sentence is plenty.`;
 }
 
-const STANCE_CUE = /\b(going with|go with|i'?ll (go with|argue|pick|use|focus on|write about)|i'?m (going with|arguing|picking|focusing on|writing about|leaning)|my (pick|stance|argument|choice|angle) is|i (pick|chose|choose|picked)|i think .{3,60} (is|works|was) (the )?(best|most))\b/i;
+const STANCE_CUE = /\b(i (want|plan|intend|'?m planning|am planning) to (argue|write about|focus on|use|go with|pick)|i'?m going to (argue|use|write about|focus on|go with)|i'?d (argue|go with|pick|choose|use|focus on)|arguing (that|for)|my thesis|going with|go with|i'?ll (go with|argue|pick|use|focus on|write about)|i'?m (going with|arguing|picking|focusing on|writing about|leaning)|my (pick|stance|argument|choice|angle) is|i (pick|chose|choose|picked)|i think .{3,60} (is|works|was) (the )?(best|most))\b/i;
 /** A prepared student's stated stance ("transformational, Satya Nadella"): captured as the decision, not re-asked. */
 export function statedStance(text: string, options: DecisionOption[] = [], people: DecisionOption[] = []): string | null {
   const t = text.replace(/\s+/g, " ").trim();
@@ -407,8 +420,13 @@ export function looksLikePastedReading(text: string, pasteRatio = 0): boolean {
   const firstPerson = words.filter((w) => /^(i|i'm|i've|i'd|i'll|my|me|mine|im|ive)$/i.test(w.replace(/[^a-z']/gi, ""))).length;
   const ratio = firstPerson / words.length;
   if (pasteRatio >= 0.6 && ratio < 0.02) return true;
-  // Typed or pasted: 60+ words with no first person and no "you" reads like the text itself.
-  return words.length >= 60 && firstPerson === 0 && !/\b(you|your)\b/i.test(t);
+  // Typed or pasted (QA 7:02 AM: typed into chat, no paste event): long, several
+  // full sentences, almost no first person, and not opening like a student talking.
+  const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z“"])/).filter((x) => x.split(" ").length >= 5).length;
+  const chatty = /^(i|i'm|im|i've|my|yeah|yes|no|ok|okay|so|um|idk|honestly|well)\b/i.test(t);
+  if (chatty) return false;
+  if (words.length >= 60 && sentences >= 3 && ratio < 0.015) return true;
+  return words.length >= 120 && sentences >= 4 && ratio < 0.03;
 }
 
 /** Colton: "if we know something, share it". Never a "that'd be doing the reading for you" refusal. */
@@ -419,13 +437,110 @@ export function stripReadingRefusal(text: string): string {
 }
 
 /** No hollow praise for a student who said "idk" (QA 6:03 AM): a leading "Great question!" / "Nice!" / "Love that." goes. */
-const HOLLOW_PRAISE = /^\s*(?:(?:great|good|nice|awesome|perfect|excellent|love (?:that|it|this)|i love (?:that|this)|solid|amazing|wonderful|fantastic)(?:\s+(?:question|thinking|start|point|thought|one|call|answer|job|work))?|that'?s (?:a )?(?:great|good|really good|awesome|perfect|solid)(?:\s+(?:question|start|point|thought|one|answer))?)\s*[!.,]+\s*/i;
+const HOLLOW_PRAISE = /^\s*(?:(?:great|good|nice|awesome|perfect|excellent|love (?:that|it|this)|i love (?:that|this)|solid|amazing|wonderful|fantastic|that tracks|makes sense|cool|ooh|oh nice|okay nice|this one'?s got legs)(?:\s+(?:question|thinking|start|point|thought|one|call|answer|job|work))?|that'?s (?:a )?(?:great|good|really good|awesome|perfect|solid)(?:\s+(?:question|start|point|thought|one|answer))?)\s*[!.,]+\s*/i;
 export function stripHollowPraise(text: string): string {
   const out = text.replace(HOLLOW_PRAISE, "");
   return out ? out.charAt(0).toUpperCase() + out.slice(1) : text;
 }
 
+/** A line that is only praise ("Nice!", "That tracks.") is dropped; praise with specifics stays (QA 7:11 AM). */
+export function dropBarePraise(text: string | null | undefined): string {
+  const t = (text ?? "").trim();
+  return t.replace(HOLLOW_PRAISE, "").trim() ? t : "";
+}
+
 /** Colton's "I'm not going to the dark web!" once per paper: later asks drop it. */
 export function withoutDarkWeb(text: string | null | undefined): string {
   return (text ?? "").replace(/,?\s*and I'?m not going to the dark web!?/i, ".").replace(/\s*I'?m not going to the dark web!?/i, "").replace(/\.\./g, ".").trim();
+}
+
+
+/* --------------------------- QA 7:02 AM signals --------------------------- */
+
+/** A typed "skip" / "next" / "pass": never an answer, never counts toward the gate. */
+export function isSkipSaying(text: string): boolean {
+  return /^\s*(skip( (this|it|that|this one|for now))?|next|pass|no thanks|nah|n\/?a|none|nothing|-+|\.+)\s*[.!]*\s*$/i.test(text);
+}
+
+/** "Skip the get-to-know-you questions": every get-to-know-you question goes, not just hobbies. */
+export function isGetToKnowSkip(text: string): boolean {
+  return /\bskip\b.{0,30}\b(get[- ]?to[- ]?know(?:[- ]?you)?|personal|about me|hobb(y|ies)|intro(ductory)?|background|small talk)\b(?: questions?)?/i.test(text);
+}
+
+/** A stance in their own words from ANY message: the stance sentence and a named leader, if there is one. */
+export function parseStance(
+  text: string,
+  options: DecisionOption[] = [],
+  people: DecisionOption[] = [],
+): { stance: string; leader: string | null } | null {
+  const stance = statedStance(text, options, people);
+  if (!stance) return null;
+  const person = people.find((p) => {
+    const last = p.label.split(/\s+/).at(-1)!.toLowerCase();
+    return last.length > 2 && stance.toLowerCase().includes(last);
+  });
+  const named =
+    person?.label ??
+    stance.match(/\b(?:using|with|like|such as|example(?: of)?|for example|e\.g\.?|leader(?: is)?|specifically)\s+((?:[A-Z][a-z'’-]+)(?:\s+[A-Z][a-z'’-]+){1,2})\b/)?.[1] ??
+    stance.replace(/^\S+\s/, "").match(/\b([A-Z][a-z'’-]+\s+[A-Z][a-z'’-]+)\b/)?.[1] ??
+    null;
+  return { stance, leader: named && !/^(The|This|My|Chapter|Northouse|Leadership)\b/.test(named) ? named : null };
+}
+
+/** Summaries built from material we actually have (their copy, a fetched page, or the sheet), never her own knowledge. */
+export function verifiedSummaries(ctx: PaperContext): MaterialSummary[] {
+  const ok = (x: MaterialSummary) => x.kind === "reading" || x.kind === "found" || x.kind === "assignment";
+  const have = currentSummaries(ctx).filter(ok);
+  const sheet = (ctx.summaries ?? []).filter((x) => x.kind === "assignment" && !have.includes(x)).slice(-1);
+  return [...have, ...sheet];
+}
+
+const GENERIC_OPTION_WORD =
+  /^(focus|focusing|use|using|both|equally|reading|readings|essay|paper|choose|part|side|first|more|most|less|main|idea|ideas|angle|approach|option|pick|style|styles|agree|agreeing|disagree|disagreeing|partly|partially|mixed|depends|yes|neither|either|argue|against|with|about|into|from|than|that|this|what|which|matter|matters|together|time|people|your|their)$/;
+/**
+ * An option is grounded when its distinctive words come from material we have or
+ * the assignment text itself (QA 7:02 AM: "No phones or screens" was invented for an
+ * unseen handout). Pure stance options ("Agree", "Use both equally") are fine.
+ */
+export function optionGrounded(label: string, corpus: string): boolean {
+  const c = ` ${corpus.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ")} `;
+  const words = label
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((w) => w.length > 3 && !GENERIC_OPTION_WORD.test(w));
+  if (!words.length) return true;
+  const hit = words.filter((w) => c.includes(` ${w}`) || c.includes(` ${w.replace(/(ing|ed|es|s)$/, "")}`)).length;
+  return hit / words.length > 0.5;
+}
+
+/** Options from the assignment's own question, when nothing grounded came back. */
+export function assignmentOnlyOptions(text: string): DecisionOption[] {
+  const t = text.replace(/\s+/g, " ");
+  if (/\b(whether|if) you agree\b|\bagree or disagree\b|\bdo you agree\b/i.test(t)) {
+    return [
+      { label: "Agree", why: "Lets you back up the readings' point with your own reasons." },
+      { label: "Disagree", why: "Lets you push back on the readings with your own reasons." },
+      { label: "Partly agree", why: "Lets you keep what holds up and question the rest." },
+    ];
+  }
+  if (/\bwhether\b|\bshould\b|\bto what extent\b/i.test(t)) {
+    return [
+      { label: "Yes", why: "Lets you argue for it with your strongest reasons." },
+      { label: "No", why: "Lets you argue against it with your strongest reasons." },
+      { label: "It depends", why: "Lets you show when it holds and when it doesn't." },
+    ];
+  }
+  return [];
+}
+
+/**
+ * QA 7:02 AM: messages that may need a lookup show "Digging it up…" the moment they're
+ * sent (client side), not after the server has classified them.
+ */
+export function mayNeedLookup(text: string): boolean {
+  const t = (text ?? "").toLowerCase();
+  if (!t.trim()) return false;
+  return /\b(read(?:ing|ings)?|chapter|ch\.|book|textbook|article|handout|author|summar\w*|key points|what (?:is|are|does|do|did|was)|who (?:is|was|are)|explain|tell me (?:about|what)|options?|video|example|theor(?:y|ies)|styles?|model|says?|said|means?|covers?|about)\b/.test(t) || /\?\s*$/.test(t);
 }

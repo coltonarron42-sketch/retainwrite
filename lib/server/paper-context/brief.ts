@@ -10,8 +10,10 @@ import { checkLinks } from "@/lib/voice/realtime/links";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import type { Offer } from "@/lib/config/material-policy";
 import {
+  assignmentOnlyOptions,
   cleanOptions,
   cleanPoints,
+  optionGrounded,
   type DecisionOption,
   type MaterialKind,
   type MaterialSummary,
@@ -20,7 +22,7 @@ import {
 } from "@/lib/stage1/paper-context";
 
 const RULES = `You are Pau Pau, a writing coach for students (some are minors). You coach; you never write any part of their paper.
-Hard rules: never suggest a thesis, a position, a topic sentence, or any sentence they could put in their paper. Never say what they "should argue". Plain words a 9th grader understands, no jargon (explain any term you must use). Be accurate: use only what the provided text says; if something isn't there, leave it out.`;
+Hard rules: never suggest a thesis, a position, a topic sentence, or any sentence they could put in their paper. Never say what they "should argue". Plain words a 9th grader understands, no jargon (explain any term you must use). Be accurate: use only what the provided text says; if something isn't there, leave it out. Never claim what a numbered chapter of a book contains unless the provided text shows that chapter: chapter contents change between editions.`;
 
 const clip = (s: string | null | undefined, n: number) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 
@@ -304,7 +306,26 @@ const PRICE = /^\$\d{1,4}(\.\d{2})?$/;
  * named work, where to get it legitimately and for how much, and the actual text
  * when it's legitimately online. Unknown work: known=false, no summary.
  */
+/** "Chapter 4 of our textbook (Northouse…)": the chapter number, when the reading is a chapter of a book. */
+export function chapterOf(work: string): string | null {
+  return work.match(/\b(?:chapter|ch\.?)\s*(\d{1,2})\b/i)?.[1] ?? null;
+}
+
+/** Her knowledge of a chapter reading is about the BOOK: chapter contents change between editions (QA 7:02 AM). */
+export function bookLevelTitle(title: string): string {
+  return `${title.replace(/,?\s*(?:Ch\.|Chapter)\s*\d+\s*$/i, "").trim()} (the book overall)`;
+}
+
+/** A point that claims what a numbered chapter contains. */
+export const CHAPTER_CLAIM = /\b(?:chapter|ch\.?)\s*\d{1,2}\b/i;
+
+/** A fetched page verifies a chapter only when it shows that chapter (a table of contents or an excerpt). */
+export function pageShowsChapter(page: string, chapter: string): boolean {
+  return new RegExp(`\\b(?:chapter|ch\\.?)\\s*${chapter}\\b`, "i").test(page);
+}
+
 export async function investigateWork(work: string, ask: string | null): Promise<WorkInvestigation> {
+  const chapter = chapterOf(work);
   const title = shortWork(work);
   const empty: WorkInvestigation = { work, title, known: false, knowledge: null, found: null, offers: [] };
   const key = process.env.GROK_API_KEY?.trim();
@@ -332,7 +353,8 @@ You investigate ONE assigned reading for a student who doesn't have it. Be smart
 - "knowledge": if known, 3-6 plain points on its main ideas from what you genuinely know (e.g. the named styles, models or components it's famous for, explained simply). When the work is known for a named list or model, one point names EVERY item of it (e.g. Goleman's "What Makes a Leader?": the five components of emotional intelligence: self-awareness, self-regulation, motivation, empathy, social skill). Never quotes, page numbers, or chapter details you aren't sure of; nothing invented. Empty if not known.
 - Search the web for where it's LEGITIMATELY available: the publisher, Amazon or other real booksellers, rental services, or a legal open-access copy. Never pirate sites, shady PDF hosts or uploads of copyrighted books.
 - "offers": up to 3 legit places to get it (seller name, the exact url from results, and the price exactly as shown in the search results, or "" if no price was shown). Never make up a price or url.
-- "textPages": up to 2 legit pages with the actual text or an authoritative page about this exact work (publisher page, the author's page, open access). Empty if none.
+- "textPages": up to 2 legit pages with the actual text or an authoritative page about this exact work (publisher page, the author's page, open access). Empty if none.${chapter ? `
+- This reading is ONE CHAPTER of a book. Chapter contents change between editions, so "knowledge" describes the BOOK overall (its main approaches and ideas) and never says what chapter ${chapter} or any numbered chapter contains. For "textPages", look for that edition's table of contents or an excerpt that shows chapter ${chapter}'s actual content.` : ""}
 JSON only.`,
           },
           { role: "user", content: `${ask ? `What the assignment asks: ${ask}\n` : ""}The assigned reading, as the assignment names it: ${clip(work, 300)}` },
@@ -379,9 +401,10 @@ JSON only.`,
     clearTimeout(timer);
   }
   const known = o.known === true;
-  const points = known ? cleanPoints(o.knowledge, 6) : [];
+  // A chapter reading: book-level knowledge only, never "Chapter 4 covers…" (unverified).
+  const points = known ? cleanPoints(o.knowledge, 6).filter((p) => !(chapter && CHAPTER_CLAIM.test(p))) : [];
   const knowledge: MaterialSummary | null =
-    points.length >= 2 ? { kind: "knowledge", title, points, sources: [], at: Date.now() } : null;
+    points.length >= 2 ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points, sources: [], at: Date.now() } : null;
   // Offers: legit hosts only, link-checked, price only in a real "$NN.NN" shape.
   const rawOffers = (o.offers ?? []).filter((x) => legitHost(String(x.url ?? ""))).slice(0, 3);
   const checked = await checkLinks(rawOffers.map((x) => ({ title: clip(x.seller, 60), url: String(x.url) })));
@@ -399,6 +422,8 @@ JSON only.`,
     const page = await fetchPageText(c.url);
     if (!page.ok) continue;
     if (!pageIsAboutWork(`${page.text} ${page.title}`, { author: clip(o.author, 60) || authorOf(work), title: clip(o.workTitle, 160) || titleOf(work) || "" })) continue;
+    // A chapter is verified only by a page that shows that chapter.
+    if (chapter && !pageShowsChapter(`${page.title} ${page.text}`, chapter)) continue;
     found = await summarizeText({ kind: "found", title, text: page.text, ask, source: { title: page.title || c.title, url: page.url } });
     if (found) break;
   }
@@ -462,7 +487,7 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou help the student make a real first decision for this assignment.`,
-    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points they now know (from their readings): ${points.join(" | ")}\n` : ""}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which style, which side, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment, grounded in the key points (use the named ideas from the readings when there are some): "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded).${needsPerson ? ` The assignment needs one real person as the example, so "people" = 2-3 real, well-known people who clearly fit these options (e.g. a leader famous for one of these styles), each "label" = the person's name and "why" = under 15 words on what they're known for that connects to the options (real, widely reported facts only).` : ' "people" = [].'} Never a thesis. Never claim what an assigned reading says unless it's in the key points.`,
+    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points from material we actually have (their copy, a page we fetched, or the sheet): ${points.join(" | ")}\n` : "No reading material is available yet: you know NOTHING about what the assigned readings say.\n"}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which style, which side, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment, grounded in the key points (use the named ideas from the readings when there are some): "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded).${needsPerson ? ` The assignment needs one real person as the example, so "people" = 2-3 real, well-known people who clearly fit these options (e.g. a leader famous for one of these styles), each "label" = the person's name and "why" = under 15 words on what they're known for that connects to the options (real, widely reported facts only).` : ' "people" = [].'} Never a thesis. Options may only use ideas that appear in those key points or in the assignment text itself. Never base an option on what an assigned reading, handout or chapter might say when it isn't in the key points (no guessing its content from its title); then build the options from the assignment's own question instead (e.g. agree / disagree / partly).`,
     jsonSchema: {
       name: "options",
       schema: {
@@ -481,9 +506,13 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
   if (!r.ok) return null;
   try {
     const o = JSON.parse(r.text) as { question?: string; options?: unknown; people?: unknown };
-    const options = cleanOptions(o.options);
+    // QA 7:02 AM: only options grounded in material we have or the sheet itself.
+    const corpus = [a.topic, a.prompt, ask, a.text, ...points].filter(Boolean).join(" ");
+    let options = cleanOptions(o.options).filter((x) => optionGrounded(x.label, corpus));
+    const fallback = options.length < 2;
+    if (fallback) options = assignmentOnlyOptions(`${a.prompt ?? ""} ${a.topic ?? ""} ${a.text}`);
     const people = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
-    const question = clip(o.question, 200);
+    const question = fallback ? "Where do you stand on the assignment's question so far?" : clip(o.question, 200);
     return options.length >= 2 && question && safe(question) ? { question, options, ...(people.length >= 2 ? { people } : {}) } : null;
   } catch {
     return null;

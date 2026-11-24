@@ -65,5 +65,10 @@ export function smartReadingAsk(items: { title: string; offers: Offer[]; known: 
   const honest = unknown.length
     ? `Real talk: I don't know ${unknown.length === 1 ? unknown[0] : "those"} well enough to tell you what ${unknown.length === 1 ? "it says" : "they say"}, and I won't guess. `
     : "";
-  return `${honest}I don't have your copy of ${what} yet. ${buy}${buy ? "Or just give me" : "Can you give me"} what you have: a PDF, a photo of each page, a paste, or a link. I need the actual source material, and I'm not going to the dark web!`;
+  // QA 7:02 AM: chapter numbers change between editions, so she asks which one (or the chapter's pages).
+  const chapter = names.find((n) => /\b(?:Ch\.|Chapter)\s*\d+/i.test(n));
+  const edition = chapter
+    ? ` Chapter numbers change between editions, so tell me which edition of ${chapter.replace(/,?\s*(?:Ch\.|Chapter)\s*\d+\s*$/i, "")} you have, or snap the chapter's first page, and I'll match it.`
+    : "";
+  return `${honest}I don't have your copy of ${what} yet. ${buy}${buy ? "Or just give me" : "Can you give me"} what you have: a PDF, a photo of each page, a paste, or a link. I need the actual source material, and I'm not going to the dark web!${edition}`;
 }

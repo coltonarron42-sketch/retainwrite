@@ -10,7 +10,7 @@ import { workSummaries, authorOf, investigateWork, findNamedWork, findVideo, mat
 import { namedWorksFrom, sameWork } from "@/lib/stage1/readings";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
-import { currentSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
+import { currentSummaries, verifiedSummaries, bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -37,7 +37,10 @@ const bodySchema = z.discriminatedUnion("action", [
     answer: z.string().min(1).max(20_000),
     slot: z.enum(["main", "leader"]).optional(),
     source: z.enum(["asked", "stated"]).optional(),
+    /** The leader they named themselves ("using Satya Nadella"), when it isn't one of the options. */
+    named: z.string().max(80).optional(),
   }),
+  z.object({ action: z.literal("material_shown") }),
   z.object({ action: z.literal("context") }),
 ]);
 
@@ -123,7 +126,7 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
     ctx = await writePaperContext(supabase, paperId, userId, (p) => withMade(p, m));
   }
   if (!ctx.options) {
-    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, currentSummaries(ctx).flatMap((x) => x.points));
+    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, verifiedSummaries(ctx).flatMap((x) => x.points));
     if (o) await writePaperContext(supabase, paperId, userId, (p) => ({ ...p, options: p.options ?? o }));
   }
 }
@@ -149,15 +152,16 @@ function stillMissing(missing: string[] | undefined, text: string): string[] | u
 
 function missingAskFor(ctx: PaperContext): string | null {
   if (!ctx.missing?.length) return null;
-  if (ctx.whereToGet?.length) {
-    return smartReadingAsk(ctx.whereToGet.filter((w) => ctx.missing!.includes(w.title)));
-  }
-  return missingReadingAsk(ctx.missing);
+  const ask = ctx.whereToGet?.length ? smartReadingAsk(ctx.whereToGet.filter((w) => ctx.missing!.includes(w.title))) : missingReadingAsk(ctx.missing);
+  // QA 7:02 AM: a numbered chapter she can't see: ask which edition, or for its first page.
+  const chapter = ctx.missing.find((m) => /\b(?:Ch\.|Chapter)\s*\d+/i.test(m));
+  if (ask && chapter && !/edition/i.test(ask)) return `${ask} Chapter numbers change between editions, so tell me which edition you have, or snap the chapter's first page, and I'll match it.`;
+  return ask;
 }
 
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -205,6 +209,10 @@ export async function POST(request: Request, ctx: Ctx) {
       if (cur.northstar && !cur.prefetchAt) after(() => prefetch(supabase, paperId, userId).catch(() => undefined));
       return NextResponse.json({ ok: true, ...publicView(cur) });
     }
+    case "material_shown":
+      // The summary was shown before the confirm (QA 7:02 AM): the chat never re-asks "have you read it?".
+      await save((p) => ({ ...p, materialShownAt: p.materialShownAt ?? Date.now() }));
+      return NextResponse.json({ ok: true, ...publicView(cur) });
     case "lost":
       await save((p) => ({ ...p, lostAtStart: true }));
       return NextResponse.json({ ok: true });
@@ -273,7 +281,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     case "options": {
       if (!cur.options) {
-        const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, currentSummaries(cur).flatMap((x) => x.points));
+        const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, verifiedSummaries(cur).flatMap((x) => x.points));
         if (o) await save((p) => ({ ...p, options: p.options ?? o }));
       }
       return NextResponse.json({ ok: true, ...publicView(cur) });
@@ -281,7 +289,8 @@ export async function POST(request: Request, ctx: Ctx) {
     case "decision": {
       const answer = body.answer.trim();
       if (body.slot === "leader") {
-        const pick = pickFrom(answer, cur.options?.people ?? []);
+        const picked = pickFrom(answer, cur.options?.people ?? []);
+        const pick = picked === "their own" && body.named?.trim() ? body.named.trim() : picked;
         await save((p) => ({ ...p, leader: { question: body.question.slice(0, 600), pick, answer, at: Date.now() } }));
         return NextResponse.json({ ok: true, ...publicView(cur) });
       }
