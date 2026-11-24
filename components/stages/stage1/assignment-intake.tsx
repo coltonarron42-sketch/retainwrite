@@ -1734,7 +1734,9 @@ export function AssignmentIntake({
     const dNow = (briefRef.current ?? brief)?.decision;
     // QA 1:16: the decision save can still be in flight here; their informed words are the direction either way.
     const informedNow = brief?.northstar && !said("decision_pick") ? informedSaying(said("material_check"), (briefRef.current ?? brief)?.options?.options ?? []) : null;
-    const statedAnswer = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : informedNow?.stance ?? "";
+    const savedStated = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : "";
+    // A parsed pick can be shorter than what they wrote; their own full words win (QA 1:16: Walton got angle cards).
+    const statedAnswer = informedNow?.stance && wordCount(informedNow.stance) > wordCount(savedStated) ? informedNow.stance : savedStated;
     const statedDecision = statedAnswer ? (why && !statedAnswer.includes(why) ? `${statedAnswer} ${why}` : statedAnswer) : "";
     const pickDecision = said("decision_pick") ? [said("decision_pick"), why].filter(Boolean).join(" ") : "";
     const leaderSaid = said("leader_pick");
@@ -3506,6 +3508,12 @@ export function AssignmentIntake({
                       </DsButton>
                     </div>
                   ) : null) : null;
+    const statusFor = (said: string) =>
+      q?.id === "material_check" && materialLost(said)
+        ? "Digging it up… pulling together the key points."
+        : q?.id === "material_check" || ((brief?.northstar ?? true) && mayNeedLookup(said)) || wordCount(said) >= 25
+          ? "Digging it up…"
+          : "Thinking…";
     const send = (text?: string) => {
       const typedNow = (text ?? draftAnswer).trim();
       // QA 1:16 (composer): a second, different message sent right after the first joins it, so
@@ -3522,7 +3530,7 @@ export function AssignmentIntake({
         sendLock.current = true;
         if (!text) setDraftAnswer("");
         setPendingSaid(typedNow);
-        setAsideBusy("Thinking…");
+        setAsideBusy(statusFor(typedNow));
         const entry = { text: typedNow, timer: setTimeout(() => {
           const merged = coalesce.current?.text ?? typedNow;
           coalesce.current = null;
@@ -3542,15 +3550,7 @@ export function AssignmentIntake({
       // QA 10:21: a status in the same tick as send on every path (taps, "I've read it", long
       // multi-part messages), not only the ones that look like a lookup.
       const said = (text ?? draftAnswer).trim();
-      if (said) {
-        setAsideBusy(
-          q?.id === "material_check" && materialLost(said)
-            ? "Digging it up… pulling together the key points."
-            : q?.id === "material_check" || ((brief?.northstar ?? true) && mayNeedLookup(said)) || wordCount(said) >= 25
-              ? "Digging it up…"
-              : "Thinking…",
-        );
-      }
+      if (said) setAsideBusy(statusFor(said));
       void (stanceMode ? submitStanceAnswer(text) : submitAnswer(text ? { text } : undefined)).finally(() => {
         sendLock.current = false;
         setSubmitting(false);
