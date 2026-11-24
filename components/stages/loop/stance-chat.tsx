@@ -23,12 +23,12 @@ import {
 } from "@/lib/coaching/logicCheck";
 import { oneQuipParas, quipFor } from "@/lib/coach/quips";
 import { isVagueNote } from "@/lib/coach/answer";
-import { sectionPurpose } from "@/lib/stage1/paper-context";
+import { dropBarePraise, mayNeedLookup, sectionPurpose } from "@/lib/stage1/paper-context";
 import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
-import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
 import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
@@ -118,6 +118,8 @@ type Props = {
     material?: { label: string; points: string[] }[];
   };
   promptType: "lesson" | "personal_experience" | "mixed";
+  /** What "lesson" reads as for this assignment ("Argument", "Analysis" or "Lesson"). */
+  lessonLabel?: string;
   sections: StanceSectionView[];
   active: number;
   kind: StanceTurnKind;
@@ -223,7 +225,7 @@ function stanceTurnParasRaw(
 ): string[] {
   switch (kind) {
     case "teach_card":
-      return card ? [card.affirm, quickLessonLine(card.concept, card.definition), card.ask].filter((p): p is string => Boolean(p)) : [];
+      return card ? [dropBarePraise(card.affirm), quickLessonLine(card.concept, card.definition), card.ask].filter((p): p is string => Boolean(p)) : [];
     case "mirror":
       return [ctx.mirrorAsk];
     case "probe":
@@ -302,6 +304,7 @@ export function StanceChat(props: Props) {
   useStopSpeechOnUnmount();
   const [hintState, setHintState] = useState<{ text: string; key: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [lookupNote, setLookupNote] = useState<string | null>(null);
   // One send at a time, set synchronously (state lags a tap): a second send
   // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
   const inFlight = useRef(false);
@@ -399,11 +402,14 @@ export function StanceChat(props: Props) {
     setChecking(true);
     // The box empties the moment it's sent; anything typed next is its own message.
     props.onIdea("");
+    // QA 7:02 AM: "Digging it up…" at send time for anything that may need a lookup.
+    setLookupNote(mayNeedLookup(text) ? "Digging it up…" : null);
     try {
       await sendNow(text);
     } finally {
       inFlight.current = false;
       setChecking(false);
+      setLookupNote(null);
     }
   }
 
@@ -498,6 +504,13 @@ export function StanceChat(props: Props) {
         }
         break;
     }
+    // QA 7:11 AM: a new, substantive answer over the confirm is added to their note, never
+    // turned away ("Your note is still the one above…"). Replacing still asks first.
+    if ((kind === "confirm" || kind === "logic_opener") && substantiveNote(text) && !isVagueNote(text)) {
+      props.onIdea("");
+      await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text)], { text });
+      return "saved";
+    }
     // Other words over a choice are discussion: the saved note never changes.
     if (noteTurn) {
       props.onIdea("");
@@ -562,7 +575,7 @@ export function StanceChat(props: Props) {
               value={props.promptType}
               onChange={(event) => h.promptType(event.target.value as Props["promptType"])}
             >
-              <option value="lesson">Lesson</option>
+              <option value="lesson">{props.lessonLabel ?? "Lesson"}</option>
               <option value="personal_experience">Personal experience</option>
               <option value="mixed">Mixed</option>
             </select>
@@ -739,7 +752,7 @@ export function StanceChat(props: Props) {
                   <p className="font-semibold">
                     {lead.rank === 1 ? <span className="mr-2 text-[13px] uppercase text-ds-accent">Best fit</span> : null}
                     {lead.name}
-                    <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">To verify</span>
+                    <span className="ml-2 text-[13px] font-semibold uppercase text-ds-muted">Check it yourself</span>
                   </p>
                   <p className="text-ds-muted">{lead.whyFits}</p>
                   <DsButton type="button" size="sm" variant="secondary" className="mt-1" onClick={() => h.pickLead(lead, [pau(paras[0] ?? ""), pick(lead.name)])}>
@@ -901,6 +914,11 @@ export function StanceChat(props: Props) {
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
+        {lookupNote ? (
+          <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
+            {lookupNote}
+          </p>
+        ) : null}
       </div>
 
       <ComposerDock>
@@ -971,25 +989,26 @@ export const STOCK_POOLS = {
   ],
   /** Confirm after a lesson-path pick. */
   confirm: [
-    "Looks solid. Ready to roll with it?",
-    "Nice. Want to lock this one in?",
-    "Okay, that's good. Like, actually good. Lock it in?",
-    "Solid pick. Ready to run with it?",
-    "I'd brag about this one. Going with it?",
-    "That'll hold up. Want to go with it?",
-    "Good call. Ready to move on with this?",
-    "This one's got legs. Keep it?",
+    // QA 7:11 AM: no hollow praise on a pick (it fired on a question-only lead).
+    "Ready to roll with it?",
+    "Want to lock this one in?",
+    "Lock it in, or keep working on it?",
+    "Ready to run with it?",
+    "Going with it?",
+    "Want to go with it?",
+    "Ready to move on with this?",
+    "Keep it?",
   ],
   /** Confirm after a memory-path pick. */
   memory_confirm: [
     MEMORY_CONFIRM,
-    "That's a good one. Go with this moment?",
-    "This moment works. Want to use it?",
-    "Okay, that's a real story. Run with it?",
-    "That'll make a good example. Keep it?",
-    "Good pick. Want to stick with this moment?",
-    "I can see this one working. Use it?",
-    "Solid moment. Lock it in?",
+    "Go with this moment?",
+    "Want to use this moment?",
+    "Run with this story?",
+    "Keep this one as your example?",
+    "Want to stick with this moment?",
+    "Use this one?",
+    "Lock this moment in?",
   ],
   /** Logic-check opener: [lead, ask]; a quip may sit between them. */
   logic_opener: [
@@ -1005,13 +1024,14 @@ export const STOCK_POOLS = {
   /** Logic check passed. */
   logic_pass: [
     LOGIC_PASS,
-    "Logic check ✓ It holds together.",
-    "Logic check ✓ No holes. I looked.",
-    "Logic check ✓ That tracks.",
-    "Logic check ✓ Tight. I'm a little impressed.",
-    "Logic check ✓ Nothing's wobbling.",
-    "Logic check ✓ It makes sense start to finish.",
-    "Logic check ✓ Clean.",
+    // QA 7:11 AM: a pass says what was checked, never bare praise.
+    "Logic check ✓ It stays on the prompt and doesn't contradict your thesis.",
+    "Logic check ✓ I didn't find a contradiction with your thesis or inside the note.",
+    "Logic check ✓ It answers the prompt, and the reason backs the claim.",
+    "Logic check ✓ Your claim and its reason point the same way.",
+    "Logic check ✓ No contradiction with your earlier sections.",
+    "Logic check ✓ It's on the prompt and consistent with your thesis.",
+    "Logic check ✓ The point and its support line up.",
   ],
   /** Moderate flag title (no end mark; the turn adds "."). */
   logic_moderate: [

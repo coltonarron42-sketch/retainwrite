@@ -39,6 +39,7 @@ import {
   extractLesson,
   type LessonExtraction,
   type PromptType,
+  lessonKindLabel,
 } from "@/lib/coaching/lesson";
 import {
   finalizeLogicCheck,
@@ -999,8 +1000,19 @@ export function CoachingLoop({
   }
 
   function checkNotes(target: RuntimeSection, notes: string, onPrompt: boolean | null) {
+    // Their own thesis: the Stage 1 decision (and leader) plus their thesis/intro notes (QA 7:11 AM).
+    const thesis = [
+      pctx?.decision?.answer ?? "",
+      pctx?.leader?.answer && pctx.leader.answer !== pctx?.decision?.answer ? pctx.leader.answer : "",
+      ...(session?.sections ?? [])
+        .filter((item) => item.key !== target.key && /thesis|intro/i.test(`${item.key} ${item.title}`))
+        .map((item) => keptIdeas(item.ideas).join(" ")),
+    ]
+      .filter(Boolean)
+      .join(". ");
     const raw = logicCheckFromNotes({
       notes,
+      thesis,
       assignmentText: session?.assignmentText ?? "",
       rubricRef: target.rubricRef,
       mode: target.mode,
@@ -1281,6 +1293,7 @@ export function CoachingLoop({
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
+          lessonLabel={lessonKindLabel(session.assignmentText)}
           sections={session.sections}
           active={active}
           kind={stanceTurnFor(
@@ -1665,7 +1678,7 @@ function ProductNotes({
             ))
           )}
           {showLeads && visibleSourceLead(item.chosenLead) ? (
-            <p className={`mt-2 ${dsBody}`}>To verify: {visibleSourceLead(item.chosenLead)}</p>
+            <p className={`mt-2 ${dsBody}`}>Look up: {visibleSourceLead(item.chosenLead)}</p>
           ) : null}
         </article>
       ))}
