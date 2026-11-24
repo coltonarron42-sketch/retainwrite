@@ -892,6 +892,14 @@ export function AssignmentIntake({
     }
     return plan;
   }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers]);
+  // Prepared or get-to-know-skipped north-star students never get the extra voice question
+  // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
+  const fallbackOff = (() => {
+    if (!brief?.northstar) return false;
+    if (skippedInterest || brief.decision?.source === "stated") return true;
+    const m = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
+    return Boolean(m) && isPreparedSaying(m) && !isLostSaying(m);
+  })();
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
@@ -971,7 +979,7 @@ export function AssignmentIntake({
           const voice = evaluateStage1VoiceMinimum({
             answers: answers.map((a) => ({ text: a.answerText, isVoiceSample: a.isVoiceSample, kind: a.kind, pasteRatio: a.pasteRatio })),
           });
-          if (voice.needsFallback && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
+          if (voice.needsFallback && !fallbackOff && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
             setNeedFallback(true);
             setQIndex(coachingPlan.length);
             setScreen("coaching");
@@ -997,7 +1005,7 @@ export function AssignmentIntake({
       }
     }
     settleRestore();
-  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, skippedInterest, resumeReady]);
+  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, fallbackOff, skippedInterest, resumeReady]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -1967,6 +1975,7 @@ export function AssignmentIntake({
     const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
     if (
       evalResult.needsFallback &&
+      !fallbackOff &&
       !nextAnswers.some((a) => a.kind === "fallback_voice") &&
       !needFallback
     ) {
@@ -2156,6 +2165,7 @@ export function AssignmentIntake({
     const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
     if (
       evalResult.needsFallback &&
+      !fallbackOff &&
       !nextAnswers.some((a) => a.kind === "fallback_voice") &&
       !needFallback
     ) {
