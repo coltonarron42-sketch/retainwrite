@@ -442,8 +442,9 @@ export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlyS
   const topic = cleanTopic(req.topic.value) || cleanTopic(req.promptQuestion.value);
   if (!topic || isPlaceholderTopic(topic)) return "topic";
   // Colton 1:54 R2: a named chapter or reading they haven't given us is asked for right away.
-  const provided = (req.providedReadings.value ?? []).length + (req.providedSources?.value ?? []).length;
-  if (!dismissed.has("sources") && (sourcesMissing(req) || (provided === 0 && namedWorksFrom(req, sheetText).length > 0))) return "sources";
+  // A title read off the sheet isn't the material itself; a link or something they added is.
+  const haveMaterial = [...(req.providedReadings.value ?? []), ...(req.providedSources?.value ?? [])].some((r) => Boolean((r as { url?: string }).url) || (r as { origin?: string }).origin === "manual");
+  if (!dismissed.has("sources") && (sourcesMissing(req) || (!haveMaterial && namedWorksFrom(req, sheetText).length > 0))) return "sources";
   if (!dismissed.has("length") && !req.length.value) return "length";
   return null;
 }
@@ -481,7 +482,8 @@ export function askWasMade(said: string, key: PauPauAsk): boolean {
  */
 export function sourcesAskText(works: string[]): string {
   if (!works.length) return PAU_PAU_ASK_TEXT.sources;
-  const names = works.slice(0, 3).map(displayWork);
+  // "Memory Under Pressure by L" (an initial only) reads as “Memory Under Pressure”.
+  const names = works.slice(0, 3).map((w) => displayWork(w.replace(/\s+by\s+[A-Z]\.?$/, "")));
   const list = names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
   return `It mentions ${list}. Can you upload photos, a PDF, or the relevant pages? ${SOURCES_MARKER}`;
 }

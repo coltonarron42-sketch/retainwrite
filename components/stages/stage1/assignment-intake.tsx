@@ -890,7 +890,7 @@ export function AssignmentIntake({
           id: "decision_pick",
           kind: "coaching",
           text: brief?.options?.options.length
-            ? clean(decisionQuestion(brief.options, { prepared }))
+            ? clean(decisionQuestion(brief.options, { prepared, ask: brief.readback?.ask ?? requirements?.promptQuestion.value }))
             : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
                 .map((t) => (t ? assignmentDecisionAsk(t) : null))
                 .find(Boolean) ??

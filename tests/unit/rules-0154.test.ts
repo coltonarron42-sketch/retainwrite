@@ -52,3 +52,20 @@ describe("Colton 1:54 R4: no proven learning claims anywhere in the app copy", (
     expect(hits).toEqual([]);
   });
 });
+
+describe("Colton 1:54 R2: a reading named only on the sheet is asked for", () => {
+  it("course-packet article by an initial-only author reads cleanly", () => {
+    expect(sourcesAskText(["Memory Under Pressure by L"])).toMatch(/^It mentions “Memory Under Pressure”\. Can you upload photos/);
+  });
+});
+
+describe("QA 1:16 PSY: bare yes/no options become the two real sides", async () => {
+  const { decisionQuestion } = await import("@/lib/stage1/paper-context");
+  it("stress helps memory / stress hurts memory", () => {
+    const q = decisionQuestion(
+      { question: "Where do you stand on the assignment's question so far", options: [{ label: "Yes", why: "a" }, { label: "No", why: "b" }], people: [] } as never,
+      { ask: "write 800-1,000 words on whether stress helps or hurts memory, using one example from your own life" },
+    );
+    expect(q).toMatch(/^Gut answer first, even a guess: stress helps memory or stress hurts memory\? Here are a few real options: 1\) Stress helps memory/);
+  });
+});

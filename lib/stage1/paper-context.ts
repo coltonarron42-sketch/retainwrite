@@ -277,11 +277,27 @@ export function pickFrom(answer: string, options: DecisionOption[]): string {
 }
 
 /** The decision question with its options, as the app's question text. */
-export function decisionQuestion(opts: NonNullable<PaperContext["options"]>, ctx?: { prepared?: boolean }): string {
+export function decisionQuestion(opts: NonNullable<PaperContext["options"]>, ctx?: { prepared?: boolean; ask?: string | null }): string {
   // Colton 11:41: 2-3 real options, never a long menu.
-  const few = opts.options.slice(0, 3);
+  let few = opts.options.slice(0, 3);
+  let q = opts.question.trim().replace(/[?.!\s]+$/, "") + "?";
+  // QA 1:16 (PSY): bare "Yes" / "No" options to a "whether X or Y" ask become the two real sides.
+  const w = (ctx?.ask ?? "").replace(/\s+/g, " ").match(/\bwhether ([a-z][^.?;,]{2,60}?) or ((?:not|[a-z])[^.?;,]{1,60})/i);
+  if (w && few.length && few.every((o) => /^(yes|no|both|neither|it depends|maybe)\b/i.test(o.label.trim()))) {
+    const a = w[1]!.trim();
+    const b = w[2]!.trim().replace(/\s+(with|using|and use|in|for|plus)\b.*$/i, "");
+    // "stress helps" or "hurts memory": give the second side the first one's subject.
+    const subj = a.split(" ")[0]!;
+    const bFull = b.split(" ").length >= 2 && !b.toLowerCase().startsWith(subj.toLowerCase()) ? `${subj} ${b}` : b;
+    const aFull = a.split(" ").length < 3 && b.split(" ").length >= 2 ? `${a} ${b.split(" ").slice(1).join(" ")}` : a;
+    few = [
+      { label: aFull.replace(/^./, (c) => c.toUpperCase()), why: few[0]?.why },
+      { label: bFull.replace(/^./, (c) => c.toUpperCase()), why: few[1]?.why },
+      { label: "Both, depending on the situation", why: few[2]?.why ?? "Lets you show when each side holds." },
+    ];
+    q = `Gut answer first, even a guess: ${aFull} or ${bFull}?`;
+  }
   const list = few.map((o, i) => `${i + 1}) ${o.label}${o.why ? ` (${o.why})` : ""}`).join("; ");
-  const q = opts.question.trim().replace(/[?.!\s]+$/, "") + "?";
   // QA 10:21: a student who has read it gets an open ask; the list is only a nudge.
   if (ctx?.prepared)
     return `${q} You've done the reading, so tell me your pick and your reason. If it helps, the usual contenders are ${few.map((o) => o.label).join(", ")}.`;
