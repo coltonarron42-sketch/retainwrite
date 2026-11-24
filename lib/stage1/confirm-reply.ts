@@ -11,6 +11,7 @@ import { withYear } from "@/lib/copy/due-date";
 import { markFieldConfirmed } from "@/lib/assignment/confirm-helpers";
 import { emptyField, type AssignmentRequirements, type CitationStyle } from "@/lib/assignment/schema";
 import { lengthFromAnswer, type PauPauAsk } from "@/lib/stage1/pau-pau";
+import { preConfirmRoute, stripReadingRefusal, type PreConfirmRoute } from "@/lib/stage1/paper-context";
 
 export type ConfirmIntent = "confirm" | "question" | "correction" | "extra_info" | "ambiguous";
 
@@ -38,6 +39,8 @@ export type ConfirmResult = {
   keepAsNote: boolean;
   /** The student says they don't have / don't want to give the thing Pau Pau asked for. */
   skipAsk: boolean;
+  /** A question answered in place before the confirm (QA 6:03 AM): the catch-up, the options, or a plain explanation. */
+  route?: PreConfirmRoute;
 };
 
 export type ConfirmTurn =
@@ -112,11 +115,24 @@ export function hasUpdates(u: ConfirmUpdates): boolean {
 const QUICK_CONFIRM =
   /^(?:(?:yes|yep|yeah|yup|ya|yes ma'?am|sure|ok(?:ay)?|k|alright|correct|right|perfect|great|awesome|cool|exactly|definitely|ready)(?:[,!. ]+(?:that'?s (?:right|correct|it)|looks (?:good|great|right)|let'?s go|i'?m ready|ready|sounds good))*|(?:it |that |this |everything |all )?looks? (?:good|great|right|correct|fine|perfect)(?: to me)?|all good|all correct|that'?s (?:right|correct|it|perfect)|you got it|nailed it|good to go|sounds (?:good|great|right)|let'?s (?:go|do (?:it|this)|get rolling|roll|start)|i'?m ready)[.! ]*(?:👍)?$/i;
 
-/** Plain "looks good" / "yes" / "let's go": no model call needed. */
+/** A confirm plus a harmless tail ("looks good, I have the readings"): still a clear yes. */
+const CONFIRM_LEAD =
+  /^(?:yes|yep|yeah|yup|ya|sure|ok(?:ay)?|alright|correct|right|perfect|great|cool|exactly|(?:it |that |this |everything |all )?looks? (?:good|great|right|correct|fine|perfect)(?: to me)?|all good|that'?s (?:right|correct|it|perfect)|you got it|sounds (?:good|great|right))\b[,.!]*\s*(?:(?:and|also|plus|so)\s+)?/i;
+const HARMLESS_TAIL =
+  /^(?:i (?:have|got|read|did|already read|already have|finished) (?:the |all the |both |my |those )?(?:readings?|sources?|articles?|chapters?|handouts?|books?|it|them|both)(?: already)?|i'?ve (?:read|got|done) (?:the |all the |both )?(?:readings?|sources?|it|them|both)|that'?s (?:right|correct|it|all)|let'?s (?:go|start|do it|do this|get started|roll)|i'?m ready|ready|thanks?(?: pau ?pau)?|thank you|sounds good|all good|that'?s everything|nothing to change|no changes)[.! ]*$/i;
+const CORRECTION_CUE = /\b(but|except|although|though|actually|wrong|not|isn'?t|aren'?t|change|instead|missing|forgot|should be|due|words?|pages?|mla|apa|chicago)\b|\d|\?/i;
+
+/** Plain "looks good" / "yes" / "let's go" (and "yep that's right", "looks good, I have the readings"): no model call needed. */
 export function isQuickConfirm(text: string): boolean {
   const t = text.replace(/\s+/g, " ").trim();
-  if (!t || t.length > 60) return false;
-  return QUICK_CONFIRM.test(t);
+  if (!t || t.length > 90) return false;
+  if (t.length <= 60 && QUICK_CONFIRM.test(t)) return true;
+  const lead = t.match(CONFIRM_LEAD);
+  if (!lead) return false;
+  const tail = t.slice(lead[0].length).trim();
+  if (!tail) return true;
+  // "yes but…" is not a yes; only a harmless tail rides along.
+  return HARMLESS_TAIL.test(tail) && !CORRECTION_CUE.test(tail.replace(/\b(i (have|got|read|did)|readings?|sources?)\b/gi, ""));
 }
 
 const CITATION: Array<[RegExp, CitationStyle]> = [
@@ -174,11 +190,17 @@ export function rulesClassify(text: string, pendingAsk: PauPauAsk | null): Confi
     updates.topic = t;
   }
   if (hasUpdates(updates)) return { ...base, intent: "correction", reply: "Got it, I've updated that.", updates };
+  // QA 6:03 AM: questions before the confirm are answered in place (the app fills in the catch-up, the options or a plain explanation).
+  const route = preConfirmRoute(t);
+  if (route) {
+    const reply = route === "material" ? "Sure, here's the gist." : route === "options" ? "Sure, here are a few real directions." : "Sure, here it is in plain words.";
+    return { ...base, intent: "question", reply, updates, route };
+  }
   if (/\?\s*$/.test(t)) {
     return {
       ...base,
       intent: "question",
-      reply: "Good question. I can only go by what's on the sheet, so if it isn't there, your teacher is the best person to ask.",
+      reply: "I don't see that on the sheet, so your teacher has the final word there. Everything else I can help with.",
       updates,
     };
   }
@@ -224,8 +246,13 @@ export function finalizeResult(model: ConfirmResult | null, rules: ConfirmResult
     intent = "correction";
     reply = rules.reply;
   }
+  // A reading/options/meaning question the model called unclear is still answered in place.
+  const route = model.route ?? rules.route ?? null;
+  if (route && (intent === "ambiguous" || intent === "question")) {
+    return { ...model, intent: "question", reply: intent === "ambiguous" ? rules.reply : reply, updates, route };
+  }
   if (intent === "ambiguous") reply = clarifyingAsk(pendingAsk);
-  return { ...model, intent, reply, updates };
+  return { ...model, intent, reply, updates, route };
 }
 
 /** Writes the changes onto the card as student-confirmed values. */
@@ -288,7 +315,7 @@ export const CONFIRM_REPLY_SYSTEM = `You are Pau Pau, a warm writing coach for s
 Intents:
 - "confirm": the student clearly says the read-back is right / they're ready (e.g. "looks good", "yes", "yep that's it"). Only if nothing needs changing.
 - "correction": the student corrects or adds a detail you track (topic, prompt question, course, instructor, paper type, due date, citation style, length in words or pages, number of sources). Put ONLY the changed values in "updates"; every other update is null. A reply that confirms AND corrects is a correction.
-- "question": the student asks you something (e.g. "do you need my due date?", "what does the rubric focus on?"). Answer from the assignment details given. If the sheet doesn't say, say so plainly and suggest asking their teacher.
+- "question": the student asks you something (e.g. "do you need my due date?", "what does the rubric focus on?", "idk what this even means", "what is Goleman saying?", "just tell me what the options are"). ANSWER it right here, never deflect: about the sheet, answer from the assignment details; "what does this mean" gets the assignment in plain, simple words. Set "route": "material" when they ask what an assigned reading or handout says (the app shows what you know about it right after your reply, so your reply is one short lead-in like "Sure, here's the gist."); "options" when they ask for options, directions or what they could write about (the app shows the options); "explain" when they don't understand the assignment (your reply explains it plainly). Otherwise "route": "none". Never refuse to explain or summarize a reading ("I can't summarize that", "that'd be doing the reading for you" are never okay): if you know something, share it. If the sheet doesn't say, say so plainly.
 - "extra_info": the student shares context that isn't a tracked field (e.g. "my teacher said first person is fine"). Set keepAsNote true so their exact words are saved. If they decline what you asked for ("I don't have the sources yet"), set skipAsk true.
 - "ambiguous": you can't tell what they mean (e.g. "hmm maybe", "idk"). Never treat an unclear reply as confirm. The app adds the clarifying question.
 
@@ -307,6 +334,7 @@ export const CONFIRM_REPLY_SCHEMA = {
     reply: { type: "string" },
     keepAsNote: { type: "boolean" },
     skipAsk: { type: "boolean" },
+    route: { type: "string", enum: ["none", "material", "options", "explain"] },
     updates: {
       type: "object",
       additionalProperties: false,
@@ -340,7 +368,7 @@ export const CONFIRM_REPLY_SCHEMA = {
       ],
     },
   },
-  required: ["intent", "reply", "keepAsNote", "skipAsk", "updates"],
+  required: ["intent", "reply", "keepAsNote", "skipAsk", "route", "updates"],
 } as const;
 
 /** Compact view of the card for the model: values only. */
@@ -393,8 +421,11 @@ export function parseModelResult(raw: unknown): ConfirmResult | null {
   const r = raw as Partial<ConfirmResult> & { updates?: Partial<ConfirmUpdates> };
   const intents: ConfirmIntent[] = ["confirm", "question", "correction", "extra_info", "ambiguous"];
   if (!r.intent || !intents.includes(r.intent)) return null;
-  const reply = typeof r.reply === "string" ? r.reply.replace(/\s+/g, " ").trim().slice(0, 600) : "";
-  if (!reply) return null;
+  // Colton: "if we know something, share it" (never a "that'd be doing the reading" refusal).
+  const reply = typeof r.reply === "string" ? stripReadingRefusal(r.reply.replace(/\s+/g, " ").trim()).slice(0, 600) : "";
+  const rawRoute = (raw as { route?: unknown }).route;
+  const route: PreConfirmRoute = rawRoute === "material" || rawRoute === "options" || rawRoute === "explain" ? rawRoute : null;
+  if (!reply && !route) return null;
   const updates = emptyUpdates();
   for (const key of Object.keys(updates) as (keyof ConfirmUpdates)[]) {
     const val = r.updates?.[key];
@@ -407,5 +438,5 @@ export function parseModelResult(raw: unknown): ConfirmResult | null {
   // A confirm that carries changes is a correction, so Pau Pau re-confirms first.
   if (intent === "confirm" && hasUpdates(updates)) intent = "correction";
   // Checked after generation: at most one quip per reply (QA 3:35 B).
-  return { intent, reply: oneQuip(reply.replace(/!/g, ".")), updates, keepAsNote: Boolean(r.keepAsNote), skipAsk: Boolean(r.skipAsk) };
+  return { intent, reply: oneQuip((reply || "Sure.").replace(/!/g, ".")), updates, keepAsNote: Boolean(r.keepAsNote), skipAsk: Boolean(r.skipAsk), route };
 }

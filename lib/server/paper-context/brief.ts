@@ -90,7 +90,7 @@ export async function summarizeText(input: { kind: Exclude<MaterialKind, "genera
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nThe student hasn't read the material or doesn't know where to start. Give them the key points so they can engage right away.`,
-    user: `${input.ask ? `What the assignment asks: ${input.ask}\n` : ""}${input.kind === "reading" ? `Their course reading "${input.title}":` : input.kind === "found" ? `A page about their assigned reading "${input.title}" (${input.source?.url ?? ""}). Use ONLY what this page says; skip menus, ads and unrelated parts:` : "Their assignment sheet:"}\n"""${clip(input.text, 9000)}"""\n\nReturn JSON "points": 3-6 short, jargon-free key points from THIS text that matter for the assignment (facts, ideas, who/what/why). Each under 30 words. No opinions on what they should argue.`,
+    user: `${input.ask ? `What the assignment asks: ${input.ask}\n` : ""}${input.kind === "reading" ? `Their course reading "${input.title}":` : input.kind === "found" ? `A page about their assigned reading "${input.title}" (${input.source?.url ?? ""}). Use ONLY what this page says; skip menus, ads and unrelated parts:` : "Their assignment sheet:"}\n"""${clip(input.text, 9000)}"""\n\nReturn JSON "points": 3-6 short, jargon-free key points from THIS text that matter for the assignment (facts, ideas, who/what/why). Each under 30 words. If the text lays out a named list or model (e.g. "five components"), one point names every item of it. No opinions on what they should argue.`,
     jsonSchema: {
       name: "summary",
       schema: { type: "object", properties: { points: { type: "array", items: { type: "string" } } }, required: ["points"], additionalProperties: false },
@@ -329,7 +329,7 @@ export async function investigateWork(work: string, ask: string | null): Promise
             content: `${RULES}
 You investigate ONE assigned reading for a student who doesn't have it. Be smart and honest:
 - "known": true only if you genuinely know this specific work well (a well-known book, chapter or article). If it's obscure, ambiguous or you're unsure which work it is, false.
-- "knowledge": if known, 3-6 plain points on its main ideas from what you genuinely know (e.g. the named styles, models or components it's famous for, explained simply). Never quotes, page numbers, or chapter details you aren't sure of; nothing invented. Empty if not known.
+- "knowledge": if known, 3-6 plain points on its main ideas from what you genuinely know (e.g. the named styles, models or components it's famous for, explained simply). When the work is known for a named list or model, one point names EVERY item of it (e.g. Goleman's "What Makes a Leader?": the five components of emotional intelligence: self-awareness, self-regulation, motivation, empathy, social skill). Never quotes, page numbers, or chapter details you aren't sure of; nothing invented. Empty if not known.
 - Search the web for where it's LEGITIMATELY available: the publisher, Amazon or other real booksellers, rental services, or a legal open-access copy. Never pirate sites, shady PDF hosts or uploads of copyrighted books.
 - "offers": up to 3 legit places to get it (seller name, the exact url from results, and the price exactly as shown in the search results, or "" if no price was shown). Never make up a price or url.
 - "textPages": up to 2 legit pages with the actual text or an authoritative page about this exact work (publisher page, the author's page, open access). Empty if none.
@@ -385,11 +385,14 @@ JSON only.`,
   // Offers: legit hosts only, link-checked, price only in a real "$NN.NN" shape.
   const rawOffers = (o.offers ?? []).filter((x) => legitHost(String(x.url ?? ""))).slice(0, 3);
   const checked = await checkLinks(rawOffers.map((x) => ({ title: clip(x.seller, 60), url: String(x.url) })));
-  const offers: Offer[] = checked.map((c) => {
-    const src = rawOffers.find((x) => x.url === c.url || hostOf(x.url) === hostOf(c.url));
-    const price = String(src?.price ?? "").trim();
-    return { seller: c.title || hostOf(c.url), url: c.url, price: PRICE.test(price) ? price : null };
-  });
+  const offers: Offer[] = checked
+    .map((c) => {
+      const src = rawOffers.find((x) => x.url === c.url || hostOf(x.url) === hostOf(c.url));
+      const price = String(src?.price ?? "").trim();
+      return { seller: c.title || hostOf(c.url), url: c.url, price: PRICE.test(price) ? price : null };
+    })
+    // One link per seller (QA 6:03 AM: duplicate Amazon links).
+    .filter((o, i, all) => all.findIndex((x) => hostOf(x.url) === hostOf(o.url) || x.seller.toLowerCase() === o.seller.toLowerCase()) === i);
   // The actual text: fetched by us, checked to be this exact work, summarized from the page only.
   let found: MaterialSummary | null = null;
   for (const c of (o.textPages ?? []).filter((x) => legitHost(String(x.url ?? ""), { textPage: true })).slice(0, 2)) {
@@ -401,6 +404,15 @@ JSON only.`,
   }
   console.info("[brief] investigate", { ms: Date.now() - started, known, knowledge: Boolean(knowledge), found: Boolean(found), offers: offers.length });
   return { work, title, known: known && Boolean(knowledge), knowledge, found, offers };
+}
+
+const NAMED_LIST = /\b(two|three|four|five|six|seven)\b[^.]{0,40}\b(components|elements|styles|traits|factors|stages|types|behaviors|skills|dimensions|principles)\b/i;
+/** What to show for one work: the found text first; her labeled knowledge too when it names the work's list or model and the page didn't. */
+export function workSummaries(i: Pick<WorkInvestigation, "found" | "knowledge">): MaterialSummary[] {
+  if (!i.found) return i.knowledge ? [i.knowledge] : [];
+  const fromPage = i.found.points.join(" ");
+  const adds = i.knowledge && NAMED_LIST.test(i.knowledge.points.join(" ")) && !NAMED_LIST.test(fromPage);
+  return adds ? [i.found, i.knowledge!] : [i.found];
 }
 
 const STOP = new Set(["the", "a", "an", "of", "and", "in", "on", "to", "for", "what", "is", "by", "with"]);
@@ -441,12 +453,16 @@ export function shortWork(w: string): string {
   return t.length <= 50 ? t : `${t.slice(0, 47).replace(/\s+\S*$/, "")}…`;
 }
 
-/** 2-3 real options the student must choose between (which leader, which style, which angle...). */
-export async function generateOptions(a: AssignmentBasics, ask: string | null, points: string[]): Promise<{ question: string; options: DecisionOption[] } | null> {
+/** The assignment needs a real person, leader or organization as the example (QA 6:03 AM). */
+export const NEEDS_REAL_PERSON = /\b(?:one|a|an|at least one) real(?:-world)? (?:leader|person|people|figure|ceo|manager|coach|example of a leader|individual|historical figure)\b|\breal leader\b|\ba (?:specific|well-known|real) (?:leader|person|figure)\b/i;
+
+/** 2-3 real options the student must choose between (which leader, which style, which angle...), plus real people when the assignment needs one. */
+export async function generateOptions(a: AssignmentBasics, ask: string | null, points: string[]): Promise<{ question: string; options: DecisionOption[]; people?: DecisionOption[] } | null> {
+  const needsPerson = NEEDS_REAL_PERSON.test(`${a.topic ?? ""} ${a.prompt ?? ""} ${ask ?? ""} ${a.text.slice(0, 3000)}`);
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou help the student make a real first decision for this assignment.`,
-    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points they now know: ${points.join(" | ")}\n` : ""}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which leader to focus on, which side, which style, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment: "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded). Never a thesis. Use only the key points given and general concepts the assignment itself names; never claim what an assigned reading says unless it's in the key points.`,
+    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points they now know (from their readings): ${points.join(" | ")}\n` : ""}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which style, which side, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment, grounded in the key points (use the named ideas from the readings when there are some): "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded).${needsPerson ? ` The assignment needs one real person as the example, so "people" = 2-3 real, well-known people who clearly fit these options (e.g. a leader famous for one of these styles), each "label" = the person's name and "why" = under 15 words on what they're known for that connects to the options (real, widely reported facts only).` : ' "people" = [].'} Never a thesis. Never claim what an assigned reading says unless it's in the key points.`,
     jsonSchema: {
       name: "options",
       schema: {
@@ -454,8 +470,9 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
         properties: {
           question: { type: "string" },
           options: { type: "array", items: { type: "object", properties: { label: { type: "string" }, why: { type: "string" } }, required: ["label", "why"], additionalProperties: false } },
+          people: { type: "array", items: { type: "object", properties: { label: { type: "string" }, why: { type: "string" } }, required: ["label", "why"], additionalProperties: false } },
         },
-        required: ["question", "options"],
+        required: ["question", "options", "people"],
         additionalProperties: false,
       },
     },
@@ -463,10 +480,11 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
   });
   if (!r.ok) return null;
   try {
-    const o = JSON.parse(r.text) as { question?: string; options?: unknown };
+    const o = JSON.parse(r.text) as { question?: string; options?: unknown; people?: unknown };
     const options = cleanOptions(o.options);
+    const people = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
     const question = clip(o.question, 200);
-    return options.length >= 2 && question && safe(question) ? { question, options } : null;
+    return options.length >= 2 && question && safe(question) ? { question, options, ...(people.length >= 2 ? { people } : {}) } : null;
   } catch {
     return null;
   }
