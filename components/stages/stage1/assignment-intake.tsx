@@ -73,7 +73,7 @@ import {
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
 import { readBackParas } from "@/lib/stage1/pau-pau";
-import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -110,7 +110,7 @@ import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-s
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
 import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerReason, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
-import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
+import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angles";
 import { clipWords } from "@/lib/copy/clip";
 import { isContentQuestion } from "@/lib/coach/answer";
 import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
@@ -293,6 +293,8 @@ function moreBubbles(more: MoreResult): ReactNode[] {
 
 /** "Find me a video", fetched ahead once per paper (QA 7:02 AM: it took ~12 s on tap). */
 const videoAhead = new Map<string, Promise<Omit<MoreResult, "id" | "mode"> | null>>();
+/** "Go deeper" / "Say it simpler" results survive the bubble moving into the history (QA 8:31 AM). */
+const moreKept = new Map<string, MoreResult[]>();
 function moreFetch(paperId: string, mode: "depth" | "simpler" | "video"): Promise<Omit<MoreResult, "id" | "mode"> | null> {
   return fetch(`/api/papers/${paperId}/intake/brief`, {
     method: "POST",
@@ -323,7 +325,13 @@ function MaterialBubbles({
 }) {
   const list = brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : [];
   // Results stack up (QA 6:03 AM): a new tap appends, never replaces the last one.
-  const [more, setMore] = useState<MoreResult[]>([]);
+  const [more, setMore] = useState<MoreResult[]>(() => (paperId ? moreKept.get(paperId) ?? [] : []));
+  const lastMore = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (paperId) moreKept.set(paperId, more);
+    // The new result is where they're looking, even when this bubble sits up in the history.
+    if (more.length) lastMore.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [more, paperId]);
   const [moreBusy, setMoreBusy] = useState<string | null>(null);
   const [moreAt, setMoreAt] = useState(0);
   const hasList = list.length > 0;
@@ -354,8 +362,10 @@ function MaterialBubbles({
       {list.map((s, i) => (
         <SummaryBubbles key={`${s.kind}:${s.title}`} summary={s} lead={i === 0 ? lead : undefined} />
       ))}
-      {more.map((m) => (
-        <PauPauGroup key={m.id} bubbles={moreBubbles(m)} />
+      {more.map((m, i) => (
+        <div key={m.id} ref={i === more.length - 1 ? lastMore : undefined} data-more-result={m.mode}>
+          <PauPauGroup bubbles={moreBubbles(m)} />
+        </div>
       ))}
       {moreBusy ? (
         <ReadingBubble
@@ -523,6 +533,8 @@ export function AssignmentIntake({
   const [readingLink, setReadingLink] = useState("");
   const [readingNote, setReadingNote] = useState<string | null>(null);
   const briefRef = useRef<BriefView | null>(null);
+  /** How many times the early take came back short (QA 8:31 AM: the nudge changes each time). */
+  const shortTries = useRef(0);
   briefRef.current = brief;
   const briefCall = useCallback(
     async (body: Record<string, unknown>): Promise<BriefView | null> => {
@@ -1596,15 +1608,21 @@ export function AssignmentIntake({
       requirements?.topic.value ||
       requirements?.promptQuestion.value ||
       "this assignment";
+    // North star: the cards build on their decision, never the prompt read back (QA 8:31 AM).
+    const bd = (briefRef.current ?? brief)?.decision;
+    const bl = (briefRef.current ?? brief)?.leader;
+    const decisionFor = brief?.northstar && bd
+      ? { pick: bd.pick !== "their own" ? bd.pick : styleWordFrom(bd.answer), leader: bl?.pick && bl.pick !== "their own" ? bl.pick : null }
+      : null;
     const angles =
       storyAngles.length > 0
         ? storyAngles
-        : buildStoryAngleFallback({ topic, studentPhrases: phrases });
+        : buildStoryAngleFallback({ topic, studentPhrases: phrases, decision: decisionFor });
     setStoryAngles(angles);
     void fetch(`/api/papers/${paperId}/intake/story-options`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic.slice(0, 500), studentPhrases: phrases.slice(0, 20).map((p) => p.slice(0, 400)) }),
+      body: JSON.stringify({ topic: topic.slice(0, 500), studentPhrases: phrases.slice(0, 20).map((p) => p.slice(0, 400)), decision: decisionFor }),
     })
       .then(async (res) => {
         if (!res.ok) return;
@@ -1677,7 +1695,16 @@ export function AssignmentIntake({
     );
   }
 
+  // QA 8:31 AM: "Digging it up…" renders in the same tick as send and stays until the answer is in.
   async function submitAnswer(opts0?: { skip?: boolean; text?: string }) {
+    try {
+      await submitAnswerNow(opts0);
+    } finally {
+      setAsideBusy(null);
+    }
+  }
+
+  async function submitAnswerNow(opts0?: { skip?: boolean; text?: string }) {
     let opts = opts0;
     const q = coachingPlan[qIndex];
     if (!q) {
@@ -1706,7 +1733,8 @@ export function AssignmentIntake({
     const text = opts?.skip ? "" : typed;
     // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
     const lookup = Boolean(text && brief?.northstar && mayNeedLookup(text));
-    if (lookup) setAsideBusy("Digging it up…");
+    if (q?.id === "material_check" && text && isLostSaying(text)) setAsideBusy("Digging it up… pulling together the key points.");
+    else if (lookup) setAsideBusy("Digging it up…");
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Tell me a little, even a sentence, or tap skip.");
       return;
@@ -1714,6 +1742,14 @@ export function AssignmentIntake({
     // North star: these two need the student's own input (nothing advances without it).
     if ((q.id === "material_check" || q.id === "decision_pick") && (opts?.skip || !text)) {
       setError(q.id === "decision_pick" ? "Tell me which one you'd pick and why, even one sentence." : "Tell me a little, even a few words.");
+      return;
+    }
+    // A pasted reading paragraph is material, never their answer, and wins over any pick or question parsing (QA 8:31 AM).
+    if (!opts?.skip && text && brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
+      setDraftAnswer("");
+      setError(null);
+      pasteMeta.reset();
+      await takePastedReading(q.id, text);
       return;
     }
     // A question about a reading or the topic gets an answer and is never saved (QA 6:03 AM).
@@ -1728,15 +1764,6 @@ export function AssignmentIntake({
       setDraftAnswer("");
       setError(null);
       await answerAside(q.id, q.text, text);
-      return;
-    }
-    if (lookup) setAsideBusy(null);
-    // A pasted reading paragraph is material, never their answer.
-    if (!opts?.skip && text && brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
-      setDraftAnswer("");
-      setError(null);
-      pasteMeta.reset();
-      await takePastedReading(q.id, text);
       return;
     }
     // A vague pick ("idk, the team one I guess"): name the option and ask why. Nothing saved yet.
@@ -1771,7 +1798,7 @@ export function AssignmentIntake({
     }
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
+      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
       return;
     }
 
@@ -2039,7 +2066,7 @@ export function AssignmentIntake({
     const text = (spoken ?? ownStory).trim();
     if (wordCount(text) < 15) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 15, "Your own angle"));
+      setError(moreWordsNote(wordCount(text), 15, "Your own angle", text, shortTries.current++));
       return;
     }
     if (pickingStory) return;
@@ -2082,7 +2109,7 @@ export function AssignmentIntake({
     const text = (spoken ?? draftAnswer).trim();
     if (wordCount(text) < 25) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
+      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
       return;
     }
     if (!demoMode) {
@@ -3305,7 +3332,7 @@ export function AssignmentIntake({
       ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_DECLINED }] : []),
       ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_OFF }] : []),
       ...(sparkHere?.questions ?? []).map((text, i) => ({ key: `spark:${sparkHere!.qid}:${i}`, text })),
-      ...(error && /^(Give me a little more|Tell me a little)/.test(error) ? [{ key: `err:${error}`, text: error }] : []),
+      ...(error && (MORE_WORDS_NOTE.test(error) || /^Tell me a little/.test(error)) ? [{ key: `err:${error}`, text: error }] : []),
     ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
 
     return (
@@ -3349,7 +3376,7 @@ export function AssignmentIntake({
                 {item.id === "material_check" && brief && (brief.lostAtStart || isLostSaying(said)) ? (
                   <MaterialBubbles brief={brief} paperId={paperId} lead="No problem. Here's what I've got to get you started." />
                 ) : null}
-                {item.id === "material_check" && summaryBusy ? (
+                {item.id === "material_check" && summaryBusy && !asideBusy ? (
                   <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
                 ) : null}
               </div>

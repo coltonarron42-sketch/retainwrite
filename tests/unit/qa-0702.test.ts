@@ -161,7 +161,7 @@ describe("5. latency", () => {
     expect(mayNeedLookup("who is a real example")).toBe(true);
     expect(mayNeedLookup("ok")).toBe(false);
     expect(src("components/stages/stage1/pau-pau-confirm.tsx")).toMatch(/if \(mayNeedLookup\(text\)\) \{\s*setReplyStatus\("Digging it up…"\)/);
-    expect(src("components/stages/loop/stance-chat.tsx")).toContain('setLookupNote(mayNeedLookup(text) ? "Digging it up…" : null)');
+    expect(src("components/stages/loop/stance-chat.tsx")).toContain('setLookupNote(mayNeedLookup(text) ? "Digging it up…" : "Thinking…")');
     expect(src("components/stages/stage1/assignment-intake.tsx")).toContain("videoAhead.set(paperId, moreFetch(paperId, \"video\"))");
   });
 });
@@ -275,7 +275,7 @@ describe("decision ask without grounded options", () => {
   it("uses the assignment's own terms, never guessed options", async () => {
     const { assignmentDecisionAsk } = await import("@/lib/stage1/paper-context");
     expect(assignmentDecisionAsk("write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader")).toBe(
-      "Which leadership style do you want to argue is most effective for leading a team through change, and why? Name it in your own words. I'm not listing the chapter's options until I've seen your edition.",
+      "Which leadership style do you want to argue is most effective for leading a team through change, and why? Name it in your own words.",
     );
   });
 });
