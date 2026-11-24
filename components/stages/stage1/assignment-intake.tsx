@@ -3657,7 +3657,8 @@ export function AssignmentIntake({
           return;
         }
         // Turned back: their words go back in the box, never lost.
-        if (fromBox && rejectedRef.current && text) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
+        // QA 3:06: a short early take stays in the chat (and counts toward the next send), not back in the box.
+        if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
       });
     };
     latestSendNow.current = sendNow;
