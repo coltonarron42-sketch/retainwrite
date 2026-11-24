@@ -15,7 +15,7 @@ import {
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
-import type { ReadbackPlain } from "@/lib/stage1/paper-context";
+import { decisionQuestion, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
@@ -94,6 +94,7 @@ export function PauPauConfirm({
 }: Props) {
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
+  const [replyStatus, setReplyStatus] = useState("Thinking…");
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const turnsRef = useRef(turns);
@@ -143,7 +144,7 @@ export function PauPauConfirm({
   // The first reply: the read-back, saved as the start of the conversation.
   useEffect(() => {
     if (turns.length || plain === undefined) return;
-    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId, plain }) }]);
+    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId, plain, sheetText }) }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns.length, plain]);
 
@@ -293,7 +294,9 @@ export function PauPauConfirm({
         return;
       }
       if (result.intent === "question") {
-        push({ role: "pau", paras: [result.reply, followUp(after)], skip });
+        // QA 6:03 AM: answered in place, never deflected.
+        const extra = result.route ? await answerInPlace(result.route) : [];
+        push({ role: "pau", paras: [result.reply, ...extra, followUp(after)].filter(Boolean), skip });
         return;
       }
       // Ambiguous: a real clarifying question, never move on.
@@ -302,6 +305,38 @@ export function PauPauConfirm({
       push({ role: "pau", paras: [clarifyingAsk(liveAsk)] });
     } finally {
       setReplying(false);
+    }
+  }
+
+  /** The catch-up, the options, or the assignment in plain words, right here before the confirm. */
+  async function answerInPlace(route: "material" | "options" | "explain"): Promise<string[]> {
+    if (route === "explain") {
+      const p = plain ?? null;
+      if (!p?.ask) return [];
+      return [
+        `In plain words: ${p.ask}`,
+        p.mustInclude.length ? `To do well, it needs ${p.mustInclude.join(", ")}.` : "",
+      ].filter(Boolean);
+    }
+    setReplyStatus(route === "material" ? "Digging it up… (I'm checking what I know about your readings)" : "Pulling together a few real options…");
+    type View = { summary?: MaterialSummary | null; summaries?: MaterialSummary[]; missingAsk?: string | null; whereToGet?: { title: string; offers: { seller: string; url: string; price?: string | null }[] }[]; options?: { question: string; options: { label: string; why: string }[] } | null };
+    const call = async (action: string): Promise<View | null> =>
+      fetch(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })
+        .then((r) => (r.ok ? (r.json() as Promise<View>) : null))
+        .catch(() => null);
+    try {
+      if (route === "options") {
+        const v = await call("options");
+        if (!v?.options?.options.length) return ["I'll have real options for you right after you confirm the read-back."];
+        return [decisionQuestion(v.options), "You'll lock one in right after we confirm the read-back."];
+      }
+      const v = await call("summary");
+      const list = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
+      const paras = list.flatMap((x) => summaryParas(x));
+      const offers = (v?.whereToGet ?? []).flatMap((w) => w.offers.map((o) => `${w.title} at ${o.seller}${o.price ? ` · ${o.price} (price from search; check the page)` : ""}: ${o.url}`));
+      return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 14);
+    } finally {
+      setReplyStatus("Thinking…");
     }
   }
 
@@ -375,6 +410,13 @@ export function PauPauConfirm({
                     />
                   </div>
                 ) : null}
+                {ask !== "topic" ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <DsButton type="button" size="sm" variant="primary" disabled={replying || confirming} onClick={() => onConfirm()}>
+                      {confirming ? "Saving…" : "Looks right, let's start"}
+                    </DsButton>
+                  </div>
+                ) : null}
                 <ReplayButton className="-ml-2" texts={lastParas} />
               </>
             ) : null}
@@ -385,7 +427,7 @@ export function PauPauConfirm({
         <div className="flex items-start gap-2 sm:gap-3" role="status">
           <PauPauAvatar />
           <p className="mt-1 pt-1 text-[16px] leading-[1.6] text-ds-muted">
-            Thinking…
+            {replyStatus}
           </p>
         </div>
       ) : null}

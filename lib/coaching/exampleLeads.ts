@@ -62,6 +62,7 @@ export function subjectMidSentence(subject: string): string {
  * lesson that "teaches" (QA 2:08 #7d).
  */
 export function assignmentPurposeLine(subject: string): string {
+  if (isTitleLike(subject)) return "Here's what your paper has to do, in plain words, and what you'll decide in this stage.";
   const mid = topicMidSentence(subject).replace(/[\s.?!]+$/, "");
   if (/^(whether|if)\b/i.test(mid)) return `This assignment asks you to argue ${mid.replace(/^if\b/i, "whether")}.`;
   if (/^(to what extent|how far)\b/i.test(mid)) return `This assignment asks you to argue ${mid}.`;
@@ -83,7 +84,13 @@ export function lessonStatementUsable(statement: string | null | undefined): boo
   return true;
 }
 
+/** A paper title, not a topic ("BUS 210 Leadership essay for Prof"): never "How X shows up…" (QA 6:03 AM). */
+export function isTitleLike(subject: string): boolean {
+  return /\b[A-Z]{2,5}\s?-?\d{2,4}[A-Z]?\b|\b(essay|paper|assignment|project|report|homework|module|worksheet)\b(?!\s+(?:about|on)\b)|\bfor (?:prof|professor|dr|mr|mrs|ms)\b\.?/i.test(subject) && !isQuestionTopic(subject) && !isClauseTopic(subject);
+}
+
 export function stageLessonHeader(subject: string, lessonStatement: string): string {
+  if (subject && isTitleLike(subject)) return lessonStatementUsable(lessonStatement) ? lessonStatement : "What this assignment is asking you to learn";
   if (subject && subject !== "your topic" && !/the assigned concept/i.test(subject)) {
     // The student's confirmed question is the best heading there is.
     if (isQuestionTopic(subject) || isClauseTopic(subject)) return asHeading(subject);

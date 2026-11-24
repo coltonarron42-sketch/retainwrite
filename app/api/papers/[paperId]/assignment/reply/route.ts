@@ -1,3 +1,4 @@
+import { isLostSaying, stripHollowPraise } from "@/lib/stage1/paper-context";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
@@ -94,7 +95,9 @@ export async function POST(request: Request, ctx: Ctx) {
       result = null;
     }
   }
-  const out = finalizeResult(result, rules, pendingAsk);
+  const fin = finalizeResult(result, rules, pendingAsk);
+  // No hollow praise for "idk what this even means" (QA 6:03 AM).
+  const out = isLostSaying(body.message) && fin.reply ? { ...fin, reply: stripHollowPraise(fin.reply) } : fin;
   if (!demo) {
     after(() =>
       logSessionEvent({
