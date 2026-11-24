@@ -214,8 +214,17 @@ export function requirementLines(
 }
 
 /** INFORMED: the next requirement, as one concrete question built from what they gave. */
-export function informedNext(stance: string, leader: string | null): string {
+/** QA 1:16: the informed student's next requirement on the story step: one concrete question about their own example. */
+export function informedStoryAsk(leader: string | null): string {
+  if (leader) return `Next up is your example. When did ${leader} have to lead people through a big change, and what did they do? Two or three sentences, rough is fine.`;
+  return "Next up is your example. What's one real moment that shows your idea in action, and what happened? Two or three sentences, rough is fine.";
+}
+
+export function informedNext(stance: string, leader: string | null, afterStory = false): string {
   const styles = stylesIn(stance);
+  if (afterStory && styles.length)
+    return `Now your case: how did ${listJoin(styles)} leadership show up in that moment, and why does it work best for this assignment? A few sentences is your early take, rough is fine.`;
+  if (afterStory) return "Now your case: why does that moment answer the assignment's question? A few sentences is your early take, rough is fine.";
   if (leader && styles.length)
     return `Next up is the change part. When did ${leader} have to lead people through a big change, and how did ${listJoin(styles)} leadership show up in it? A few sentences is your early take, rough is fine.`;
   if (leader) return `Next up is your case. What did ${leader} actually do that answers the assignment's question? A few sentences is your early take, rough is fine.`;

@@ -1,7 +1,7 @@
 "use client";
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
-import { diagnoseQuestion, informedAffirm, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { diagnoseQuestion, informedAffirm, informedStoryAsk, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
 import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -3327,8 +3327,13 @@ export function AssignmentIntake({
         ? informedNext(
             [brief.decision.answer, answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" "),
             brief.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : brief.leader?.answer && brief.leader.question === "stated" ? null : null,
+            answers.some((a) => a.questionId === "story_own"),
           )
         : stanceBase;
+    const informedStance = [brief?.decision?.answer ?? "", answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" ").trim();
+    const informedLeader =
+      (brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null) ?? informedSaying(informedStance)?.leader ?? null;
+    const informedStory = Boolean(brief?.northstar && (brief?.decision?.source === "stated" || informedLead));
     const q =
       screen !== "coaching"
         ? null
@@ -3718,7 +3723,7 @@ export function AssignmentIntake({
                 ) : null}
                 {item.id === "material_check" && summaryBusy && !asideBusy ? (
                   <>
-                    {/* The reassurance and the core idea show right away; the summary follows when it's ready. */}
+                    {/* The reassurance and the core idea show right away (QA 1:16); the summary follows when it's ready. */}
                     {brief && !(brief.summary || brief.missingAsk) ? (
                       <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
                     ) : null}
@@ -3779,6 +3784,10 @@ export function AssignmentIntake({
             <div data-pending-said>
               <StudentBubble message={{ text: pendingSaid, files: [], at: 0 }} />
             </div>
+          ) : null}
+          {/* QA 1:16 (lag): a lost student is reassured and taught the core idea right away, while the summary loads. */}
+          {asideBusy?.startsWith("Digging it up… pulling") && !pendingSaid && brief && !(brief.summary || brief.missingAsk) ? (
+            <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
           ) : null}
           {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
           {/* Pau Pau's current turn. */}
@@ -3934,7 +3943,15 @@ export function AssignmentIntake({
             />
           ) : null}
 
-          {screen === "story" ? (
+          {screen === "story" && informedStory ? (
+            // QA 1:16: an informed student never gets generic angle cards: the affirmation, the
+            // checklist, then ONE concrete question about their own example (answered below).
+            <PauPauGroup
+              bubbles={[...(informedLead ?? []), informedStoryAsk(informedLeader)]}
+              headingIndex={(informedLead ?? []).length}
+              headingId="story-ask"
+            />
+          ) : screen === "story" ? (
             <PauPauGroup
               bubbles={[
                 "Here are a few directions your paper could take, built from what you told me.",

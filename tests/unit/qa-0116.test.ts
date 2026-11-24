@@ -65,3 +65,15 @@ describe("QA 1:16: composer never drops a message", () => {
     expect(composer).toContain("cursor-not-allowed opacity-60");
   });
 });
+
+describe("QA 1:16: a short informed pick gets one concrete story question, never cards", () => {
+  it("story ask names their leader; the early take afterwards is a different question", async () => {
+    const { informedStoryAsk } = await import("@/lib/stage1/north-turns");
+    const s = informedStoryAsk("Satya Nadella");
+    expect(s).toMatch(/When did Satya Nadella have to lead people through a big change/);
+    expect((s.match(/\?/g) ?? []).length).toBe(1);
+    const n = informedNext("I want to argue transformational leadership, using Satya Nadella", "Satya Nadella", true);
+    expect(n).toMatch(/^Now your case: how did transformational leadership show up in that moment/);
+    expect(intake).toContain('screen === "story" && informedStory');
+  });
+});
