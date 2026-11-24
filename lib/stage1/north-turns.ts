@@ -73,6 +73,8 @@ export function pickEscalation(input: {
   people?: DecisionOption[];
   /** The core idea in plain words, taught first when they're confused. */
   concept?: string | null;
+  /** QA 1:16: the recommendation stays put between turns; it only moves on after a "no". */
+  recIndex?: number;
 }): { paras: string[]; recommend: DecisionOption | null; offerCatchUp: boolean } {
   const opts = input.options.slice(0, 3).map((o) => ({ ...o, why: input.unread ? scrubUnreadRefs(o.why) : o.why }));
   const what = input.kind === "leader" ? "leaders" : "options";
@@ -92,7 +94,7 @@ export function pickEscalation(input: {
     return { paras: [ask], recommend: null, offerCatchUp };
   }
   const step = Math.max(0, input.round - 2);
-  const rec = opts[step % opts.length]!;
+  const rec = opts[(input.recIndex ?? 0) % opts.length]!;
   const concept = (input.unread ? scrubUnreadRefs(input.concept ?? "") : input.concept ?? "").trim();
   const intro = input.confused
     ? `That's okay, that's why you're here! ${concept ? `${concept} ` : ""}Here's the short version of the ${what}:`
@@ -155,12 +157,69 @@ export function informedSaying(text: string, options: DecisionOption[] = []): { 
   return null;
 }
 
-/** INFORMED: the affirmation, with what they gave locked in word for word. */
-export function informedAffirm(stance: string): string[] {
-  return [
-    "Awesome, sounds like you have a good idea of what this paper needs. I'll help with source material, structure and hitting every requirement.",
+const STYLE_STOP = /^(?:the|a|an|of|his|her|their|my|our|good|great|best|which|what|this|that|real|strong|effective|most|team|i|he|she|they|shows|show|both|any|some|every|one|two|different|kind|type|whole|bad|better|use|using)$/i;
+/** The styles or approaches named in their words ("servant and transformational leadership"). */
+export function stylesIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/\b([a-z-]+(?:(?:\s*,\s*|\s+and\s+|\s+or\s+|\s*&\s*)[a-z-]+)*)\s+(?:leadership|styles?)\b/gi)) {
+    for (const w of m[1]!.split(/\s*,\s*|\s+and\s+|\s+or\s+|\s*&\s*/)) {
+      const x = w.trim().toLowerCase();
+      if (x.length > 3 && !STYLE_STOP.test(x) && !out.includes(x)) out.push(x);
+    }
+  }
+  return out;
+}
+
+const listJoin = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+
+/**
+ * INFORMED (Colton 12:08, QA 1:16): affirm by name, lock in what they gave word for word, show the
+ * assignment's checklist (covered vs. next), then the next requirement as one concrete question.
+ */
+export function informedAffirm(
+  stance: string,
+  ctx: { leader?: string | null; mustInclude?: string[]; needsPerson?: boolean } = {},
+): string[] {
+  const styles = stylesIn(stance);
+  const leader = ctx.leader?.trim() || null;
+  const named = leader && styles.length ? `${leader}, showing ${listJoin(styles)} leadership` : leader ? leader : styles.length ? `${listJoin(styles)} leadership` : null;
+  const paras = [
+    `Awesome, sounds like you have a good idea of what this paper needs${named ? `: ${named}` : ""}. I'll help with source material, structure and hitting every requirement.`,
     `Locked in, in your words: “${stance.replace(/[“”"]/g, "'")}”. We can expand on it later.`,
   ];
+  const lines = requirementLines(stance, { leader, styles, mustInclude: ctx.mustInclude ?? [], needsPerson: ctx.needsPerson });
+  if (lines.length) paras.push("Here's the assignment's checklist, so you can see what's covered and what's next:", ...lines);
+  return paras;
+}
+
+/** The assignment's requirements as checklist lines: ✓ covered by what they said, ○ still to do. */
+export function requirementLines(
+  stance: string,
+  ctx: { leader: string | null; styles: string[]; mustInclude: string[]; needsPerson?: boolean },
+): string[] {
+  const lines: string[] = [];
+  if (ctx.needsPerson || ctx.leader) lines.push(ctx.leader ? `✓ A real leader as your example: ${ctx.leader}.` : "○ A real leader as your example.");
+  if (ctx.styles.length) lines.push(`✓ Your style${ctx.styles.length > 1 ? "s" : ""}: ${listJoin(ctx.styles)}.`);
+  lines.push("○ Your case for why it answers the assignment's question. That's next.");
+  const said = stance.toLowerCase();
+  for (const raw of ctx.mustInclude.slice(0, 5)) {
+    const item = raw.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
+    if (!item || /\b(real leader|one leader|leader as|example)\b/i.test(item) && (ctx.needsPerson || ctx.leader)) continue;
+    const marks = (item.match(/\b[A-Z][a-z]{3,}\b/g) ?? []).filter((w) => !/^(Chapter|Theory|Practice|Leadership|What|Makes|Leader|Article|Format)$/.test(w));
+    const covered = marks.some((w) => said.includes(w.toLowerCase()));
+    const format = /\b(words?|APA|MLA|Chicago|format|pages?|double|font|due)\b/i.test(item);
+    lines.push(covered ? `✓ ${item}: you've read it.` : format ? `○ ${item}. We'll handle it when you draft.` : `○ ${item}. I'll help you with this one.`);
+  }
+  return lines;
+}
+
+/** INFORMED: the next requirement, as one concrete question built from what they gave. */
+export function informedNext(stance: string, leader: string | null): string {
+  const styles = stylesIn(stance);
+  if (leader && styles.length)
+    return `Next up is the change part. When did ${leader} have to lead people through a big change, and how did ${listJoin(styles)} leadership show up in it? A few sentences is your early take, rough is fine.`;
+  if (leader) return `Next up is your case. What did ${leader} actually do that answers the assignment's question? A few sentences is your early take, rough is fine.`;
+  return "Next up is your case. In a few sentences, why does your idea answer the assignment's question? That's your early take, rough is fine.";
 }
 
 /** LOST: reassure, teach the core idea in plain words, then the catch-up from the professor's sources. */

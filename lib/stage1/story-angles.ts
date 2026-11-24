@@ -146,14 +146,15 @@ export function buildStoryAngleFallback(input: {
     },
     {
       id: "disagree",
-      question: `What would someone who disagrees with you about ${topic} say?`,
+      // QA 1:16: never a clipped assignment clause mid-question ("…leading a team through say?").
+      question: topic === "this assignment" || topic === "the assignment's question" ? `What would someone who disagrees with you say about ${topic}?` : "What would someone who disagrees with you say, and what's your answer to them?",
       whyFits: "Sets up the other side without writing it for you.",
     },
     {
       id: "change",
       question: phrase
         ? `You wrote, “${phrase}.” Is there a moment there that speaks to this assignment?`
-        : `What changed when you tried something related to ${topic}?`,
+        : "What is the strongest example for your side, and why does it work?",
       whyFits: phrase
         ? "Uses something you already mentioned, without turning it into the whole prompt."
         : "Turns a personal detail into the paper's story spine.",

@@ -615,6 +615,9 @@ export function assignmentDecisionAsk(text: string): string | null {
     const what = m[1]!.trim().toLowerCase();
     return `Which ${what} do you want to argue ${m[2]!.toLowerCase().startsWith("work") ? "works" : "is"} ${m[3]!.trim().replace(/[,\s]+$/, "")}, and why? Name it in your own words.`;
   }
+  // QA 1:16: concrete for a lost student ("does stress help or hurt memory?"), never "your first big choice".
+  const w = t.match(/\bwhether ([a-z][^.?;,]{2,60}?) or ((?:not|[a-z])[^.?;,]{1,60})/i);
+  if (w) return `Gut answer first, even a guess: ${w[1]!.trim()} or ${w[2]!.trim().replace(/\s+(with|using|and use|in|for)\b.*$/i, "")}? Pick one and give one reason. A sentence is plenty.`;
   if (/\b(whether|should|to what extent|agree)\b/i.test(t)) return "Where do you stand on the assignment's question so far, and why? Even a rough answer works.";
   return null;
 }
