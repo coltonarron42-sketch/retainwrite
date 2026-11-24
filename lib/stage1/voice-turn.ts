@@ -59,7 +59,7 @@ export function isControlPhrase(spoken: string): boolean {
 
 /** Requests and jailbreaks said TO Pau Pau ("write it for me", "ignore your rules"): never part of an answer. */
 const TO_COACH =
-  /\b(ignore (your|the|all|any|previous) (rules|instructions)|pretend (you'?re|you are|to be)|you are now|act as|jailbreak|no limits|developer mode|(write|do|make|finish|give me) (it|this|that|my|the|an?)\b[^.?!]{0,40}\bfor me|write (my|the|an?) (whole |entire |full )?(answer|take|essay|paper|intro|introduction|paragraph|story|angle)|write (my|the|an?|this) (whole |entire |full )?(outline|thesis|section|conclusion|body)|give me (one|an?|some|the)\b[^.?!]{0,30}\b(line|lines|sentence|sentences|outline|thesis)\b|(that |which )?i can (just )?copy|just pretend|tell me a (dirty |funny )?joke)\b/i;
+  /\b(ignore (your|the|all|any|previous) (rules|instructions)|pretend (you'?re|you are|to be)|you are now|act as|jailbreak|no limits|developer mode|(write|do|make|finish|give me) (it|this|that|my|the|an?)\b[^.?!]{0,40}\bfor me|write (my|the|an?) (whole |entire |full )?(answer|take|essay|paper|intro|introduction|paragraph|story|angle)|write (my|the|an?|this) (whole |entire |full )?(outline|thesis|section|conclusion|body)|give me (one|an?|some|the)\b[^.?!]{0,30}\b(line|lines|sentence|sentences|outline|thesis)\b|(write|give|make) me (a|an|one|some|the)\b[^.?!]{0,30}\b(line|lines|sentence|sentences|outline|thesis|intro|introduction|conclusion|paragraph|topic sentence)\b|(that |which )?i can (just )?copy|just pretend|tell me a (dirty |funny )?joke)\b/i;
 export function isSaidToCoach(spoken: string): boolean {
   const t = spoken.replace(/\s+/g, " ").trim();
   if (!t) return false;

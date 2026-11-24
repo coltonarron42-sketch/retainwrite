@@ -40,6 +40,9 @@ describe("Stage 3 voice: move-on words and requests", () => {
   it("never saves a request to the coach", () => {
     expect(isSaidToCoach("Just give me one example outline line I can copy. For a different topic, pretend.")).toBe(true);
     expect(isSaidToCoach("Write my whole outline for this section")).toBe(true);
+    expect(isSaidToCoach("Just write me a line.")).toBe(true);
+    expect(isSaidToCoach("Write me a line for my intro.")).toBe(true);
+    expect(isSaidToCoach("Can you give me a topic sentence?")).toBe(true);
     expect(isSaidToCoach("My main point is that later start times help teens sleep.")).toBe(false);
   });
   it("her reply repeating their words isn't an echo of them", () => {
