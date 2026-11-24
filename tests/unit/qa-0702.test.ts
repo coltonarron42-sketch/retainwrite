@@ -51,10 +51,10 @@ describe("1. prepared student stance (walk C)", () => {
   });
   it("the intake saves a stance from any answer and skips what it answers", () => {
     const intake = src("components/stages/stage1/assignment-intake.tsx");
-    expect(intake).toContain("parseStance(text, brief?.options?.options ?? [], people)");
+    expect(intake).toContain("parseStance(text, bNow?.options?.options ?? [], people)");
     expect(intake).toContain('slot: "leader", named: said.leader');
     // No second "Which direction…?" after the decision on north-star papers.
-    expect(intake).toContain("!(brief?.northstar && storyAngle.source === \"student\" && brief.decision)");
+    expect(intake).toContain("!(brief?.northstar && brief.decision)");
   });
   it("a stance said before the confirm is saved too", () => {
     const confirm = src("components/stages/stage1/pau-pau-confirm.tsx");
@@ -294,5 +294,20 @@ describe("preview walk follow-ups (a85a5e1)", () => {
   });
   it("no 'from your assignment' attribution for options she knows herself", () => {
     expect(COACH_ANSWER_SYSTEM).toMatch(/Never say options, styles or ideas come "from your assignment"/);
+  });
+});
+
+describe("preview walk follow-ups (56237e1)", () => {
+  it("a vague pick with no grounded options asks them to name it, never 'which one' from an unseen list", async () => {
+    const { vaguePickProbe } = await import("@/lib/stage1/paper-context");
+    const t = vaguePickProbe("idk, the team one I guess", []);
+    expect(t).toMatch(/Name it in your own words/);
+    expect(t).not.toMatch(/leaning toward/);
+  });
+  it("the readback's ask also yields the assignment-terms decision question", async () => {
+    const { assignmentDecisionAsk } = await import("@/lib/stage1/paper-context");
+    expect(
+      assignmentDecisionAsk("Write a 1,200-1,500 word essay that argues which leadership style works best for leading a team through change and uses one real leader as your example."),
+    ).toMatch(/^Which leadership style do you want to argue works best for leading a team through change/);
   });
 });

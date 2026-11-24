@@ -361,7 +361,7 @@ export function PauPauConfirm({
     try {
       if (route === "options") {
         const v = await call("options");
-        if (!v?.options?.options.length) return ["I'll have real options for you right after you confirm the read-back."];
+        if (!v?.options?.options.length) return ["Once you confirm the read-back, I'll ask which one you'd argue. I only list options I can see in your materials, so I won't guess at the chapter's."];
         return [decisionQuestion(v.options), "You'll lock one in right after we confirm the read-back."];
       }
       // The early lookup (started at send) when there is one; she shows it, so the chat never re-asks "have you read it?".

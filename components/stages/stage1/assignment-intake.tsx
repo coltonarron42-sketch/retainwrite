@@ -809,7 +809,9 @@ export function AssignmentIntake({
           kind: "coaching",
           text: brief?.options?.options.length
             ? decisionQuestion(brief.options)
-            : assignmentDecisionAsk(requirements.promptQuestion.value || requirements.topic.value || "") ??
+            : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
+                .map((t) => (t ? assignmentDecisionAsk(t) : null))
+                .find(Boolean) ??
               "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
         });
       }
@@ -1560,7 +1562,8 @@ export function AssignmentIntake({
     const said = (id: string) => nextAnswers.find((a) => a.questionId === id)?.answerText.trim() ?? "";
     // Their stated stance plus its reason (and leader) when they came in prepared.
     const why = said("decision_why");
-    const statedAnswer = brief?.decision?.source === "stated" ? brief.decision.answer : "";
+    const dNow = (briefRef.current ?? brief)?.decision;
+    const statedAnswer = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : "";
     const statedDecision = statedAnswer ? (why && !statedAnswer.includes(why) ? `${statedAnswer} ${why}` : statedAnswer) : "";
     const pickDecision = said("decision_pick") ? [said("decision_pick"), why].filter(Boolean).join(" ") : "";
     const leaderSaid = said("leader_pick");
@@ -1834,25 +1837,35 @@ export function AssignmentIntake({
     pasteMeta.reset();
     // QA 7:02 AM: a stance said anywhere ("I want to argue transformational, using Satya Nadella")
     // is saved, and every question it already answers is skipped.
-    const people = brief?.options?.people ?? [];
-    const said = text && q.id !== "stance_early" && q.id !== "decision_why" ? parseStance(text, brief?.options?.options ?? [], people) : null;
+    // Latest brief (not this render's copy): a decision saved a moment ago must not be lost.
+    const bNow = briefRef.current ?? brief;
+    const people = bNow?.options?.people ?? [];
+    const said = text && q.id !== "stance_early" && q.id !== "decision_why" ? parseStance(text, bNow?.options?.options ?? [], people) : null;
     if (q.id === "decision_pick" && text) {
       void briefCall({ action: "decision", question: q.text, answer: text }).then(() =>
-        said?.leader && !brief?.leader ? briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: said.leader }) : null,
+        said?.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: said.leader }) : null,
       );
-    } else if (said && !brief?.decision && q.id !== "material_check" && q.id !== "leader_pick") {
-      void briefCall({ action: "decision", question: brief?.options?.question ?? "Your pick", answer: said.stance, source: "stated" }).then(() =>
-        said.leader && !brief?.leader ? briefCall({ action: "decision", question: "stated", answer: said.stance, slot: "leader", named: said.leader }) : null,
+    } else if (said && !bNow?.decision && q.id !== "material_check" && q.id !== "leader_pick") {
+      void briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: said.stance, source: "stated" }).then(() =>
+        said.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: said.stance, slot: "leader", named: said.leader }) : null,
       );
     }
     if (q.id === "leader_pick" && text) void briefCall({ action: "decision", question: q.text, answer: text, slot: "leader" });
     if (q.id === "decision_why" && text) {
-      const base = (brief?.decision?.answer ?? answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "").replace(/[.!?\s]+$/, "");
-      void briefCall({ action: "decision", question: brief?.decision?.question ?? q.text, answer: `${base}. ${text}`.slice(0, 2000), source: brief?.decision?.source ?? "asked" });
+      const base = (bNow?.decision?.answer || answers.find((a) => a.questionId === "decision_pick")?.answerText || "").replace(/[.!?\s]+$/, "");
+      void briefCall({ action: "decision", question: bNow?.decision?.question ?? q.text, answer: (base ? `${base}. ${text}` : text).slice(0, 2000), source: bNow?.decision?.source ?? "asked" });
     }
     if (q.id === "material_check" && text) {
       // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
       const lost = isLostSaying(text);
+      // Their stance is saved right away (QA 7:02 AM walk): no decision question flashes while options load.
+      const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) : null;
+      const savedEarly = early
+        ? briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: early.stance, source: "stated" }).then(() =>
+            early.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: early.stance, slot: "leader", named: early.leader }) : null,
+          )
+        : null;
+      if (savedEarly) await Promise.race([savedEarly, new Promise((r) => setTimeout(r, 4_000))]);
       const work = (async () => {
         if (lost) {
           setSummaryBusy(true);
@@ -3334,7 +3347,7 @@ export function AssignmentIntake({
           })}
 
           {/* North star: their decision above IS the direction (QA 7:02 AM: never a second "Which direction…?"). */}
-          {storyAngle && screen !== "story" && !(brief?.northstar && storyAngle.source === "student" && brief.decision) ? (
+          {storyAngle && screen !== "story" && !(brief?.northstar && brief.decision) ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
               {storyAngle.source === "student" ? (

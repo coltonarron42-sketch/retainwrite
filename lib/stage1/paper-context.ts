@@ -374,7 +374,9 @@ export function vaguePickProbe(text: string, options: DecisionOption[]): string 
   const g = guessPick(text, options);
   return g
     ? `Sounds like you're leaning toward ${g.label}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
-    : `Which one are you leaning toward${options.length ? ` (${options.map((o) => o.label).join(", ")})` : ""}, and why? One sentence is plenty.`;
+    : options.length
+      ? `Which one are you leaning toward (${options.map((o) => o.label).join(", ")}), and why? One sentence is plenty.`
+      : "Which one do you mean? Name it in your own words and say why. One sentence is plenty.";
 }
 
 const STANCE_CUE = /\b(i (want|plan|intend|'?m planning|am planning) to (argue|write about|focus on|use|go with|pick)|i'?m going to (argue|use|write about|focus on|go with)|i'?d (argue|go with|pick|choose|use|focus on)|arguing (that|for)|my thesis|going with|go with|i'?ll (go with|argue|pick|use|focus on|write about)|i'?m (going with|arguing|picking|focusing on|writing about|leaning)|my (pick|stance|argument|choice|angle) is|i (pick|chose|choose|picked)|i think .{3,60} (is|works|was) (the )?(best|most))\b/i;
