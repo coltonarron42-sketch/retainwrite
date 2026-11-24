@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { stage3ChoicesFor, stage3SectionOf } from "@/lib/stages/outline-voice";
 import WebSocket, { type RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
@@ -208,6 +209,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let guardIdx = 0;
   // What the app shows right now (app copy: data only) and the choices waiting for a tap.
   let screen: { text: string; choices: string[] } = { text: "", choices: [] };
+  // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
+  let ownLines = false;
+  let ownSection = "";
+  const choicesNow = () => (stage3 ? stage3ChoicesFor(screen.choices, ownLines) : screen.choices);
   let followUpPending = false;
   // The app is waiting on "Want me to swap that in?" (a clear replacement over a choice).
   let swapAskPending = false;
@@ -307,8 +312,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       swapWaiting
         ? `The student asked to replace their saved note. Nothing is saved yet: the app asked "${SWAP_ASK}" and waits for their yes or no. Don't say it's saved.`
         : null,
-      screen.choices.length
-        ? `Choices waiting for a tap: ${screen.choices.map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "${tapHint(screen.choices[0])}"`
+      choicesNow().length
+        ? `Choices waiting for a tap: ${choicesNow().map((c) => `"${c}"`).join(", ")}. Unless your last reply already did, end by pointing to them in a few words, e.g. "${tapHint(choicesNow()[0])}"`
+        : null,
+      stage3 && ownLines && ownSection
+        ? "Their own lines for this section are already in the box. Don't suggest Keep my notes or Skip for now (that would replace their lines). When they sound done, ask if they're ready to move on; they can just say they're done."
         : null,
     ]
       .filter(Boolean)
@@ -371,17 +379,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (responding || closed) return;
     followUpPending = false;
     const asked0 = Date.now();
-    const choices0 = screen.choices.join("|");
+    const choices0 = choicesNow().join("|");
     await waitIdle(6_000);
     // A late prompt is worse than none: skip it once the student talks, the
     // choices change, or her last reply already pointed to them.
-    if (responding || closed || !screen.choices.length || speechActive || speechAt > asked0) return;
-    if (screen.choices.join("|") !== choices0 || Date.now() - asked0 > 8_000) return;
+    if (responding || closed || !choicesNow().length || speechActive || speechAt > asked0) return;
+    if (choicesNow().join("|") !== choices0 || Date.now() - asked0 > 8_000) return;
     if (/\b(tap|say yes|just say)\b/i.test(herDone[herDone.length - 1] ?? "")) return;
     upSend({
       type: "response.create",
       response: {
-        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${screen.choices.map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "${tapHint(screen.choices[0])}" Don't repeat what you just said and don't ask another question.`,
+        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${choicesNow().map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "${tapHint(choicesNow()[0])}" Don't repeat what you just said and don't ask another question.`,
       },
     });
   };
@@ -837,6 +845,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.applied": {
         if (String(e.call_id ?? "").startsWith("n_")) {
           m.notesApplied = (m.notesApplied ?? 0) + (e.result === "saved" ? 1 : 0);
+          if (stage3 && e.result === "in_box" && ownSection && !ownLines) {
+            ownLines = true;
+            sessionUpdate();
+          }
           // A said on-screen choice ("keep my notes") already moved the app: her reply to it is stale
           // (the app's next turn speaks for the new step), so cut it.
           const item = String(e.call_id).slice(2);
@@ -869,6 +881,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           .slice(0, 6);
         const changed = text !== screen.text || choices.join("|") !== screen.choices.join("|");
         screen = { text, choices };
+        if (stage3 && stage3SectionOf(text) !== ownSection) {
+          ownSection = stage3SectionOf(text);
+          ownLines = false;
+        }
         if (changed) void refreshFlow().then(() => sessionUpdate());
         if (e.followUp === true && choices.length) {
           followUpPending = true;

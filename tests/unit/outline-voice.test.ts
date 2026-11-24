@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addSpokenLine, outlineChoiceSaid, splitOutlineControl } from "@/lib/stages/outline-voice";
+import { addSpokenLine, outlineChoiceSaid, splitOutlineControl, stage3ChoicesFor, stage3SectionOf } from "@/lib/stages/outline-voice";
 import { isSaidToCoach } from "@/lib/stage1/voice-turn";
 import { isEcho } from "@/lib/voice/realtime/guard";
 import { buildStage3Instructions } from "@/lib/voice/realtime/persona";
@@ -72,5 +72,18 @@ describe("Stage 3 voice: wording", () => {
   });
   it("never asks them to repeat a line that's already in the box", () => {
     expect(ins).toMatch(/already in the box, word for word: never ask them to say it again/);
+  });
+});
+
+describe("Stage 3 voice: Keep my notes only while the notes are untouched", () => {
+  it("drops Keep my notes / Skip once their own lines are in the box", () => {
+    expect(stage3ChoicesFor(["Keep my notes"], false)).toEqual(["Keep my notes"]);
+    expect(stage3ChoicesFor(["Keep my notes"], true)).toEqual([]);
+    expect(stage3ChoicesFor(["Skip for now"], true)).toEqual([]);
+    expect(stage3ChoicesFor(["Continue to sources"], true)).toEqual(["Continue to sources"]);
+  });
+  it("knows which section the screen is on", () => {
+    expect(stage3SectionOf("Section 2 of 3: Body. Let's shape your body.")).toBe("Section 2 of 3");
+    expect(stage3SectionOf("That's every section outlined. Ready to move on to sources?")).toBe("");
   });
 });

@@ -37,3 +37,13 @@ export function splitOutlineControl(spoken: string): { line: string; moveOn: boo
   }
   return { line: t, moveOn };
 }
+
+/** Once their own lines are in the box, "Keep my notes" / "Skip for now" would throw them away: not offered. */
+export function stage3ChoicesFor(choices: string[], ownLines: boolean): string[] {
+  return ownLines ? choices.filter((c) => !/^(keep my notes|skip for now)$/i.test(c.trim())) : choices;
+}
+
+/** Which section the screen is on ("Section 2 of 3"), or "" for the finish step. */
+export function stage3SectionOf(screenText: string): string {
+  return screenText.match(/^Section \d+ of \d+/)?.[0] ?? "";
+}
