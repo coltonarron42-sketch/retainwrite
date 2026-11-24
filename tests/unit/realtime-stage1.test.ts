@@ -116,6 +116,9 @@ describe("realtime relay: Stage 1", () => {
     const last = upstream.filter((e) => e.type === "response.create").at(-1) as { response: { instructions: string } };
     expect(upstream.filter((e) => e.type === "response.create").length).toBe(before + 1);
     expect(last.response.instructions).toContain("Does the rest look right?");
+    // A cancel goes first so xAI doesn't ignore the turn while her last audio "plays".
+    const iLast = upstream.lastIndexOf(last);
+    expect(upstream.slice(0, iLast).at(-1)?.type).toBe("response.cancel");
     c.close();
   });
 });

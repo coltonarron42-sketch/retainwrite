@@ -200,6 +200,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     pendingTurn = null;
     // The student talked over it: the screen block already carries the app's turn.
     if (speechActive || speechAt > at) return;
+    // xAI still counts her last reply as playing until its audio would end; without
+    // a cancel the new response.create is silently ignored (prod probe, Nov 23).
+    upSend({ type: "response.cancel" });
     upSend({
       type: "response.create",
       response: {
@@ -778,6 +781,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           return;
         }
         if (responding || speechActive) return;
+        // The client already cut her playback for the new turn; xAI ignores a
+        // response.create until her last reply's audio would have ended, so cancel first.
+        upSend({ type: "response.cancel" });
         void refreshFlow().then(() =>
           upSend({
             type: "response.create",
