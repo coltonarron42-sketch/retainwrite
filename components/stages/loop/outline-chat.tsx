@@ -51,6 +51,8 @@ type Props = {
   onGoBack: (key: string) => void;
   /** Grok Voice on Stage 3: only while the paper is in Stage 3 (not a read-only past stage). */
   voice?: boolean;
+  /** Their Stage 1 pick ("Transformational"), so the coaching names it (QA 10:21). */
+  pick?: string | null;
 };
 
 export const OUTLINE_INTRO =
@@ -83,9 +85,9 @@ export function thesisFrom(sections: { title: string; ideas: string[] }[]): stri
   return t || null;
 }
 
-export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null): string[] {
+export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null, pick: string | null = null): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
-  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis, allNotes) : null;
+  const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis, allNotes, pick) : null;
   return [
     ...(first && !introSaid ? [OUTLINE_INTRO] : []),
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
@@ -140,7 +142,7 @@ export function OutlineChat(props: Props) {
   });
 
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "))
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "), props.pick ?? null)
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });

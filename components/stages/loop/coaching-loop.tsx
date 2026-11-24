@@ -104,7 +104,7 @@ import {
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
-import { isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
 /** Key points from the material, labeled by where they came from (shown under a disclosure). */
 function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
@@ -1228,7 +1228,12 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? conceptTeachCard(pctx, section.rubricRef) ?? contextTeachCard(pctx, section.rubricRef) ?? defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
+      ? conceptTeachCard(pctx, section.rubricRef) ??
+        // QA 10:21: before the paper context loads (or when it lost the pick), the lesson still
+        // comes from THEIR words (thesis and notes), never the assignment's clause read back.
+        conceptTeachCard({ decision: { pick: "", answer: [...session.answers.map((x) => x.text), ...session.sections.flatMap((x) => keptIdeas(x.ideas))].join(" ") }, leader: pctx?.leader ?? null }, section.rubricRef) ??
+        contextTeachCard(pctx, section.rubricRef) ??
+        defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =
@@ -1404,6 +1409,7 @@ export function CoachingLoop({
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
+          pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}

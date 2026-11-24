@@ -51,8 +51,12 @@ export function exampleNames(text: string): string[] {
 const EVENT = /\b(after|during|when|in \d{4}|recall|crisis|merger|layoffs?|turnaround|launch)\b/i;
 
 /** Pau coaches the gap she sees in this section's outline (never writes the line for them). */
-export function outlineGap(title: string, points: string[], thesis?: string | null, allNotes?: string | null): string | null {
+export function outlineGap(title: string, points: string[], thesis?: string | null, allNotes?: string | null, pick?: string | null): string | null {
   const t = title.toLowerCase();
+  // QA 10:21: coaching grounded in THEIR notes and pick, not a generic template.
+  const raw = (pick ?? "").trim();
+  const style = raw ? (/^(transformational|situational|servant|authentic|transactional)$/i.test(raw) ? `${raw.toLowerCase()} leadership` : raw) : null;
+  const lead = wholeQuote(points[0] ?? "");
   if (!points.length) return `Your ${t} has no points yet. What's the one thing it has to say?`;
   if (points.length > 5) return `That's ${points.length} points for one section. Which two or three matter most for your thesis?`;
   const joined = points.join(" ");
@@ -67,13 +71,25 @@ export function outlineGap(title: string, points: string[], thesis?: string | nu
   }
   if (/intro/.test(t)) {
     if (!/\b(i (?:argue|think|believe|will show)|this paper|my (?:thesis|argument)|should|because|works? best|most effective)\b/i.test(joined))
-      return "Where does your intro say your main claim? Add a line that states it in your words.";
+      return style
+        ? `Your intro opens with “${lead}”, but it doesn't say your claim yet. You picked ${style}: add a line that says, in your words, why it works best.`
+        : "Where does your intro say your main claim? Add a line that states it in your words.";
     // Intro coaching (QA 9:37 AM): the reader should know where you're headed.
     const names = exampleNames(allNotes ?? "").filter((n) => !joined.toLowerCase().includes(n.toLowerCase()));
     if (names.length) return `Your intro states your claim. Add a line that previews your example, ${names[0]}, so the reader knows where you're headed.`;
-    return points.length < 2 ? "Your intro states your claim. Add one line on why it matters for a team going through change, so the reader wants to keep going." : null;
+    return points.length < 2
+      ? `Your intro states your claim, “${lead}” — now add one line on why that matters, so the reader wants to keep going.`
+      : null;
   }
   const hasExample = BACKING.test(joined) || EVENT.test(joined) || exampleNames(joined).length > 0 || points.some((p) => NAMED_EXAMPLE.test(p));
-  if (!hasExample) return "You've got the point. What reason or example backs it up? Add it as its own line.";
+  if (!hasExample)
+    return style
+      ? `Your body says “${lead}” — what moment shows ${style} in action? Add it as its own line.`
+      : `Your body says “${lead}” — what reason or example backs it up? Add it as its own line.`;
+  // Their example is there: does it say which part of their pick it shows?
+  const names = exampleNames(joined);
+  const styleWord = style ? style.toLowerCase().split(/[\s:]+/)[0]! : "";
+  if (style && names.length && styleWord && !joined.toLowerCase().includes(styleWord))
+    return `Your body has ${names[0]}. Add a line that ties it to ${style}: which part of ${style} does it show?`;
   return null;
 }

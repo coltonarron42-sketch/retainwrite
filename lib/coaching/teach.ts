@@ -83,9 +83,8 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
     definition:
       concept.toLowerCase() === "servant leadership"
         ? "A way of leading that puts other people's growth and needs ahead of the leader's status."
-        : isQuestionTopic(concept)
-          ? "The question your assignment asks you to answer. Understand what it's really asking before you pick examples."
-          : `A concept your assignment asks you to understand before you pick examples of ${topicMidSentence(concept)}.`,
+        : // QA 10:21: never the assignment's clause read back as the lesson.
+          "The key idea this part of your paper has to show. Say what it means in your own words, then find one real moment that shows it.",
     qualities:
       concept.toLowerCase() === "servant leadership"
         ? [
@@ -104,7 +103,7 @@ export function defaultTeachCard(concept: string, rubricRef: string): TeachCard 
         ? ["Choices that put people ahead of status", "Habits other people can point to"]
         : ["A moment from the assignment", "A choice you can point to"],
     debate: null,
-    ask: askForConcept(concept),
+    ask: concept.toLowerCase() === "servant leadership" ? askForConcept(concept) : "What's one real moment that shows your idea in action?",
   };
   return card;
 }
