@@ -8,6 +8,7 @@ import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { checkLinks } from "@/lib/voice/realtime/links";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
+import type { Offer } from "@/lib/config/material-policy";
 import {
   cleanOptions,
   cleanPoints,
@@ -266,6 +267,140 @@ export async function findNamedWork(work: string, ask: string | null): Promise<M
   }
   console.info("[brief] not found", { ms: Date.now() - started, cands: cands.length });
   return null;
+}
+
+export type WorkInvestigation = {
+  work: string;
+  title: string;
+  /** She genuinely knows this work (well-known book, chapter, article). */
+  known: boolean;
+  /** Her own knowledge of its main ideas (labeled as such; no quotes or page details). */
+  knowledge: MaterialSummary | null;
+  /** From the actual text, found legitimately online and fetched by us. */
+  found: MaterialSummary | null;
+  /** Where to get it legitimately (link-checked, allowlisted), price only as search showed it. */
+  offers: Offer[];
+};
+
+/** Legit sellers and open-access homes only (Colton: never pirate, never shady links). */
+const LEGIT = /(^|\.)(amazon\.com|barnesandnoble\.com|bookshop\.org|thriftbooks\.com|abebooks\.com|ebay\.com|chegg\.com|vitalsource\.com|redshelf\.com|play\.google\.com|books\.google\.com|books\.apple\.com|sagepub\.com|us\.sagepub\.com|uk\.sagepub\.com|hbr\.org|store\.hbr\.org|hbsp\.harvard\.edu|pearson\.com|mheducation\.com|wiley\.com|cengage\.com|macmillanlearning\.com|routledge\.com|taylorfrancis\.com|oup\.com|global\.oup\.com|cambridge\.org|penguinrandomhouse\.com|harpercollins\.com|simonandschuster\.com|norton\.com|openstax\.org|gutenberg\.org|archive\.org|jstor\.org|doi\.org|ncbi\.nlm\.nih\.gov|europepmc\.org|scholar\.archive\.org)$/i;
+const SHADY = /(libgen|z-lib|zlib|annas-archive|pdfdrive|dokumen\.pub|vdoc\.pub|ebin\.pub|epdf|pdfroom|studocu|coursehero|scribd|docplayer|pdfcoffee|silo\.pub|1lib|b-ok|bookfi|sci-hub|kupdf|idoc\.pub|dl\.|torrent)/i;
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+export function legitHost(u: string, opts: { textPage?: boolean } = {}): boolean {
+  const h = hostOf(u);
+  if (!h || SHADY.test(h) || SHADY.test(u)) return false;
+  return LEGIT.test(h) || (Boolean(opts.textPage) && /\.(edu|gov)$/i.test(h));
+}
+const PRICE = /^\$\d{1,4}(\.\d{2})?$/;
+
+/**
+ * Colton 11:46 PM ("Pau is smart, not a kind reader"): what she knows about the
+ * named work, where to get it legitimately and for how much, and the actual text
+ * when it's legitimately online. Unknown work: known=false, no summary.
+ */
+export async function investigateWork(work: string, ask: string | null): Promise<WorkInvestigation> {
+  const title = shortWork(work);
+  const empty: WorkInvestigation = { work, title, known: false, knowledge: null, found: null, offers: [] };
+  const key = process.env.GROK_API_KEY?.trim();
+  if (!key) return empty;
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 28_000);
+  type Raw = { known?: boolean; author?: string; workTitle?: string; knowledge?: unknown; textPages?: { title: string; url: string }[]; offers?: { seller: string; url: string; price: string }[] };
+  let o: Raw = {};
+  try {
+    const res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: MODEL_FAST,
+        store: false,
+        tools: [{ type: "web_search" }],
+        input: [
+          {
+            role: "system",
+            content: `${RULES}
+You investigate ONE assigned reading for a student who doesn't have it. Be smart and honest:
+- "known": true only if you genuinely know this specific work well (a well-known book, chapter or article). If it's obscure, ambiguous or you're unsure which work it is, false.
+- "knowledge": if known, 3-6 plain points on its main ideas from what you genuinely know (e.g. the named styles, models or components it's famous for, explained simply). Never quotes, page numbers, or chapter details you aren't sure of; nothing invented. Empty if not known.
+- Search the web for where it's LEGITIMATELY available: the publisher, Amazon or other real booksellers, rental services, or a legal open-access copy. Never pirate sites, shady PDF hosts or uploads of copyrighted books.
+- "offers": up to 3 legit places to get it (seller name, the exact url from results, and the price exactly as shown in the search results, or "" if no price was shown). Never make up a price or url.
+- "textPages": up to 2 legit pages with the actual text or an authoritative page about this exact work (publisher page, the author's page, open access). Empty if none.
+JSON only.`,
+          },
+          { role: "user", content: `${ask ? `What the assignment asks: ${ask}\n` : ""}The assigned reading, as the assignment names it: ${clip(work, 300)}` },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "investigate",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                known: { type: "boolean" },
+                author: { type: "string" },
+                workTitle: { type: "string" },
+                knowledge: { type: "array", items: { type: "string" } },
+                textPages: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" } }, required: ["title", "url"], additionalProperties: false } },
+                offers: {
+                  type: "array",
+                  items: { type: "object", properties: { seller: { type: "string" }, url: { type: "string" }, price: { type: "string" } }, required: ["seller", "url", "price"], additionalProperties: false },
+                },
+              },
+              required: ["known", "author", "workTitle", "knowledge", "textPages", "offers"],
+              additionalProperties: false,
+            },
+          },
+        },
+      }),
+    });
+    if (!res.ok) {
+      console.warn("[brief] investigate failed", { status: res.status });
+      return empty;
+    }
+    const body = (await res.json()) as { output_text?: string; output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+    const text =
+      body.output_text ??
+      body.output?.flatMap((x) => (x.type === "message" ? (x.content ?? []) : [])).find((c) => c.type === "output_text")?.text ??
+      "";
+    o = JSON.parse(text) as Raw;
+  } catch (e) {
+    console.warn("[brief] investigate error", { message: String((e as Error).message ?? e).slice(0, 120) });
+    return empty;
+  } finally {
+    clearTimeout(timer);
+  }
+  const known = o.known === true;
+  const points = known ? cleanPoints(o.knowledge, 6) : [];
+  const knowledge: MaterialSummary | null =
+    points.length >= 2 ? { kind: "knowledge", title, points, sources: [], at: Date.now() } : null;
+  // Offers: legit hosts only, link-checked, price only in a real "$NN.NN" shape.
+  const rawOffers = (o.offers ?? []).filter((x) => legitHost(String(x.url ?? ""))).slice(0, 3);
+  const checked = await checkLinks(rawOffers.map((x) => ({ title: clip(x.seller, 60), url: String(x.url) })));
+  const offers: Offer[] = checked.map((c) => {
+    const src = rawOffers.find((x) => x.url === c.url || hostOf(x.url) === hostOf(c.url));
+    const price = String(src?.price ?? "").trim();
+    return { seller: c.title || hostOf(c.url), url: c.url, price: PRICE.test(price) ? price : null };
+  });
+  // The actual text: fetched by us, checked to be this exact work, summarized from the page only.
+  let found: MaterialSummary | null = null;
+  for (const c of (o.textPages ?? []).filter((x) => legitHost(String(x.url ?? ""), { textPage: true })).slice(0, 2)) {
+    const page = await fetchPageText(c.url);
+    if (!page.ok) continue;
+    if (!pageIsAboutWork(`${page.text} ${page.title}`, { author: clip(o.author, 60) || authorOf(work), title: clip(o.workTitle, 160) || titleOf(work) || "" })) continue;
+    found = await summarizeText({ kind: "found", title, text: page.text, ask, source: { title: page.title || c.title, url: page.url } });
+    if (found) break;
+  }
+  console.info("[brief] investigate", { ms: Date.now() - started, known, knowledge: Boolean(knowledge), found: Boolean(found), offers: offers.length });
+  return { work, title, known: known && Boolean(knowledge), knowledge, found, offers };
 }
 
 const STOP = new Set(["the", "a", "an", "of", "and", "in", "on", "to", "for", "what", "is", "by", "with"]);

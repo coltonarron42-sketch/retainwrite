@@ -222,6 +222,51 @@ function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: st
   );
 }
 
+/** Every summary she has (each labeled by where it came from), then her honest ask with legit links. */
+function MaterialBubbles({
+  brief,
+  lead,
+}: {
+  brief: {
+    summary: MaterialSummary | null;
+    summaries?: MaterialSummary[];
+    missingAsk?: string | null;
+    whereToGet?: { title: string; offers: { seller: string; url: string; price?: string | null }[] }[];
+  };
+  lead: string;
+}) {
+  const list = brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : [];
+  const offers = (brief.whereToGet ?? []).flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })));
+  return (
+    <div className="space-y-4">
+      {list.map((s, i) => (
+        <SummaryBubbles key={`${s.kind}:${s.title}`} summary={s} lead={i === 0 ? lead : undefined} />
+      ))}
+      {brief.missingAsk ? (
+        <PauPauGroup
+          bubbles={[
+            brief.missingAsk,
+            ...(offers.length
+              ? [
+                  <ul key="offers" className="space-y-1 text-[14px] leading-[1.6]" aria-label="Where to get the reading" data-reading-offers>
+                    {offers.map((o) => (
+                      <li key={o.url}>
+                        <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="underline underline-offset-2">
+                          {o.title} at {o.seller}
+                        </a>
+                        {o.price ? <span className="text-ds-muted"> · {o.price} (price from search; check the page)</span> : null}
+                      </li>
+                    ))}
+                  </ul>,
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 const INTEREST_Qs = [
   {
     id: "interest_1",
@@ -322,6 +367,8 @@ export function AssignmentIntake({
     hasReading: boolean;
     missing?: string[];
     missingAsk?: string | null;
+    whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
+    summaries?: MaterialSummary[];
   };
   const [brief, setBrief] = useState<BriefView | null>(null);
   const [briefLoaded, setBriefLoaded] = useState(demoMode);
@@ -869,10 +916,22 @@ export function AssignmentIntake({
         ? earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value })
         : (coachingPlan[qIndex]?.text ?? null);
   const lastPauTurn = [...confirmTurns].reverse().find((t) => t.role === "pau") as { paras: string[] } | undefined;
-  const rtView = stage1VoiceScreen({
+  // North star: the key points (and an honest ask for a missing reading) ride with the next question.
+  const curId = screen === "coaching" && qIndex >= 0 ? coachingPlan[qIndex]?.id : undefined;
+  const lostNow = Boolean(brief?.lostAtStart);
+  const spokenAll = brief ? (brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : []).map(summarySpoken).join(" ") : "";
+  const teachFirst =
+    curId && brief
+      ? reoffer === curId && spokenAll
+        ? `They said they're lost again. First share these key points again, plainly, saying where each comes from (teaching content, never their paper text): ${spokenAll}. Then ask again: `
+        : curId === "decision_pick" && lostNow && (spokenAll || brief.missingAsk)
+          ? `${spokenAll ? `First, the key points, saying where each comes from (teaching content, never their paper text): ${spokenAll}. ` : ""}${brief.missingAsk ? `Then say honestly and warmly, in your own words: ${brief.missingAsk} ` : ""}Then the question on screen: `
+          : ""
+      : "";
+  const rtView0 = stage1VoiceScreen({
     screen,
     qIndex,
-    question: rtQuestion,
+    question: rtQuestion ? `${teachFirst}${rtQuestion}` : rtQuestion,
     lastPau: lastPauTurn?.paras ?? [],
     turns: confirmTurns.length,
     angles: storyAngles.map((a) => a.question),
@@ -880,6 +939,8 @@ export function AssignmentIntake({
     error,
     greeting: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`,
   });
+  const rtDetail = Boolean(teachFirst) || (screen === "card" && confirmTurns.length <= 1);
+  const rtView = { ...rtView0, key: `${rtView0.key}${teachFirst ? `:t${brief?.summary ? 1 : 0}${brief?.missingAsk ? 1 : 0}${reoffer ?? ""}` : ""}` };
   const rtScreenRef = useRef(rtView);
   useEffect(() => {
     rtScreenRef.current = rtView;
@@ -927,6 +988,22 @@ export function AssignmentIntake({
         return "nothing_to_submit";
       }
       if ((screen === "coaching" || screen === "story") && isControlPhrase(text)) return "move_on_words";
+      const qNow = screen === "coaching" ? coachingPlan[qIndex] : undefined;
+      // "Have you read it?": whatever they say is their answer (lost or not), word for word.
+      if (qNow?.id === "material_check") {
+        draftRef.current = appendSpoken(draftRef.current, text);
+        setDraftAnswer(draftRef.current);
+        setError(null);
+        return "in_box";
+      }
+      const b = briefRef.current;
+      // Lost again: the key points come back; nothing goes in the box.
+      if (qNow && qNow.kind === "coaching" && b?.summary && text.length <= 160 && isLostSaying(text)) {
+        setReoffer(qNow.id);
+        return "offered_summary";
+      }
+      // Her own summary heard back (echo or parroting) is never their answer.
+      if (qNow && b && overlapsTeaching(text, { v: 1, readback: b.readback ?? undefined, summaries: b.summary ? [b.summary] : undefined })) return "echo_of_summary";
       // Requests to Pau Pau are answered by her, never saved as their answer (or voice sample).
       if ((screen === "coaching" || screen === "story") && isSaidToCoach(text)) return "said_to_coach";
       if (screen === "coaching") {
@@ -980,7 +1057,7 @@ export function AssignmentIntake({
     if (Date.now() < submitBusy.current) return;
     // A student turn on the read-back waits for the app's reply.
     if (screen === "card" && confirmTurns[confirmTurns.length - 1]?.role !== "pau") return;
-    rt.sayTurn(rtView.text);
+    rt.sayTurn(rtView.text, { detail: rtDetail });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtView.key, rt.on]);
 
@@ -1293,7 +1370,7 @@ export function AssignmentIntake({
     return {
       v: 1,
       readback: brief?.readback ?? undefined,
-      summaries: brief?.summary ? [brief.summary] : undefined,
+      summaries: brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : undefined,
     };
   }
 
@@ -2844,11 +2921,8 @@ export function AssignmentIntake({
                   onEdit={() => editAnswer(i)}
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
-                {item.id === "material_check" && brief?.summary && (brief.lostAtStart || isLostSaying(said)) ? (
-                  <SummaryBubbles summary={brief.summary} lead="No problem. Here are the key points to get you started." />
-                ) : null}
-                {item.id === "material_check" && brief?.missingAsk && (brief.lostAtStart || isLostSaying(said)) ? (
-                  <PauPauGroup bubbles={[brief.missingAsk]} />
+                {item.id === "material_check" && brief && (brief.lostAtStart || isLostSaying(said)) ? (
+                  <MaterialBubbles brief={brief} lead="No problem. Here's what I've got to get you started." />
                 ) : null}
                 {item.id === "material_check" && summaryBusy ? (
                   <ReadingBubble status="Pulling together the key points…" startedAt={Date.now()} />
@@ -2888,8 +2962,8 @@ export function AssignmentIntake({
             </div>
           ) : null}
 
-          {q && reoffer === q.id && brief?.summary ? (
-            <SummaryBubbles summary={brief.summary} lead="No worries. Here are the key points again. Take a look, then answer in your own words." />
+          {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
+            <MaterialBubbles brief={brief} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
           ) : null}
           {/* Pau Pau's current turn. */}
           {q ? (

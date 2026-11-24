@@ -15,7 +15,8 @@ export const PAPER_CONTEXT_FIELD = "paper_context";
 export type SourceRef = { title: string; url: string };
 
 /** "reading": from a reading they gave us; "assignment": from the assignment sheet; "general": topic background, not their course reading. */
-export type MaterialKind = "reading" | "found" | "assignment" | "overview" | "general";
+export type MaterialKind = "reading" | "found" | "knowledge" | "assignment" | "overview" | "general";
+/** "knowledge": what she genuinely knows about a well-known named work (her knowledge, not the text). */
 /** "found": from the actual named work, found online by her and fetched (source shown). */
 /** "overview": general-knowledge overview of the named works (not their course copy). */
 
@@ -47,6 +48,8 @@ export type PaperContext = {
   readings?: { title: string; text: string; at: number; url?: string }[];
   /** Named readings she couldn't get (not uploaded, not found online): she asks for them, never guesses. */
   missing?: string[];
+  /** Where each named reading is legitimately available (outbound links only; no in-app purchase). */
+  whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
   summaries?: MaterialSummary[];
   /** The decision question and its 2-3 options (Pau Pau's), and the student's pick + reasoning (verbatim). */
   options?: { question: string; options: DecisionOption[] };
@@ -80,7 +83,7 @@ export function parseContext(raw: string | null | undefined): PaperContext {
 /** The latest summary of the best kind available: reading > assignment > general. */
 export function bestSummary(ctx: PaperContext): MaterialSummary | null {
   const list = ctx.summaries ?? [];
-  for (const kind of ["reading", "found", "assignment", "overview", "general"] as const) {
+  for (const kind of ["reading", "found", "knowledge", "assignment", "overview", "general"] as const) {
     const hit = [...list].reverse().find((s) => s.kind === kind && s.points.length);
     if (hit) return hit;
   }
@@ -90,6 +93,7 @@ export function bestSummary(ctx: PaperContext): MaterialSummary | null {
 export function summaryLabel(s: MaterialSummary): string {
   if (s.kind === "reading") return `Key points from ${s.title || "your reading"}`;
   if (s.kind === "assignment") return "Key points from your assignment sheet";
+  if (s.kind === "knowledge") return `What I know about ${s.title || "the reading"} (from my own knowledge, not your copy)`;
   if (s.kind === "found") return `Key points from ${s.title || "your reading"} (from the source I found online)`;
   if (s.kind === "overview") return `General overview of ${s.title || "the assigned works"} (not your course copy)`;
   return "General background (not from your readings)";
@@ -100,7 +104,9 @@ export function summaryParas(s: MaterialSummary): string[] {
   const lead =
     s.kind === "reading"
       ? `Here are the key points from ${s.title || "your reading"}, in plain words:`
-      : s.kind === "found"
+      : s.kind === "knowledge"
+        ? `Here's what I know about ${s.title || "the reading"} from my own knowledge (not from your copy, so check it against the actual text):`
+        : s.kind === "found"
         ? `I found ${s.title || "your reading"} online, so here are its key points in plain words (from the page linked below):`
         : s.kind === "assignment"
         ? "Here's what the assignment sheet itself gives you to work with, in plain words:"
@@ -117,6 +123,8 @@ export function summarySpoken(s: MaterialSummary): string {
       ? "General background, not their course reading"
       : s.kind === "overview"
         ? `General overview of ${s.title || "the assigned works"}, not their course copy`
+        : s.kind === "knowledge"
+          ? `What you know about ${s.title || "the reading"} from your own knowledge, not their copy (say so)`
         : summaryLabel(s);
   return `${label}: ${s.points.join(" ")}`;
 }
