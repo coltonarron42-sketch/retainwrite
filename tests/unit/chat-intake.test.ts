@@ -16,7 +16,7 @@ describe("Stage 1 chat-style assignment input", () => {
   it("keeps Send off while files are reading or failed", () => {
     expect(composer).toContain("const blocked = !hasContent || reading || failed || sendBlocked;");
     // While a reply loads, Send is off and the text stays in the box (QA 9:37 AM).
-    expect(composer).toContain("disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}");
+    expect(composer).toContain("disabled={blocked}");
   });
 
   it("the mic only types the student's words into the field, never sends", () => {

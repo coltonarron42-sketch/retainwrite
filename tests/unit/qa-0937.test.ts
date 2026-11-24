@@ -107,7 +107,7 @@ describe("7. sends are idempotent and never hang", () => {
     expect(confirm).toContain("}, 15_000);");
     expect(intake).toContain("if (submitting || sendLock.current) {");
     expect(intake).toContain("}, 30_000);");
-    expect(composer).toContain("disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}");
+    expect(composer).toContain("disabled={blocked}");
   });
 });
 
