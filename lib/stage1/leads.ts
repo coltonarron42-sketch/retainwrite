@@ -155,7 +155,9 @@ export function topicFocus(topic: string | null | undefined): string {
 
 /** The practitioner lead's reason, specific to the topic and the student's interest. */
 export function practitionerReason(topic: string | null | undefined, interest?: { name: string; media: boolean } | null): string {
-  const focus = topicFocus(topic);
+  // QA 6:03 AM: never an instruction fragment ("using one real leader") or a dangling verb ("leadership style is").
+  const raw = topicFocus(topic).replace(/\s+(?:is|are|was|were|has|have|does|do|can|should|will)$/i, "").trim();
+  const focus = /^(?:using|use|one real|your|a real)\b/i.test(raw) || raw.split(/\s+/).length < 2 && raw.length < 5 ? "" : raw;
   const base = focus
     ? `A teacher, researcher or official who has dealt with “${focus}” firsthand, in an interview or a case study.`
     : "A teacher, researcher or official who has dealt with your question firsthand, in an interview or a case study.";

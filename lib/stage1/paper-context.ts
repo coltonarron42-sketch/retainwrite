@@ -43,6 +43,8 @@ export type PaperContext = {
   v: 1;
   /** Set when the north-star Stage 1 steps apply to this paper (new papers only). */
   northstar?: boolean;
+  /** When the material lookup was started (once per paper, at the read-back). */
+  prefetchAt?: number;
   readback?: ReadbackPlain & { confirmed?: boolean };
   /** Readings the student pasted or uploaded (text clipped; summarized, never shown to the model whole). */
   readings?: { title: string; text: string; at: number; url?: string }[];
@@ -52,8 +54,15 @@ export type PaperContext = {
   whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
   summaries?: MaterialSummary[];
   /** The decision question and its 2-3 options (Pau Pau's), and the student's pick + reasoning (verbatim). */
-  options?: { question: string; options: DecisionOption[] };
-  decision?: { question: string; pick: string; answer: string; at: number };
+  options?: {
+    question: string;
+    options: DecisionOption[];
+    /** When the assignment needs a real person or leader: 2-3 real, named people that fit (QA 6:03 AM). */
+    people?: DecisionOption[];
+  };
+  decision?: { question: string; pick: string; answer: string; at: number; source?: "asked" | "stated" };
+  /** Their real person or leader, picked with a reason (verbatim). */
+  leader?: { question: string; pick: string; answer: string; at: number };
   /** The student said they hadn't read / were lost (so later stages can re-offer the summary). */
   lostAtStart?: boolean;
 };
@@ -93,11 +102,10 @@ export function bestSummary(ctx: PaperContext): MaterialSummary | null {
 /** Every summary from the latest material run (her knowledge and found text labeled apart). */
 export function currentSummaries(ctx: PaperContext): MaterialSummary[] {
   const list = ctx.summaries ?? [];
-  const reading = [...list].reverse().find((s) => s.kind === "reading");
-  if (reading) return [reading];
-  const smart = list.filter((s) => s.kind === "found" || s.kind === "knowledge");
+  // QA 6:03 AM: every reading keeps its summary (their uploads and pastes, her knowledge, found pages).
+  const smart = list.filter((s) => s.kind === "reading" || s.kind === "found" || s.kind === "knowledge");
   if (smart.length) {
-    // One per work (the newest): a prefetch and a lost-student run can both save the same one.
+    // One per work and kind (the newest): a prefetch and a lost-student run can both save the same one.
     const seen = new Set<string>();
     const latest = [...smart].reverse().filter((s) => {
       const k = `${s.kind}:${s.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
@@ -105,7 +113,7 @@ export function currentSummaries(ctx: PaperContext): MaterialSummary[] {
       seen.add(k);
       return true;
     });
-    return latest.slice(0, 3).reverse();
+    return latest.slice(0, 6).reverse();
   }
   const best = bestSummary(ctx);
   return best ? [best] : [];
@@ -199,7 +207,8 @@ export function cleanPoints(points: unknown, max = 6): string[] {
   if (!Array.isArray(points)) return [];
   return points
     .filter((p): p is string => typeof p === "string")
-    .map((p) => clip(p.replace(/^[\s•\-*\d.)]+/, ""), POINT_MAX))
+    // Bullets and "1." / "2)" markers only: "1,200-1,500 words" keeps its number (QA 6:03 AM).
+    .map((p) => clip(p.replace(/^\s*(?:[•\-*]+|\d{1,2}[.)](?=\s))\s*/, ""), POINT_MAX))
     .filter((p) => p.length >= 8 && !PAPER_TEXT.test(p))
     .slice(0, max);
 }
@@ -293,4 +302,112 @@ export function sectionPurpose(titleOrKey: string): string {
   if (/discuss|analysis|analy/.test(t)) return "This part digs into what it all means.";
   if (/body|evidence|support|reason|point|example|argument/.test(t)) return "Body paragraphs prove your point, one idea each, with an example that shows it.";
   return "Each section has one job in your paper; this is where you work out yours.";
+}
+
+/* ------------------------- decision and reply signals (QA 6:03 AM) ------------------------- */
+
+const REASON = /\b(because|since|cause|cuz|'cause|so (that|it|they|i|we|people|the)|as it|which (means|lets|helps|shows)|that way|it (helps|lets|shows|works|makes|gives|fits|keeps|gets)|they (help|let|show|keep|get)|to (show|prove|explain|keep|help)|for (example|instance)|like when)\b/i;
+/** Their pick comes with a why (the Stage 1 advance check needs one). */
+export function decisionHasReason(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.split(" ").length >= 5 && REASON.test(t) && !isVaguePick(t);
+}
+
+const HEDGE = /\b(idk|i don'?t know|dunno|i guess|maybe|whatever|not sure|probably|any of them|either one|i suppose|kinda|sort of)\b/i;
+/** "idk, the team one I guess": a lean, no real reason. */
+export function isVaguePick(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (REASON.test(t) && t.split(" ").length >= 8 && !/^(idk|dunno|i don'?t know)\b/i.test(t)) return false;
+  return HEDGE.test(t) || t.split(" ").length < 4 || !REASON.test(t);
+}
+
+/** The option their words lean toward ("the team one" → the option with "team" in it), or null. */
+export function guessPick(text: string, options: DecisionOption[]): DecisionOption | null {
+  const a = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, " ")} `;
+  let best: { o: DecisionOption; n: number } | null = null;
+  for (const o of options) {
+    const words = tok(o.label).filter((x) => x.length > 3 && !/^(leadership|style|option|approach|focus|angle)$/.test(x));
+    const n = words.filter((w) => a.includes(` ${w} `) || a.includes(` ${w.slice(0, 5)}`)).length;
+    if (n > 0 && (!best || n > best.n)) best = { o, n };
+  }
+  const m = a.match(/\b(first|second|third|1st|2nd|3rd|one|two|three)\b (one|option)/);
+  if (!best && m) {
+    const i = { first: 0, "1st": 0, one: 0, second: 1, "2nd": 1, two: 1, third: 2, "3rd": 2, three: 2 }[m[1] as "first"];
+    if (options[i]) return options[i]!;
+  }
+  return best?.o ?? null;
+}
+
+/** The probe for a vague pick: name the option and ask why. */
+export function vaguePickProbe(text: string, options: DecisionOption[]): string {
+  const g = guessPick(text, options);
+  return g
+    ? `Sounds like you're leaning toward ${g.label}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
+    : `Which one are you leaning toward${options.length ? ` (${options.map((o) => o.label).join(", ")})` : ""}, and why? One sentence is plenty.`;
+}
+
+const STANCE_CUE = /\b(going with|go with|i'?ll (go with|argue|pick|use|focus on|write about)|i'?m (going with|arguing|picking|focusing on|writing about|leaning)|my (pick|stance|argument|choice|angle) is|i (pick|chose|choose|picked)|i think .{3,60} (is|works|was) (the )?(best|most))\b/i;
+/** A prepared student's stated stance ("transformational, Satya Nadella"): captured as the decision, not re-asked. */
+export function statedStance(text: string, options: DecisionOption[] = [], people: DecisionOption[] = []): string | null {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t || isLostSaying(t)) return null;
+  const sentences = t.split(/(?<=[.!?])\s+/);
+  const hit = sentences.filter((x) => STANCE_CUE.test(x) || options.some((o) => guessPick(x, [o])) || people.some((o) => guessPick(x, [o])));
+  // Never "I read both" or "yes": only the stance itself.
+  const stance = hit.filter((x) => !/^(yes|yeah|yep|i (read|did|have)|i'?ve read)\b[^,]*[.!]?$/i.test(x)).join(" ").trim();
+  if (!stance) return null;
+  return STANCE_CUE.test(stance) || options.some((o) => guessPick(stance, [o])) ? stance : null;
+}
+
+/** Before the read-back is confirmed: what kind of question it is (answered in place, never deflected). */
+export type PreConfirmRoute = "material" | "options" | "explain" | null;
+const MATERIAL_Q = /\b(what (is|does|did|are) .{2,70}? (say|saying|said|about|argue|arguing|mean)|what'?s .{2,60}? (saying|about)|summar(y|ize|ise)|key points|the gist|catch me up|tell me about (the|this) (reading|article|chapter|handout|book)|what (do|did) (the|these) (readings?|articles?|chapters?|handouts?) say)\b/i;
+const OPTIONS_Q = /\b(what (are|r) (the|my|some) (options|choices|directions)|(tell|give|show) me (the |some |my )?(options|choices|directions)|what (can|could|should) i (write|pick|choose|argue|go with)|just tell me (the |some )?options|what (the|my|some) (options|choices|directions) (are|would be)|which (options|choices) (do|can) i (have|pick))\b/i;
+const EXPLAIN_Q = /\b((idk|i don'?t know|no idea|not sure) what (this|it|that|the assignment) (even )?means|what does (this|that|it|the assignment) (even )?mean|i don'?t (get|understand) (it|this|the assignment|what (it|this) (means|wants))|explain (it|this|the assignment)|what am i (supposed|meant) to (do|write)|what (is|does) (this|it) (even )?(asking|want))\b/i;
+export function preConfirmRoute(text: string): PreConfirmRoute {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (OPTIONS_Q.test(t)) return "options";
+  if (EXPLAIN_Q.test(t)) return "explain";
+  if (MATERIAL_Q.test(t)) return "material";
+  return null;
+}
+export function isOptionsRequest(text: string): boolean {
+  return OPTIONS_Q.test(text) || /^(just )?(give me|tell me|show me) (some )?(options|ideas|choices)\b/i.test(text.trim());
+}
+export function isReadingQuestion(text: string): boolean {
+  return MATERIAL_Q.test(text.replace(/\s+/g, " ").trim());
+}
+
+/**
+ * A pasted reading paragraph, not their own words (QA 6:03 AM): long, mostly
+ * pasted, and barely any first person. It goes in as material, never as an answer or angle.
+ */
+export function looksLikePastedReading(text: string, pasteRatio = 0): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  const words = t.split(" ").filter(Boolean);
+  if (words.length < 50) return false;
+  const firstPerson = words.filter((w) => /^(i|i'm|i've|i'd|i'll|my|me|mine|im|ive)$/i.test(w.replace(/[^a-z']/gi, ""))).length;
+  const ratio = firstPerson / words.length;
+  if (pasteRatio >= 0.6 && ratio < 0.02) return true;
+  return words.length >= 80 && ratio < 0.01 && !/\b(you|your)\b/i.test(t.slice(0, 200));
+}
+
+/** Colton: "if we know something, share it". Never a "that'd be doing the reading for you" refusal. */
+const REFUSAL =
+  /[^.!?]*\b(can'?t|cannot|won'?t|shouldn'?t|not going to|not able to|unable to)\b[^.!?]{0,40}\b(summari[sz]e|explain|tell you what|go over|break down)\b[^.!?]*[.!?]?|[^.!?]*\b(that'?d|that would|it would) be doing (the|your) (reading|work|homework)\b[^.!?]*[.!?]?/gi;
+export function stripReadingRefusal(text: string): string {
+  return text.replace(REFUSAL, " ").replace(/\s+/g, " ").trim();
+}
+
+/** No hollow praise for a student who said "idk" (QA 6:03 AM): a leading "Great question!" / "Nice!" / "Love that." goes. */
+const HOLLOW_PRAISE = /^\s*(?:(?:great|good|nice|awesome|perfect|excellent|love (?:that|it|this)|i love (?:that|this)|solid|amazing|wonderful|fantastic)(?:\s+(?:question|thinking|start|point|thought|one|call|answer|job|work))?|that'?s (?:a )?(?:great|good|really good|awesome|perfect|solid)(?:\s+(?:question|start|point|thought|one|answer))?)\s*[!.,]+\s*/i;
+export function stripHollowPraise(text: string): string {
+  const out = text.replace(HOLLOW_PRAISE, "");
+  return out ? out.charAt(0).toUpperCase() + out.slice(1) : text;
+}
+
+/** Colton's "I'm not going to the dark web!" once per paper: later asks drop it. */
+export function withoutDarkWeb(text: string | null | undefined): string {
+  return (text ?? "").replace(/,?\s*and I'?m not going to the dark web!?/i, ".").replace(/\s*I'?m not going to the dark web!?/i, "").replace(/\.\./g, ".").trim();
 }

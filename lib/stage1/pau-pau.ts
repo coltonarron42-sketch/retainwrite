@@ -14,6 +14,7 @@ import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
 import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
+import { namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
 import type { ReadbackPlain } from "@/lib/stage1/paper-context";
 
 export const COACH_NAME = "Pau Pau";
@@ -369,6 +370,17 @@ export const RECONFIRM_ASK = "Look right now? If so, we're ready to roll.";
  * ending with the one thing Pau Pau needs, or the invitation to confirm.
  */
 export function readBackParas(
+  full: AssignmentRequirements,
+  opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null; sheetText?: string } = {},
+): string[] {
+  const paras = readBackParasRaw(full, opts);
+  // QA 6:03 AM: the read-back lists every required reading or handout.
+  const line = readingsLine(namedWorksFrom(full, opts.sheetText ?? ""), paras.join(" "));
+  if (!line) return paras;
+  return [...paras.slice(0, -1), line, paras.at(-1)!];
+}
+
+function readBackParasRaw(
   full: AssignmentRequirements,
   opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null } = {},
 ): string[] {
