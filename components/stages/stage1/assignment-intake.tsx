@@ -2090,6 +2090,17 @@ export function AssignmentIntake({
     const bNow = briefRef.current ?? brief;
     const people = bNow?.options?.people ?? [];
     const said = text && q.id !== "stance_early" && q.id !== "decision_why" ? parseStance(text, bNow?.options?.options ?? [], people) : null;
+    // QA 1:16 walk C: a full pick with a named leader gets the same informed treatment here
+    // (affirm by name, locked in word for word, the checklist), never angle cards.
+    if (q.id === "decision_pick" && text && said?.leader && !tookRec) {
+      setInformedLead(
+        informedAffirm(text, {
+          leader: said.leader,
+          mustInclude: bNow?.readback?.mustInclude ?? [],
+          needsPerson: true,
+        }),
+      );
+    }
     if (q.id === "decision_pick" && text) {
       void briefCall({ action: "decision", question: q.text, answer: text }).then(() =>
         said?.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: said.leader }) : null,
@@ -2765,7 +2776,7 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
-              welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
+              welcome={confirmTurns.length > 0 ? null : <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
               sendRef={confirmSendRef}
               oldVoiceOff={rtMode}
               realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
