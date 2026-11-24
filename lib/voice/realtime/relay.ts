@@ -190,7 +190,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let lastCommitted: string | null = null;
   const responseAfter = new Map<string, string>();
   const playingAtCommit = new Set<string>();
-  const herRecent = () => [...herDone.slice(-3), currentRid ? (replyText.get(currentRid) ?? "") : ""];
+  const herDoneRid: string[] = [];
+  // Her recent lines, minus her replies TO this item (she may repeat a phrase they just said, e.g. "keep my notes").
+  const herRecent = (forItem?: string) => [
+    ...herDone.slice(-3).filter((_, i, a) => !forItem || responseAfter.get(herDoneRid.slice(-a.length)[i] ?? "") !== forItem),
+    currentRid && (!forItem || responseAfter.get(currentRid) !== forItem) ? (replyText.get(currentRid) ?? "") : "",
+  ];
   const applyWaiters = new Map<string, (v: { ok: boolean; result?: string; screen?: string }) => void>();
   const idleWaiters: (() => void)[] = [];
   let closed = false;
@@ -246,7 +251,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     const text = (said.find((x) => x.id === id)?.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
     if (text.split(/\s+/).filter(Boolean).length < 1) return;
     // Her own voice through the student's speakers is never their note (or their "yes").
-    if (isEcho(text, herRecent(), playingAtCommit.has(id))) {
+    if (isEcho(text, herRecent(id), playingAtCommit.has(id))) {
       dispatched.add(id);
       m.echoDropped = (m.echoDropped ?? 0) + 1;
       toClient({ type: "rw.echo", item_id: id });
@@ -658,8 +663,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (r?.usage) m.usage.push(r.usage);
         toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
         const spoken = r?.id ? (replyText.get(r.id) ?? "") : "";
-        if (spoken) herDone.push(spoken);
-        if (herDone.length > 6) herDone.splice(0, herDone.length - 6);
+        if (spoken) { herDone.push(spoken); herDoneRid.push(r?.id ?? ""); }
+        if (herDone.length > 6) { herDone.splice(0, herDone.length - 6); herDoneRid.splice(0, herDoneRid.length - 6); }
         if (r?.id === currentRid) currentRid = null;
         let learned = false;
         if (r?.status !== "cancelled" && cutOff && spoken) {
