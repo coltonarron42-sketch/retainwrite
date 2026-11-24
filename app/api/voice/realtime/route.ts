@@ -1,3 +1,4 @@
+import { liveStage } from "@/lib/voice/realtime/flow-state";
 import { NextResponse } from "next/server";
 import { upgradeWebSocket } from "@vercel/functions";
 import { z } from "zod";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
 /**
- * Grok Voice realtime relay (Stage 2 PoC, flag-gated).
+ * Grok Voice realtime relay (Stages 1-2, flag-gated).
  * GET without Upgrade: { enabled } for this student and paper.
  * GET with Upgrade: the WebSocket relay to xAI. The key stays here.
  */
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
         effort,
         vadTuning: vadTuning(url),
         gate: gateFor(url, (paper.current_stage as number | null) ?? 1),
+        stage: liveStage(url.searchParams.get("stage"), (paper.current_stage as number | null) ?? 1),
         vad: url.searchParams.get("vad") === "server" ? "server" : url.searchParams.get("vad") === "client" ? "client" : process.env.PAU_REALTIME_VAD === "client" ? "client" : "server",
       });
     },
