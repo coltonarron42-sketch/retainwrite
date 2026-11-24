@@ -544,3 +544,19 @@ export function mayNeedLookup(text: string): boolean {
   if (!t.trim()) return false;
   return /\b(read(?:ing|ings)?|chapter|ch\.|book|textbook|article|handout|author|summar\w*|key points|what (?:is|are|does|do|did|was)|who (?:is|was|are)|explain|tell me (?:about|what)|options?|video|example|theor(?:y|ies)|styles?|model|says?|said|means?|covers?|about)\b/.test(t) || /\?\s*$/.test(t);
 }
+
+/**
+ * No options she can ground (QA 7:02 AM): the decision is still asked, in the assignment's
+ * own terms ("Which leadership style do you want to argue is most effective…?"), never with
+ * options guessed from a reading's title.
+ */
+export function assignmentDecisionAsk(text: string): string | null {
+  const t = (text ?? "").replace(/\s+/g, " ");
+  const m = t.match(/\bwhich ([a-z][a-z -]{2,40}?) (is|are|was|works?|would be) ([^.?;,]{3,80})/i);
+  if (m) {
+    const what = m[1]!.trim().toLowerCase();
+    return `Which ${what} do you want to argue ${m[2]!.toLowerCase().startsWith("work") ? "works" : "is"} ${m[3]!.trim().replace(/[,\s]+$/, "")}, and why? Name it in your own words. I'm not listing the chapter's options until I've seen your edition.`;
+  }
+  if (/\b(whether|should|to what extent|agree)\b/i.test(t)) return "Where do you stand on the assignment's question so far, and why? Even a rough answer works.";
+  return null;
+}

@@ -29,14 +29,16 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
   const pick = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
   const who = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
   const m = said.match(REASON_RE);
-  const tidy = (t: string) => clipWords(toSecondPerson(t).replace(/[\s.!,;:]+$/, ""), 160);
+  const tidy = (t: string) => clipWords(toSecondPerson(t).replace(/[\s.!,;:]+$/, ""), 220);
   const reason = m ? tidy(/^(because|since|bc|cuz|'cause)$/i.test(m[1]) ? m[2] : `${m[1]} ${m[2]}`) : "";
   if (pick) {
     const ex = who ? ` with ${who} as your example` : "";
     return reason ? `Earlier you picked ${pick}${ex}, because ${reason}.` : `Earlier you picked ${pick}${ex}.`;
   }
-  const told = tidy(said).replace(/^(yeah|yes|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "");
-  return `Earlier you told me ${told.charAt(0).toLowerCase()}${told.slice(1)}.${who && !new RegExp(who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(said) ? ` Your example: ${who}.` : ""}`;
+  const headRaw = m && m.index! > 0 ? said.slice(0, m.index).replace(/[\s.!,;:]+$/, "") : said;
+  const told0 = tidy(headRaw).replace(/^(yeah|yes|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "");
+  const told = m && m.index! > 0 && reason ? `${told0}, because ${reason}` : told0;
+  return `Earlier you told me ${told.charAt(0).toLowerCase()}${told.slice(1).replace(/…$/, "")}${/…$/.test(told) ? "…" : "."}${who && !new RegExp(who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(said) ? ` Your example: ${who}.` : ""}`;
 }
 
 /** The opener's heading and body: the read-back's plain words win over a parsed topic. */

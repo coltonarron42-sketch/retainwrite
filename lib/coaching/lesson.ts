@@ -150,7 +150,7 @@ function hasConcept(prompt: string): boolean {
  */
 export function lessonKindLabel(assignment: string): "Argument" | "Analysis" | "Lesson" {
   const t = assignment ?? "";
-  if (/\b(argue|argument(?:ative)?|persuasive|persuade|take a (?:stance|position)|your position|thesis|agree or disagree|whether you agree|make (?:a|the) case|defend)\b/i.test(t)) return "Argument";
+  if (/\b(argue[sd]?|arguing|argument(?:ative)?|persuasive|persuade|take a (?:stance|position)|your position|thesis|agree or disagree|whether you agree|make (?:a|the) case|defend)\b/i.test(t)) return "Argument";
   if (/\b(analy[sz]e|analysis|compare|contrast|evaluate|critique)\b/i.test(t)) return "Analysis";
   return "Lesson";
 }
