@@ -73,10 +73,53 @@ export function usableStoryTopic(topic: string): string {
   return cleaned;
 }
 
+/** Their style word ("transformational") from a pick or the words around it. */
+export function styleWordFrom(text: string): string | null {
+  const m = (text ?? "").match(/\b(transformational|situational|servant|transactional|democratic|autocratic|authentic|laissez-faire|task|relationship|team management|behavioral)\b/i);
+  return m ? m[1]!.toLowerCase() : null;
+}
+
+/**
+ * Angles built on their decision (QA 8:31 AM walk C: the cards parroted the assignment).
+ * Each is a real direction for THIS pick and leader, never the prompt read back.
+ */
+export function decisionAngles(d: { pick?: string | null; leader?: string | null }): StoryAngle[] | null {
+  const style = d.pick?.trim() ? (styleWordFrom(d.pick) ?? d.pick.trim().toLowerCase()) : null;
+  if (!style) return null;
+  const who = d.leader?.trim() || null;
+  const lead = who ?? "your leader";
+  const styleName = /leadership$/.test(style) ? style : `${style} leadership`;
+  return [
+    {
+      id: "turning",
+      question: `When did ${lead} first show ${styleName} during the change, and what happened next?`,
+      whyFits: "Gives your body one clear moment to build on.",
+    },
+    {
+      id: "pushback",
+      question: `Who pushed back on ${who ? `${who}'s` : "the"} change, and how was it handled?`,
+      whyFits: "Shows the style under pressure, not just on a good day.",
+    },
+    {
+      id: "contrast",
+      question: `What would have gone differently with a different style in charge?`,
+      whyFits: `Lets you show why ${styleName} beats the alternatives.`,
+    },
+    {
+      id: "moment",
+      question: "When have you seen a coach, boss or teacher lead a group through a change like this?",
+      whyFits: "Adds something you actually saw, in your own words.",
+    },
+  ];
+}
+
 export function buildStoryAngleFallback(input: {
   topic: string;
   studentPhrases: string[];
+  decision?: { pick?: string | null; leader?: string | null } | null;
 }): StoryAngle[] {
+  const fromDecision = input.decision ? decisionAngles(input.decision) : null;
+  if (fromDecision) return fromDecision;
   const usable = usableStoryTopic(input.topic || "this assignment");
   // "…disagrees with you about should high schools…" reads badly; refer to it.
   const topic =

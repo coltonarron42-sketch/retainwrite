@@ -168,6 +168,13 @@ function chapterAsk(ctx: PaperContext): string | null {
   return `That's ${title} in general, from my own knowledge, not your edition's chapter. Chapter numbers change between editions, so tell me which edition you have, or snap the chapter's first page, and I'll match it.`;
 }
 
+/** A point cut to its first clause, at most n words (the fallback for "Say it simpler"). */
+function shortPlain(p: string, n: number): string {
+  const first = p.split(/(?<=[.;:])\s+|,\s+(?:which|and|but|while)\s+/)[0] ?? p;
+  const w = first.replace(/\s+/g, " ").trim().split(" ");
+  return w.length > n ? `${w.slice(0, n).join(" ").replace(/[,;:]$/, "")}…` : w.join(" ");
+}
+
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
   return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx) ?? chapterAsk(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
@@ -286,7 +293,14 @@ export async function POST(request: Request, ctx: Ctx) {
       const groups = await Promise.all(
         list.slice(0, 4).map(async (x) => ({ title: x.title, kind: x.kind, points: (await materialMore(x.points, body.mode as "depth" | "simpler", cur.readback?.ask ?? null)) ?? [] })),
       );
-      return NextResponse.json({ ok: true, groups: groups.filter((g) => g.points.length), points: groups.flatMap((g) => g.points) });
+      // QA 8:31 AM: a tap always appends something real. When the rewrite fails, the same points
+      // come back shorter (first clause, plain), never an empty result.
+      const filled = groups.map((g, i) =>
+        g.points.length
+          ? g
+          : { ...g, points: (list[i]?.points ?? []).map((p) => shortPlain(p, body.mode === "simpler" ? 16 : 40)).filter(Boolean) },
+      );
+      return NextResponse.json({ ok: true, groups: filled.filter((g) => g.points.length), points: filled.flatMap((g) => g.points) });
     }
     case "options": {
       // Options come from material we have (QA 7:02 AM): wait for the lookup started at the read-back first.

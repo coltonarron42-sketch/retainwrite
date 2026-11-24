@@ -11,6 +11,7 @@ import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
 import type { Offer } from "@/lib/config/material-policy";
 import {
   assignmentOnlyOptions,
+  generalOptionsFor,
   cleanOptions,
   cleanPoints,
   optionGrounded,
@@ -482,12 +483,16 @@ export function shortWork(w: string): string {
 export const NEEDS_REAL_PERSON = /\b(?:one|a|an|at least one) real(?:-world)? (?:leader|person|people|figure|ceo|manager|coach|example of a leader|individual|historical figure)\b|\breal leader\b|\ba (?:specific|well-known|real) (?:leader|person|figure)\b/i;
 
 /** 2-3 real options the student must choose between (which leader, which style, which angle...), plus real people when the assignment needs one. */
-export async function generateOptions(a: AssignmentBasics, ask: string | null, points: string[]): Promise<{ question: string; options: DecisionOption[]; people?: DecisionOption[] } | null> {
+export async function generateOptions(a: AssignmentBasics, ask: string | null, points: string[]): Promise<{ question: string; options: DecisionOption[]; people?: DecisionOption[]; basis?: "material" | "general" | "assignment" } | null> {
   const needsPerson = NEEDS_REAL_PERSON.test(`${a.topic ?? ""} ${a.prompt ?? ""} ${ask ?? ""} ${a.text.slice(0, 3000)}`);
+  const sheet = `${a.prompt ?? ""} ${a.topic ?? ""} ${ask ?? ""} ${a.text}`;
+  // QA 8:31 AM: a lost student always gets real options. Material first; when the chapter isn't
+  // verified, general, well-established options (labeled as such); a yes/no prompt gets the sheet's own sides.
+  const general = generalOptionsFor(sheet, needsPerson);
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou help the student make a real first decision for this assignment.`,
-    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points from material we actually have (their copy, a page we fetched, or the sheet): ${points.join(" | ")}\n` : "No reading material is available yet: you know NOTHING about what the assigned readings say.\n"}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which style, which side, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment, grounded in the key points (use the named ideas from the readings when there are some): "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded).${needsPerson ? ` The assignment needs one real person as the example, so "people" = 2-3 real, well-known people who clearly fit these options (e.g. a leader famous for one of these styles), each "label" = the person's name and "why" = under 15 words on what they're known for that connects to the options (real, widely reported facts only).` : ' "people" = [].'} Never a thesis. Options may only use ideas that appear in those key points or in the assignment text itself. Never base an option on what an assigned reading, handout or chapter might say when it isn't in the key points (no guessing its content from its title); then build the options from the assignment's own question instead (e.g. agree / disagree / partly).`,
+    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points from material we actually have (their copy, a page we fetched, or the sheet): ${points.join(" | ")}\n` : "No reading material is available yet: you know NOTHING about what the assigned readings say.\n"}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which style, which side, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment, grounded in the key points (use the named ideas from the readings when there are some): "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded); "general" = 3-4 general, well-established options from the field itself (standard textbook concepts anyone in the field would recognize, e.g. for leadership styles: transformational, situational, servant, task vs. relationship), same label/why shape, never presented as what any assigned reading says, or [] when the assignment is a yes/no or agree/disagree question.${needsPerson ? ` The assignment needs one real person as the example, so "people" = 2-3 real, well-known people who clearly fit these options (e.g. a leader famous for one of these styles), each "label" = the person's name and "why" = under 15 words on what they're known for that connects to the options (real, widely reported facts only).` : ' "people" = [].'} Never a thesis. "options" may only use ideas that appear in those key points or in the assignment text itself. Never base an option on what an assigned reading, handout or chapter might say when it isn't in the key points (no guessing its content from its title).`,
     jsonSchema: {
       name: "options",
       schema: {
@@ -495,27 +500,38 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
         properties: {
           question: { type: "string" },
           options: { type: "array", items: { type: "object", properties: { label: { type: "string" }, why: { type: "string" } }, required: ["label", "why"], additionalProperties: false } },
+          general: { type: "array", items: { type: "object", properties: { label: { type: "string" }, why: { type: "string" } }, required: ["label", "why"], additionalProperties: false } },
           people: { type: "array", items: { type: "object", properties: { label: { type: "string" }, why: { type: "string" } }, required: ["label", "why"], additionalProperties: false } },
         },
-        required: ["question", "options", "people"],
+        required: ["question", "options", "general", "people"],
         additionalProperties: false,
       },
     },
     timeoutMs: 9_000,
   });
-  if (!r.ok) return null;
+  const yesNo = /\b(whether|should|to what extent|agree)\b/i.test(sheet) && !/\bwhich\b/i.test(`${a.prompt ?? ""} ${ask ?? ""}`);
+  const sides = assignmentOnlyOptions(sheet);
+  if (!r.ok) {
+    if (yesNo && sides.length >= 2) return { question: "Where do you stand on the assignment's question so far?", options: sides, basis: "assignment" };
+    return general;
+  }
   try {
-    const o = JSON.parse(r.text) as { question?: string; options?: unknown; people?: unknown };
+    const o = JSON.parse(r.text) as { question?: string; options?: unknown; general?: unknown; people?: unknown };
     // QA 7:02 AM: only options grounded in material we have or the sheet itself.
     const corpus = [a.topic, a.prompt, ask, a.text, ...points].filter(Boolean).join(" ");
-    let options = cleanOptions(o.options).filter((x) => optionGrounded(x.label, corpus));
-    const fallback = options.length < 2;
-    if (fallback) options = assignmentOnlyOptions(`${a.prompt ?? ""} ${a.topic ?? ""} ${a.text}`);
-    const people = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
-    const question = fallback ? "Where do you stand on the assignment's question so far?" : clip(o.question, 200);
-    return options.length >= 2 && question && safe(question) ? { question, options, ...(people.length >= 2 ? { people } : {}) } : null;
-  } catch {
+    const grounded = cleanOptions(o.options).filter((x) => optionGrounded(x.label, corpus));
+    const modelPeople = needsPerson ? cleanOptions(o.people).filter((p) => /^[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){1,3}$/.test(p.label)) : [];
+    const people = modelPeople.length >= 2 ? modelPeople : (general?.people ?? []);
+    const question = clip(o.question, 200);
+    if (grounded.length >= 2 && question && safe(question)) return { question, options: grounded, ...(people.length >= 2 ? { people } : {}), basis: "material" };
+    if (yesNo && sides.length >= 2) return { question: "Where do you stand on the assignment's question so far?", options: sides, basis: "assignment" };
+    if (general) return { ...general, ...(people.length >= 2 ? { people } : {}) };
+    const fieldOptions = cleanOptions(o.general).filter((x) => !CHAPTER_CLAIM.test(`${x.label} ${x.why}`));
+    if (fieldOptions.length >= 2 && question && safe(question)) return { question, options: fieldOptions, ...(people.length >= 2 ? { people } : {}), basis: "general" };
+    if (sides.length >= 2) return { question: "Where do you stand on the assignment's question so far?", options: sides, basis: "assignment" };
     return null;
+  } catch {
+    return general;
   }
 }
 
