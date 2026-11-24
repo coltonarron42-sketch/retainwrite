@@ -13,7 +13,8 @@ import { logSessionEvent } from "@/lib/session-events";
 import { createClient } from "@/lib/supabase/server";
 import { intakeCompleteAllowed } from "@/lib/stages/gate-guard";
 import { wordCount } from "@/lib/utils";
-import { readPaperContext } from "@/lib/server/paper-context/store";
+import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
+import { pickFrom } from "@/lib/stage1/paper-context";
 import { northstarGateFrom } from "@/lib/stage1/intake-resume";
 
 export const runtime = "nodejs";
@@ -143,7 +144,20 @@ export async function POST(request: Request, ctx: Ctx) {
   // North star (QA 7:02 AM): skipping everything never passes. A confirmed read-back, the
   // material, a decision with its reason (and leader when needed) are still required, on
   // top of the early-take and story-angle hard gates above.
-  const pctx = await readPaperContext(supabase, paperId);
+  let pctx = await readPaperContext(supabase, paperId);
+  // Server-side recovery (QA 10:21 walk C): a pick that's in their answers but never reached
+  // the paper context (a dropped request) is restored from the answers, not lost.
+  if (pctx.northstar && !pctx.decision?.answer) {
+    const pick = [...body.answers].reverse().find((a) => a.questionId === "decision_pick" && a.answerText.trim());
+    if (pick) {
+      const why = [...body.answers].reverse().find((a) => a.questionId === "decision_why" && a.answerText.trim())?.answerText.trim();
+      const answer = [pick.answerText.trim().replace(/[.!?\s]+$/, ""), why].filter(Boolean).join(". ").slice(0, 2000);
+      pctx = await writePaperContext(supabase, paperId, user.id, (p) => ({
+        ...p,
+        decision: p.decision ?? { question: "Your pick", pick: pickFrom(answer, p.options?.options ?? []), answer, at: Date.now(), source: "asked" },
+      }));
+    }
+  }
   if (pctx.northstar) {
     const gate = northstarGateFrom({
       answers: body.answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
@@ -158,7 +172,15 @@ export async function POST(request: Request, ctx: Ctx) {
       ...(gate.decided ? [] : ["decision"]),
     ];
     if (reasons.length) {
-      return NextResponse.json({ error: "Finish the Stage 1 steps first: the read-back, the material, and your decision with a reason.", reasons }, { status: 400 });
+      // Tell the client which question to re-ask, so the student is never left at a dead gate.
+      const reask = !gate.decided
+        ? !(pctx.decision?.answer || body.answers.some((a) => a.questionId === "decision_pick" && a.answerText.trim()))
+          ? "decision_pick"
+          : (pctx.options?.people?.length ?? 0) >= 2 && !pctx.leader?.answer && !body.answers.some((a) => a.questionId === "leader_pick" && a.answerText.trim())
+            ? "leader_pick"
+            : "decision_why"
+        : null;
+      return NextResponse.json({ error: "Finish the Stage 1 steps first: the read-back, the material, and your decision with a reason.", reasons, reask }, { status: 400 });
     }
   }
 

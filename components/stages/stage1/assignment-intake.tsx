@@ -1,7 +1,7 @@
 "use client";
 
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
@@ -828,7 +828,7 @@ export function AssignmentIntake({
           id: "decision_pick",
           kind: "coaching",
           text: brief?.options?.options.length
-            ? decisionQuestion(brief.options)
+            ? decisionQuestion(brief.options, { prepared })
             : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
                 .map((t) => (t ? assignmentDecisionAsk(t) : null))
                 .find(Boolean) ??
@@ -837,7 +837,10 @@ export function AssignmentIntake({
       }
       const pickSaid = answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "";
       const shortPick = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && wordCount(pickSaid) < 15;
-      if (!stated && (has("decision_why") || shortPick)) {
+      // QA 10:21 walk C: a long pick with no reason ("I read both… I want to argue transformational,
+      // using Satya Nadella") still needs its why, or the gate can never pass.
+      const noReason = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && !decisionHasReason(pickSaid);
+      if (!stated && (has("decision_why") || shortPick || noReason)) {
         plan.push({
           id: "decision_why",
           kind: "coaching",
@@ -914,6 +917,11 @@ export function AssignmentIntake({
   }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
+  // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
+  // (a leader named in the pick lands a moment later and leader_pick drops out), leaving
+  // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
+  const curQId = useRef<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
   const fallbackOff = (() => {
     if (!brief?.northstar) return false;
     if (skippedInterest || brief.decision?.source === "stated") return true;
@@ -1082,6 +1090,78 @@ export function AssignmentIntake({
         materialShown: Boolean(brief.materialShown),
       })
     : undefined;
+
+  // QA 10:21 walk C: keep the question on screen when the plan changes under it.
+  const planKey = coachingPlan.map((x) => x.id).join(",");
+  const lastPlanKey = useRef("");
+  useEffect(() => {
+    const prev = lastPlanKey.current;
+    lastPlanKey.current = planKey;
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey) return;
+    const here = coachingPlan[qIndex];
+    const want = curQId.current;
+    if (!prev || prev === planKey || !want) {
+      if (here) curQId.current = here.id;
+      return;
+    }
+    if (here?.id === want) return;
+    // They answered it and moved on in the same step: the new question is the right one.
+    if (here && answers.some((a) => a.questionId === want)) {
+      curQId.current = here.id;
+      return;
+    }
+    const at = coachingPlan.findIndex((x) => x.id === want);
+    if (at >= 0) {
+      setQIndex(at);
+      return;
+    }
+    // The question it was on dropped out (already answered by an earlier message): the next open one.
+    const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
+    if (next >= 0) {
+      curQId.current = coachingPlan[next].id;
+      setQIndex(next);
+      return;
+    }
+    if (needFallback) return;
+    curQId.current = null;
+    if (storyAngle) goToStanceOnStory();
+    else finishCoaching(answers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey, qIndex, screen]);
+  // A plain empty step (index past the plan, nothing pending) never strands them either.
+  useEffect(() => {
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey || needFallback) return;
+    if (coachingPlan[qIndex]) { curQId.current = coachingPlan[qIndex].id; return; }
+    const t = setTimeout(() => {
+      const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
+      if (next >= 0) setQIndex(next);
+      else if (storyAngle) goToStanceOnStory();
+      else finishCoaching(answers);
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey, qIndex, screen, needFallback]);
+  // Server-side recovery (QA 10:21): a gate that can't pass on the decision re-asks it, with the
+  // composer, instead of a disabled Start and no way forward. `forceRecover` is set when the
+  // server's /intake/complete says the decision is missing.
+  const [forceRecover, setForceRecover] = useState<string | null>(null);
+  useEffect(() => {
+    if (screen !== "gate" || !northstarGate || !briefLoaded || startingStance) return;
+    if (northstarGate.decided && !forceRecover) return;
+    const open = (id: string) => !answers.some((a) => a.questionId === id && a.answerText.trim());
+    const ids = forceRecover ? [forceRecover, "decision_why", "decision_pick"] : ["decision_pick", "decision_why", "leader_pick"];
+    let target = coachingPlan.findIndex((x) => ids.includes(x.id) && open(x.id));
+    if (target < 0) for (const id of ids) { target = coachingPlan.findIndex((x) => x.id === id); if (target >= 0) break; }
+    setForceRecover(null);
+    if (target < 0) return;
+    setEditReturn({ at: "gate", draft: "" });
+    setRecovering(true);
+    curQId.current = coachingPlan[target].id;
+    setDraftAnswer("");
+    setQIndex(target);
+    setScreen("coaching");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, northstarGate?.decided, briefLoaded, forceRecover, planKey]);
 
   // Step 4: read-aloud and hesitation help (both optional, saved per user).
   useStopSpeechOnUnmount();
@@ -2243,6 +2323,7 @@ export function AssignmentIntake({
   function returnFromEdit(nextAnswers: IntakeAnswer[]) {
     const back = editReturn;
     setEditReturn(null);
+    setRecovering(false);
     setError(null);
     pasteMeta.reset();
     if (!back) return;
@@ -2303,9 +2384,15 @@ export function AssignmentIntake({
         }),
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string; reasons?: string[] };
-        setError(data.reasons?.[0] ?? data.error ?? "Could not finish Stage 1.");
+        const data = (await res.json().catch(() => ({}))) as { error?: string; reasons?: string[]; reask?: string };
         setStartingStance(false);
+        // The server says the decision is missing: re-ask it right here (never a dead end).
+        if (data.reasons?.includes("decision")) {
+          setError(null);
+          setForceRecover(data.reask ?? "decision_why");
+          return;
+        }
+        setError(data.error ?? "Could not finish Stage 1.");
         return;
       }
     } catch {
@@ -3246,9 +3333,22 @@ export function AssignmentIntake({
       if (submitting || sendLock.current) return;
       sendLock.current = true;
       setSubmitting(true);
+      // QA 10:21: a status in the same tick as send on every path (taps, "I've read it", long
+      // multi-part messages), not only the ones that look like a lookup.
+      const said = (text ?? draftAnswer).trim();
+      if (said) {
+        setAsideBusy(
+          q?.id === "material_check" && isLostSaying(said)
+            ? "Digging it up… pulling together the key points."
+            : q?.id === "material_check" || ((brief?.northstar ?? true) && mayNeedLookup(said)) || wordCount(said) >= 25
+              ? "Digging it up…"
+              : "Thinking…",
+        );
+      }
       void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() => {
         sendLock.current = false;
         setSubmitting(false);
+        setAsideBusy(null);
       });
     };
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
@@ -3355,6 +3455,7 @@ export function AssignmentIntake({
       ...(error && (MORE_WORDS_NOTE.test(error) || /^Tell me a little/.test(error)) ? [{ key: `err:${error}`, text: error }] : []),
     ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
 
+    const lastMaterialTurn = confirmTurns.reduce((last, t, i) => (t.role === "pau" && (t as { material?: boolean }).material ? i : last), -1);
     return (
       <div className="mx-auto max-w-[680px]">
         <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
@@ -3368,7 +3469,15 @@ export function AssignmentIntake({
               t.role === "student" ? (
                 <StudentBubble key={`ct${i}`} message={{ text: t.text, files: [], at: 0 }} />
               ) : (
-                <PauPauGroup key={`ct${i}`} bubbles={t.paras} />
+                <Fragment key={`ct${i}`}>
+                  <PauPauGroup bubbles={t.paras} />
+                  {/* QA 10:21 walk A: the key points shown before the confirm stay on the page after it. */}
+                  {i === lastMaterialTurn && brief && (brief.summary || brief.summaries?.length) ? (
+                    <div data-confirm-material>
+                      <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="" />
+                    </div>
+                  ) : null}
+                </Fragment>
               ),
             )
           ) : (
@@ -3455,7 +3564,11 @@ export function AssignmentIntake({
             <PauPauGroup
               bubbles={[
                 ...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : []),
-                editing ? "Sure, change anything and send it again." : null,
+                editing
+                  ? recovering
+                    ? "One thing before the stance interview: I still need the reason behind your pick. One or two sentences is plenty."
+                    : "Sure, change anything and send it again."
+                  : null,
                 ...leadsBubbles,
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,

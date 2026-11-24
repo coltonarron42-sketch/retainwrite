@@ -104,7 +104,10 @@ export function northstarGateFrom(input: {
   const said = (id: string) =>
     input.answers.filter((a) => a.questionId === id && !a.skipped && a.answerText.trim() && !isSkipSaying(a.answerText)).map((a) => a.answerText.trim());
   const catchUpDone = Boolean(input.materialShown) || said("material_check").length > 0;
-  const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why")].filter(Boolean);
+  // QA 10:21 walk C: the early take is their stance in their own words; its reason counts
+  // for a decision they already made (never stands in for a missing pick).
+  const hasPick = Boolean((input.decisionAnswer ?? "").trim()) || said("decision_pick").length > 0;
+  const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why"), ...(hasPick ? said("stance_early") : [])].filter(Boolean);
   const joined = [input.decisionAnswer ?? "", ...said("decision_why")].join(" ").trim();
   const hasReason = texts.some((t) => decisionHasReason(t)) || (joined ? decisionHasReason(joined) : false);
   const leaderOk = !input.needsLeader || Boolean((input.leaderAnswer ?? "").trim()) || said("leader_pick").length > 0;
