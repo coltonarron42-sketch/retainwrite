@@ -107,11 +107,12 @@ describe("step 3 leftovers", () => {
   it("too-short answers are echoed as a student bubble", () => {
     expect(intakeSrc()).toContain("error && shortEcho ? <StudentBubble");
   });
-  it("hides counts in visible copy but keeps them for screen readers", () => {
+  it("hides counts: a friendly nudge, never a word counter (QA 6:03 AM)", () => {
     const s = intakeSrc();
     expect(s).not.toMatch(/\$\{draftWords\} so far\)\.`/);
     expect(s).not.toContain("Voice sample ({voiceEval.totalWords}");
-    expect(s).toContain("{minNoteSr}");
+    expect(s).not.toContain("so far)");
+    expect(s).toContain('shortNoteNudge("stance", draftWords)');
     expect(moreWordsNote(8, 25, "Your early take")).not.toMatch(/\d/);
   });
   it("no 'Send to Pau Pau' label; Enter-to-send stays on (composer limits it to fine pointers)", () => {

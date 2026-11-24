@@ -134,7 +134,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     const reply = intentReply("request_probe", { turn: "probe", section: { title: "Introduction" } }).join(" ");
     expect(reply).toMatch(/^Sure\. A few questions for your introduction/);
     expect((reply.match(/\?/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(intentReply("question", { turn: "probe", section: { title: "Body" } })[0]).toMatch(/^Good question\. I'm asking what you want your body to say/);
+    expect(intentReply("question", { turn: "probe", section: { title: "Body" } })[0]).toMatch(/^I'm asking what you want your body to say/);
   });
   it("Stage 2 and Stage 3 check typed words before saving; the aside is not a note", () => {
     const stanceSrc = read("components/stages/loop/stance-chat.tsx");
