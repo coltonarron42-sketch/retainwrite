@@ -125,12 +125,68 @@ export function contextTeachCard(
     concept: "your options",
     rubricRef,
     affirm: null,
-    definition: point ?? `${b!.options!.question.replace(/\?$/, "")}: ${labels.join(", ")}.`.slice(0, 220),
+    // Never the assignment's own question read back as the lesson (QA 8:31 AM).
+    definition: point ?? "Each of these puts the weight somewhere different. Knowing what each one means helps you pick evidence that really fits.",
     qualities: labels.slice(0, 3),
     showsUpAs: opts.slice(0, 2).map((o) => o.why.replace(/[.!?]+$/, "")).filter((w) => w && wordCount(w) <= 12),
     debate: null,
     ask: b?.decision?.pick ? `You picked ${b.decision.pick}. Which of these could you build this section around?` : "Which of these could you build this section around?",
   };
+}
+
+/**
+ * A real concept lesson (QA 8:31 AM: the Body "Quick lesson" parroted the assignment).
+ * General, well-established definitions of the style they picked; never what a chapter says.
+ */
+const STYLE_LESSONS: { when: RegExp; concept: string; definition: string; qualities: string[]; showsUpAs: string[] }[] = [
+  {
+    when: /\btransformational\b/i,
+    concept: "transformational leadership",
+    definition: "Leading by inspiring people with a shared vision, so they want the change and stretch past what they thought they could do.",
+    qualities: ["A clear, shared vision", "Inspiring people to buy in", "Personal attention to each person", "Pushing people to think in new ways"],
+    showsUpAs: ["A leader explaining why the change matters", "People taking ownership of the new direction"],
+  },
+  {
+    when: /\bsituational\b/i,
+    concept: "situational leadership",
+    definition: "Leading by matching your style to how ready each person or team is: more direction when they're new, more freedom as they grow.",
+    qualities: ["Reading the team's readiness", "Directing when skills are low", "Coaching and supporting in between", "Delegating once people are ready"],
+    showsUpAs: ["Clear steps early in a change", "Handing off decisions as confidence grows"],
+  },
+  {
+    when: /\bservant\b/i,
+    concept: "servant leadership",
+    definition: "A way of leading that puts other people's growth and needs ahead of the leader's status.",
+    qualities: ["Listening before deciding", "Putting the team's needs first", "Helping other people grow", "Stepping back from status"],
+    showsUpAs: ["Choices that put people ahead of status", "Habits other people can point to"],
+  },
+  {
+    when: /\b(behavioral|task vs\.? relationship|team management|task|relationship)\b/i,
+    concept: "task vs. relationship leadership",
+    definition: "Looking at what leaders actually do: how much they push to get the task done versus how much they care for the people doing it.",
+    qualities: ["Task focus: goals, roles, deadlines", "Relationship focus: trust and support", "Balancing both at once", "Team management: high on both"],
+    showsUpAs: ["Clear goals set for the change", "Check-ins on how people are coping"],
+  },
+];
+export function conceptTeachCard(
+  b: { decision?: { pick: string; answer?: string } | null; leader?: { pick: string } | null } | null,
+  rubricRef: string,
+): TeachCard | null {
+  const said = `${b?.decision?.pick ?? ""} ${b?.decision?.answer ?? ""}`;
+  const hit = STYLE_LESSONS.find((x) => x.when.test(said));
+  if (!hit) return null;
+  const who = b?.leader?.pick && b.leader.pick !== "their own" ? b.leader.pick : "your leader";
+  const card: TeachCard = {
+    concept: hit.concept,
+    rubricRef,
+    affirm: null,
+    definition: hit.definition,
+    qualities: hit.qualities,
+    showsUpAs: hit.showsUpAs,
+    debate: null,
+    ask: `Which of these did ${who} actually do, and when?`,
+  };
+  return guardTeachCard(card).ok ? card : null;
 }
 
 const VAGUE_CONCEPT =

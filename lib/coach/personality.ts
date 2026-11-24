@@ -16,10 +16,8 @@ export const PAU_PERSONALITY = `Personality: you're Pau Pau, a writing coach wit
 
 /** Quips used in static copy (also the sample set in the report/tests). Stage 2 deals from STAGE2_QUIPS. */
 export const SAMPLE_QUIPS = [
-  "Big plan energy.",
   "No thumbs, so no pencil.",
   "Homework, my favorite genre.",
   "No pop quiz, I promise.",
-  "Rubrics love this stuff.",
   "Scout's honor.",
 ] as const;

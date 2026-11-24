@@ -10,21 +10,24 @@ export const STAGE2_QUIPS = [
   "I'd write it for you, but I'm legally a cartoon.",
   "I'd hold the pencil, but no thumbs.",
   "I'm weirdly into this.",
-  "Rubrics love this stuff.",
-  "Teachers notice this stuff.",
   "Deadlines scare me, and I don't even have one.",
-  "Look at us, being organized.",
   "I've never turned in a paper, and I'm still proud.",
   "Plot twist: this part is easy.",
   "My only skill is cheering. I'm cheering.",
   "Zero printer jams so far.",
   "Honestly, I'm a little jealous.",
-  "Research, but make it quick.",
-  "Big plan energy.",
-  "Fancy, right?",
   "Easier than group projects.",
   "Sources: the real MVPs.",
 ] as const;
+
+/**
+ * Stock filler that says nothing about the moment (QA 8:31 AM): never dealt, and
+ * stripped if a model reply or template ever produces one.
+ */
+export const STOCK_FILLER = /\s*\b(?:Rubrics love this stuff|Teachers notice this stuff|Look at us,? being organized|Big plan energy|Fancy,? right\?|Research,? but make it quick)[.!?]*/gi;
+export function dropStockFiller(text: string): string {
+  return text.replace(STOCK_FILLER, "").replace(/\s{2,}/g, " ").trim();
+}
 
 export type QuipSlot = "pick_lead" | "logic_opener";
 const SLOTS: QuipSlot[] = ["pick_lead", "logic_opener"];
@@ -99,7 +102,8 @@ export function isQuip(sentence: string): boolean {
  * Keep at most one quip in a reply (template or model text): the first one
  * stays, later quip sentences are dropped. Never empties a reply.
  */
-export function oneQuip(text: string): string {
+export function oneQuip(text0: string): string {
+  const text = dropStockFiller(text0) || text0;
   const parts = text.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g);
   if (!parts) return text;
   let seen = false;
@@ -116,8 +120,9 @@ export function oneQuip(text: string): string {
 }
 
 /** One quip across all the paragraphs of a turn. */
-export function oneQuipParas(paras: string[]): string[] {
+export function oneQuipParas(paras0: string[]): string[] {
   let seen = false;
+  const paras = paras0.map((p) => dropStockFiller(p)).filter(Boolean);
   return paras.map((p) => {
     const parts = p.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g) ?? [p];
     const kept = parts.filter((s) => {

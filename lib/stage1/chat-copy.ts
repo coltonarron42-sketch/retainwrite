@@ -21,11 +21,29 @@ export const INTRO_BUBBLES = [
 ];
 
 /** Pau Pau's nudge when an answer is under its minimum. */
-export function moreWordsNote(_have: number, _need: number, what: string): string {
+const OPENERS = ["Give me a little more — a couple more sentences?", "Closer.", "Getting there.", "One more push."];
+export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.)/;
+/**
+ * QA 8:31 AM: never the same line every time. Each try gets a different opener and
+ * points at what's actually missing from what they wrote (the claim, the reason, the example).
+ */
+export function moreWordsNote(_have: number, _need: number, what: string, text = "", attempt = 0): string {
   // No counts in the visible copy; keep it a nudge, not a meter.
-  return `Give me a little more — a couple more sentences? ${what} is almost there. Add to it below.`;
+  const opener = OPENERS[attempt % OPENERS.length]!;
+  const t = text.trim();
+  if (!t) return `${opener} ${what} is almost there. Add to it below.`;
+  const reason = /\b(because|since|so that|so it|which (means|lets|helps)|that way|it (helps|lets|gets|makes)|cuz|cause)\b/i.test(t);
+  const example = /\b(for example|for instance|like when|such as|at [A-Z]\w+|[A-Z][a-z]+ [A-Z][a-z]+)\b/.test(t) || /\b(when (he|she|they)|did|led|changed|turned)\b/i.test(t);
+  const claim = /\b(i think|i'?d argue|i want to argue|i believe|works? best|is (the )?(best|most)|better|transformational|situational|servant|democratic|task|relationship)\b/i.test(t);
+  const need = !claim
+    ? "Start with what you think, in one plain sentence."
+    : !reason
+      ? "You've got your pick. Now the why: what makes it the right call for this assignment?"
+      : !example
+        ? "You've got a pick and a reason. Add the example: who or what shows it, and what actually happened?"
+        : "Take one part further: what happened because of it, and why does that matter for your point?";
+  return `${opener} ${need}`;
 }
-
 
 /**
  * Pau Pau's first words in Stage 1, above "What's the assignment…". It is read
