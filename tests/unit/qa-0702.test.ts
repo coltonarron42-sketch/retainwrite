@@ -270,3 +270,29 @@ describe("7:11 (d) no hollow praise", () => {
     expect(src("components/stages/loop/stance-chat.tsx")).not.toContain("got legs");
   });
 });
+
+describe("decision ask without grounded options", () => {
+  it("uses the assignment's own terms, never guessed options", async () => {
+    const { assignmentDecisionAsk } = await import("@/lib/stage1/paper-context");
+    expect(assignmentDecisionAsk("write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader")).toBe(
+      "Which leadership style do you want to argue is most effective for leading a team through change, and why? Name it in your own words. I'm not listing the chapter's options until I've seen your edition.",
+    );
+  });
+});
+
+describe("preview walk follow-ups (a85a5e1)", () => {
+  it("'arguing which…' is an Argument", () => {
+    expect(lessonKindLabel("write 1,200-1,500 words arguing which leadership style is most effective")).toBe("Argument");
+  });
+  it("a stated stance plus its reason reads as one paraphrased line", () => {
+    expect(
+      stage2Earlier({ question: "q", pick: "their own", answer: "I want to argue transformational leadership, using Satya Nadella. Because he got a huge company to change by inspiring people.", at: 1 }),
+    ).toBe("Earlier you told me you want to argue transformational leadership, using Satya Nadella, because he got a huge company to change by inspiring people.");
+  });
+  it("Stage 2 'Digging it up…' stays up while her answer loads", () => {
+    expect(src("components/stages/loop/stance-chat.tsx")).toContain("lookupNote && (checking || props.busy)");
+  });
+  it("no 'from your assignment' attribution for options she knows herself", () => {
+    expect(COACH_ANSWER_SYSTEM).toMatch(/Never say options, styles or ideas come "from your assignment"/);
+  });
+});

@@ -16,6 +16,7 @@ import {
   isPreparedSaying,
   isSkipSaying,
   isGetToKnowSkip,
+  assignmentDecisionAsk,
   parseStance,
   mayNeedLookup,
   guessPick,
@@ -806,7 +807,10 @@ export function AssignmentIntake({
         plan.push({
           id: "decision_pick",
           kind: "coaching",
-          text: brief?.options ? decisionQuestion(brief.options) : "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
+          text: brief?.options?.options.length
+            ? decisionQuestion(brief.options)
+            : assignmentDecisionAsk(requirements.promptQuestion.value || requirements.topic.value || "") ??
+              "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
         });
       }
       const pickSaid = answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "";
@@ -821,7 +825,10 @@ export function AssignmentIntake({
         });
       }
       if (stated && (has("decision_why") || !decisionHasReason(brief?.decision?.answer ?? "") || wordCount(brief?.decision?.answer ?? "") < 15)) {
-        plan.push({
+        // Once answered, the question stays as it was asked (the decision now carries the reason too).
+        const askedWhy = answers.find((a) => a.questionId === "decision_why")?.questionText;
+        if (askedWhy) plan.push({ id: "decision_why", kind: "coaching", text: askedWhy });
+        else plan.push({
           id: "decision_why",
           kind: "coaching",
           text: `Got it, you're going with ${clipWords(

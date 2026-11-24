@@ -409,7 +409,7 @@ export function StanceChat(props: Props) {
     } finally {
       inFlight.current = false;
       setChecking(false);
-      setLookupNote(null);
+      // The note stays while her answer loads (props.busy); it's cleared on the next send.
     }
   }
 
@@ -914,7 +914,7 @@ export function StanceChat(props: Props) {
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
-        {lookupNote ? (
+        {lookupNote && (checking || props.busy) ? (
           <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
             {lookupNote}
           </p>

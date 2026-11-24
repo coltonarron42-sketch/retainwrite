@@ -246,6 +246,6 @@ describe("preview walk follow-ups", () => {
     const grid = [{ label: "Team Management (9,9)", why: "" }, { label: "Authority-Compliance (9,1)", why: "" }];
     expect(pickFrom("I'd pick transformational because it helps a team get through change", grid)).toBe("their own");
     expect(pickFrom("Team management, because it balances task and people", grid)).toBe("Team Management (9,9)");
-    expect(stage2Earlier({ question: "q", pick: "Team Management (9,9)", answer: "I'd pick transformational because it helps a team get through change", at: 1 })).toBe("Earlier you told me you'd pick transformational because it helps a team get through change.");
+    expect(stage2Earlier({ question: "q", pick: "Team Management (9,9)", answer: "I'd pick transformational because it helps a team get through change", at: 1 })).toBe("Earlier you told me you'd pick transformational, because it helps a team get through change.");
   });
 });
