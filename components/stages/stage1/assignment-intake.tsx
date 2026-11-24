@@ -1,7 +1,7 @@
 "use client";
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
-import { diagnoseQuestion, informedAffirm, informedStoryAsk, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
 import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -516,6 +516,8 @@ export function AssignmentIntake({
   // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
   const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
+  // Colton 1:54 R1: what a lost student first said, kept while the summary offer is open.
+  const offerSaid = useRef<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
   const [shortEcho, setShortEcho] = useState<string | null>(null);
   // Bumps on every edit so read-aloud treats the re-asked question as new.
@@ -1881,15 +1883,46 @@ export function AssignmentIntake({
     }
     setShortEcho(null);
     if (q.id !== "material_check") setInformedLead(null);
-    const typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
+    let typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
+    let offerAnswered = false;
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
     if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
       setError(null);
       skipInterest();
       return;
     }
+    // Colton 1:54 R1: their answer to the summary offer. Lost again or yes: the short catch-up
+    // (their first words are what's saved). No: straight on to choosing a direction.
+    if (typed && q.id === "material_check" && catchUpOffer === q.id && brief?.northstar) {
+      if (materialLost(typed) || isYesSaying(typed) || /catch me up|summar/i.test(typed)) {
+        setCatchUpOffer(null);
+        typed = offerSaid.current ?? typed;
+        offerAnswered = true;
+      } else if (isNoSaying(typed) || /\b(skip|pick|direction|no thanks)\b/i.test(typed)) {
+        setCatchUpOffer(null);
+        typed = "No thanks, skip the summary. Let's pick a direction.";
+        offerAnswered = true;
+      }
+    }
+    // Colton 1:54 R1: lost the first time: offer the short summary (no lecture), one tap or a yes.
+    if (
+      typed &&
+      !offerAnswered &&
+      q.id === "material_check" &&
+      brief?.northstar &&
+      catchUpOffer !== q.id &&
+      materialLost(typed) &&
+      !/catch me up|summar/i.test(typed)
+    ) {
+      offerSaid.current = typed;
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: typed, paras: [lostOffer(brief?.readback?.ask ?? requirements?.promptQuestion.value)] }].slice(-12));
+      setCatchUpOffer(q.id);
+      setDraftAnswer("");
+      setError(null);
+      return;
+    }
     // QA 11:40 #1: a bare "sure" / "ok" to "Have you read it?" is ambiguous: offer the catch-up as a one-tap yes.
-    if (typed && q.id === "material_check" && isAmbiguousReply(typed)) {
+    if (typed && !offerAnswered && q.id === "material_check" && isAmbiguousReply(typed)) {
       setQaAsides((prev) => [
         ...prev,
         { id: Date.now(), qid: q.id, said: typed, paras: ["Just to check: want me to catch you up on the key points first? Tap “Yes, catch me up” and I'll pull them together. If you've already read it, tap “I've read it”."] },
@@ -3818,9 +3851,14 @@ export function AssignmentIntake({
                 <div className="space-y-2 pt-1">
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Quick answers">
                     {catchUpOffer === q.id ? (
-                      <DsButton type="button" size="sm" disabled={submitting} data-catchup-yes onClick={() => { setCatchUpOffer(null); send("Yes, catch me up on the key points"); }}>
-                        Yes, catch me up
-                      </DsButton>
+                      <>
+                        <DsButton type="button" size="sm" disabled={submitting} data-catchup-yes onClick={() => send("Yes, catch me up on the key points")}>
+                          Yes, catch me up
+                        </DsButton>
+                        <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-no onClick={() => send("No thanks, let's pick a direction")}>
+                          No thanks, let&apos;s pick
+                        </DsButton>
+                      </>
                     ) : null}
                     {["I haven't read it yet", "I've read it"].map((choice) => (
                       <DsButton key={choice} type="button" size="sm" variant="secondary" disabled={submitting} onClick={() => send(choice)}>

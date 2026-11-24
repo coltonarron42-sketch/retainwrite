@@ -1,5 +1,6 @@
 "use client";
 
+import { namedWorksFrom } from "@/lib/stage1/readings";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -20,6 +21,8 @@ import { decisionQuestion, looksLikePastedReading, pastedReadingParas, mayNeedLo
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
+  askWasMade,
+  sourcesAskText,
   pauPauNextAsk,
   readBackParas,
   reconfirmParas,
@@ -183,7 +186,7 @@ export function PauPauConfirm({
   function askedBefore(): Set<PauPauAsk> {
     const said = turnsRef.current.flatMap((t) => (t.role === "pau" ? t.paras : [])).join(" ");
     const out = new Set<PauPauAsk>();
-    for (const key of ["sources", "length"] as const) if (said.includes(PAU_PAU_ASK_TEXT[key])) out.add(key);
+    for (const key of ["sources", "length"] as const) if (askWasMade(said, key)) out.add(key);
     return out;
   }
 
@@ -196,6 +199,7 @@ export function PauPauConfirm({
   /** What to ask after this reply: the next missing thing, else "does it look right?". */
   function followUp(after: Set<PauPauAsk>): string {
     const next = nextNewAsk(reqRef.current, after);
+    if (next === "sources") return sourcesAskText(namedWorksFrom(reqRef.current, sheetText ?? ""));
     return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
@@ -219,7 +223,7 @@ export function PauPauConfirm({
     // (sources/length are asked once; after that she's asking "does it look right?").
     const lastPau = [...turnsRef.current].reverse().find((t) => t.role === "pau");
     const liveAsk: PauPauAsk | null =
-      ask === "topic" || (ask && lastPau?.role === "pau" && (lastPau.paras.at(-1) ?? "").includes(PAU_PAU_ASK_TEXT[ask])) ? ask : null;
+      ask === "topic" || (ask && lastPau?.role === "pau" && askWasMade(lastPau.paras.at(-1) ?? "", ask)) ? ask : null;
     push({ role: "student", text });
     const currentAsk = ask;
 
