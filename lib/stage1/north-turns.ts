@@ -185,11 +185,20 @@ export function informedAffirm(
   const named = leader && styles.length ? `${leader}, showing ${listJoin(styles)} leadership` : leader ? leader : styles.length ? `${listJoin(styles)} leadership` : null;
   const paras = [
     `Awesome, sounds like you have a good idea of what this paper needs${named ? `: ${named}` : ""}. I'll help with source material, structure and hitting every requirement.`,
-    `Locked in, in your words: “${stance.replace(/[“”"]/g, "'")}”. We can expand on it later.`,
+    // QA 3:06 minor: quote the key picks (leader and styles), not the whole sentence.
+    `Locked in, in your words: “${(lockedPicks(stance, leader, styles) ?? stance).replace(/[“”"]/g, "'")}”. We can expand on it later.`,
   ];
   const lines = requirementLines(stance, { leader, styles, mustInclude: ctx.mustInclude ?? [], needsPerson: ctx.needsPerson });
   if (lines.length) paras.push("Here's the assignment's checklist, so you can see what's covered and what's next:", ...lines);
   return paras;
+}
+
+/** Their key picks in their own wording: the leader and the styles ("Sam Walton, servant and transformational leadership"). */
+export function lockedPicks(stance: string, leader: string | null, styles: string[]): string | null {
+  if (!leader && !styles.length) return null;
+  const who = leader;
+  const how = styles.length ? `${listJoin(styles)} leadership` : null;
+  return [who, how].filter(Boolean).join(", ");
 }
 
 /** The assignment's requirements as checklist lines: ✓ covered by what they said, ○ still to do. */

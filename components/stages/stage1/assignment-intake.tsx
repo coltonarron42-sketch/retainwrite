@@ -516,6 +516,10 @@ export function AssignmentIntake({
   // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
   const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
+  // QA 3:00: a message typed while Pau Pau is replying waits here (shown in the chat) and goes right after.
+  const queuedRef = useRef<string | null>(null);
+  const [queuedSaid, setQueuedSaid] = useState<string | null>(null);
+  const latestSendNow = useRef<((text: string, fromBox: boolean) => void) | null>(null);
   // Colton 1:54 R1: what a lost student first said, kept while the summary offer is open.
   const offerSaid = useRef<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
@@ -854,9 +858,12 @@ export function AssignmentIntake({
   /** How many times they said no to her recommendation (QA 1:16: it only moves on after a no). */
   const recNos = useRef<Record<string, number>>({});
   const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
+  // QA 3:06 minor: after the catch-up offer, the transcript stays in order (their lost note, the offer, their yes, the summary).
+  const [offerReply, setOfferReply] = useState<Record<string, string>>({});
   /** Colton 12:08 INFORMED: the affirmation leads the next question's turn (until they answer it). */
   const [informedLead, setInformedLead] = useState<string[] | null>(null);
 
+  const [needWhy, setNeedWhy] = useState(false);
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     const topic =
@@ -913,6 +920,14 @@ export function AssignmentIntake({
       }
       // Colton 12:08 (INFORMED): what they gave is locked in; no re-ask for its reason here. The
       // early take (the next requirement) carries the why; the gate recovery still asks if it never comes.
+      // QA 3:00 BLOCKER: the gate found no reason behind a locked-in pick: Pau asks for it in the chat.
+      if (stated && !has("decision_why") && needWhy) {
+        plan.push({
+          id: "decision_why",
+          kind: "coaching",
+          text: "One thing before the stance interview: what's your main reason that's the right call for this assignment? One or two sentences is plenty.",
+        });
+      }
       if (stated && has("decision_why")) {
         // Once answered, the question stays as it was asked (the decision now carries the reason too).
         const askedWhy = answers.find((a) => a.questionId === "decision_why")?.questionText;
@@ -983,7 +998,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers, caughtUp]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
   // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
@@ -1146,10 +1161,15 @@ export function AssignmentIntake({
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
   // North star: clarify (read-back) + catch up (offered or declined) + decide (direction with a reason).
+  const lockedInStance =
+    brief?.northstar && !answers.some((a) => a.questionId === "decision_pick")
+      ? informedSaying(answers.find((a) => a.questionId === "material_check")?.answerText ?? "", brief.options?.options ?? [])?.stance ?? null
+      : null;
   const northstarGate = brief?.northstar
     ? northstarGateFrom({
         answers,
-        decisionAnswer: brief.decision?.answer ?? null,
+        // QA 3:00 BLOCKER: the informed lock-in on screen and the gate read the same decision.
+        decisionAnswer: brief.decision?.answer || lockedInStance || null,
         needsLeader: (brief.options?.people?.length ?? 0) >= 2,
         leaderAnswer: brief.leader?.answer ?? null,
         materialShown: Boolean(brief.materialShown),
@@ -1216,6 +1236,11 @@ export function AssignmentIntake({
     let target = coachingPlan.findIndex((x) => ids.includes(x.id) && open(x.id));
     if (target < 0) for (const id of ids) { target = coachingPlan.findIndex((x) => x.id === id); if (target >= 0) break; }
     setForceRecover(null);
+    // An informed lock-in has no decision questions in its plan: add the "why" so Pau asks in the chat.
+    if (target < 0 && !needWhy) {
+      setNeedWhy(true);
+      return;
+    }
     if (target < 0) return;
     setEditReturn({ at: "gate", draft: "" });
     setRecovering(true);
@@ -1896,10 +1921,12 @@ export function AssignmentIntake({
     if (typed && q.id === "material_check" && catchUpOffer === q.id && brief?.northstar) {
       if (materialLost(typed) || isYesSaying(typed) || /catch me up|summar/i.test(typed)) {
         setCatchUpOffer(null);
+        { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
         typed = offerSaid.current ?? typed;
         offerAnswered = true;
       } else if (isNoSaying(typed) || /\b(skip|pick|direction|no thanks)\b/i.test(typed)) {
         setCatchUpOffer(null);
+        { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
         typed = "No thanks, skip the summary. Let's pick a direction.";
         offerAnswered = true;
       }
@@ -2385,8 +2412,11 @@ export function AssignmentIntake({
   }
 
   async function submitStanceAnswer(spoken?: string) {
+    // QA 3:00: what they already sent (turned back as short) stays part of the take; new lines add to it.
+    const prevShort = error && shortEcho ? shortEcho : "";
     setShortEcho(null);
-    const text = (spoken ?? draftAnswer).trim();
+    const fresh = (spoken ?? draftAnswer).trim();
+    const text = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
     if (wordCount(text) < 25) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
@@ -2430,6 +2460,15 @@ export function AssignmentIntake({
       },
     ];
     setAnswers(nextAnswers);
+    // QA 3:00 BLOCKER (one source of truth): an informed lock-in's reason is their early take.
+    // The saved decision (what the gate and the server read) gets it, so the gate turns ✓.
+    {
+      const d = (briefRef.current ?? brief)?.decision;
+      const base = d?.answer || lockedInStance || "";
+      if (brief?.northstar && base && (!d?.answer || (!decisionHasReason(base) && !base.includes(text.slice(0, 40))))) {
+        void briefCall({ action: "decision", question: d?.question ?? brief.options?.question ?? "Your pick", answer: `${base.replace(/[.!?\s]+$/, "")}. ${text}`.slice(0, 2000), source: d?.source ?? "stated" });
+      }
+    }
     setDraftAnswer("");
     pasteMeta.reset();
     setError(null);
@@ -3439,7 +3478,10 @@ export function AssignmentIntake({
                 </ul>
                 );
     // A friendly nudge while the note is short, never a bare word counter (QA 6:03 AM).
-    const minNote = stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
+    // QA 3:00: the typing hint never stands in for Pau Pau's reply: hidden while she is replying,
+    // while a message is pending or queued, and whenever her reply is on screen.
+    const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);
+    const minNote = hintQuiet ? null : stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
     const isVoiceQuestion = Boolean(q && q.kind !== "background");
     // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
     const readingTools = q ? (readingOpen ? (
@@ -3564,7 +3606,16 @@ export function AssignmentIntake({
         return;
       }
       // QA 9:37 AM: one send at a time, even for two taps in the same tick.
-      if (submitting || sendLock.current) return;
+      // QA 3:00: typed while a reply is in flight: queued (on screen), never dropped.
+      if (submitting || sendLock.current) {
+        if (typedNow && !text) {
+          const prev = queuedRef.current;
+          queuedRef.current = prev ? (prev.split("\n").includes(typedNow) ? prev : `${prev}\n${typedNow}`) : typedNow;
+          setQueuedSaid(queuedRef.current);
+          setDraftAnswer("");
+        }
+        return;
+      }
       if (typedNow && !text) {
         sendLock.current = true;
         if (!text) setDraftAnswer("");
@@ -3595,10 +3646,21 @@ export function AssignmentIntake({
         setSubmitting(false);
         setAsideBusy(null);
         setPendingSaid(null);
+        const queuedNext = queuedRef.current;
+        if (queuedNext) {
+          // The queued message goes right after the reply. If the first was turned back (too short),
+          // both go together as one answer, so neither is lost.
+          queuedRef.current = null;
+          setQueuedSaid(null);
+          const merged = fromBox && rejectedRef.current && text ? `${text}\n${queuedNext}` : queuedNext;
+          setTimeout(() => latestSendNow.current?.(merged, true), 60);
+          return;
+        }
         // Turned back: their words go back in the box, never lost.
-        if (fromBox && rejectedRef.current && text) setDraftAnswer((d) => (d.trim() ? d : text));
+        if (fromBox && rejectedRef.current && text) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
       });
     };
+    latestSendNow.current = sendNow;
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
@@ -3745,8 +3807,18 @@ export function AssignmentIntake({
                 <PauPauGroup bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}>
                   {isCurrent ? null : sparkFor(item.id)}
                 </PauPauGroup>
+                {said && offerReply[item.id]
+                  ? qaAsides
+                      .filter((x) => x.qid === item.id)
+                      .map((x) => (
+                        <div key={x.id} className="space-y-4" data-past-aside>
+                          <StudentBubble message={{ text: x.said, files: [], at: 0 }} />
+                          <PauPauGroup bubbles={x.paras} />
+                        </div>
+                      ))
+                  : null}
                 <EchoBubble
-                  text={said || "Skipped"}
+                  text={(said && offerReply[item.id]) || said || "Skipped"}
                   muted={!said}
                   editing={isCurrent}
                   onEdit={() => editAnswer(i)}
@@ -3824,6 +3896,12 @@ export function AssignmentIntake({
             <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
           ) : null}
           {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
+          {queuedSaid ? (
+            <div data-queued-said>
+              <StudentBubble message={{ text: queuedSaid, files: [], at: 0 }} />
+              <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau Pau replies.</p>
+            </div>
+          ) : null}
           {/* Pau Pau's current turn. */}
           {q ? (
             <PauPauGroup
@@ -4116,6 +4194,7 @@ export function AssignmentIntake({
                 }}
                 minRows={1}
                 sending={submitting}
+                onQueue={() => send()}
                 sendLabel="Send"
                 placeholder={
                   restoringDraft && !draftAnswer

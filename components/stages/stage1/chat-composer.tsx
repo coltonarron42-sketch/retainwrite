@@ -92,6 +92,8 @@ export type ChatComposerProps = {
   placeholder: string;
   sendLabel?: string;
   sending?: boolean;
+  /** QA 3:00: while a reply is in flight they can keep typing; Send/Enter hands the text to the parent's queue. */
+  onQueue?: () => void;
   /** Extra reason Send is off (beyond empty, reading, or failed files). */
   sendBlocked?: boolean;
   /** Attachments: omit to show a text-only box (later questions). */
@@ -126,6 +128,7 @@ export function ChatComposer({
   placeholder,
   sendLabel = "Send",
   sending = false,
+  onQueue,
   sendBlocked = false,
   files,
   onFilesChange,
@@ -529,12 +532,18 @@ export function ChatComposer({
     else setCameraOpen(true);
   }
 
+  const queueWhileSending = Boolean(onQueue);
   function send() {
     if (blocked) return;
     // QA 9:37 AM: one send at a time. While a reply is in flight the button is off and Enter
     // keeps the text in the box (never dropped, never sent twice).
     // Colton 11:41: the composer is locked while a reply is pending. One student turn, one reply:
     // extra taps or Enters do nothing (the box says why), so rapid sends never double up.
+    if (sending && queueWhileSending) {
+      // Never dropped: the parent queues it and sends it right after Pau's reply.
+      if (value.trim()) onQueue?.();
+      return;
+    }
     if (sending) {
       setQueued(true);
       return;
@@ -658,9 +667,9 @@ export function ChatComposer({
           rows={minRows}
           value={value}
           placeholder={placeholder}
-          data-composer-locked={sending || undefined}
+          data-composer-locked={(sending && !queueWhileSending) || undefined}
           onChange={(e) => {
-            if (!sending) onChange(e.target.value);
+            if (!sending || queueWhileSending) onChange(e.target.value);
           }}
           onPaste={onPaste}
           onKeyDown={(e) => {
@@ -670,10 +679,10 @@ export function ChatComposer({
               send();
             }
           }}
-          className={`block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0${sending ? " cursor-not-allowed opacity-60" : ""}`}
+          className={`block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0${sending && !queueWhileSending ? " cursor-not-allowed opacity-60" : ""}`}
           {...inputProps}
           // QA 1:16: the lock wins over a caller's readOnly (it used to be overridden, so the box looked live).
-          readOnly={sending || Boolean(inputProps?.readOnly)}
+          readOnly={(sending && !queueWhileSending) || Boolean(inputProps?.readOnly)}
         />
 
         {/* Fixed-height row: status text changes never change the dock's height (QA 3:35 A). */}
@@ -747,7 +756,7 @@ export function ChatComposer({
           <button
             type="button"
             aria-label={sendLabel}
-            disabled={blocked || queued || sending}
+            disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}
             aria-busy={sending || reading || undefined}
             data-send-queued={queued || undefined}
             className="ds-focus flex h-11 w-11 items-center justify-center rounded-full bg-ds-accent text-white shadow-ds-button transition-colors duration-150 hover:brightness-95 disabled:cursor-not-allowed disabled:bg-ds-border disabled:text-ds-muted disabled:shadow-none"

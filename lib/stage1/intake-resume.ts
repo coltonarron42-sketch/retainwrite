@@ -107,9 +107,11 @@ export function northstarGateFrom(input: {
   // QA 10:21 walk C: the early take is their stance in their own words; its reason counts
   // for a decision they already made (never stands in for a missing pick).
   const hasPick = Boolean((input.decisionAnswer ?? "").trim()) || said("decision_pick").length > 0;
-  const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why"), ...(hasPick ? said("stance_early") : [])].filter(Boolean);
+  const texts = [input.decisionAnswer ?? "", ...said("decision_pick"), ...said("decision_why"), ...(hasPick ? [...said("story_own"), ...said("stance_early")] : [])].filter(Boolean);
   const joined = [input.decisionAnswer ?? "", ...said("decision_why")].join(" ").trim();
-  const hasReason = texts.some((t) => decisionHasReason(t)) || (joined ? decisionHasReason(joined) : false);
+  // QA 3:00 BLOCKER: a locked-in pick plus their early take (25+ words, the case for it) IS the reason.
+  const earlyCase = hasPick && said("stance_early").some((t) => t.split(/\s+/).length >= 25);
+  const hasReason = earlyCase || texts.some((t) => decisionHasReason(t)) || (joined ? decisionHasReason(joined) : false);
   // A leader already named in their own words ("using Satya Nadella at Microsoft") counts (QA 10:21 suite).
   const NOT_PERSON = /^(?:Transformational|Situational|Servant|Behavioral|Authentic|Leadership|Theory|Practice|Emotional|Intelligence|Chapter|What|Makes|The|This|I)$/;
   const namesLeader = texts.some((t) => [...t.matchAll(/\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g)].some((m) => !NOT_PERSON.test(m[1]!) && !NOT_PERSON.test(m[2]!)));
