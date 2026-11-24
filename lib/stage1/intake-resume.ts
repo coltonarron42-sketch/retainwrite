@@ -118,12 +118,16 @@ export function northstarGateFrom(input: {
 export function materialGateLabel(input: { catchUpDone: boolean; materialShown: boolean; kinds: string[]; materialAnswer?: string | null }): string {
   const said = (input.materialAnswer ?? "").toLowerCase();
   const readIt = /\b(i(?:'ve| have)? (?:already )?read|i did read|read (?:it|them|both|all)|finished (?:it|them|the reading))\b/.test(said) && !/\b(haven'?t|have not|didn'?t|did not|not yet|never)\b/.test(said);
-  if (input.materialShown && input.kinds.includes("reading")) return "Material: caught up from your own reading";
+  const passed = /\b(no thanks|don'?t need|no need|not now|skip|pass)\b/.test(said);
+  // In-chat catch-up (QA 9:37): the summary bubbles show right under their answer, so an
+  // answer plus summaries means it was shown even when the server flag is pre-confirm only.
+  const shown = input.materialShown || (input.kinds.length > 0 && said.trim().length > 0 && !passed && !readIt);
+  if (shown && input.kinds.includes("reading")) return "Material: caught up from your own reading";
   if (readIt) return "Material: caught up (you read it yourself)";
-  if (input.materialShown && input.kinds.includes("found")) return "Material: caught up from the source I found online";
-  if (input.materialShown && input.kinds.some((k) => k === "knowledge" || k === "overview" || k === "general" || k === "assignment"))
+  if (shown && input.kinds.includes("found")) return "Material: caught up from the source I found online";
+  if (shown && input.kinds.some((k) => k === "knowledge" || k === "overview" || k === "general" || k === "assignment"))
     return "Material: caught up from general knowledge (not your copy yet)";
-  if (/\b(no thanks|don'?t need|no need|not now|skip|pass)\b/.test(said)) return "Material: you passed on the catch-up";
+  if (passed) return "Material: you passed on the catch-up";
   return "Material: waiting on the readings";
 }
 
