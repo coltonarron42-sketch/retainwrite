@@ -22,6 +22,8 @@ import {
   LOGIC_YES,
 } from "@/lib/coaching/logicCheck";
 import { oneQuipParas, quipFor } from "@/lib/coach/quips";
+import { isVagueNote } from "@/lib/coach/answer";
+import { sectionPurpose } from "@/lib/stage1/paper-context";
 import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
@@ -105,7 +107,16 @@ export type StanceHandlers = {
 
 type Props = {
   paperId: string;
-  intro: { heading: string; body: string };
+  intro: {
+    heading: string;
+    body: string;
+    /** What this stage is for (north star E). */
+    purpose?: string;
+    /** Their Stage 1 decision, referenced instead of re-asked (north star D). */
+    earlier?: string | null;
+    /** Key points from the material, labeled by source. */
+    material?: { label: string; points: string[] }[];
+  };
   promptType: "lesson" | "personal_experience" | "mixed";
   sections: StanceSectionView[];
   active: number;
@@ -123,7 +134,7 @@ type Props = {
   /** Her answer to a request/question; shown inside the current turn only. */
   aside: { k: string; at: number; paras: string[]; intent?: StanceIntent } | null;
   classify: (text: string, ask: string) => Promise<StanceIntent>;
-  onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[]) => void;
+  onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
   /** Pau Pau is checking (relevance) before she answers. */
   busy?: boolean;
   idea: string;
@@ -166,10 +177,22 @@ export function stanceTurnParas(
     /** Per-paper quip deal (QA 3:35 B): the paper id and this section's index. */
     seed?: string;
     index?: number;
+    /** Their latest note in this section (praise matches its quality). */
+    lastNote?: string;
+    /** What this section is for, taught once per kind of section (north star E). */
+    purpose?: string;
   },
 ): string[] {
   const { section, card } = ctx;
   return oneQuipParas(stanceTurnParasRaw(kind, ctx, section, card));
+}
+
+/** Praise that matches a vague note: honest, no hype (QA 11/23). */
+export const VAGUE_CONFIRM = "Okay, that's a start, and you can sharpen it in your outline. Want to go with it for now?";
+
+/** One quip per section at most: even sections on the lead pick, odd ones on the logic opener. */
+export function quipSlotFor(index: number | undefined): "pick_lead" | "logic_opener" {
+  return (index ?? 0) % 2 === 0 ? "pick_lead" : "logic_opener";
 }
 
 /** The probe opener: a first-section start, a short hand-off for later sections. */
@@ -181,7 +204,7 @@ export function probeLead(index: number | undefined, title: string): string {
 /** "<lead> <quip> <ask>" from the paper's opener pool (quip optional). */
 export function logicOpenerText(seed?: string, index?: number): string {
   const [lead, ask] = stockLine("logic_opener", seed, index).split("|") as [string, string];
-  const q = quipFor(seed, index, "logic_opener");
+  const q = quipSlotFor(index) === "logic_opener" ? quipFor(seed, index, "logic_opener") : null;
   return [lead, q, ask].filter(Boolean).join(" ");
 }
 
@@ -192,7 +215,7 @@ export function logicPassText(seed?: string, index?: number): string {
 
 function stanceTurnParasRaw(
   kind: StanceTurnKind,
-  ctx: { mirrorAsk: string; activeTrigger: string | null; seed?: string; index?: number },
+  ctx: { mirrorAsk: string; activeTrigger: string | null; seed?: string; index?: number; lastNote?: string; purpose?: string },
   section: StanceSectionView,
   card: TeachCard | null,
 ): string[] {
@@ -203,19 +226,20 @@ function stanceTurnParasRaw(
       return [ctx.mirrorAsk];
     case "probe":
       return [
-        `${probeLead(ctx.index, section.title)} ${stockLine(section.mode === "memory" ? "memory_probe" : "lesson_probe", ctx.seed, ctx.index)}`,
+        `${probeLead(ctx.index, section.title)} ${ctx.purpose ? `${ctx.purpose} ` : ""}${stockLine(section.mode === "memory" ? "memory_probe" : "lesson_probe", ctx.seed, ctx.index)}`,
         ...(ctx.activeTrigger ? [SCRIPTED_MEMORY_FOLLOW_UP] : []),
       ];
     case "name_lead":
       return ["I couldn't tie research directions to this assignment yet. Name a source or example you want to check, in your own words."];
     case "pick_lead":
     {
-      const q = quipFor(ctx.seed, ctx.index, "pick_lead");
+      const q = quipSlotFor(ctx.index) === "pick_lead" && !(ctx.lastNote && isVagueNote(ctx.lastNote)) ? quipFor(ctx.seed, ctx.index, "pick_lead") : null;
       return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", section.title.toLowerCase()).replace("{q}", q ? ` ${q}` : "")];
     }
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
-      return [stockLine(section.mode === "memory" ? "memory_confirm" : "confirm", ctx.seed, ctx.index), ...(link ? [link] : [])];
+      const vague = Boolean(ctx.lastNote && isVagueNote(ctx.lastNote));
+      return [vague ? VAGUE_CONFIRM : stockLine(section.mode === "memory" ? "memory_confirm" : "confirm", ctx.seed, ctx.index), ...(link ? [link] : [])];
     }
     case "logic_opener":
       return [logicOpenerText(ctx.seed, ctx.index)];
@@ -224,8 +248,9 @@ function stanceTurnParasRaw(
       if (!r) return [];
       if (r.tier === "pass") return [logicPassText(ctx.seed, ctx.index)];
       if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
+      // The concern is named in the same line as the flag (QA 11/23: "Here's a wrinkle." alone was hollow).
       if (r.tier === "moderate")
-        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}.`, ...(r.reason ? [r.reason] : []), stockLine("logic_writer", ctx.seed, ctx.index)];
+        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${moderateConcern(r, ctx.lastNote, section.title)}`, stockLine("logic_writer", ctx.seed, ctx.index)];
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
     case "locked_in":
@@ -233,6 +258,16 @@ function stanceTurnParasRaw(
     default:
       return ["Let's keep going on this section."];
   }
+}
+
+/** The named concern for a moderate flag; never empty. */
+export function moderateConcern(r: { reason?: string; alternativeAngles?: { question: string }[] }, note?: string, title = "this section"): string {
+  const reason = (r.reason ?? "").trim();
+  const ask = r.alternativeAngles?.[0]?.question?.trim();
+  if (reason) return reason.replace(/\.?$/, ".");
+  const part = title.toLowerCase();
+  if (note && isVagueNote(note)) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
+  return ask ?? `Your ${part} could use one more specific detail. What example would show it best in your ${part}?`;
 }
 
 function Choices({ label, children }: { label: string; children: ReactNode }) {
@@ -268,6 +303,7 @@ export function StanceChat(props: Props) {
   // One send at a time, set synchronously (state lags a tap): a second send
   // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
   const inFlight = useRef(false);
+  const vaguePushed = useRef(new Set<string>());
   const section = sections[active];
   // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
   const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
@@ -326,7 +362,10 @@ export function StanceChat(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per turn
   }, [rtTurnKey, rt.on]);
   if (!section) return null;
-  const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger, seed: paperId, index: active });
+  const lastNote = [...transcript].reverse().find((l) => l.who === "you" && l.k === section.key)?.text;
+  const purpose = sectionPurpose(section.title);
+  const purposeOnce = sections.findIndex((s) => sectionPurpose(s.title) === purpose) === active ? purpose : undefined;
+  const turnParas = stanceTurnParas(kind, { section, card, mirrorAsk: props.mirrorAsk, activeTrigger: props.activeTrigger, seed: paperId, index: active, lastNote, purpose: purposeOnce });
   const logicAsk = logicOpenerText(paperId, active);
   const pau = (text: string): LoopLine => ({ k: section.key, who: "pau", text });
   const you = (text: string): LoopLine => ({ k: section.key, who: "you", text });
@@ -412,6 +451,14 @@ export function StanceChat(props: Props) {
         return "aside";
       }
     }
+    // A vague note gets one honest push toward specifics per section, not hollow praise (QA 11/23).
+    if ((kind === "teach_card" || kind === "mirror" || kind === "probe") && !(choiceTurn && yes) && isVagueNote(text) && !vaguePushed.current.has(section.key)) {
+      vaguePushed.current.add(section.key);
+      if (fromVoice) return "aside";
+      props.onIdea("");
+      props.onAside("content", kind === "teach_card" || kind === "mirror" ? kind : "probe", [pau(ask), you(text)], "vague");
+      return "aside";
+    }
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
@@ -483,7 +530,24 @@ export function StanceChat(props: Props) {
   const introBubbles: ReactNode[] = [
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
+    ...(intro.purpose ? [intro.purpose] : []),
+    ...(intro.earlier ? [intro.earlier] : []),
     <div key="intro-controls" className="space-y-3">
+          {intro.material?.length ? (
+            <details className="text-[14px] leading-[1.6]" data-material-summary>
+              <summary className="ds-focus cursor-pointer font-semibold">Key points from the material</summary>
+              {intro.material.map((m) => (
+                <div key={m.label} className="mt-2">
+                  <p className="text-[13px] text-ds-muted">{m.label}</p>
+                  <ul className="list-disc space-y-1 pl-5">
+                    {m.points.map((pt) => (
+                      <li key={pt}>{pt}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </details>
+          ) : null}
           <p className="text-[13px] leading-[1.6] text-ds-muted">
             <a href={`/app/papers/${paperId}/stage/1`} className={dsLink}>
               Edit assignment
@@ -753,25 +817,25 @@ export function StanceChat(props: Props) {
                   </DsButton>
                 ) : r.tier === "moderate" ? (
                   <>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras[0] ?? ""), pick("Keep my angle")])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras.join(" ")), pick("Keep my angle")])}>
                       Keep my angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(paras[0] ?? ""), pick("Adjust it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("adjust", [pau(paras.join(" ")), pick("Adjust it")])}>
                       Adjust it
                     </DsButton>
                   </>
                 ) : (
                   <>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(paras[0] ?? ""), pick("Pick a new angle")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("new_angle", [pau(paras.join(" ")), pick("Pick a new angle")])}>
                       Pick a new angle
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(paras[0] ?? ""), pick("Revise my claim")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("revise", [pau(paras.join(" ")), pick("Revise my claim")])}>
                       Revise my claim
                     </DsButton>
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(paras[0] ?? ""), pick("Reframe it")])}>
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => h.logicResult("reframe", [pau(paras.join(" ")), pick("Reframe it")])}>
                       Reframe it
                     </DsButton>
-                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(paras[0] ?? ""), pick(LOGIC_CONTINUE)])}>
+                    <DsButton type="button" size="sm" onClick={() => h.logicResult("continued", [pau(paras.join(" ")), pick(LOGIC_CONTINUE)])}>
                       {LOGIC_CONTINUE}
                     </DsButton>
                   </>

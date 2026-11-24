@@ -16,6 +16,7 @@ import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { nextOutlineIndex, type LoopLine } from "@/lib/stages/stance-turn";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { OUTLINE_FOLLOW_UP, type StanceIntent } from "@/lib/stages/stance-intent";
+import { sectionPurpose } from "@/lib/stage1/paper-context";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
@@ -59,6 +60,11 @@ export function sectionIntroLine(section: OutlineSectionView): string {
   return `Let's shape your ${section.title.toLowerCase()} (${section.needs.toLowerCase()}).`;
 }
 
+/** What this section is for, taught before she asks (north star E; QA 11/23 #4). */
+export function sectionTeachLine(section: OutlineSectionView): string {
+  return `${sectionPurpose(section.title)} A good outline line here is short: your point, plus the reason or example that backs it.`;
+}
+
 /**
  * Has this section's intro already been said in the saved conversation (by
  * section id)? Then a remount, a late restore or a toggle during hydration
@@ -73,7 +79,7 @@ export function outlineAsk(section: OutlineSectionView, first: boolean, introSai
   const notes = keptIdeas(section.ideas).join(" ");
   return [
     ...(first && !introSaid ? [OUTLINE_INTRO] : []),
-    introSaid ? `Back to your ${section.title.toLowerCase()}.` : sectionIntroLine(section),
+    introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
     notes
       ? "Your Stance notes are in the box. Rework them into outline lines, or keep them as they are."
       : "You don't have notes for this one yet. Write a line or two, or keep going and come back to it.",

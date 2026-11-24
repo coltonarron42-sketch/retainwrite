@@ -65,7 +65,7 @@ import {
   sectionContinueTarget,
 } from "@/lib/stages/advance";
 import type { StageProgressRow } from "@/lib/stages/assert";
-import { defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
+import { contextTeachCard, defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
 import {
   checklistItem5Resolved,
   VOICE_NUDGE_EVENTS,
@@ -101,6 +101,23 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { oneQuip } from "@/lib/coach/quips";
+import { isLostSaying, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
+
+/** Key points from the material, labeled by where they came from (shown under a disclosure). */
+function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
+  const list = b?.summaries?.length ? b.summaries : b?.summary ? [b.summary] : [];
+  return list.map((m) => ({ label: summaryLabel(m), points: m.points }));
+}
+
+/** The Stage 1 brief, as Stages 2-3 read it (north star D). */
+type PaperBrief = {
+  summary: MaterialSummary | null;
+  summaries?: MaterialSummary[];
+  options: PaperContext["options"] | null;
+  decision: PaperContext["decision"] | null;
+  missingAsk?: string | null;
+};
 
 type RuntimeSection = {
   key: string;
@@ -257,6 +274,25 @@ export function CoachingLoop({
   // Before that, show a loading line, not the paste box: the confirmed
   // assignment is on its way and must not be asked for again.
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  // North star D: what Stage 1 learned (read-back, material key points, decision), for Stages 2-3.
+  const [pctx, setPctx] = useState<PaperBrief | null>(null);
+  useEffect(() => {
+    if (!persist || stage < 2 || stage > 3) return;
+    let live = true;
+    void fetch(`/api/papers/${paperId}/intake/brief`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "context" }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<PaperBrief & { ok?: boolean }>) : null))
+      .then((d) => {
+        if (live && d?.ok) setPctx(d);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [paperId, persist, stage]);
   const [idea, setIdea] = useState("");
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
@@ -298,6 +334,7 @@ export function CoachingLoop({
   // student's live progress (it reset Stance to the first section's leads).
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
+  const [answering, setAnswering] = useState(false);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
@@ -713,9 +750,42 @@ export function CoachingLoop({
   }
 
   /** A request or question is answered in her next turn and never saved as a note. */
-  function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[]) {
+  /** Her real answer (content question, "idk", a vague note), from the paper context; null = fall back. */
+  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const d = (await res.json()) as { paras?: string[] };
+      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
+  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
+    if (intent === "content_question") return "answer";
+    if (intent === "request_help" || isLostSaying(text)) return "lost";
+    return null;
+  }
+
+  async function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[], forced?: "vague") {
     if (!session || !section) return;
-    const paras = intentReply(intent, { turn, section });
+    const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
+    const ask = more.find((l) => l.who === "pau")?.text ?? "";
+    const mode = forced ?? answerModeFor(intent, said);
+    setAnswering(true);
+    const answered = mode ? await coachAnswer(mode, said, section.title, ask) : null;
+    setAnswering(false);
+    const paras = answered ?? intentReply(intent === "content" ? "request_help" : intent, { turn, section });
     // Never the same answer twice in a row for the same words (QA 2:08 #4).
     const prior = session.transcript ?? [];
     const tail = prior.slice(-(more.length + paras.length));
@@ -1108,11 +1178,16 @@ export function CoachingLoop({
     // "Ready to move on to sources?" first (QA 10:38 #9).
   }
 
-  function onOutlineAside(intent: StanceIntent, key: string, more: LoopLine[]) {
+  async function onOutlineAside(intent: StanceIntent, key: string, more: LoopLine[]) {
     if (!session) return;
     const item = session.sections.find((sectionItem) => sectionItem.key === key);
     if (!item) return;
-    const paras = intentReply(intent, { turn: "outline", section: item });
+    const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
+    const mode = answerModeFor(intent, said);
+    setAnswering(true);
+    const answered = mode ? await coachAnswer(mode, said, item.title, more.find((l) => l.who === "pau")?.text ?? "") : null;
+    setAnswering(false);
+    const paras = answered ?? intentReply(intent, { turn: "outline", section: item });
     const outlineTranscript = appendLines(session.outlineTranscript, [...more, ...paras.map((text): LoopLine => ({ k: key, who: "pau", text }))]);
     commit({
       ...session,
@@ -1128,7 +1203,7 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? defaultTeachCard(clipWords(subject === "your topic" ? section.concept : subject, 60), section.rubricRef)
+      ? contextTeachCard(pctx, section.rubricRef) ?? defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =
@@ -1192,6 +1267,9 @@ export function CoachingLoop({
                   : isQuestionTopic(subject)
                     ? "This is the question your paper answers. We'll work through it one section at a time."
                     : assignmentPurposeLine(subject),
+            purpose: STAGE_PURPOSE[2],
+            earlier: pctx?.decision ? `Earlier you picked ${pctx.decision.pick}: “${clipWords(pctx.decision.answer, 160)}”` : null,
+            material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
           sections={session.sections}
@@ -1242,7 +1320,7 @@ export function CoachingLoop({
           aside={session.aside ?? null}
           classify={classifyIntent}
           onAside={onAside}
-          busy={checkingLogic}
+          busy={checkingLogic || answering}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
