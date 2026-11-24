@@ -401,6 +401,8 @@ function MaterialBubbles({
       {missingAsk ? (
         <PauPauGroup
           bubbles={[
+            // Colton 12:08: no summary yet, still reassure and teach first (only when this is the lost turn's lead).
+            ...(!list.length && lead.startsWith("That's okay") ? [lead] : []),
             missingAsk,
             ...(offers.length
               ? [
@@ -3638,7 +3640,7 @@ export function AssignmentIntake({
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
                 {item.id === "material_check" && brief && (brief.lostAtStart || materialLost(said)) ? (
-                  <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask })} />
+                  <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask, hasSummary: Boolean(brief.summary || brief.summaries?.length) })} />
                 ) : null}
                 {item.id === "material_check" && summaryBusy && !asideBusy ? (
                   <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
@@ -3713,6 +3715,7 @@ export function AssignmentIntake({
                 (!editing && q.id === coachingPlan[0]?.id ? introBubbles.length : 0) +
                 (editing ? 1 : 0) +
                 leadsBubbles.length +
+                (informedLead && !editing && q.id !== "material_check" ? informedLead.length : 0) +
                 (stanceMode && !editing ? 1 : 0)
               }
               headingId="coach-question"

@@ -31,6 +31,7 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     expect(l).toMatch(/^That's okay, that's why you're here! Leaders move people/);
     expect(l).toMatch(/summary of the key ideas from your professor's sources/);
     expect(lostLead({ ask: "argue whether stress helps or hurts memory" })).toMatch(/The core of it: argue whether stress/);
+    expect(lostLead({ ask: "x", hasSummary: false })).toMatch(/I don't have your professor's sources yet/);
     const e = pickEscalation({
       options: [{ label: "Transformational", why: "vision" }, { label: "Servant", why: "people first" }],
       people: [{ label: "Satya Nadella", why: "changed Microsoft's culture" }, { label: "Mary Barra", why: "steered GM through a recall" }],

@@ -164,9 +164,13 @@ export function informedAffirm(stance: string): string[] {
 }
 
 /** LOST: reassure, teach the core idea in plain words, then the catch-up from the professor's sources. */
-export function lostLead(input: { concept?: string | null; ask?: string | null }): string {
+export function lostLead(input: { concept?: string | null; ask?: string | null; hasSummary?: boolean }): string {
   const concept = (input.concept ?? "").trim();
   const ask = (input.ask ?? "").trim().replace(/[.!?\s]+$/, "");
   const core = concept || (ask ? `The core of it: ${ask.replace(/^./, (c) => c.toLowerCase())}.` : "");
-  return `That's okay, that's why you're here! ${core ? `${core} ` : ""}Here's a summary of the key ideas from your professor's sources so you get a better grasp.`.replace(/\s+/g, " ").trim();
+  const tail =
+    input.hasSummary === false
+      ? "I don't have your professor's sources yet, so here's what I need to give you a real summary of them."
+      : "Here's a summary of the key ideas from your professor's sources so you get a better grasp.";
+  return `That's okay, that's why you're here! ${core ? `${core} ` : ""}${tail}`.replace(/\s+/g, " ").trim();
 }

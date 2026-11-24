@@ -85,6 +85,15 @@ export function thesisFrom(sections: { title: string; ideas: string[] }[]): stri
   return t || null;
 }
 
+/** No gap: still grounded in their own words (QA 10:21 #5), never a bare template. */
+function doneLine(title: string, ideas: string[]): string {
+  const first = (ideas[0] ?? "").replace(/\s+/g, " ").trim();
+  if (!first) return "";
+  // A whole sentence, never cut mid-thought.
+  const cut = (first.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? first).replace(/[.!?]+$/, "");
+  return `Your ${title.toLowerCase()} already has what it needs, starting with “${cut}”.`;
+}
+
 export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null, pick: string | null = null): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
   const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis, allNotes, pick) : null;
@@ -93,7 +102,7 @@ export function outlineAsk(section: OutlineSectionView, first: boolean, introSai
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
     notes
       ? // QA 7:11 AM: she coaches the gap she sees in their outline for this section.
-        `${gap ? `${gap} ` : ""}Your Stance notes are in the box. Rework them into outline lines, or keep them as they are.`
+        `${gap ? `${gap} ` : `${doneLine(section.title, keptIdeas(section.ideas))} `}Your Stance notes are in the box. Rework them into outline lines, or keep them as they are.`
       : "You don't have notes for this one yet. Write a line or two, or keep going and come back to it.",
   ];
 }
