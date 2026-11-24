@@ -113,6 +113,9 @@ export function structurePhrases(req: AssignmentRequirements): string[] {
   return out.slice(0, 5);
 }
 
+const COMMON_START =
+  /^(?:A|An|The|One|Two|Three|Four|Five|At|Your|Clear|Specific|Use|Using|Discussion|Discuss|Analysis|Analyze|Examples?|Evidence|Citations?|References?|Personal|Original|In-text|Thesis|Introduction|Conclusion|Proper|Correct|Reflection|Explanation|Explain|Description|Describe|Comparison|Compare|Application|Apply|Strong|Relevant|Credible|Scholarly|Peer-reviewed|Sources?|How|What|Why|Whether|Identification|Identify|Connection|Connect|Connections|Organization|Grammar|Writing|Support|Supporting|Argument|Depth|Insight|Critical|Each|Both|Every|Real|Concrete|Well|Accurate|At least|Quality|Mechanics|Style|Structure|Formatting|Use of)\b(?!\s+[A-Z][a-z])/;
+
 /** Key formatting worth saying out loud: spacing, font, margins (not the citation page). */
 function formattingPhrase(req: AssignmentRequirements): string | null {
   const keep: string[] = [];
@@ -395,7 +398,8 @@ function readBackParasRaw(
   if (opts.plain?.ask) {
     const p = opts.plain;
     const tidy = (x: string) => x.replace(/\s+/g, " ").replace(/[.;,\s]+$/, "").trim();
-    const lower = (x: string) => (/^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+    // QA 3:06 minor: only a plain sentence-start word is lowercased; names keep their casing (Northouse, Daniel Goleman).
+    const lower = (x: string) => (COMMON_START.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
     const list = (xs: string[]) => joinList(xs.map(tidy).map(lower).filter(Boolean));
     const facts = body[0] ?? "";
     const plainParas = [

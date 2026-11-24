@@ -21,7 +21,9 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     for (const lost of ["no clue what a leader is supposed to do", "idk", "sure", "I haven't read it yet"]) expect(informedSaying(lost), lost).toBeNull();
     const a = informedAffirm(t).join(" ");
     expect(a).toMatch(/Awesome, sounds like you have a good idea of what this paper needs/);
-    expect(a).toContain(t.replace(/[“”"]/g, "'"));
+    // QA 3:06: the key picks are quoted (leader and styles), not the whole sentence.
+    expect(informedAffirm(t, { leader: "Sam Walton" }).join(" ")).toContain("Locked in, in your words: “Sam Walton, servant and transformational leadership”");
+    expect(informedAffirm(psy).join(" ")).toContain(psy);
     expect(a).toMatch(/expand on it later/);
     expect(intake).toContain('if (stated && has("decision_why")) {');
     expect(intake).toContain("informedNext(");

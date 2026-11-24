@@ -60,7 +60,7 @@ describe("QA 1:16: composer never drops a message", () => {
   const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
   it("rapid different sends merge into one turn; a turned-back send restores the text", () => {
     expect(intake).toContain("coalesce.current.text += `\\n${typedNow}`");
-    expect(intake).toContain("setDraftAnswer((d) => (d.trim() ? d : text))");
+    expect(intake).toContain("setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\\n${d}`) : text))");
     expect(intake).toContain("data-pending-said");
     expect(composer).toContain("cursor-not-allowed opacity-60");
   });
