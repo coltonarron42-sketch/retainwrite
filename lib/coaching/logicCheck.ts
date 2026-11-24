@@ -256,6 +256,18 @@ export function contradictsThesis(notes: string, thesis: string): { term: string
       if (from) return { term: t, noteQuote: c, thesisQuote: from };
     }
   }
+  // A distinctive word their thesis backs ("I'd pick transformational because…") turned against
+  // in a note ("Transformational leadership is bad for change") counts too (QA 11:40 suite).
+  const GENERIC = /^(leadership|leaders?|management|change|changes|important|different|something|everyone|because|probably|actually|really|through|company|students?|people|better|thinking)$/;
+  const thesisClauses = clauses(thesis).filter((c) => !NEG_WORD.test(c));
+  for (const c of clauses(notes)) {
+    if (!NEG_WORD.test(c)) continue;
+    const words = (c.toLowerCase().match(/[a-z]{8,}/g) ?? []).filter((w) => !GENERIC.test(w) && !NEG_WORD.test(w));
+    for (const w of words) {
+      const from = thesisClauses.find((tc) => new RegExp(`\\b${w}\\b`, "i").test(tc));
+      if (from) return { term: w, noteQuote: c, thesisQuote: from };
+    }
+  }
   return null;
 }
 

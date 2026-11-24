@@ -2125,7 +2125,10 @@ export function AssignmentIntake({
           }
         }
       })();
-      await Promise.race([work, new Promise((r) => setTimeout(r, 12_000))]);
+      // QA 11:40 #5 (lag): an INFORMED answer is already locked in, so the next step never waits on the
+      // options lookup (it finishes in the background); everyone else waits up to 12 s for real options.
+      if (!early?.leader) await Promise.race([work, new Promise((r) => setTimeout(r, 12_000))]);
+      else void work;
     }
 
     void fetch(`/api/papers/${paperId}/intake/next-question`, {
