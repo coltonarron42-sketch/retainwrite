@@ -95,9 +95,9 @@ describe("QA 4:42 #2: the read-back has exactly one quip", () => {
       expect(out.filter(isQuip).length, SUMMARY_OPENERS[i]).toBeLessThanOrEqual(1);
     }
   });
-  it("'Let's get into it.' plus 'This is totally doable.' never appear together", () => {
+  it("retired stock lines never appear in the read-back (QA 9:37 AM)", () => {
     const out = pauPauSummaryBubbles(req, { seed: 0 }).join(" ");
-    expect(out).toContain("Let's get into it.");
+    expect(out).not.toContain("Let's get into it.");
     expect(out).not.toContain("This is totally doable.");
   });
   it("'Future-self approved.' is gone", () => {

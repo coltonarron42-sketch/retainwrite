@@ -72,10 +72,10 @@ describe("QA 3:35 B: personality copy", () => {
     expect(seen.size).toBeLessThanOrEqual(STAGE2_QUIPS.length);
   });
   it("at most one quip per reply: templates, read-back and model replies", () => {
-    expect(oneQuip("Homework, my favorite genre. This is totally doable. You ready?")).toBe("Homework, my favorite genre. You ready?");
+    expect(oneQuip("No crystal ball required. Painless, mostly. You ready?")).toBe("No crystal ball required. You ready?");
     expect(oneQuipParas(["Okay. Painless, mostly.", "This is totally doable. Ready?"])).toEqual(["Okay. Painless, mostly.", "Ready?"]);
-    const r = parseModelResult({ intent: "confirm", reply: "Love a quick yes. No pop quiz, I promise. Let's go.", updates: {} });
-    expect(r?.reply).toBe("Love a quick yes. Let's go.");
+    const r = parseModelResult({ intent: "confirm", reply: "No crystal ball required. Painless, mostly. Let's go.", updates: {} });
+    expect(r?.reply).toBe("No crystal ball required. Let's go.");
     for (let seed = 0; seed < 8; seed++) {
       const req = emptyRequirements();
       req.course = extractedField("ENG 101", 0.9);
