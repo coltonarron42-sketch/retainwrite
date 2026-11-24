@@ -107,7 +107,7 @@ export function decisionAngles(d: { pick?: string | null; leader?: string | null
     },
     {
       id: "moment",
-      question: "When have you seen a coach, boss or teacher lead a group through a change like this?",
+      question: `For this paper: a coach, boss or teacher you watched lead a group through a change like this. How did they use ${styleName}?`,
       whyFits: "Adds something you actually saw, in your own words.",
     },
   ];
