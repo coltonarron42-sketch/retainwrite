@@ -82,7 +82,7 @@ export function useRealtimeCall(opts: {
   saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
   welcome: () => { welcome: boolean; index: number; text?: string | null };
   /** 1 on Stage 1 (Intake); Stage 2 otherwise. */
-  stage?: 1 | 2;
+  stage?: 1 | 2 | 3;
 }) {
   const [phase, setPhase] = useState<RtPhase>("off");
   const [muted, setMuted] = useState(false);

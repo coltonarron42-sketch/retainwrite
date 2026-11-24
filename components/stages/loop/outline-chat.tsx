@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
@@ -16,6 +16,12 @@ import { useDraftSave } from "@/lib/papers/use-draft-save";
 import { nextOutlineIndex, type LoopLine } from "@/lib/stages/stance-turn";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { OUTLINE_FOLLOW_UP, type StanceIntent } from "@/lib/stages/stance-intent";
+import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { LiveTurns } from "@/components/stages/loop/live-turns";
+import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { isQuickConfirm } from "@/lib/stage1/confirm-reply";
+import { isControlPhrase, isSaidToCoach } from "@/lib/stage1/voice-turn";
+import { addSpokenLine, outlineChoiceSaid } from "@/lib/stages/outline-voice";
 
 export type OutlineSectionView = { key: string; title: string; needs: string; ideas: string[] };
 
@@ -41,6 +47,8 @@ type Props = {
   /** All sections done: the old Stage 3 Continue (same saves, same gate). */
   onFinish: () => void;
   onGoBack: (key: string) => void;
+  /** Grok Voice on Stage 3: only while the paper is in Stage 3 (not a read-only past stage). */
+  voice?: boolean;
 };
 
 export const OUTLINE_INTRO =
@@ -154,7 +162,105 @@ export function OutlineChat(props: Props) {
 
   // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
   const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau") || done.length > 0);
-  const speak: SpeakItem[] = [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
+  // Grok Voice (Colton, Nov 23): same relay as Stages 1-2. Spoken words land in the
+  // box word for word; her "move on" sends the box through submit() (same intent
+  // check, same saves and gates as typing); a strict yes is the only spoken advance.
+  const rtMode = useRealtimeEnabled(paperId) && Boolean(props.voice);
+  const voiceRef = useRef<(text: string, kind?: string) => Promise<string>>(async () => "ignored");
+  const textRef = useRef(text);
+  const submitBusy = useRef(0);
+  const mountLen = useRef(transcript.length);
+  const rt = useRealtimeCall({
+    paperId,
+    stage: 3,
+    saveNote: async (spoken, kind) => {
+      if (kind === "submit") submitBusy.current = Date.now() + 60_000;
+      try {
+        const result = await voiceRef.current(spoken, kind);
+        return { ok: true, result, screen: screenRef.current.text };
+      } finally {
+        if (kind === "submit") submitBusy.current = Date.now() + 1_500;
+      }
+    },
+    welcome: () => ({
+      welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
+      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      text: welcomeLine,
+    }),
+  });
+  const choice = current ? (notes ? "Keep my notes" : "Skip for now") : "Continue to sources";
+  const screenText = [
+    current ? `Section ${index + 1} of ${sections.length}: ${current.title}.` : null,
+    ...turnParas,
+    props.error ? `(App note shown to the student: ${props.error})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const rtKey = `${curKey ?? "done"}:${transcript.length}:${asideHere ? 1 : 0}`;
+  const screenRef = useRef({ key: rtKey, text: screenText, section: curKey });
+  useEffect(() => {
+    screenRef.current = { key: rtKey, text: screenText, section: curKey };
+    textRef.current = text;
+  });
+  useEffect(() => {
+    voiceRef.current = async (spoken, kind) => {
+      // Moved on = the open section changed (an answered aside changes the turn, not the section).
+      const before = screenRef.current.section;
+      const moved = async (ms = 1000) => {
+        for (let i = 0; i < ms / 50; i++) {
+          if (screenRef.current.section !== before) return "saved";
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return "needs_more";
+      };
+      if (!current) {
+        if (kind === "submit") return (await moved(2500)) === "saved" ? "saved" : "nothing_to_submit";
+        // The finish step: the same strict yes as typing; anything else is just talk.
+        if (!isQuickConfirm(spoken) || props.saving) return "aside";
+        props.onFinish();
+        return "moving_on";
+      }
+      if (kind === "submit") {
+        const box = textRef.current.trim();
+        if (!box) return "empty";
+        await submit(box, box === notes.trim());
+        return moved(3000);
+      }
+      const said = outlineChoiceSaid(spoken, Boolean(notes));
+      if (said) {
+        await submit(notes, true);
+        return moved();
+      }
+      if (isControlPhrase(spoken)) return "move_on_words";
+      // Requests to Pau Pau are answered by her, never saved as their outline.
+      if (isSaidToCoach(spoken)) return "said_to_coach";
+      const next = addSpokenLine(textRef.current, spoken, notes);
+      textRef.current = next;
+      setText(next);
+      return "in_box";
+    };
+  });
+  const rtSeen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!rt.on) {
+      rtSeen.current = null;
+      return;
+    }
+    if (rtSeen.current === null || rtSeen.current === rtKey) {
+      rtSeen.current = rtKey;
+      rt.setScreen(screenText, [choice]);
+      return;
+    }
+    rtSeen.current = rtKey;
+    rt.clearLive();
+    rt.setScreen(screenText, [choice]);
+    // Her own submit_answer already carries the next step.
+    if (Date.now() < submitBusy.current) return;
+    rt.sayTurn(screenText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
+  }, [rtKey, rt.on]);
+
+  const speak: SpeakItem[] = rtMode ? [] : [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
 
   const isLastPick = (i: number) => {
     const line = transcript[i]!;
@@ -164,7 +270,7 @@ export function OutlineChat(props: Props) {
   return (
     <div className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="3">
       <SpeakNew scope={`${paperId}:stage3`} items={speak} />
-      <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} />
+      <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
         {shown.map((line, i) => {
           const head = i === 0 || transcript[i - 1]!.k !== line.k ? sections.find((s) => s.key === line.k)?.title : null;
@@ -227,6 +333,7 @@ export function OutlineChat(props: Props) {
               <DsButton type="button" disabled={props.saving} onClick={props.onFinish}>
                 Continue to sources
               </DsButton>
+              {rtMode ? <RealtimeControls call={rt} /> : null}
             </div>
           )}
           {props.error ? (
@@ -249,7 +356,8 @@ export function OutlineChat(props: Props) {
           ) : null}
           <ReplayButton texts={[turnParas.join(" ")]} className="-ml-2" />
         </PauPauGroup>
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} />
+        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} />
+        {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${current?.key ?? "done"}:${props.error ?? ""}`} />
         <IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")} classify={props.classify} />
       </div>
@@ -266,6 +374,7 @@ export function OutlineChat(props: Props) {
             sending={props.saving || checking}
             placeholder="One line per point, in your words"
             onSend={() => void submit(text, false)}
+            realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
           />
           <SaveStatus status={status} />
         </ComposerDock>

@@ -1299,6 +1299,7 @@ export function CoachingLoop({
         <OutlineChat
           paperId={paperId}
           persist={persist}
+          voice={persist && paperStage === 3}
           sections={session.sections}
           done={session.outlineDone ?? []}
           transcript={session.outlineTranscript ?? []}
