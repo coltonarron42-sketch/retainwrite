@@ -60,6 +60,8 @@ export type PaperContext = {
     options: DecisionOption[];
     /** When the assignment needs a real person or leader: 2-3 real, named people that fit (QA 6:03 AM). */
     people?: DecisionOption[];
+    /** Where the options come from (QA 8:31 AM): material we have, general field knowledge (labeled), or the sheet's own question. */
+    basis?: "material" | "general" | "assignment";
   };
   decision?: { question: string; pick: string; answer: string; at: number; source?: "asked" | "stated" };
   /** Their real person or leader, picked with a reason (verbatim). */
@@ -275,7 +277,38 @@ export function pickFrom(answer: string, options: DecisionOption[]): string {
 /** The decision question with its options, as the app's question text. */
 export function decisionQuestion(opts: NonNullable<PaperContext["options"]>): string {
   const list = opts.options.map((o, i) => `${i + 1}) ${o.label}${o.why ? ` (${o.why})` : ""}`).join("; ");
-  return `${opts.question} Here are a few real options: ${list}. Which one would you pick, or something else, and why?`;
+  const q = opts.question.trim().replace(/[?.!\s]+$/, "") + "?";
+  if (opts.basis === "general")
+    return `${q} I haven't seen your edition yet, so these are general, well-established options from the field, not your chapter's own list: ${list}. Which one would you pick, or something else, and why?`;
+  return `${q} Here are a few real options: ${list}. Which one would you pick, or something else, and why?`;
+}
+
+/**
+ * General, well-established options (QA 8:31 AM): a lost student always gets real options.
+ * Labeled as general knowledge, never as what a chapter or handout says.
+ */
+const GENERAL_CATALOG: { when: RegExp; question: string; options: DecisionOption[]; people: DecisionOption[] }[] = [
+  {
+    when: /\bleadership (?:styles?|approach(?:es)?|theor(?:y|ies)|models?)\b|\bwhich (?:style of )?leadership\b|\bleadership style\b/i,
+    question: "Which leadership style do you want to argue works best here",
+    options: [
+      { label: "Transformational", why: "Lets you show a leader selling a shared vision so people want the change." },
+      { label: "Situational", why: "Lets you show a leader shifting style to fit how ready the team is." },
+      { label: "Servant", why: "Lets you argue that putting people's needs first carries a team through change." },
+      { label: "Behavioral: task vs. relationship (team management)", why: "Lets you weigh getting the work done against caring for the people." },
+    ],
+    people: [
+      { label: "Satya Nadella", why: "Reshaped Microsoft's culture toward learning after taking over in 2014." },
+      { label: "Alan Mulally", why: "Led Ford's turnaround with his \"One Ford\" plan and weekly reviews." },
+      { label: "Indra Nooyi", why: "Steered PepsiCo toward healthier products under \"Performance with Purpose.\"" },
+    ],
+  },
+];
+export function generalOptionsFor(text: string, needsPerson = false): NonNullable<PaperContext["options"]> | null {
+  const t = (text ?? "").replace(/\s+/g, " ");
+  const hit = GENERAL_CATALOG.find((c) => c.when.test(t));
+  if (!hit) return null;
+  return { question: hit.question, options: hit.options, ...(needsPerson ? { people: hit.people } : {}), basis: "general" };
 }
 
 /* --------------------------- the condensed block --------------------------- */
@@ -348,6 +381,10 @@ const HEDGE = /\b(idk|i don'?t know|dunno|i guess|maybe|whatever|not sure|probab
 export function isVaguePick(text: string): boolean {
   const t = text.replace(/\s+/g, " ").trim();
   if (!t) return true;
+  // A long paste is material, never a pick (QA 8:31 AM walk B).
+  if (t.split(" ").length >= 35 && !STANCE_CUE.test(t)) return false;
+  // A clear stance ("I want to argue transformational leadership, using Satya Nadella") is a pick; its reason is asked next.
+  if (!HEDGE.test(t) && STANCE_CUE.test(t) && t.split(" ").length >= 4) return false;
   if (REASON.test(t) && t.split(" ").length >= 8 && !/^(idk|dunno|i don'?t know)\b/i.test(t)) return false;
   return HEDGE.test(t) || t.split(" ").length < 4 || !REASON.test(t);
 }
@@ -418,7 +455,7 @@ export function isReadingQuestion(text: string): boolean {
 export function looksLikePastedReading(text: string, pasteRatio = 0): boolean {
   const t = text.replace(/\s+/g, " ").trim();
   const words = t.split(" ").filter(Boolean);
-  if (words.length < 50) return false;
+  if (words.length < 40) return false;
   const firstPerson = words.filter((w) => /^(i|i'm|i've|i'd|i'll|my|me|mine|im|ive)$/i.test(w.replace(/[^a-z']/gi, ""))).length;
   const ratio = firstPerson / words.length;
   if (pasteRatio >= 0.6 && ratio < 0.02) return true;
@@ -427,7 +464,7 @@ export function looksLikePastedReading(text: string, pasteRatio = 0): boolean {
   const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z“"])/).filter((x) => x.split(" ").length >= 5).length;
   const chatty = /^(i|i'm|im|i've|my|yeah|yes|no|ok|okay|so|um|idk|honestly|well)\b/i.test(t);
   if (chatty) return false;
-  if (words.length >= 60 && sentences >= 3 && ratio < 0.015) return true;
+  if (words.length >= 40 && sentences >= 3 && ratio < 0.02) return true;
   return words.length >= 120 && sentences >= 4 && ratio < 0.03;
 }
 
@@ -544,7 +581,7 @@ export function assignmentOnlyOptions(text: string): DecisionOption[] {
 export function mayNeedLookup(text: string): boolean {
   const t = (text ?? "").toLowerCase();
   if (!t.trim()) return false;
-  return /\b(read(?:ing|ings)?|chapter|ch\.|book|textbook|article|handout|author|summar\w*|key points|what (?:is|are|does|do|did|was)|who (?:is|was|are)|explain|tell me (?:about|what)|options?|video|example|theor(?:y|ies)|styles?|model|says?|said|means?|covers?|about)\b/.test(t) || /\?\s*$/.test(t);
+  return /\b(read(?:ing|ings)?|chapter|ch\.|book|textbook|article|handout|author|summar\w*|key points|what (?:is|are|does|do|did|was)|who (?:is|was|are)|explain|tell me (?:about|what)|options?|video|example|theor(?:y|ies)|styles?|model|says?|said|means?|covers?|about|research|sources?|stud(?:y|ies)|evidence|find|look(?:ing)? up|search|data|statistics?|facts?|history|leaders?|known for|(?:how|why|when|where) (?:did|does|do|is|was)|can you|could you|is there|are there|idk|no idea|not sure)\b/.test(t) || /\?\s*$/.test(t);
 }
 
 /**
@@ -557,7 +594,7 @@ export function assignmentDecisionAsk(text: string): string | null {
   const m = t.match(/\bwhich ([a-z][a-z -]{2,40}?) (is|are|was|works?|would be) ([^.?;,]{3,80})/i);
   if (m) {
     const what = m[1]!.trim().toLowerCase();
-    return `Which ${what} do you want to argue ${m[2]!.toLowerCase().startsWith("work") ? "works" : "is"} ${m[3]!.trim().replace(/[,\s]+$/, "")}, and why? Name it in your own words. I'm not listing the chapter's options until I've seen your edition.`;
+    return `Which ${what} do you want to argue ${m[2]!.toLowerCase().startsWith("work") ? "works" : "is"} ${m[3]!.trim().replace(/[,\s]+$/, "")}, and why? Name it in your own words.`;
   }
   if (/\b(whether|should|to what extent|agree)\b/i.test(t)) return "Where do you stand on the assignment's question so far, and why? Even a rough answer works.";
   return null;

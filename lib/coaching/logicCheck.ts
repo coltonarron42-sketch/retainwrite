@@ -1,3 +1,4 @@
+import { dropHedges } from "@/lib/copy/tidy";
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { firstSentenceOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
@@ -216,7 +217,7 @@ export function assignmentAlertQuote(input: {
   return quoteOnWordBoundary(sentence, 140);
 }
 
-const NEG_WORD = /\b(bad|worse|worst|wrong|fail(?:s|ed|ing)?|weak|ineffective|hurts?|harmful|poor(?:ly)?|mistake|doesn'?t work|didn'?t work|not work|backfire[sd]?|outdated|useless)\b/i;
+const NEG_WORD = /\b(bad|worse|worst|wrong|fail(?:s|ed|ing)?|weak|ineffective|hurts?|harmful|poor(?:ly)?|mistake|doesn'?t work|didn'?t work|not work|backfire[sd]?|outdated|useless|overrated|falls? short|less effective|isn'?t (?:really )?(?:the )?(?:best|right|effective|good)|not (?:really )?(?:the )?(?:best|right|effective)|doesn'?t (?:help|matter))\b/i;
 const NAME_STOP = new Set(["I", "The", "This", "That", "My", "So", "And", "But", "If", "When", "It", "In", "On", "For", "A", "An", "Also", "Then", "Because", "Yes", "No", "Overall", "Chapter"]);
 const PHRASE_STOP = new Set(["is", "are", "was", "were", "be", "the", "a", "an", "and", "or", "but", "so", "for", "to", "of", "in", "on", "it", "that", "this", "i", "my", "way", "much", "probably", "really", "very", "did", "do", "does", "with", "than", "more", "most", "because", "think", "would", "pick"]);
 
@@ -297,8 +298,8 @@ export function logicCheckFromNotes(input: {
   // A note that turns against their own thesis is named, with continue-anyway (QA 7:11 AM).
   const against = input.thesis ? contradictsThesis(notes, input.thesis) : null;
   if (against) {
-    const said = quoteOnWordBoundary(against.noteQuote, 90);
-    const thesisSaid = quoteOnWordBoundary(against.thesisQuote, 90);
+    const said = quoteOnWordBoundary(dropHedges(against.noteQuote), 90);
+    const thesisSaid = quoteOnWordBoundary(dropHedges(against.thesisQuote), 90);
     return {
       tier: "moderate",
       basis: "defies_logic",
