@@ -5,8 +5,8 @@ import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
-import { buildInstructions, buildStage1Instructions } from "./persona";
-import { loadFlowState, loadStage1State, stage1Block, stateBlock, type FlowState, type Stage1State } from "./flow-state";
+import { buildInstructions, buildStage1Instructions, buildStage3Instructions } from "./persona";
+import { loadFlowState, loadStage1State, loadStage3State, stage1Block, stage3Block, stateBlock, type FlowState, type Stage1State, type Stage3State } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
   MAX_TEXT_CHARS,
@@ -35,7 +35,7 @@ export type RelayContext = {
   /** Soft-gated stage: speak the scripted gate line once; no listening, tools or notes. */
   gate?: { stage: number; paperStage: number };
   /** The live stage this call coaches: 1 (Intake) or 2 (Stance, the default). */
-  stage?: 1 | 2;
+  stage?: 1 | 2 | 3;
 };
 
 const TOOLS = [
@@ -80,6 +80,23 @@ const STAGE1_TOOLS = [
     name: "submit_answer",
     description:
       "The student has finished answering the on-screen question (or asked to move on). The app saves exactly what they said, word for word, runs its checks, and shows the next step. Takes no text: you never supply their answer.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+];
+
+/** Stage 3 (Outline): same shape; "move on" sends the outline box through the app's own checks. */
+const STAGE3_TOOLS = [
+  {
+    type: "function",
+    name: "get_flow_state",
+    description: "Where the student is in Stage 3 right now: the open section, their Stance notes, what's outlined. Cheap; call it whenever you're unsure.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
+    name: "submit_answer",
+    description:
+      "The student has finished saying their outline for the open section (or asked to move on). The app checks it and saves exactly what they said, word for word, then opens the next section. Takes no text: you never supply their outline.",
     parameters: { type: "object", properties: {}, required: [] },
   },
 ];
@@ -153,6 +170,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let flow: FlowState | null = null;
   let flow1: Stage1State | null = null;
   const stage1 = ctx.stage === 1 && !ctx.gate;
+  const stage3 = ctx.stage === 3 && !ctx.gate;
+  let flow3: Stage3State | null = null;
+  // Stages where the app owns every step and her only write is submit_answer.
+  const appOwned = stage1 || stage3;
   let conversationId: string | null = resumeId;
   let speechStoppedAt = 0;
   const firstDeltaSeen = new Set<string>();
@@ -260,6 +281,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         flow1 = await loadStage1State(ctx.supabase, ctx.paperId, ctx.userId);
         return flow;
       }
+      if (stage3) {
+        flow3 = await loadStage3State(ctx.supabase, ctx.paperId, ctx.userId);
+        return flow;
+      }
       flow = await loadFlowState(ctx.supabase, ctx.paperId, ctx.userId);
     } catch {
       /* keep the last state */
@@ -282,7 +307,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       .filter(Boolean)
       .join("\n");
   const instructions = () =>
-    stage1
+    stage3
+      ? buildStage3Instructions(`${flow3 ? stage3Block(flow3) : "Stage 3: Outline. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked)
+      : stage1
       ? buildStage1Instructions(`${flow1 ? stage1Block(flow1) : "Stage 1: Intake. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked)
       : buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked);
 
@@ -307,7 +334,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         instructions: instructions(),
         reasoning: { effort: ctx.effort },
         turn_detection: ctx.gate || ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
-        tools: ctx.gate ? [] : stage1 ? STAGE1_TOOLS : TOOLS,
+        tools: ctx.gate ? [] : stage1 ? STAGE1_TOOLS : stage3 ? STAGE3_TOOLS : TOOLS,
         audio: {
           input: {
             format: { type: "audio/pcm", rate: REALTIME_RATE },
@@ -417,12 +444,16 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       args = JSON.parse(rawArgs || "{}") as Json;
     } catch {}
     const out = (o: unknown) => ({ call_id: callId, output: JSON.stringify(o) });
+    if (name === "get_flow_state" && stage3) {
+      await refreshFlow();
+      return out(flow3 ? { state: `${stage3Block(flow3)}${extraState() ? `\n${extraState()}` : ""}` } : { error: "unavailable" });
+    }
     if (name === "get_flow_state" && stage1) {
       await refreshFlow();
       return out(flow1 ? { state: `${stage1Block(flow1)}${extraState() ? `\n${extraState()}` : ""}` } : { error: "unavailable" });
     }
     if (name === "submit_answer") {
-      if (!stage1) return out({ submitted: false, reason: "Not available in this stage." });
+      if (!appOwned) return out({ submitted: false, reason: "Not available in this stage." });
       // Their last words go to the app first (word for word), then the app moves on.
       for (const [id, t] of [...noteTimers]) {
         clearTimeout(t);
@@ -662,11 +693,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               return;
             }
             await waitIdle(4_000);
+            // Her short reaction may still count as playing on xAI's side: cancel so this isn't ignored.
+            if (names.includes("submit_answer")) upSend({ type: "response.cancel" });
             upSend({
               type: "response.create",
               response: {
                 instructions: names.includes("submit_answer")
-                  ? `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. Don't repeat what you already said.`
+                  ? `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. You already reacted to their answer: don't react again or repeat anything you said.`
                   : `${instructions()}\n# This response only\nContinue from what you just said in one or two short sentences. Don't repeat yourself or re-ask a question.`,
               },
             });
@@ -763,7 +796,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           upSend({
             type: "response.create",
             response: {
-              instructions: `${instructions()}\n# This response only\nThe student just turned on voice. In one or two short sentences, say hi and ask ${stage1 ? "what the screen asks now" : "the current question for this section"}. Don't recap earlier turns.`,
+              instructions: `${instructions()}\n# This response only\nThe student just turned on voice. In one or two short sentences, say hi and ask ${appOwned ? "what the screen asks now" : "the current question for this section"}. Don't recap earlier turns.`,
             },
           });
         }
@@ -776,7 +809,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (!text) return;
         // Stage 1: the app's answer (read-back reply, next question) waits for her
         // short ack to finish instead of being dropped.
-        if (stage1 && (responding || speechActive)) {
+        if (appOwned && (responding || speechActive)) {
           pendingTurn = text;
           return;
         }
