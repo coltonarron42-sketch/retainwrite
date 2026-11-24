@@ -24,7 +24,7 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     expect(a).toContain(t.replace(/[“”"]/g, "'"));
     expect(a).toMatch(/expand on it later/);
     expect(intake).toContain('if (stated && has("decision_why")) {');
-    expect(intake).toContain("Next, the assignment needs your actual case.");
+    expect(intake).toContain("informedNext(");
   });
   it("LOST: reassure, teach the core idea, then the professor's sources", () => {
     const l = lostLead({ concept: "Leaders move people or organizations toward a larger goal, and they do it with different styles.", ask: "x" });
