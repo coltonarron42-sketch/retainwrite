@@ -97,3 +97,16 @@ describe("5. quips", () => {
     expect(q.quipFor("paper-1", 2, "pick_lead")).toBeNull();
   });
 });
+
+describe("7. sends are idempotent and never hang", () => {
+  it("one send at a time, Send off in flight, stalled calls time out", () => {
+    const confirm = readFileSync("components/stages/stage1/pau-pau-confirm.tsx", "utf8");
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
+    expect(confirm).toContain("if (sendLock.current) return;");
+    expect(confirm).toContain("}, 15_000);");
+    expect(intake).toContain("if (submitting || sendLock.current) return;");
+    expect(intake).toContain("}, 30_000);");
+    expect(composer).toContain("disabled={blocked || queued || sending}");
+  });
+});

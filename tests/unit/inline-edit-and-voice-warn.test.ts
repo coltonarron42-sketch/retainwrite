@@ -50,6 +50,6 @@ describe("intake Continue feedback", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).toContain("sending={submitting}");
     expect(intake).toContain('{submitting ? <span role="status">Saving… </span> : null}');
-    expect(intake).toContain("if (submitting) return;");
+    expect(intake).toContain("if (submitting || sendLock.current) return;");
   });
 });
