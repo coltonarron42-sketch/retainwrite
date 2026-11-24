@@ -331,7 +331,7 @@ export async function investigateWork(work: string, ask: string | null): Promise
   const title = shortWork(work);
   // QA 9:37 AM: a well-known work always gets its labeled general-knowledge summary
   // (deterministic, book level for a chapter); the web lookup only adds where to get it.
-  const cat = wellKnownWork(work);
+  const cat = wellKnownWork(work, ask ?? "");
   const catKnowledge: MaterialSummary | null = cat
     ? { kind: "knowledge", title: chapter ? bookLevelTitle(title) : title, points: cat.points, sources: [], at: Date.now() }
     : null;

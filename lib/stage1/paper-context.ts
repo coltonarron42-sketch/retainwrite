@@ -151,7 +151,7 @@ export function summaryParas(s: MaterialSummary): string[] {
     s.kind === "reading"
       ? `Here are the key points from ${s.title || "your reading"}, in plain words:`
       : s.kind === "knowledge"
-        ? `I don't have your copy of ${s.title || "the reading"}, so this is general background, not from your copy. Check it against the actual text:`
+        ? `I don't have your copy of ${s.title || "the reading"}, so this is general background, not from your copy. Editions can differ, so if you upload the pages (photos or a PDF) I'll match your exact text. For now, the key ideas:`
         : s.kind === "found"
         ? `I found ${s.title || "your reading"} online, so here are its key points in plain words (from the page linked below):`
         : s.kind === "assignment"

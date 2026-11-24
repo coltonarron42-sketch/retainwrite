@@ -145,11 +145,11 @@ async function quickKnownMade(supabase: SupabaseClient, paperId: string, ctx: Pa
   if (materialPolicy() !== "smart" || (ctx.readings ?? []).length) return null;
   const a = await basics(supabase, paperId);
   const works = a.namedWorks.slice(0, 4);
-  if (!works.length || !works.every((w) => wellKnownWork(w))) return null;
+  if (!works.length || !works.every((w) => wellKnownWork(w, a.text))) return null;
   const inv = works.map((w) => {
     const chapter = chapterOf(w);
     const title = shortWork(w);
-    return { title, summary: { kind: "knowledge" as const, title: chapter ? bookLevelTitle(title) : title, points: wellKnownWork(w)!.points, sources: [], at: Date.now() } };
+    return { title, summary: { kind: "knowledge" as const, title: chapter ? bookLevelTitle(title) : title, points: wellKnownWork(w, a.text)!.points, sources: [], at: Date.now() } };
   });
   return {
     summary: inv[0]!.summary,
