@@ -19,6 +19,8 @@ describe("Stage 1 voice helpers", () => {
     expect(liveStage("1", 1)).toBe(1);
     expect(liveStage("1", 2)).toBe(2);
     expect(liveStage(null, 1)).toBe(2);
+    expect(liveStage("3", 3)).toBe(3);
+    expect(liveStage("3", 2)).toBe(2);
   });
   it("keeps spoken words verbatim in the box", () => {
     expect(appendSpoken("", "  I care about  sleep ")).toBe("I care about sleep");
@@ -123,6 +125,33 @@ describe("realtime relay: Stage 1", () => {
     // A cancel goes first so xAI doesn't ignore the turn while her last audio "plays".
     const iLast = upstream.lastIndexOf(last);
     expect(upstream.slice(0, iLast).at(-1)?.type).toBe("response.cancel");
+    c.close();
+  });
+});
+
+describe("realtime relay: Stage 3", () => {
+  const upstream: Record<string, unknown>[] = [];
+  const xai = new WebSocketServer({ port: 0 });
+  xai.on("connection", (ws) => {
+    ws.on("message", (d, bin) => !bin && upstream.push(JSON.parse(d.toString())));
+    ws.send(JSON.stringify({ type: "session.created" }));
+  });
+  const front = new WebSocketServer({ port: 0 });
+  front.on("connection", (client) => {
+    void runRelay({ client, supabase: fakeDb, userId: "u", paperId: "00000000-0000-4000-8000-000000000000", apiKey: "k", resumeToken: null, effort: "none", vad: "server", stage: 3 });
+  });
+  afterAll(() => {
+    xai.close();
+    front.close();
+  });
+  it("runs the Outline persona with get_flow_state + submit_answer only", async () => {
+    process.env.RW_REALTIME_TEST_URL = `ws://127.0.0.1:${(xai.address() as { port: number }).port}/?model=x`;
+    const c = new WebSocket(`ws://127.0.0.1:${(front.address() as { port: number }).port}`);
+    await new Promise((r) => c.on("open", r));
+    await new Promise((r) => setTimeout(r, 200));
+    const update = upstream.find((e) => e.type === "session.update") as { session: { instructions: string; tools: { name: string }[] } };
+    expect(update.session.tools.map((t) => t.name).sort()).toEqual(["get_flow_state", "submit_answer"]);
+    expect(update.session.instructions).toContain("Stage 3, Outline");
     c.close();
   });
 });

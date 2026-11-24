@@ -55,6 +55,8 @@ type Props = {
   /** Grok Voice controls in the composer, and this call's live turns. */
   realtimeSlot?: ReactNode;
   live?: ReactNode;
+  /** On a Grok Voice call she speaks through the call only (no old text-to-speech). */
+  oldVoiceOff?: boolean;
 };
 
 export { PauPauAvatar };
@@ -87,6 +89,7 @@ export function PauPauConfirm({
   sendRef,
   realtimeSlot,
   live,
+  oldVoiceOff = false,
 }: Props) {
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
@@ -302,7 +305,7 @@ export function PauPauConfirm({
   return (
     <>
       <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
-      <SpeakNew scope={paperId} items={speak} />
+      <SpeakNew scope={paperId} items={oldVoiceOff ? [] : speak} />
       {turns.map((t, i) =>
         t.role === "student" ? (
           <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
