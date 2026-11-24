@@ -431,6 +431,9 @@ export function shortWork(w: string): string {
   const ch = t.match(/\b(?:chapter|ch\.?)\s*(\d+)/i)?.[1];
   if (by && title) return `${by}'s “${title}”`;
   if (by && ch) return `${by} Ch. ${ch}`;
+  // "Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice)" → "Northouse's Leadership: Theory and Practice, Ch. 4"
+  const ab = t.match(/\b([A-Z][\w-]+),\s+([A-Z][^,;()]{3,50}?)(?=[,;()]|$)/);
+  if (ab && ch) return `${ab[1]}'s ${ab[2]!.trim()}, Ch. ${ch}`;
   if (title) return `“${title}”`;
   return t.length <= 50 ? t : `${t.slice(0, 47).replace(/\s+\S*$/, "")}…`;
 }
@@ -440,7 +443,7 @@ export async function generateOptions(a: AssignmentBasics, ask: string | null, p
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou help the student make a real first decision for this assignment.`,
-    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points they now know: ${points.join(" | ")}\n` : ""}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which leader to focus on, which side, which style, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment: "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what that choice would let them do). Never a thesis. Use only the key points given and general concepts the assignment itself names; never claim what an assigned reading says unless it's in the key points.`,
+    user: `${basicsText(a)}\n${ask ? `In plain words: ${ask}\n` : ""}${points.length ? `Key points they now know: ${points.join(" | ")}\n` : ""}\nReturn JSON: "question" = one short question naming the decision this assignment needs first (e.g. which leader to focus on, which side, which style, which angle), addressed to "you", no answer in it; "options" = 2-3 real, distinct options suited to THIS assignment: "label" (under 8 words, a choice, not a sentence for their paper) and "why" (under 15 words: what THAT choice in particular would let them do; each why different and specific to its option, never the same line reworded). Never a thesis. Use only the key points given and general concepts the assignment itself names; never claim what an assigned reading says unless it's in the key points.`,
     jsonSchema: {
       name: "options",
       schema: {

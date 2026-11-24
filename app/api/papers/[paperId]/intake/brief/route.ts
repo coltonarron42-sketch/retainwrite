@@ -161,7 +161,7 @@ function missingAskFor(ctx: PaperContext): string | null {
 
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w) => ctx.missing?.includes(w.title)), summaries: currentSummaries(ctx) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {

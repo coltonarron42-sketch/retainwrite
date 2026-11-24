@@ -96,7 +96,17 @@ export function currentSummaries(ctx: PaperContext): MaterialSummary[] {
   const reading = [...list].reverse().find((s) => s.kind === "reading");
   if (reading) return [reading];
   const smart = list.filter((s) => s.kind === "found" || s.kind === "knowledge");
-  if (smart.length) return smart.slice(-3);
+  if (smart.length) {
+    // One per work (the newest): a prefetch and a lost-student run can both save the same one.
+    const seen = new Set<string>();
+    const latest = [...smart].reverse().filter((s) => {
+      const k = `${s.kind}:${s.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return latest.slice(0, 3).reverse();
+  }
   const best = bestSummary(ctx);
   return best ? [best] : [];
 }
@@ -200,7 +210,9 @@ export function cleanOptions(raw: unknown): DecisionOption[] {
     .map((o) => (o && typeof o === "object" ? (o as { label?: unknown; why?: unknown }) : {}))
     .map((o) => ({ label: clip(String(o.label ?? ""), 80), why: clip(String(o.why ?? ""), 160) }))
     .filter((o) => o.label.length >= 2 && !PAPER_TEXT.test(`${o.label} ${o.why}`))
-    .slice(0, 3);
+    .slice(0, 3)
+    // A "why" repeated across options says nothing (QA run 12:21 AM): drop the copies.
+    .map((o, _i, all) => (all.filter((x) => x.why.toLowerCase() === o.why.toLowerCase()).length > 1 ? { ...o, why: "" } : o));
 }
 
 /** The student's pick: which option their answer names (or "their own"). */

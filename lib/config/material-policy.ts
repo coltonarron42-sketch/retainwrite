@@ -65,5 +65,5 @@ export function smartReadingAsk(items: { title: string; offers: Offer[]; known: 
   const honest = unknown.length
     ? `Real talk: I don't know ${unknown.length === 1 ? unknown[0] : "those"} well enough to tell you what ${unknown.length === 1 ? "it says" : "they say"}, and I won't guess. `
     : "";
-  return `${honest}I don't have your copy of ${what} yet. ${buy}Or just give me what you have: a PDF, a photo of each page, a paste, or a link. I need the actual source material, and I'm not going to the dark web!`;
+  return `${honest}I don't have your copy of ${what} yet. ${buy}${buy ? "Or just give me" : "Can you give me"} what you have: a PDF, a photo of each page, a paste, or a link. I need the actual source material, and I'm not going to the dark web!`;
 }
