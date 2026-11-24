@@ -826,7 +826,7 @@ export function AssignmentIntake({
           kind: "coaching",
           text: `Got it, you're going with ${clipWords(
             (brief?.decision?.answer ?? "")
-              .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked))\s*:?\s*/i, "")
+              .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked)|i (?:want|plan|intend) to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?m going to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?d (?:argue(?: for)?|go with|pick|choose|use))\s*:?\s*/i, "")
               .replace(/[.!?\s]+$/, ""),
             160,
           )}. ${decisionHasReason(brief?.decision?.answer ?? "") ? "Say a bit more about why: what would it let you show in your paper?" : "What's your main reason? One or two sentences is plenty."}`,
@@ -861,7 +861,7 @@ export function AssignmentIntake({
         kind: "coaching",
         text: "In your own words, what do you think this assignment wants you to figure out?",
       });
-    if (!getToKnowOff || has("personal_1")) plan.push({
+    if ((!getToKnowOff && !prepared) || has("personal_1")) plan.push({
       id: "personal_1",
       kind: "personal",
       // QA 11/23: never paste the whole assignment clause into the template.
@@ -874,7 +874,7 @@ export function AssignmentIntake({
             : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
-    if (needFallback && (!getToKnowOff || has("fallback_voice"))) {
+    if (needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
       plan.push({
         id: "fallback_voice",
         kind: "fallback_voice",
@@ -1523,7 +1523,8 @@ export function AssignmentIntake({
     setPaper(nextPaper);
     setChecklistConfirmed(true);
     // The confirmed read-back joins the paper context; the summary and options start loading now.
-    void briefCall({ action: "confirm_readback" });
+    // Options load right away too (QA 7:02 AM walk: with the catch-up already shown, nothing else asked for them).
+    void briefCall({ action: "confirm_readback" }).then((v) => (v && !v.options ? briefCall({ action: "options" }) : null));
     setScreen("coaching");
     setQIndex(0);
     setDraftAnswer("");
@@ -1539,7 +1540,12 @@ export function AssignmentIntake({
     const rest = coachingPlan.filter((question) => question.kind !== "interest" && !getToKnow.has(question.id));
     const answered = new Set(answers.map((answer) => answer.questionId));
     const next = rest.findIndex((question) => !answered.has(question.id));
-    setQIndex(next === -1 ? 0 : next);
+    // Everything left was get-to-know-you (QA 7:02 AM walk): straight on, never back to question 1.
+    if (next === -1) {
+      finishCoaching(answersAfterSkippingInterest(answers));
+      return;
+    }
+    setQIndex(next);
   }
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {

@@ -159,9 +159,18 @@ function missingAskFor(ctx: PaperContext): string | null {
   return ask;
 }
 
+/** QA 7:02 AM: a numbered chapter she only knows at book level: ask for the edition or the chapter's first page. */
+function chapterAsk(ctx: PaperContext): string | null {
+  const list = currentSummaries(ctx);
+  const book = list.find((x) => x.kind === "knowledge" && /\(the book overall\)$/.test(x.title));
+  if (!book) return null;
+  const title = book.title.replace(/\s*\(the book overall\)$/, "");
+  return `That's ${title} in general, from my own knowledge, not your edition's chapter. Chapter numbers change between editions, so tell me which edition you have, or snap the chapter's first page, and I'll match it.`;
+}
+
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx) ?? chapterAsk(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -280,6 +289,11 @@ export async function POST(request: Request, ctx: Ctx) {
       return NextResponse.json({ ok: true, groups: groups.filter((g) => g.points.length), points: groups.flatMap((g) => g.points) });
     }
     case "options": {
+      // Options come from material we have (QA 7:02 AM): wait for the lookup started at the read-back first.
+      while (!cur.options && !bestSummary(cur) && !cur.missing && cur.prefetchAt && Date.now() - cur.prefetchAt < 40_000 && Date.now() - started < 30_000) {
+        await new Promise((r) => setTimeout(r, 800));
+        cur = await readPaperContext(supabase, paperId);
+      }
       if (!cur.options) {
         const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, verifiedSummaries(cur).flatMap((x) => x.points));
         if (o) await save((p) => ({ ...p, options: p.options ?? o }));

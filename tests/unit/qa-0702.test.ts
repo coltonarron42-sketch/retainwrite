@@ -110,6 +110,8 @@ describe("3. chapter accuracy", () => {
     const ask = smartReadingAsk([{ title: "Northouse's Leadership: Theory and Practice, Ch. 4", known: true, offers: [] }]);
     expect(ask).toMatch(/which edition/i);
     expect(src("app/api/papers/[paperId]/intake/brief/route.ts")).toContain("Chapter numbers change between editions");
+    // Book-level knowledge only (no missing reading): the edition ask still shows.
+    expect(src("app/api/papers/[paperId]/intake/brief/route.ts")).toContain("missingAskFor(ctx) ?? chapterAsk(ctx)");
   });
   it("the coach, the voice persona and the confirm reply carry the chapter rule", () => {
     expect(COACH_ANSWER_SYSTEM).toMatch(/never say what a numbered chapter/i);
@@ -176,6 +178,9 @@ describe("6. duplicates", () => {
     const list = currentSummaries(ctx);
     expect(list).toHaveLength(1);
     expect(list[0]!.kind).toBe("found");
+  });
+  it("a get-to-know skip with nothing else left moves on, never back to question 1", () => {
+    expect(src("components/stages/stage1/assignment-intake.tsx")).toContain("finishCoaching(answersAfterSkippingInterest(answers));");
   });
   it("material shown before the confirm is never re-asked", () => {
     expect(src("components/stages/stage1/assignment-intake.tsx")).toContain('if (!brief?.materialShown || has("material_check"))');
