@@ -10,7 +10,7 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     expect(q).toMatch(/^So, in plain words: Argue which leadership style/);
     expect(q).toMatch(/Where are you with it\?/);
     expect(q).toMatch(/read the course material/);
-    expect(intake).toContain("diagnoseQuestion(brief?.readback?.ask ?? requirements.promptQuestion.value)");
+    expect(intake).toContain("diagnoseQuestion(brief?.readback?.ask || requirements.promptQuestion.value || requirements.topic.value)");
   });
   it("INFORMED: ideas with a leader are locked in word for word, any paper", () => {
     const t = "I want Sam Walton, I think he shows servant and transformational styles, I just want to hit every requirement";

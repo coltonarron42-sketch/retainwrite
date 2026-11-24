@@ -882,7 +882,7 @@ export function AssignmentIntake({
           id: "material_check",
           kind: "background",
           // Colton 12:08: diagnose first. What's really asked, in plain words, then where they are.
-          text: answers.find((a) => a.questionId === "material_check")?.questionText || diagnoseQuestion(brief?.readback?.ask ?? requirements.promptQuestion.value),
+          text: answers.find((a) => a.questionId === "material_check")?.questionText || diagnoseQuestion(brief?.readback?.ask || requirements.promptQuestion.value || requirements.topic.value),
         });
       // Their stated stance is the decision: never re-asked, only its reason when it's missing.
       if (!stated || has("decision_pick")) {

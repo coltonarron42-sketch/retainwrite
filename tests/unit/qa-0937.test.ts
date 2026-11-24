@@ -19,7 +19,7 @@ describe("TOP: well-known works get a deterministic, labeled summary", () => {
   });
   it("investigate uses the catalog and a short cap for known works", () => {
     const src = readFileSync("lib/server/paper-context/brief.ts", "utf8");
-    expect(src).toContain("cat ? 7_000 : 28_000");
+    expect(src).toContain("cat ? 7_000 : 10_000");
     expect(src).toContain("knowledge: catKnowledge");
   });
   it("the pre-confirm catch-up renders the material panel with its buttons", () => {

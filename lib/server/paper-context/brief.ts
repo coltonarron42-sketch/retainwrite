@@ -341,7 +341,8 @@ export async function investigateWork(work: string, ask: string | null): Promise
   const started = Date.now();
   const controller = new AbortController();
   // Known works don't wait on a slow web search (QA 9:37 AM: replies took 15-17 s).
-  const timer = setTimeout(() => controller.abort(), cat ? 7_000 : 28_000);
+  // Colton 1:54 R2: when we can't get it, say so and move forward; the lookup never holds the turn long.
+  const timer = setTimeout(() => controller.abort(), cat ? 7_000 : 10_000);
   type Raw = { known?: boolean; author?: string; workTitle?: string; knowledge?: unknown; textPages?: { title: string; url: string }[]; offers?: { seller: string; url: string; price: string }[] };
   let o: Raw = {};
   try {
