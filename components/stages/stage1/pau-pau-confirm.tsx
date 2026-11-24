@@ -295,8 +295,11 @@ export function PauPauConfirm({
       }
       if (result.intent === "question") {
         // QA 6:03 AM: answered in place, never deflected.
-        const extra = result.route ? await answerInPlace(result.route) : [];
-        push({ role: "pau", paras: [result.reply, ...extra, followUp(after)].filter(Boolean), skip });
+        const extra = result.route ? await answerInPlace(result.route, text) : [];
+        // No "here's the gist" lead-in when all she has is an honest ask (QA 6:03 AM handout walk).
+        const noGist = result.route === "material" && !extra.some((x) => /^Here's what I know|^I found|key points|general overview|general background|^•/.test(x));
+        const lead = noGist && /\b(gist|here'?s|here it is|key points)\b/i.test(result.reply) ? "" : result.reply;
+        push({ role: "pau", paras: [lead, ...extra, followUp(after)].filter(Boolean), skip });
         return;
       }
       // Ambiguous: a real clarifying question, never move on.
@@ -309,7 +312,7 @@ export function PauPauConfirm({
   }
 
   /** The catch-up, the options, or the assignment in plain words, right here before the confirm. */
-  async function answerInPlace(route: "material" | "options" | "explain"): Promise<string[]> {
+  async function answerInPlace(route: "material" | "options" | "explain", said = ""): Promise<string[]> {
     if (route === "explain") {
       const p = plain ?? null;
       if (!p?.ask) return [];
@@ -331,10 +334,14 @@ export function PauPauConfirm({
         return [decisionQuestion(v.options), "You'll lock one in right after we confirm the read-back."];
       }
       const v = await call("summary");
-      const list = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
+      const list0 = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
+      // The reading they asked about first ("what is Goleman saying?"), then the rest.
+      const asked = said.toLowerCase();
+      const hits = (x: MaterialSummary) => x.title.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && asked.includes(w)).length;
+      const list = [...list0].sort((a, b) => hits(b) - hits(a));
       const paras = list.flatMap((x) => summaryParas(x));
       const offers = (v?.whereToGet ?? []).flatMap((w) => w.offers.map((o) => `${w.title} at ${o.seller}${o.price ? ` · ${o.price} (price from search; check the page)` : ""}: ${o.url}`));
-      return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 14);
+      return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 28);
     } finally {
       setReplyStatus("Thinking…");
     }

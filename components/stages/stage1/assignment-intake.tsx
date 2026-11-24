@@ -781,7 +781,12 @@ export function AssignmentIntake({
         plan.push({
           id: "decision_why",
           kind: "coaching",
-          text: `Got it, you're going with “${clipWords((brief?.decision?.answer ?? "").replace(/[.!?\s]+$/, ""), 160)}.” What's your main reason? One sentence is plenty.`,
+          text: `Got it, you're going with ${clipWords(
+            (brief?.decision?.answer ?? "")
+              .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked))\s*:?\s*/i, "")
+              .replace(/[.!?\s]+$/, ""),
+            160,
+          )}. What's your main reason? One sentence is plenty.`,
         });
       }
       // The assignment needs one real person: a leader choice grounded in the readings.
