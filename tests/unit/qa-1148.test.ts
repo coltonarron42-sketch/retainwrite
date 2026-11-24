@@ -78,7 +78,7 @@ describe("#2 relevance is checked first, on every section", () => {
   it("the client asks the model at lock-in and uses it at 'Yes, check it'", () => {
     const loop = read("components/stages/loop/coaching-loop.tsx");
     expect(loop).toContain("/stance/relevance");
-    expect(loop).toMatch(/async function onLogicOpener[\s\S]*const verdict = await pending;[\s\S]*checkNotes\(section, notes, verdict\)/);
+    expect(loop).toMatch(/async function onLogicOpener[\s\S]*verdict = await Promise.race\(\[pending,[\s\S]*checkNotes\(section, notes, verdict\)/);
   });
 });
 

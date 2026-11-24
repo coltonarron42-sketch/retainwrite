@@ -794,8 +794,12 @@ export function CoachingLoop({
     // "just tell me some options": the Stage 1 options again, as chips (QA 6:03 AM).
     const again = isOptionsRequest(said) ? optionsAgain(pctx?.options?.options, pctx?.options?.people) : null;
     setAnswering(true);
-    const answered = again ? again.paras : mode ? await coachAnswer(mode, said, section.title, ask) : null;
-    setAnswering(false);
+    let answered: string[] | null = null;
+    try {
+      answered = again ? again.paras : mode ? await coachAnswer(mode, said, section.title, ask) : null;
+    } finally {
+      setAnswering(false);
+    }
     setAsideChips(again ? again.chips : []);
     const paras = answered ?? intentReply(intent === "content" ? "request_help" : intent, { turn, section, text: said });
     // Never the same answer twice in a row for the same words (QA 2:08 #4).
@@ -1064,8 +1068,13 @@ export function CoachingLoop({
       const notes = keptIdeas(section.ideas).join(" ");
       const pending = relevance.current?.key === `${section.key}:${notes}` ? relevance.current.verdict : fetchRelevance(notes, section.title);
       setCheckingLogic(true);
-      const verdict = await pending;
-      setCheckingLogic(false);
+      // Never left busy: the check gives up after 9 s and uses the rule-based verdict (suite r16/r17).
+      let verdict: boolean | null = null;
+      try {
+        verdict = await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 9000))]);
+      } finally {
+        setCheckingLogic(false);
+      }
       if (verdict !== null) {
         const logic = checkNotes(section, notes, verdict);
         const passed = logic.result.tier === "pass";
@@ -1214,8 +1223,12 @@ export function CoachingLoop({
     const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
     const mode = answerModeFor(intent, said);
     setAnswering(true);
-    const answered = mode ? await coachAnswer(mode, said, item.title, more.find((l) => l.who === "pau")?.text ?? "") : null;
-    setAnswering(false);
+    let answered: string[] | null = null;
+    try {
+      answered = mode ? await coachAnswer(mode, said, item.title, more.find((l) => l.who === "pau")?.text ?? "") : null;
+    } finally {
+      setAnswering(false);
+    }
     const paras = answered ?? intentReply(intent, { turn: "outline", section: item, text: said });
     const outlineTranscript = appendLines(session.outlineTranscript, [...more, ...paras.map((text): LoopLine => ({ k: key, who: "pau", text }))]);
     commit({
