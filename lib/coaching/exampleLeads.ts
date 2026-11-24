@@ -285,7 +285,12 @@ function sectionLeadBatch(ctx: {
         rubricMatch: 0.9,
         rubricRef: ref,
         lessonLink: `For your ${part}`,
-        whyFits: `Try searching ${searchWhere(term).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
+        // QA 10:21: an introduction sets up background, so it never sends them to a journal
+        // database; it starts from their own readings and one checkable fact.
+        whyFits:
+          role === "intro"
+            ? `Start with your own readings: what do they say that sets up ${about}? Then find one fact about “${term}” in a source you can open, like a news report or the organization's own announcement, and check the author and date yourself. This is a question to pursue, not a sentence to paste.`
+            : `Try searching ${searchWhere(term).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
       },
       {
         name: second,
