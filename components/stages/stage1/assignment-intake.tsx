@@ -1,6 +1,7 @@
 "use client";
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
+import { diagnoseQuestion, informedAffirm, informedSaying, lostLead } from "@/lib/stage1/north-turns";
 import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -834,6 +835,8 @@ export function AssignmentIntake({
   const lastProbe = useRef<Record<string, string>>({});
   const recPending = useRef<Record<string, DecisionOption | null>>({});
   const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
+  /** Colton 12:08 INFORMED: the affirmation leads the next question's turn (until they answer it). */
+  const [informedLead, setInformedLead] = useState<string[] | null>(null);
 
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
@@ -856,7 +859,12 @@ export function AssignmentIntake({
     if (northstar) {
       // Meet them where they are (Colton t161u): the material first, then a real decision.
       // Already shown before the confirm (QA 7:02 AM): never re-ask "have you read it yet?".
-      if (!brief?.materialShown || has("material_check")) plan.push({ id: "material_check", kind: "background", text: MATERIAL_CHECK_TEXT });
+      if (!brief?.materialShown || has("material_check")) plan.push({
+          id: "material_check",
+          kind: "background",
+          // Colton 12:08: diagnose first. What's really asked, in plain words, then where they are.
+          text: answers.find((a) => a.questionId === "material_check")?.questionText || diagnoseQuestion(brief?.readback?.ask ?? requirements.promptQuestion.value),
+        });
       // Their stated stance is the decision: never re-asked, only its reason when it's missing.
       if (!stated || has("decision_pick")) {
         plan.push({
@@ -884,7 +892,9 @@ export function AssignmentIntake({
             : "What's your main reason for that pick? One or two sentences is plenty.",
         });
       }
-      if (stated && (has("decision_why") || !decisionHasReason(brief?.decision?.answer ?? "") || wordCount(brief?.decision?.answer ?? "") < 15)) {
+      // Colton 12:08 (INFORMED): what they gave is locked in; no re-ask for its reason here. The
+      // early take (the next requirement) carries the why; the gate recovery still asks if it never comes.
+      if (stated && has("decision_why")) {
         // Once answered, the question stays as it was asked (the decision now carries the reason too).
         const askedWhy = answers.find((a) => a.questionId === "decision_why")?.questionText;
         if (askedWhy) plan.push({ id: "decision_why", kind: "coaching", text: askedWhy });
@@ -1849,6 +1859,7 @@ export function AssignmentIntake({
       return;
     }
     setShortEcho(null);
+    if (q.id !== "material_check") setInformedLead(null);
     const typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
     if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
@@ -1947,6 +1958,8 @@ export function AssignmentIntake({
             unread: unreadNow,
             catchUpSkipped: unreadNow && !brief?.missing?.length,
             kind: q.id === "leader_pick" ? "leader" : "style",
+            people: brief?.options?.people ?? [],
+            concept: brief?.options?.concept ?? null,
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
       recPending.current[q.id] = esc.recommend;
@@ -2074,7 +2087,12 @@ export function AssignmentIntake({
       // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
       const lost = materialLost(text);
       // Their stance is saved right away (QA 7:02 AM walk): no decision question flashes while options load.
-      const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) : null;
+      // Colton 12:08 INFORMED: a stance, or ideas with a leader/example, is locked in (the fallback keeps their words word for word).
+      const informed = !lost && !bNow?.decision ? informedSaying(text, bNow?.options?.options ?? []) : null;
+      const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) ?? (informed ? { stance: informed.stance, leader: informed.leader } : null) : null;
+      if (early) {
+        setInformedLead(informedAffirm(early.stance));
+      }
       const savedEarly = early
         ? briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: early.stance, source: "stated" }).then(() =>
             early.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: early.stance, slot: "leader", named: early.leader }) : null,
@@ -3255,10 +3273,15 @@ export function AssignmentIntake({
   if ((screen === "coaching" || screen === "story" || screen === "gate") && requirements) {
     const stanceMode = screen === "coaching" && qIndex < 0;
     const introBubbles = brief?.northstar ? [STAGE_PURPOSE[1], ...INTRO_BUBBLES] : INTRO_BUBBLES;
-    const stanceText = earlyStanceQuestion({
+    const stanceBase = earlyStanceQuestion({
       topic: requirements.topic.value,
       promptQuestion: requirements.promptQuestion.value,
     });
+    // Colton 12:08 (INFORMED): straight to the next thing the assignment needs, never a re-ask.
+    const stanceText =
+      brief?.northstar && brief.decision?.source === "stated"
+        ? `You've given me ${brief.leader?.pick && brief.leader.pick !== "their own" ? `${brief.leader.pick} and ` : brief.leader?.question === "stated" ? "your example and " : ""}your direction, so that part is set. Next, the assignment needs your actual case. ${stanceBase}`
+        : stanceBase;
     const q =
       screen !== "coaching"
         ? null
@@ -3615,7 +3638,7 @@ export function AssignmentIntake({
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
                 {item.id === "material_check" && brief && (brief.lostAtStart || materialLost(said)) ? (
-                  <MaterialBubbles brief={brief} paperId={paperId} lead="No problem. Here's what I've got to get you started." />
+                  <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask })} />
                 ) : null}
                 {item.id === "material_check" && summaryBusy && !asideBusy ? (
                   <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
@@ -3682,6 +3705,7 @@ export function AssignmentIntake({
                     : "Sure, change anything and send it again."
                   : null,
                 ...leadsBubbles,
+                ...(informedLead && !editing && q.id !== "material_check" ? informedLead : []),
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
               ].filter((b) => Boolean(b))}
