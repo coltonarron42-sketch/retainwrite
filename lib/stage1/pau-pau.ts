@@ -152,23 +152,37 @@ function rubricPhrase(req: AssignmentRequirements): string | null {
  * Pediatrics' “School Start Times for Adolescents” (2014)`.
  */
 export function namedSource(req: AssignmentRequirements): string | null {
+  const all = namedSources(req);
+  return all.length ? joinList(all.slice(0, 3)) : null;
+}
+
+/** Every named required source, each shortened (QA 11/23: the second one, Goleman's article, was dropped). */
+export function namedSources(req: AssignmentRequirements): string[] {
   const sources = req.requiredSources.value;
-  if (!sources) return null;
+  if (!sources) return [];
   const fromNotes = sources.notes?.replace(/^\s*must (include|use|cite):?\s*/i, "").trim();
   const fromTypes = sources.types?.match(/(?:including|one must be|must include)\s+(?:the\s+)?(.+)$/i)?.[1]?.trim();
   const raw = fromNotes || fromTypes;
+  if (!raw) return [];
+  return raw
+    .split(/;\s*/)
+    .map((part) => shortSource(part))
+    .filter((x): x is string => Boolean(x));
+}
+
+function shortSource(raw: string): string | null {
+  raw = raw.replace(/\s+/g, " ").trim();
   if (!raw) return null;
-  const title = raw.match(/[“"]([^”"]{4,90})[”"]/)?.[1]?.replace(/[.,]+$/, "");
+  const title = (raw.match(/[“"]([^”"]{4,90})[”"]/) ?? raw.match(/(?:^|\s)['‘]([^'’]{4,90})['’](?=\s|$|[,.;)])/))?.[1]?.replace(/[.,]+$/, "");
   const year = raw.match(/\b(19|20)\d{2}\b/)?.[0];
   const author = raw.split(/[.(“"]/)[0]?.trim().replace(/,$/, "");
-  if (title && author && author.length <= 60) {
+  if (title && author && author.length <= 60 && !author.includes(title) && !/['‘]/.test(author)) {
     const owner = `${/^the\b/i.test(author) ? "" : "the "}${author}${/s$/.test(author) ? "'" : "'s"}`;
     const lead = /^[A-Z][a-z]+,\s+[A-Z]/.test(author) ? `${author}'s` : owner; // "Smith, J." stays as is
     return `${lead} “${title}”${year ? ` (${year})` : ""}`;
   }
-  const short = raw.split(/;\s*/)[0].replace(/\s+/g, " ").trim();
-  if (short.length <= 90) return /^(the|a|an)\b/i.test(short) || /^[A-Z]/.test(short) ? short : `the ${short}`;
-  return short.slice(0, 80).replace(/\s+\S*$/, "") + "…";
+  if (raw.length <= 110) return /^(the|a|an)\b/i.test(raw) || /^[A-Z]/.test(raw) ? raw : `the ${raw}`;
+  return raw.slice(0, 100).replace(/\s+\S*$/, "") + "…";
 }
 
 function sourcesPhrase(req: AssignmentRequirements): string | null {

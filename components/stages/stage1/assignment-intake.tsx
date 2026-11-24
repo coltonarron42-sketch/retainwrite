@@ -10,6 +10,18 @@ import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
+  decisionQuestion,
+  isLostSaying,
+  overlapsTeaching,
+  STAGE_PURPOSE,
+  summaryLabel,
+  summaryParas,
+  summarySpoken,
+  type MaterialSummary,
+  type PaperContext,
+  type ReadbackPlain,
+} from "@/lib/stage1/paper-context";
+import {
   CONFIRM_CHAT_FIELD,
   isQuickConfirm,
   parseConfirmTurns,
@@ -174,6 +186,41 @@ const CITATION_OPTIONS: Array<CitationStyle | ""> = [
   "other",
 ];
 
+const MATERIAL_CHECK_TEXT =
+  "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
+
+/** Pau Pau's summary of the material: labeled, with its sources. Teaching content, never paper text. */
+function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: string }) {
+  const paras = summaryParas(summary);
+  return (
+    <PauPauGroup
+      bubbles={[
+        ...(lead ? [lead] : []),
+        <div key="sum" className="space-y-2" data-material-summary aria-label={summaryLabel(summary)}>
+          {paras.map((t, i) => (
+            <p key={i} className={i === 0 ? "font-semibold" : undefined}>
+              {t}
+            </p>
+          ))}
+          {summary.sources.length ? (
+            <p className="text-[13px] leading-[1.6] text-ds-muted">
+              Sources:{" "}
+              {summary.sources.map((src, i) => (
+                <span key={src.url}>
+                  {i ? " · " : ""}
+                  <a href={src.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                    {src.title || src.url}
+                  </a>
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>,
+      ]}
+    />
+  );
+}
+
 const INTEREST_Qs = [
   {
     id: "interest_1",
@@ -262,6 +309,53 @@ export function AssignmentIntake({
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
+  // North star (Colton t161u): the paper context — plain read-back, the material
+  // summary (Pau Pau's teaching content, never paper text), the options and their decision.
+  type BriefView = {
+    northstar: boolean;
+    readback: ReadbackPlain | null;
+    summary: MaterialSummary | null;
+    options: PaperContext["options"] | null;
+    decision: PaperContext["decision"] | null;
+    lostAtStart: boolean;
+    hasReading: boolean;
+  };
+  const [brief, setBrief] = useState<BriefView | null>(null);
+  const [briefLoaded, setBriefLoaded] = useState(demoMode);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  /** The question where they said they were lost again: the key points are offered there. */
+  const [reoffer, setReoffer] = useState<string | null>(null);
+  const [readingOpen, setReadingOpen] = useState(false);
+  const [readingText, setReadingText] = useState("");
+  const [readingBusy, setReadingBusy] = useState(false);
+  const briefRef = useRef<BriefView | null>(null);
+  briefRef.current = brief;
+  const briefCall = useCallback(
+    async (body: Record<string, unknown>): Promise<BriefView | null> => {
+      if (demoMode) return null;
+      try {
+        const res = await fetch(`/api/papers/${paperId}/intake/brief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json().catch(() => null)) as (BriefView & { ok?: boolean; error?: string }) | null;
+        if (!res.ok || !data?.ok) {
+          if (data?.error) setError(data.error);
+          return null;
+        }
+        if ("northstar" in data) setBrief(data);
+        return data;
+      } catch {
+        return null;
+      }
+    },
+    [demoMode, paperId],
+  );
+  useEffect(() => {
+    if (demoMode) return;
+    void briefCall({ action: "context" }).finally(() => setBriefLoaded(true));
+  }, [briefCall, demoMode]);
   /** The field-by-field editor behind Pau Pau's "Fix something". */
   const [editingDetails, setEditingDetails] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -496,12 +590,22 @@ export function AssignmentIntake({
   }, [paperId, demoMode]);
 
   const coachingPlan = useMemo(() => {
-    if (!requirements) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
+    if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     const topic =
       requirements.topic.value ||
       requirements.promptQuestion.value ||
       "this assignment";
     const plan: { id: string; kind: IntakeAnswer["kind"]; text: string }[] = [];
+    const northstar = Boolean(brief?.northstar);
+    if (northstar) {
+      // Meet them where they are (Colton t161u): the material first, then a real decision.
+      plan.push({ id: "material_check", kind: "background", text: MATERIAL_CHECK_TEXT });
+      plan.push({
+        id: "decision_pick",
+        kind: "coaching",
+        text: brief?.options ? decisionQuestion(brief.options) : "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
+      });
+    }
     if (!skippedInterest) {
       INTEREST_Qs.forEach((q) =>
         plan.push({ id: q.id, kind: "interest", text: q.text }),
@@ -512,11 +616,13 @@ export function AssignmentIntake({
       kind: "background",
       text: citationComfortQuestion(requirements),
     });
-    plan.push({
-      id: "coaching_take",
-      kind: "coaching",
-      text: "In your own words, what do you think this assignment wants you to figure out?",
-    });
+    // The plain read-back and their decision already cover this one on north-star papers.
+    if (!northstar)
+      plan.push({
+        id: "coaching_take",
+        kind: "coaching",
+        text: "In your own words, what do you think this assignment wants you to figure out?",
+      });
     plan.push({
       id: "personal_1",
       kind: "personal",
@@ -533,7 +639,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options]);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
@@ -1132,6 +1238,8 @@ export function AssignmentIntake({
     upsertDemoPaper(nextPaper);
     setPaper(nextPaper);
     setChecklistConfirmed(true);
+    // The confirmed read-back joins the paper context; the summary and options start loading now.
+    void briefCall({ action: "confirm_readback" });
     setScreen("coaching");
     setQIndex(0);
     setDraftAnswer("");
@@ -1175,6 +1283,15 @@ export function AssignmentIntake({
     setScreen("story");
   }
 
+  /** What Pau Pau taught (summary + read-back): used to keep it out of their answers. */
+  function teachCtx(): PaperContext {
+    return {
+      v: 1,
+      readback: brief?.readback ?? undefined,
+      summaries: brief?.summary ? [brief.summary] : undefined,
+    };
+  }
+
   async function submitAnswer(opts?: { skip?: boolean; text?: string }) {
     const q = coachingPlan[qIndex];
     if (!q) {
@@ -1188,6 +1305,27 @@ export function AssignmentIntake({
     const text = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Tell me a little, even a sentence, or tap skip.");
+      return;
+    }
+    // North star: these two need the student's own input (nothing advances without it).
+    if ((q.id === "material_check" || q.id === "decision_pick") && (opts?.skip || !text)) {
+      setError(q.id === "decision_pick" ? "Tell me which one you'd pick and why, even one sentence." : "Tell me a little, even a few words.");
+      return;
+    }
+    if (q.id === "decision_pick" && wordCount(text) < 6) {
+      setError("Tell me which one you'd pick and why, even one sentence.");
+      return;
+    }
+    // Pau Pau's summary is teaching content, never their answer.
+    if (!opts?.skip && text && brief && overlapsTeaching(text, teachCtx())) {
+      setError("That's my summary talking. Tell me in your own words, even roughly.");
+      return;
+    }
+    // Lost again later on: the key points come back, nothing is saved.
+    if (!opts?.skip && text && q.kind === "coaching" && text.length <= 160 && brief?.summary && isLostSaying(text)) {
+      setReoffer(q.id);
+      setDraftAnswer("");
+      setError(null);
       return;
     }
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
@@ -1262,7 +1400,25 @@ export function AssignmentIntake({
     setAnswers(nextAnswers);
     setDraftAnswer("");
     setError(null);
+    setReoffer(null);
     pasteMeta.reset();
+    if (q.id === "decision_pick" && text) void briefCall({ action: "decision", question: q.text, answer: text });
+    if (q.id === "material_check" && text) {
+      // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
+      const lost = isLostSaying(text);
+      const work = (async () => {
+        if (lost) {
+          setSummaryBusy(true);
+          await briefCall({ action: "lost" });
+          const v = await briefCall({ action: "summary" });
+          setSummaryBusy(false);
+          if (!v?.options) await briefCall({ action: "options" });
+        } else if (!briefRef.current?.options) {
+          await briefCall({ action: "options" });
+        }
+      })();
+      await Promise.race([work, new Promise((r) => setTimeout(r, 12_000))]);
+    }
 
     void fetch(`/api/papers/${paperId}/intake/next-question`, {
       method: "POST",
@@ -2378,6 +2534,7 @@ export function AssignmentIntake({
 
   if ((screen === "coaching" || screen === "story" || screen === "gate") && requirements) {
     const stanceMode = screen === "coaching" && qIndex < 0;
+    const introBubbles = brief?.northstar ? [STAGE_PURPOSE[1], ...INTRO_BUBBLES] : INTRO_BUBBLES;
     const stanceText = earlyStanceQuestion({
       topic: requirements.topic.value,
       promptQuestion: requirements.promptQuestion.value,
@@ -2519,7 +2676,7 @@ export function AssignmentIntake({
     ) : null;
     const leadsBubbles = leadsShown ? [LEADS_INTRO, leadsList] : [];
     const threadSpeak: SpeakItem[] = [
-      ...INTRO_BUBBLES.map((text, i) => ({ key: `intro:${i}`, text })),
+      ...introBubbles.map((text, i) => ({ key: `intro:${i}`, text })),
       ...coachingPlan.slice(0, reach).map((item) => ({ key: `q:${item.id}`, text: item.text })),
       ...(storyAngle || screen === "story"
         ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
@@ -2566,7 +2723,7 @@ export function AssignmentIntake({
             return (
               <div key={item.id} className="space-y-4">
                 {/* The first question comes in the same reply as the intro. */}
-                <PauPauGroup bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]}>
+                <PauPauGroup bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}>
                   {isCurrent ? null : sparkFor(item.id)}
                 </PauPauGroup>
                 <EchoBubble
@@ -2576,6 +2733,12 @@ export function AssignmentIntake({
                   onEdit={() => editAnswer(i)}
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
+                {item.id === "material_check" && brief?.summary && (brief.lostAtStart || isLostSaying(said)) ? (
+                  <SummaryBubbles summary={brief.summary} lead="No problem. Here are the key points to get you started." />
+                ) : null}
+                {item.id === "material_check" && summaryBusy ? (
+                  <ReadingBubble status="Pulling together the key points…" startedAt={Date.now()} />
+                ) : null}
               </div>
             );
           })}
@@ -2611,25 +2774,87 @@ export function AssignmentIntake({
             </div>
           ) : null}
 
+          {q && reoffer === q.id && brief?.summary ? (
+            <SummaryBubbles summary={brief.summary} lead="No worries. Here are the key points again. Take a look, then answer in your own words." />
+          ) : null}
           {/* Pau Pau's current turn. */}
           {q ? (
             <PauPauGroup
               bubbles={[
-                ...(!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES : []),
+                ...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : []),
                 editing ? "Sure, change anything and send it again." : null,
                 ...leadsBubbles,
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
               ].filter((b) => Boolean(b))}
               headingIndex={
-                (!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES.length : 0) +
+                (!editing && q.id === coachingPlan[0]?.id ? introBubbles.length : 0) +
                 (editing ? 1 : 0) +
                 leadsBubbles.length +
                 (stanceMode && !editing ? 1 : 0)
               }
               headingId="coach-question"
             >
-              {q.kind === "background" ? (
+              {q.id === "material_check" ? (
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Quick answers">
+                    {["I haven't read it yet", "I've read it"].map((choice) => (
+                      <DsButton key={choice} type="button" size="sm" variant="secondary" disabled={submitting} onClick={() => send(choice)}>
+                        {choice}
+                      </DsButton>
+                    ))}
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => setReadingOpen((v) => !v)}>
+                      Add a reading
+                    </DsButton>
+                  </div>
+                  {readingOpen ? (
+                    <div className="space-y-2">
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
+                        Paste the reading (or the part you were assigned). I'll use it for the key points.
+                      </label>
+                      <textarea
+                        id="reading-paste"
+                        className="ds-focus min-h-[120px] w-full rounded-[8px] border border-ds-border bg-ds-page p-3 text-[15px]"
+                        value={readingText}
+                        onChange={(e) => setReadingText(e.target.value)}
+                      />
+                      <DsButton
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        disabled={readingBusy || readingText.trim().length < 200}
+                        onClick={() => {
+                          setReadingBusy(true);
+                          void briefCall({ action: "reading", title: "Pasted reading", text: readingText.trim() }).then((v) => {
+                            setReadingBusy(false);
+                            if (v) {
+                              setReadingOpen(false);
+                              setReadingText("");
+                              setReoffer(q.id);
+                            }
+                          });
+                        }}
+                      >
+                        {readingBusy ? "Reading it…" : "Use this reading"}
+                      </DsButton>
+                    </div>
+                  ) : null}
+                </div>
+              ) : q.id === "decision_pick" && brief?.options?.options.length ? (
+                <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Options">
+                  {brief.options.options.map((o) => (
+                    <DsButton
+                      key={o.label}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setDraftAnswer((d) => (d.trim() ? d : `I'd pick ${o.label} because `))}
+                    >
+                      {o.label}
+                    </DsButton>
+                  ))}
+                </div>
+              ) : q.kind === "background" ? (
                 <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
                   {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
                     <DsButton

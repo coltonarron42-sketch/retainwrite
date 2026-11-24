@@ -15,7 +15,8 @@ export const PAPER_CONTEXT_FIELD = "paper_context";
 export type SourceRef = { title: string; url: string };
 
 /** "reading": from a reading they gave us; "assignment": from the assignment sheet; "general": topic background, not their course reading. */
-export type MaterialKind = "reading" | "assignment" | "general";
+export type MaterialKind = "reading" | "assignment" | "overview" | "general";
+/** "overview": general-knowledge overview of the named works (not their course copy). */
 
 export type MaterialSummary = {
   kind: MaterialKind;
@@ -76,7 +77,7 @@ export function parseContext(raw: string | null | undefined): PaperContext {
 /** The latest summary of the best kind available: reading > assignment > general. */
 export function bestSummary(ctx: PaperContext): MaterialSummary | null {
   const list = ctx.summaries ?? [];
-  for (const kind of ["reading", "assignment", "general"] as const) {
+  for (const kind of ["reading", "assignment", "overview", "general"] as const) {
     const hit = [...list].reverse().find((s) => s.kind === kind && s.points.length);
     if (hit) return hit;
   }
@@ -86,6 +87,7 @@ export function bestSummary(ctx: PaperContext): MaterialSummary | null {
 export function summaryLabel(s: MaterialSummary): string {
   if (s.kind === "reading") return `Key points from ${s.title || "your reading"}`;
   if (s.kind === "assignment") return "Key points from your assignment sheet";
+  if (s.kind === "overview") return `General overview of ${s.title || "the assigned works"} (not your course copy)`;
   return "General background (not your course reading)";
 }
 
@@ -96,13 +98,20 @@ export function summaryParas(s: MaterialSummary): string[] {
       ? `Here are the key points from ${s.title || "your reading"}, in plain words:`
       : s.kind === "assignment"
         ? "Here's what the assignment sheet itself gives you to work with, in plain words:"
-        : "You didn't give me a course reading, so here's some general background on the topic. It's not your course reading, so check it against what your class covered:";
+        : s.kind === "overview"
+          ? `I don't have your copies, so here's a general overview of ${s.title || "the assigned works"}, from what's widely known about them. It's not your course copy, so check it against your book and notes:`
+          : "You didn't give me a course reading, so here's some general background on the topic. It's not your course reading, so check it against what your class covered:";
   return [lead, ...s.points.map((p) => `• ${p}`)];
 }
 
 /** One line to say the summary out loud (voice: she says it in her own words). */
 export function summarySpoken(s: MaterialSummary): string {
-  const label = s.kind === "general" ? "General background, not their course reading" : summaryLabel(s);
+  const label =
+    s.kind === "general"
+      ? "General background, not their course reading"
+      : s.kind === "overview"
+        ? `General overview of ${s.title || "the assigned works"}, not their course copy`
+        : summaryLabel(s);
   return `${label}: ${s.points.join(" ")}`;
 }
 
