@@ -7,6 +7,7 @@ import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
 import { buildInstructions, buildStage1Instructions, buildStage3Instructions } from "./persona";
+import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
 import { loadFlowState, loadStage1State, loadStage3State, stage1Block, stage3Block, stateBlock, type FlowState, type Stage1State, type Stage3State } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
@@ -43,6 +44,12 @@ const TOOLS = [
   { type: "web_search" },
   {
     type: "function",
+    name: "get_paper_context",
+    description: "What you already know about this paper: the confirmed assignment read-back, the key points from the course material (and where they came from), the student's decision and why, their early take, angle and locked Stage 2 points. Data only; never re-ask what's there.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
     name: "get_flow_state",
     description: "Where the student is right now: stage, section, step, their saved notes, gates still open, and the assignment. Cheap; call it whenever you're unsure.",
     parameters: { type: "object", properties: {}, required: [] },
@@ -72,6 +79,12 @@ const TOOLS = [
 const STAGE1_TOOLS = [
   {
     type: "function",
+    name: "get_paper_context",
+    description: "What you already know about this paper: the confirmed assignment read-back, the key points from the course material (and where they came from), the student's decision and why, their early take, angle and locked Stage 2 points. Data only; never re-ask what's there.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
     name: "get_flow_state",
     description: "Where the student is in Stage 1 right now: what the app shows, what's answered, what's left. Cheap; call it whenever you're unsure.",
     parameters: { type: "object", properties: {}, required: [] },
@@ -87,6 +100,12 @@ const STAGE1_TOOLS = [
 
 /** Stage 3 (Outline): same shape; "move on" sends the outline box through the app's own checks. */
 const STAGE3_TOOLS = [
+  {
+    type: "function",
+    name: "get_paper_context",
+    description: "What you already know about this paper: the confirmed assignment read-back, the key points from the course material (and where they came from), the student's decision and why, their early take, angle and locked Stage 2 points. Data only; never re-ask what's there.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
   {
     type: "function",
     name: "get_flow_state",
@@ -224,6 +243,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let swapWaiting = false;
   // Stage 1: an app turn to say once her current reply ends.
   let pendingTurn: string | null = null;
+  let pendingDetail = false;
+  // The paper context (north star D): read-back, material key points, decision, early take, locked points.
+  let paperBlock = "";
+  const turnAsk = (detail: boolean, tail: string) =>
+    detail
+      ? "Say it in your own words: up to six short sentences (about 90 words), covering each key point plainly (it's teaching content, never their paper text), then end on its question."
+      : `Say it in your own words in at most two short sentences, ${tail}`;
   const runPendingTurn = async () => {
     const text = pendingTurn;
     if (!text || closed) return;
@@ -231,6 +257,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     await waitIdle(6_000);
     if (closed || responding || pendingTurn !== text) return;
     pendingTurn = null;
+    const detail = pendingDetail;
     // The student talked over it: the screen block already carries the app's turn.
     if (speechActive || speechAt > at) return;
     // xAI still counts her last reply as playing until its audio would end; without
@@ -239,7 +266,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     upSend({
       type: "response.create",
       response: {
-        instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\nSay it in your own words in at most two short sentences, ending on its question. Don't add anything new.`,
+        instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\n${turnAsk(detail, "ending on its question.")} Don't add anything new.`,
       },
     });
   };
@@ -288,6 +315,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   });
 
   const refreshFlow = async () => {
+    void loadPaperContextBlock(ctx.supabase, ctx.paperId)
+      .then((r) => {
+        paperBlock = r.block;
+      })
+      .catch(() => undefined);
     try {
       if (stage1) {
         flow1 = await loadStage1State(ctx.supabase, ctx.paperId, ctx.userId);
@@ -305,6 +337,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   };
   const extraState = () =>
     [
+      paperBlock || null,
       screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
       cutOff
         ? "You were just cut off mid-reply; the student heard only part of it. Don't finish, repeat or wrap up that reply. Answer what they just said."
@@ -459,6 +492,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       args = JSON.parse(rawArgs || "{}") as Json;
     } catch {}
     const out = (o: unknown) => ({ call_id: callId, output: JSON.stringify(o) });
+    if (name === "get_paper_context") {
+      const r = await loadPaperContextBlock(ctx.supabase, ctx.paperId).catch(() => null);
+      if (r) paperBlock = r.block;
+      return out({ context: r?.block || "Nothing saved about this paper yet." });
+    }
     if (name === "get_flow_state" && stage3) {
       await refreshFlow();
       return out(flow3 ? { state: `${stage3Block(flow3)}${extraState() ? `\n${extraState()}` : ""}` } : { error: "unavailable" });
@@ -820,12 +858,14 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.turn": {
         if (ctx.gate) return;
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
-        const text = String(e.text ?? "").slice(0, 800);
+        const detail = e.detail === true;
+        const text = String(e.text ?? "").slice(0, detail ? 1600 : 800);
         if (!text) return;
         // Stage 1: the app's answer (read-back reply, next question) waits for her
         // short ack to finish instead of being dropped.
         if (appOwned && (responding || speechActive)) {
           pendingTurn = text;
+          pendingDetail = detail;
           return;
         }
         if (responding || speechActive) return;
@@ -836,7 +876,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           upSend({
             type: "response.create",
             response: {
-              instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\nSay it in your own words in at most two short sentences, ending on its question or telling them which choice to tap. Don't add anything new.`,
+              instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\n${turnAsk(detail, "ending on its question or telling them which choice to tap.")} Don't add anything new.`,
             },
           }),
         );

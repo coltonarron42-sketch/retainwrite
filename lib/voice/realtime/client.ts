@@ -510,10 +510,10 @@ export class RealtimeVoice {
   }
 
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
-  sayTurn(text: string) {
+  sayTurn(text: string, opts: { detail?: boolean } = {}) {
     this.stopPlayback();
     this.pendingE2E = performance.now();
-    this.send({ type: "rw.turn", text });
+    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}) });
   }
 
   /** What the app shows now and the choices waiting for a tap (data for her). */

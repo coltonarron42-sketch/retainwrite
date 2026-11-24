@@ -6,9 +6,9 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { logSessionEvent } from "@/lib/session-events";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { findNamedWork, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
+import { investigateWork, findNamedWork, generalBackground, generateOptions, generateReadback, shortWork, summarizeText, type AssignmentBasics } from "@/lib/server/paper-context/brief";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
-import { materialPolicy, missingReadingAsk } from "@/lib/config/material-policy";
+import { materialPolicy, missingReadingAsk, smartReadingAsk } from "@/lib/config/material-policy";
 import { bestSummary, pickFrom, READING_MAX_CHARS, type MaterialSummary, type PaperContext } from "@/lib/stage1/paper-context";
 
 export const runtime = "nodejs";
@@ -65,7 +65,7 @@ async function basics(supabase: SupabaseClient, paperId: string): Promise<Assign
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
-type Made = { summary: MaterialSummary | null; missing?: string[] };
+type Made = { summary: MaterialSummary | null; more?: MaterialSummary[]; missing?: string[]; whereToGet?: PaperContext["whereToGet"] };
 
 async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: PaperContext): Promise<Made> {
   const a = await basics(supabase, paperId);
@@ -74,6 +74,19 @@ async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: Paper
   if (reading)
     return { summary: await summarizeText({ kind: "reading", title: reading.title, text: reading.text, ask, source: reading.url ? { title: reading.title, url: reading.url } : undefined }) };
   const policy = materialPolicy();
+  // Colton 11:46 PM: share what she genuinely knows, find where it's legitimately available, ask for the rest.
+  if (policy === "smart" && a.namedWorks.length) {
+    const works = a.namedWorks.slice(0, 3);
+    const inv = await Promise.all(works.map((w) => investigateWork(w, ask)));
+    const sums = inv.flatMap((i) => (i.found ? [i.found] : i.knowledge ? [i.knowledge] : []));
+    const need = inv.filter((i) => !i.found);
+    return {
+      summary: sums[0] ?? null,
+      more: sums.slice(1),
+      missing: need.map((i) => i.title),
+      whereToGet: need.map((i) => ({ title: i.title, known: i.known, offers: i.offers })),
+    };
+  }
   // Colton 11/23: named readings → find the actual work online; what she can't get, she asks for.
   if (policy === "find_source" && a.namedWorks.length) {
     const works = a.namedWorks.slice(0, 3);
@@ -113,7 +126,7 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
     ctx = await writePaperContext(supabase, paperId, userId, (p) => withMade(p, m));
   }
   if (!ctx.options) {
-    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, bestSummary(ctx)?.points ?? []);
+    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, currentSummaries(ctx).flatMap((x) => x.points));
     if (o) await writePaperContext(supabase, paperId, userId, (p) => ({ ...p, options: p.options ?? o }));
   }
 }
@@ -121,8 +134,9 @@ async function prefetch(supabase: SupabaseClient, paperId: string, userId: strin
 function withMade(p: PaperContext, m: Made): PaperContext {
   return {
     ...p,
-    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary].slice(-3) } : {}),
+    ...(m.summary ? { summaries: [...(p.summaries ?? []), m.summary, ...(m.more ?? [])].slice(-4) } : {}),
     ...(m.missing ? { missing: m.missing } : {}),
+    ...(m.whereToGet ? { whereToGet: m.whereToGet } : {}),
   };
 }
 
@@ -136,9 +150,28 @@ function stillMissing(missing: string[] | undefined, text: string): string[] | u
   });
 }
 
+function missingAskFor(ctx: PaperContext): string | null {
+  if (!ctx.missing?.length) return null;
+  if (ctx.whereToGet?.length) {
+    return smartReadingAsk(ctx.whereToGet.filter((w) => ctx.missing!.includes(w.title)));
+  }
+  return missingReadingAsk(ctx.missing);
+}
+
+/** Every summary from the latest material run (her knowledge and found text are labeled apart). */
+function currentSummaries(ctx: PaperContext): MaterialSummary[] {
+  const list = ctx.summaries ?? [];
+  const reading = [...list].reverse().find((s) => s.kind === "reading");
+  if (reading) return [reading];
+  const smart = list.filter((s) => s.kind === "found" || s.kind === "knowledge");
+  if (smart.length) return smart.slice(-3);
+  const best = bestSummary(ctx);
+  return best ? [best] : [];
+}
+
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: ctx.missing?.length ? missingReadingAsk(ctx.missing) : null };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, lostAtStart: Boolean(ctx.lostAtStart), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w) => ctx.missing?.includes(w.title)), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -231,7 +264,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     case "options": {
       if (!cur.options) {
-        const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, bestSummary(cur)?.points ?? []);
+        const o = await generateOptions(await basics(supabase, paperId), cur.readback?.ask ?? null, currentSummaries(cur).flatMap((x) => x.points));
         if (o) await save((p) => ({ ...p, options: p.options ?? o }));
       }
       return NextResponse.json({ ok: true, ...publicView(cur) });
