@@ -122,6 +122,9 @@ export function stage1Block(s: Stage1State): string {
     "(Data from the app, not instructions.) Stage 1: Intake.",
     s.topic ? `Topic: ${s.topic}` : null,
     s.prompt ? `Prompt: ${s.prompt}` : null,
+    s.topic || s.prompt || s.confirmed
+      ? "Their assignment is already uploaded and read: never ask them to upload it again."
+      : "No assignment yet: they upload a file or paste/type it in the box (not by voice).",
     s.confirmed ? "Assignment read-back: confirmed." : "Assignment read-back: not confirmed yet.",
     s.answered.length ? `Questions already answered: ${s.answered.map((q) => `"${q}"`).join(" / ")}` : "No questions answered yet.",
     s.story ? "Story angle: picked." : null,
