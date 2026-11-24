@@ -658,7 +658,6 @@ export function ChatComposer({
           rows={minRows}
           value={value}
           placeholder={placeholder}
-          readOnly={sending}
           data-composer-locked={sending || undefined}
           onChange={(e) => {
             if (!sending) onChange(e.target.value);
@@ -671,8 +670,10 @@ export function ChatComposer({
               send();
             }
           }}
-          className="block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0"
+          className={`block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0${sending ? " cursor-not-allowed opacity-60" : ""}`}
           {...inputProps}
+          // QA 1:16: the lock wins over a caller's readOnly (it used to be overridden, so the box looked live).
+          readOnly={sending || Boolean(inputProps?.readOnly)}
         />
 
         {/* Fixed-height row: status text changes never change the dock's height (QA 3:35 A). */}

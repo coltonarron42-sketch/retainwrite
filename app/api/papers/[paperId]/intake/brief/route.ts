@@ -121,15 +121,23 @@ async function makeSummary(supabase: SupabaseClient, paperId: string, ctx: Paper
 
 /** Summary + options, once, so a lost student doesn't wait (runs after the confirm response). */
 async function prefetch(supabase: SupabaseClient, paperId: string, userId: string) {
-  let ctx = await readPaperContext(supabase, paperId);
+  const ctx0 = await readPaperContext(supabase, paperId);
+  // QA 1:16 (lag): with no reading of theirs to ground on, the options don't depend on the lookup,
+  // so both run side by side (a lost student's first turn waited on them one after the other).
+  const parallel = !(ctx0.readings ?? []).length;
+  const optionsNow = async (ctx: PaperContext) => {
+    if (ctx.options) return;
+    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, verifiedSummaries(ctx).flatMap((x) => x.points));
+    if (o) await writePaperContext(supabase, paperId, userId, (p) => ({ ...p, options: p.options ?? o }));
+  };
+  const early = parallel ? optionsNow(ctx0) : null;
+  let ctx = ctx0;
   if (!bestSummary(ctx) && !ctx.missing) {
     const m = await makeSummary(supabase, paperId, ctx);
     ctx = await writePaperContext(supabase, paperId, userId, (p) => withMade(p, m));
   }
-  if (!ctx.options) {
-    const o = await generateOptions(await basics(supabase, paperId), ctx.readback?.ask ?? null, verifiedSummaries(ctx).flatMap((x) => x.points));
-    if (o) await writePaperContext(supabase, paperId, userId, (p) => ({ ...p, options: p.options ?? o }));
-  }
+  if (early) await early;
+  else await optionsNow(ctx);
 }
 
 /** Every named work is a well-known one (and nothing was given): the labeled summaries, no wait. */

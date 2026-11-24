@@ -1,7 +1,7 @@
 "use client";
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
-import { diagnoseQuestion, informedAffirm, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { diagnoseQuestion, informedAffirm, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
 import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -506,7 +506,16 @@ export function AssignmentIntake({
   const sendLock = useRef(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorRaw] = useState<string | null>(null);
+  // QA 1:16 (composer): a send that's turned back (an error) puts their words back in the box.
+  const rejectedRef = useRef(false);
+  const setError = useCallback((m: string | null) => {
+    if (m) rejectedRef.current = true;
+    setErrorRaw(m);
+  }, []);
+  // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
+  const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [pendingSaid, setPendingSaid] = useState<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
   const [shortEcho, setShortEcho] = useState<string | null>(null);
   // Bumps on every edit so read-aloud treats the re-asked question as new.
@@ -539,6 +548,10 @@ export function AssignmentIntake({
   const [reoffer, setReoffer] = useState<string | null>(null);
   /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
   const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
+  // The pending bubble gives way as soon as the turn is on screen (no doubled student bubble).
+  useEffect(() => {
+    setPendingSaid(null);
+  }, [answers.length, qaAsides.length]);
   const [asideBusy, setAsideBusy] = useState<string | null>(null);
   const [readingOpen, setReadingOpen] = useState(false);
   const [readingText, setReadingText] = useState("");
@@ -836,6 +849,8 @@ export function AssignmentIntake({
   const vagueRounds = useRef<Record<string, number>>({});
   const lastProbe = useRef<Record<string, string>>({});
   const recPending = useRef<Record<string, DecisionOption | null>>({});
+  /** How many times they said no to her recommendation (QA 1:16: it only moves on after a no). */
+  const recNos = useRef<Record<string, number>>({});
   const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
   /** Colton 12:08 INFORMED: the affirmation leads the next question's turn (until they answer it). */
   const [informedLead, setInformedLead] = useState<string[] | null>(null);
@@ -877,7 +892,7 @@ export function AssignmentIntake({
             : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
                 .map((t) => (t ? assignmentDecisionAsk(t) : null))
                 .find(Boolean) ??
-              "What's the first big choice you'd make for this paper (which angle, example or side to focus on), and why?",
+              "Let's start small: what's your gut answer to the assignment's question right now, even a guess? One sentence and one reason is plenty.",
         });
       }
       const pickSaid = answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "";
@@ -1717,7 +1732,9 @@ export function AssignmentIntake({
     // Their stated stance plus its reason (and leader) when they came in prepared.
     const why = said("decision_why");
     const dNow = (briefRef.current ?? brief)?.decision;
-    const statedAnswer = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : "";
+    // QA 1:16: the decision save can still be in flight here; their informed words are the direction either way.
+    const informedNow = brief?.northstar && !said("decision_pick") ? informedSaying(said("material_check"), (briefRef.current ?? brief)?.options?.options ?? []) : null;
+    const statedAnswer = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : informedNow?.stance ?? "";
     const statedDecision = statedAnswer ? (why && !statedAnswer.includes(why) ? `${statedAnswer} ${why}` : statedAnswer) : "";
     const pickDecision = said("decision_pick") ? [said("decision_pick"), why].filter(Boolean).join(" ") : "";
     const leaderSaid = said("leader_pick");
@@ -1949,6 +1966,7 @@ export function AssignmentIntake({
       const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
       const lean = confused || vagueNo ? null : guessPick(text, opts2);
       const round = (vagueRounds.current[q.id] = (vagueRounds.current[q.id] ?? 0) + 1);
+      if (vagueNo) recNos.current[q.id] = (recNos.current[q.id] ?? 0) + 1;
       const unreadNow = Boolean(brief?.northstar) && !caughtUp && !isPreparedSaying(materialAnswerNow);
       const esc = lean && round <= 1
         ? { paras: [vaguePickProbe(text, opts2)], recommend: null, offerCatchUp: false }
@@ -1961,6 +1979,7 @@ export function AssignmentIntake({
             catchUpSkipped: unreadNow && !brief?.missing?.length,
             kind: q.id === "leader_pick" ? "leader" : "style",
             people: brief?.options?.people ?? [],
+            recIndex: recNos.current[q.id] ?? 0,
             concept: brief?.options?.concept ?? null,
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
@@ -2093,7 +2112,13 @@ export function AssignmentIntake({
       const informed = !lost && !bNow?.decision ? informedSaying(text, bNow?.options?.options ?? []) : null;
       const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) ?? (informed ? { stance: informed.stance, leader: informed.leader } : null) : null;
       if (early) {
-        setInformedLead(informedAffirm(early.stance));
+        setInformedLead(
+          informedAffirm(text, {
+            leader: early.leader,
+            mustInclude: bNow?.readback?.mustInclude ?? [],
+            needsPerson: people.length > 0 || /\b(?:real|one)\s+(?:leader|person)\b/i.test(bNow?.readback?.ask ?? ""),
+          }),
+        );
       }
       const savedEarly = early
         ? briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: early.stance, source: "stated" }).then(() =>
@@ -2127,7 +2152,8 @@ export function AssignmentIntake({
       })();
       // QA 11:40 #5 (lag): an INFORMED answer is already locked in, so the next step never waits on the
       // options lookup (it finishes in the background); everyone else waits up to 12 s for real options.
-      if (!early?.leader) await Promise.race([work, new Promise((r) => setTimeout(r, 12_000))]);
+      // A lost student sees the reassurance and the next step fast; the summary lands under it when ready (QA 1:16: 18 s).
+      if (!early?.leader) await Promise.race([work, new Promise((r) => setTimeout(r, lost ? 6_000 : 12_000))]);
       else void work;
     }
 
@@ -3285,7 +3311,10 @@ export function AssignmentIntake({
     // Colton 12:08 (INFORMED): straight to the next thing the assignment needs, never a re-ask.
     const stanceText =
       brief?.northstar && brief.decision?.source === "stated"
-        ? `You've given me ${brief.leader?.pick && brief.leader.pick !== "their own" ? `${brief.leader.pick} and ` : brief.leader?.question === "stated" ? "your example and " : ""}your direction, so that part is set. Next, the assignment needs your actual case. ${stanceBase}`
+        ? informedNext(
+            [brief.decision.answer, answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" "),
+            brief.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : brief.leader?.answer && brief.leader.question === "stated" ? null : null,
+          )
         : stanceBase;
     const q =
       screen !== "coaching"
@@ -3467,9 +3496,37 @@ export function AssignmentIntake({
                     </div>
                   ) : null) : null;
     const send = (text?: string) => {
+      const typedNow = (text ?? draftAnswer).trim();
+      // QA 1:16 (composer): a second, different message sent right after the first joins it, so
+      // both are kept and Pau Pau replies once. Identical repeats (double Enter) add nothing.
+      if (coalesce.current) {
+        if (typedNow && !coalesce.current.text.split("\n").includes(typedNow)) coalesce.current.text += `\n${typedNow}`;
+        if (!text) setDraftAnswer("");
+        setPendingSaid(coalesce.current.text);
+        return;
+      }
       // QA 9:37 AM: one send at a time, even for two taps in the same tick.
       if (submitting || sendLock.current) return;
+      if (typedNow && !text) {
+        sendLock.current = true;
+        if (!text) setDraftAnswer("");
+        setPendingSaid(typedNow);
+        setAsideBusy("Thinking…");
+        const entry = { text: typedNow, timer: setTimeout(() => {
+          const merged = coalesce.current?.text ?? typedNow;
+          coalesce.current = null;
+          sendLock.current = false;
+          sendNow(merged, true);
+        }, 450) };
+        coalesce.current = entry;
+        return;
+      }
+      sendNow(text, false);
+    };
+    const sendNow = (text: string | undefined, fromBox: boolean) => {
+      if (submitting || sendLock.current) return;
       sendLock.current = true;
+      rejectedRef.current = false;
       setSubmitting(true);
       // QA 10:21: a status in the same tick as send on every path (taps, "I've read it", long
       // multi-part messages), not only the ones that look like a lookup.
@@ -3483,10 +3540,13 @@ export function AssignmentIntake({
               : "Thinking…",
         );
       }
-      void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() => {
+      void (stanceMode ? submitStanceAnswer(text) : submitAnswer(text ? { text } : undefined)).finally(() => {
         sendLock.current = false;
         setSubmitting(false);
         setAsideBusy(null);
+        setPendingSaid(null);
+        // Turned back: their words go back in the box, never lost.
+        if (fromBox && rejectedRef.current && text) setDraftAnswer((d) => (d.trim() ? d : text));
       });
     };
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
@@ -3646,7 +3706,13 @@ export function AssignmentIntake({
                   <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask, hasSummary: Boolean(brief.summary || brief.summaries?.length) })} />
                 ) : null}
                 {item.id === "material_check" && summaryBusy && !asideBusy ? (
-                  <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
+                  <>
+                    {/* The reassurance and the core idea show right away; the summary follows when it's ready. */}
+                    {brief && !(brief.summary || brief.missingAsk) ? (
+                      <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
+                    ) : null}
+                    <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
+                  </>
                 ) : null}
               </div>
             );
@@ -3698,6 +3764,11 @@ export function AssignmentIntake({
                   </div>
                 ))
             : null}
+          {pendingSaid ? (
+            <div data-pending-said>
+              <StudentBubble message={{ text: pendingSaid, files: [], at: 0 }} />
+            </div>
+          ) : null}
           {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
           {/* Pau Pau's current turn. */}
           {q ? (
@@ -3927,7 +3998,10 @@ export function AssignmentIntake({
             </PauPauGroup>
           ) : null}
 
-          <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
+          {/* QA 1:16: on a reload, no "Welcome back…" appended after the conversation already on screen. */}
+          {answers.length === 0 ? (
+            <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
+          ) : null}
           {rt.on ? <LiveTurns rows={rt.live} /> : null}
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
