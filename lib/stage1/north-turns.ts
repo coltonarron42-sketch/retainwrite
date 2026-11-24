@@ -69,6 +69,10 @@ export function pickEscalation(input: {
   unread?: boolean;
   catchUpSkipped?: boolean;
   kind?: "style" | "leader";
+  /** Example leaders (or examples) to offer while teaching (Colton 12:08). */
+  people?: DecisionOption[];
+  /** The core idea in plain words, taught first when they're confused. */
+  concept?: string | null;
 }): { paras: string[]; recommend: DecisionOption | null; offerCatchUp: boolean } {
   const opts = input.options.slice(0, 3).map((o) => ({ ...o, why: input.unread ? scrubUnreadRefs(o.why) : o.why }));
   const what = input.kind === "leader" ? "leaders" : "options";
@@ -89,15 +93,80 @@ export function pickEscalation(input: {
   }
   const step = Math.max(0, input.round - 2);
   const rec = opts[step % opts.length]!;
+  const concept = (input.unread ? scrubUnreadRefs(input.concept ?? "") : input.concept ?? "").trim();
   const intro = input.confused
-    ? `Fair question. Here's the short version of the ${what}:`
+    ? `That's okay, that's why you're here! ${concept ? `${concept} ` : ""}Here's the short version of the ${what}:`
     : step === 0
       ? `Let me make this easier. The short version of the ${what}:`
       : `Another way to look at it:`;
   const lines = opts.map((o) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`);
   const recLine = `A lot of students in your spot start with ${rec.label} because it's the easiest one to show with one real example${rec.why ? ` (${plain(rec.why)})` : ""}.`;
   const ask = `Want to start with ${rec.label}? Say yes or no, and a few words on why.${offerCatchUp ? " Or I can catch you up on the reading first." : ""}`;
-  let paras = [intro, ...lines, `${recLine} ${ask}`];
+  const ppl = (input.people ?? []).filter((p) => p.label !== rec.label).slice(0, 3);
+  const exLine = input.kind !== "leader" && ppl.length
+    ? `Leaders people often write about here: ${ppl.map((p) => `${p.label}${p.why ? ` (${plain(input.unread ? scrubUnreadRefs(p.why) : p.why)})` : ""}`).join("; ")}.`
+    : null;
+  let paras = [intro, ...lines, ...(exLine && step <= 1 ? [exLine] : []), `${recLine} ${ask}`];
   if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...lines, `${recLine} ${ask}`];
   return { paras, recommend: rec, offerCatchUp };
+}
+
+/* ------------------- Colton 12:08: diagnose first, then branch ------------------- */
+
+/** The first question after the confirm: what's really asked, in plain words, then where they are. */
+export function diagnoseQuestion(ask: string | null | undefined): string {
+  const plainAsk = (ask ?? "").trim().replace(/\s+/g, " ").replace(/[.!?\s]+$/, "");
+  const lead = plainAsk ? `So, in plain words: ${plainAsk.replace(/^./, (c) => c.toUpperCase())}. ` : "";
+  return `${lead}Where are you with it? If you already have ideas (an example, a direction, a rough flow), tell me what you've got. If you're not sure where to start or haven't read the course material yet, just say so, and we'll start there.`;
+}
+
+const NOT_NAME =
+  /^(?:I|I'm|I've|The|This|That|My|Our|Chapter|Northouse|Goleman|Leadership|Theory|Practice|What|Makes|Leader|HBR|APA|MLA|Prof|Professor|Dr|Ms|Mr|Mrs|Using|Because|And|But|So|Transformational|Situational|Servant|Behavioral|Authentic|Emotional|Intelligence|Harvard|Business|Review|Quiet|Kitchen|Long|Table|Memory|Under|Pressure|Monday|Tuesday|Wednesday|Thursday|Friday|December|November|January)$/;
+/** A real person named in their words ("Sam Walton"), or null. */
+export function namedPerson(text: string): string | null {
+  for (const m of text.matchAll(/\b([A-Z][a-z'’-]{1,})\s+([A-Z][a-z'’-]{2,})(?:\s+([A-Z][a-z'’-]{2,}))?\b/g)) {
+    if (NOT_NAME.test(m[1]!) || NOT_NAME.test(m[2]!)) continue;
+    return [m[1], m[2], m[3]].filter(Boolean).join(" ");
+  }
+  return null;
+}
+
+const IDEA_CUE =
+  /\b(?:i want|i'?d like|i think|i'?m thinking|i was thinking|my idea|i plan|i'?m planning|i'?m going|i have (?:an idea|a few ideas|some ideas)|i'?d (?:use|argue|pick|go with|write)|i'?ll (?:use|argue|write)|i (?:could|would) (?:use|argue|write)|argue|my example|using)\b/i;
+/**
+ * INFORMED (Colton 12:08): they already have ideas (a leader, a style, an example, a flow).
+ * Their words are kept word for word; the leader is pulled out when there is one.
+ */
+export function informedSaying(text: string, options: DecisionOption[] = []): { stance: string; leader: string | null } | null {
+  const t = norm(text);
+  if (!t || isUnsureReadSaying(t) || isAmbiguousReply(t) || isConfusedSaying(t)) return null;
+  const words = t.split(" ").length;
+  const person = namedPerson(t);
+  const lower = t.toLowerCase();
+  const option = options.some((o) =>
+    o.label
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter((w) => w.length > 4 && !/^(leadership|style|styles|approach|focus|option)$/.test(w))
+      .some((w) => lower.includes(w)),
+  );
+  const idea = IDEA_CUE.test(t);
+  if ((person && (idea || words >= 4)) || (option && idea) || (idea && words >= 12)) return { stance: t, leader: person };
+  return null;
+}
+
+/** INFORMED: the affirmation, with what they gave locked in word for word. */
+export function informedAffirm(stance: string): string[] {
+  return [
+    "Awesome, sounds like you have a good idea of what this paper needs. I'll help with source material, structure and hitting every requirement.",
+    `Locked in, in your words: “${stance.replace(/[“”"]/g, "'")}”. We can expand on it later.`,
+  ];
+}
+
+/** LOST: reassure, teach the core idea in plain words, then the catch-up from the professor's sources. */
+export function lostLead(input: { concept?: string | null; ask?: string | null }): string {
+  const concept = (input.concept ?? "").trim();
+  const ask = (input.ask ?? "").trim().replace(/[.!?\s]+$/, "");
+  const core = concept || (ask ? `The core of it: ${ask.replace(/^./, (c) => c.toLowerCase())}.` : "");
+  return `That's okay, that's why you're here! ${core ? `${core} ` : ""}Here's a summary of the key ideas from your professor's sources so you get a better grasp.`.replace(/\s+/g, " ").trim();
 }

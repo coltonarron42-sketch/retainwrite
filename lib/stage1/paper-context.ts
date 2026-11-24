@@ -58,6 +58,8 @@ export type PaperContext = {
   options?: {
     question: string;
     options: DecisionOption[];
+    /** Colton 12:08: the core idea in plain words (general knowledge), taught to a lost student first. */
+    concept?: string;
     /** When the assignment needs a real person or leader: 2-3 real, named people that fit (QA 6:03 AM). */
     people?: DecisionOption[];
     /** Where the options come from (QA 8:31 AM): material we have, general field knowledge (labeled), or the sheet's own question. */
