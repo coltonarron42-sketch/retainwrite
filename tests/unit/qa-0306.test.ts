@@ -134,3 +134,10 @@ describe("QA 3:51 React #185", () => {
     expect(bubbles).toContain("const seconds = useElapsed(since);");
   });
 });
+
+describe("QA 3:51 React #185: the draft-save status never queues a same-value render per keystroke", () => {
+  it("guards setStatus with a ref", () => {
+    const src = readFileSync("lib/papers/use-draft-save.ts", "utf8");
+    expect(src).toContain("if (statusRef.current === next) return;");
+  });
+});
