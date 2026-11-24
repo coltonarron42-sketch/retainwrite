@@ -18,7 +18,7 @@ describe("Pau Pau bubble", () => {
   it("says back the assignment conversationally", () => {
     const text = pauPauSummary(req());
     expect(text).toBe(
-      "Okay, I've read it. Let's get into it. This is for STAT 101 with Mr. Nelson: a 5–7 page paper in APA 7 format. You'll need a conclusion and a title page. Formatting: double-spaced. You'll be writing about how sampling bias affects survey results. You ready to get rolling?",
+      "Okay, I've read it. This is for STAT 101 with Mr. Nelson: a 5–7 page paper in APA 7 format. You'll need a conclusion and a title page. Formatting: double-spaced. You'll be writing about how sampling bias affects survey results. You ready to get rolling?",
     );
   });
   it("asks for sources one thing at a time when the sheet requires them", () => {
