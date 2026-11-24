@@ -8,6 +8,13 @@
 /** Stage 2 pool. Each teases the situation, never the student; no repeated pattern. */
 export const STAGE2_QUIPS = [
   "I'd write it for you, but I'm legally a cartoon.",
+] as const;
+
+/**
+ * QA 9:37 AM: stock lines that repeat paper after paper read as filler. Only the approved
+ * cartoon line is dealt (once per paper); these are retired and stripped if they ever show up.
+ */
+export const RETIRED_QUIPS = [
   "I'd hold the pencil, but no thumbs.",
   "I'm weirdly into this.",
   "Deadlines scare me, and I don't even have one.",
@@ -18,13 +25,24 @@ export const STAGE2_QUIPS = [
   "Honestly, I'm a little jealous.",
   "Easier than group projects.",
   "Sources: the real MVPs.",
+  "One sanity check, mine and yours.",
+  "Homework, my favorite genre.",
+  "No pop quiz, I promise.",
+  "This is totally doable.",
+  "Let's get into it.",
+  "Scout's honor.",
+  "Love a quick yes.",
 ] as const;
 
 /**
  * Stock filler that says nothing about the moment (QA 8:31 AM): never dealt, and
  * stripped if a model reply or template ever produces one.
  */
-export const STOCK_FILLER = /\s*\b(?:Rubrics love this stuff|Teachers notice this stuff|Look at us,? being organized|Big plan energy|Fancy,? right\?|Research,? but make it quick)[.!?]*/gi;
+const esc = (q: string) => q.replace(/[.!?]+$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const STOCK_FILLER = new RegExp(
+  `\\s*(?:\\b(?:Rubrics love this stuff|Teachers notice this stuff|Look at us,? being organized|Big plan energy|Fancy,? right\\?|Research,? but make it quick)|${RETIRED_QUIPS.map(esc).join("|")})[.!?]*`,
+  "gi",
+);
 export function dropStockFiller(text: string): string {
   return text.replace(STOCK_FILLER, "").replace(/\s{2,}/g, " ").trim();
 }
@@ -80,6 +98,7 @@ export function quipFor(seed: string | undefined, sectionIndex: number | undefin
 /** Known flourishes from templates and the read-back (also counted as a quip). */
 const KNOWN = [
   ...STAGE2_QUIPS,
+  ...RETIRED_QUIPS,
   "Homework, my favorite genre.",
   "No pop quiz, I promise.",
   "This is totally doable.",

@@ -271,7 +271,7 @@ function stanceTurnParasRaw(
 export function moderateConcern(r: { reason?: string; alternativeAngles?: { question: string }[] }, note?: string, title = "this section"): string {
   const reason = (r.reason ?? "").trim();
   const ask = r.alternativeAngles?.[0]?.question?.trim();
-  if (reason) return reason.replace(/\.?$/, ".");
+  if (reason) return /[.?!”"]$/.test(reason) ? reason : `${reason}.`;
   const part = title.toLowerCase();
   if (note && isVagueNote(note)) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
   return ask ?? `Your ${part} could use one more specific detail. What example would show it best in your ${part}?`;
@@ -1033,8 +1033,8 @@ export const STOCK_POOLS = {
     "Quick logic check.|You feel good about this?",
     "Let's pressure-test it.|Does it hold up for you?",
     "Before we lock it, a fast logic pass.|Happy with it?",
-    "One sanity check, mine and yours.|Does this make sense as is?",
     "Time for a quick gut check.|You good with it?",
+    "One more look before it's locked.|Still feel right?",
     "Let's poke at the logic real quick.|Feel solid?",
     "Fast logic pass before we move on.|Confident in this one?",
     "Let's make sure it holds together.|Feel good about it?",

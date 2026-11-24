@@ -267,12 +267,12 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
  * [lead-in, verb phrase before "<course>: <length>"].
  */
 export const SUMMARY_OPENERS: ReadonlyArray<string> = [
-  "Okay, I've read it. Let's get into it.",
+  "Okay, I've read it.",
   "Got it.",
-  "Alright, I read it through. Homework, my favorite genre.",
+  "Alright, I read it through.",
   "Okay, I've gone through it.",
   "Okay, here's what I'm seeing.",
-  "Okay, I've read it through. No pop quiz, I promise.",
+  "Okay, I've read it through.",
   "Alright, here's the gist.",
   "Great, I've got it.",
 ];
@@ -353,7 +353,7 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
     if (first === lead) first = "Okay, I read through it.";
     close = "I couldn't make out every detail on the sheet, so I'll check a couple of things with you.";
   } else {
-    close = opts.pendingAsk ? "That covers most of it." : "This is totally doable. You ready to get rolling?";
+    close = opts.pendingAsk ? "That covers most of it." : "You ready to get rolling?";
   }
   const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
   if (opts.bare) return [opener, needs.join(" "), graded.join(" "), whenWhat.join(" ")].map(tidy).filter(Boolean);

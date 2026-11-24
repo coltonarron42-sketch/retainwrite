@@ -167,7 +167,7 @@ export function rulesClassify(text: string, pendingAsk: PauPauAsk | null): Confi
   const t = text.replace(/\s+/g, " ").trim();
   const updates = emptyUpdates();
   const base = { keepAsNote: false, skipAsk: false };
-  if (isQuickConfirm(t)) return { ...base, intent: "confirm", reply: "Great, love a quick yes.", updates };
+  if (isQuickConfirm(t)) return { ...base, intent: "confirm", reply: "Great.", updates };
   if (pendingAsk && /^(no|nope|nah|not (?:yet|now|really)|i don'?t (?:have|know)|none|skip)\b/i.test(t)) {
     return { ...base, skipAsk: true, intent: "extra_info", reply: "No problem, we can do without it for now.", updates };
   }
