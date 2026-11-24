@@ -32,7 +32,7 @@ describe("QA 3:06 #1 BLOCKER: the informed lock-in and the gate read one source"
 describe("QA 3:06 #2: rapid sends never lose text", () => {
   it("typing stays open while a reply is in flight; Enter queues, shown in the chat, sent after the reply", () => {
     expect(composer).toContain("if (value.trim()) onQueue?.();");
-    expect(composer).toContain("if (!sending || queueWhileSending) onChange(e.target.value);");
+    expect(composer).toContain("onChange={(e) => onChange(e.target.value)}");
     expect(intake).toContain("onQueue={() => send()}");
     expect(intake).toContain("data-queued-said");
     expect(intake).toContain("setTimeout(() => latestSendNow.current?.(merged, true), 60);");
@@ -83,5 +83,46 @@ describe("QA 3:06 minors", () => {
   it("the lost transcript stays in order after the catch-up offer", () => {
     expect(intake).toContain("data-past-aside");
     expect(intake).toContain("setOfferReply((p) => ({ ...p, [qid]: reply }))");
+  });
+});
+
+describe("QA 3:51", () => {
+  it("the textarea is never read-only or disabled, and typing is never ignored", () => {
+    expect(composer).toContain("readOnly={false}");
+    expect(composer).not.toMatch(/if \(!sending[^)]*\) onChange/);
+    expect(composer).not.toContain("data-composer-locked");
+    expect(intake).not.toContain("readOnly: restoringDraft");
+  });
+  it("text typed mid-switch moves with the box (answer box <-> story box)", () => {
+    expect(intake).toContain("setOwnStory(draftAnswer);");
+    expect(intake).toContain('latestSendNow.current = screen === "story" ? (t: string) => void submitOwnStory(t) : sendNow;');
+  });
+});
+
+import { titlesInText } from "@/lib/stage1/readings";
+import { generalOptionsFor, cleanOptions } from "@/lib/stage1/paper-context";
+import { stage2Earlier, smoothCause } from "@/lib/stages/stage2-intro";
+describe("QA 3:51 Myers path and nits", () => {
+  const sheet = "PSY 101 paper for Dr. Reyes: Using Chapter 6 of Myers' Psychology (memory), write 1,000 words explaining how the serial position effect could help a student study for finals. APA. Due Dec 12.";
+  it("an unquoted textbook chapter is a named work, and it's the known memory entry", () => {
+    const w = titlesInText(sheet);
+    expect(w).toEqual(["Chapter 6 of Myers' Psychology (memory)"]);
+    expect(wellKnownWork(w[0]!, sheet)?.id).toBe("intro-psych-memory");
+  });
+  it("serial position options are its own parts, capitalized; model labels are capitalized", () => {
+    const o = generalOptionsFor(sheet)!;
+    expect(o.options.map((x) => x.label)).toEqual(["Primacy effect", "Recency effect", "Both: many short sessions"]);
+    expect(cleanOptions([{ label: "spacing effect", why: "x" }])[0]!.label).toBe("Spacing effect");
+  });
+  it("the Stage 2 recap joins a follow-on effect smoothly", () => {
+    expect(smoothCause("he sold a shared vision.\nBecause of that Microsoft started working together more, and that matters because it shows X.")).toBe(
+      "he sold a shared vision, and as a result, Microsoft started working together more",
+    );
+    expect(stage2Earlier({ question: "q", pick: "Transformational", answer: "I want transformational leadership because he sold a shared vision.\nBecause of that Microsoft started working together more.", at: 0, source: "stated" } as never)).toContain(
+      "because he sold a shared vision, and as a result, Microsoft started working together more.",
+    );
+  });
+  it("a 15+ word reason with a causal link counts as the early take, joined with their pick", () => {
+    expect(intake).toContain("if (wordCount(t) < 15 || !CAUSAL_LINK.test(t)) return null;");
   });
 });

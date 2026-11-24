@@ -128,9 +128,10 @@ describe("#3 logout stops autosave", () => {
 describe("#4 a send during a reply is never dropped, and never sent twice (QA 9:37 AM)", () => {
   it("the composer keeps the text and turns Send off while a reply is in flight", () => {
     const src = read("components/stages/stage1/chat-composer.tsx");
-    expect(src).toMatch(/if \(sending\) \{\s*setQueued\(true\);/);
-    expect(src).toMatch(/One message at a time: Pau Pau is replying/);
-    expect(src).toContain("disabled={blocked || queued || (sending && !(queueWhileSending && value.trim()))}");
+    // QA 3:51: the box stays live; Enter during a reply queues the full text (shown), sent after.
+    expect(src).toContain("setQueuedText((prev) => (prev ? `${prev}\\n${t}` : t));");
+    expect(src).toMatch(/Queued: “/);
+    expect(src).toContain("disabled={blocked}");
     expect(src).not.toMatch(/if \(!sending\) send\(\);/);
   });
   it("the Stance loop clears only the text it sent", () => {

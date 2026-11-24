@@ -74,7 +74,7 @@ describe("QA 11:40 preview retest", () => {
     expect(intake).toContain("if (!northstar && !skippedInterest && !prepared) {");
     expect(intake).toContain('if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({');
     const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
-    expect(composer).toContain("readOnly={(sending && !queueWhileSending) || Boolean(inputProps?.readOnly)}");
+    expect(composer).toContain("readOnly={false}");
     expect(composer).not.toMatch(/setQueued\(false\);\s*send\(\);/);
   });
 });

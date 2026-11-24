@@ -62,7 +62,7 @@ describe("QA 1:16: composer never drops a message", () => {
     expect(intake).toContain("coalesce.current.text += `\\n${typedNow}`");
     expect(intake).toContain("setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\\n${d}`) : text))");
     expect(intake).toContain("data-pending-said");
-    expect(composer).toContain("cursor-not-allowed opacity-60");
+    expect(composer).not.toContain("cursor-not-allowed opacity-60\" : \"\"}");
   });
 });
 
