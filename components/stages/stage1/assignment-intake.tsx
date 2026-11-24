@@ -217,6 +217,7 @@ function materialLost(text: string): boolean {
   return isLostSaying(text) || isUnsureReadSaying(text);
 }
 
+const CAUSAL_LINK = /\b(because|so|since|led to|leads to|leading to|which meant|as a result|that's why|caused|therefore)\b/i;
 const MATERIAL_CHECK_TEXT =
   "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
 
@@ -857,6 +858,21 @@ export function AssignmentIntake({
   const recPending = useRef<Record<string, DecisionOption | null>>({});
   /** How many times they said no to her recommendation (QA 1:16: it only moves on after a no). */
   const recNos = useRef<Record<string, number>>({});
+  // QA 3:51: switching between the story box and the answer box never strands what they typed mid-reply.
+  const prevScreen = useRef(screen);
+  useEffect(() => {
+    const was = prevScreen.current;
+    prevScreen.current = screen;
+    if (was === screen) return;
+    if (screen === "story" && draftAnswer.trim() && !ownStory.trim()) {
+      setOwnStory(draftAnswer);
+      setDraftAnswer("");
+    } else if (was === "story" && screen === "coaching" && ownStory.trim() && !draftAnswer.trim()) {
+      setDraftAnswer(ownStory);
+      setOwnStory("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
   const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
   // QA 3:06 minor: after the catch-up offer, the transcript stays in order (their lost note, the offer, their yes, the summary).
   const [offerReply, setOfferReply] = useState<Record<string, string>>({});
@@ -2073,6 +2089,7 @@ export function AssignmentIntake({
       setError(null);
       return;
     }
+    if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25 && earlyTakeFull(text)) text = earlyTakeFull(text)!;
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
@@ -2411,12 +2428,28 @@ export function AssignmentIntake({
     afterStoryPicked();
   }
 
+  /**
+   * QA 3:51 nit: a real reason (15+ words with a causal link: because, so, led to…) is an early take.
+   * Joined with the pick they already gave in their own words, it meets the 25-word server gate
+   * without asking for "a couple more sentences". Null when it isn't one.
+   */
+  function earlyTakeFull(text: string): string | null {
+    const t = text.trim();
+    if (wordCount(t) >= 25) return t;
+    if (wordCount(t) < 15 || !CAUSAL_LINK.test(t)) return null;
+    const base = (lockedInStance || briefRef.current?.decision?.answer || brief?.decision?.answer || "").trim();
+    if (!base || t.includes(base.slice(0, 30)) || base.includes(t.slice(0, 30))) return null;
+    const both = `${base}\n${t}`;
+    return wordCount(both) >= 25 ? both : null;
+  }
+
   async function submitStanceAnswer(spoken?: string) {
     // QA 3:00: what they already sent (turned back as short) stays part of the take; new lines add to it.
     const prevShort = error && shortEcho ? shortEcho : "";
     setShortEcho(null);
     const fresh = (spoken ?? draftAnswer).trim();
-    const text = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
+    const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
+    const text = earlyTakeFull(joined) ?? joined;
     if (wordCount(text) < 25) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
@@ -3661,7 +3694,8 @@ export function AssignmentIntake({
         if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
       });
     };
-    latestSendNow.current = sendNow;
+    // A message queued during her reply goes to whatever she's asking now (the story question too).
+    latestSendNow.current = screen === "story" ? (t: string) => void submitOwnStory(t) : sendNow;
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
@@ -4190,7 +4224,6 @@ export function AssignmentIntake({
                 inputProps={{
                   onDrop: pasteMeta.onDrop,
                   onBeforeInput: pasteMeta.onBeforeInput,
-                  readOnly: restoringDraft && !draftAnswer,
                   "aria-busy": restoringDraft || undefined,
                 }}
                 minRows={1}
