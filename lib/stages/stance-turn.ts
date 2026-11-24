@@ -165,9 +165,21 @@ export const SWAP_ASK = "Want me to swap that in?";
 /** Her short reply when new words over a choice are discussion (the saved note stays). */
 export function discussionLine(seed: number): string {
   const lines = [
-    "Good thought. Your saved note stays as it is. If you want it changed, say “change it to…” and I'll check with you first.",
-    "I like where that's going. I haven't changed your note. Say “change it to…” if you want that in instead.",
-    "That's worth keeping in mind. Your note is still the one above; tell me “change it to…” to swap it.",
+    "Your saved note stays as it is. If you want it changed, say “change it to…” and I'll check with you first.",
+    "I haven't changed your note. Say “change it to…” if you want that in instead.",
+    "Your note is still the one above; tell me “change it to…” to swap it.",
   ];
   return lines[Math.abs(seed) % lines.length]!;
+}
+
+/**
+ * QA 7:11 AM: a new reply with real content (8+ words, not a question, not a yes/no or a
+ * "change it to…") over a waiting confirm is added to the note instead of turned away.
+ */
+export function substantiveNote(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || /\?\s*$/.test(t)) return false;
+  if (isPlainYes(t) || isSwapNo(t) || replacementText(t)) return false;
+  if (/^(no|nope|nah|ok(?:ay)?|sure|thanks?|cool|idk|i don'?t know)\b[\s.!,]*$/i.test(t)) return false;
+  return t.split(" ").filter((w) => /[a-z]/i.test(w)).length >= 8;
 }
