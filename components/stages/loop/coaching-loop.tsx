@@ -923,7 +923,9 @@ export function CoachingLoop({
     // A new reply over the confirm is added to their note, never swapped in silently (QA 8:31 AM).
     if (opts?.append) replacingClaim.current = false;
     const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
-    const step = afterProbe(section, note, replacingClaim.current);
+    const probed = afterProbe(section, note, replacingClaim.current);
+    // An added reply over the confirm goes back to the confirm with both notes, not to new directions.
+    const step = opts?.append ? { ...probed, loopStep: "summarize" as const } : probed;
     replacingClaim.current = false;
     const transcript = withLines(more);
     const nextSession: Session = {

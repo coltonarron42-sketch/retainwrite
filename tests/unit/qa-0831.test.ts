@@ -143,3 +143,12 @@ describe("(a)-(d) follow-ups", () => {
     expect(oneQuipParas(["Look at us, being organized.", "Next question?"])).toEqual(["Next question?"]);
   });
 });
+
+describe("QA 8:31 live fixes", () => {
+  it("drops unverified chapter-content claims", async () => {
+    const { dropChapterClaims } = await import("@/lib/stage1/paper-context");
+    const t = "The assignment asks you to pick one style. Northouse Chapter 4 covers the main styles like transformational and servant leadership. Want the options?";
+    expect(dropChapterClaims(t)).toBe("The assignment asks you to pick one style. Want the options?");
+    expect(dropChapterClaims("The assignment says to use Chapter 4 and the HBR article.")).toBe("The assignment says to use Chapter 4 and the HBR article.");
+  });
+});

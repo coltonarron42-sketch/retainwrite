@@ -482,6 +482,18 @@ export function stripHollowPraise(text: string): string {
   return out ? out.charAt(0).toUpperCase() + out.slice(1) : text;
 }
 
+/**
+ * R0 (QA 8:31 AM): never claim what a chapter, textbook or handout contains before it is verified.
+ * Sentences like "Northouse Chapter 4 covers the main styles…" are dropped from unverified replies.
+ */
+const UNVERIFIED_CLAIM =
+  /\b(?:chapter\s*\d{1,2}|ch\.?\s*\d{1,2}|(?:the|your|this)\s+(?:textbook|handout|chapter|reading))(?:\s+[^\s.!?]+){0,4}?\s+(?:covers|lists|says|includes|discusses|explains|describes|talks about|goes over|focuses on|presents|outlines|walks through|breaks down)\b/i;
+export function dropChapterClaims(text: string): string {
+  const parts = text.split(/(?<=[.!?])\s+/);
+  const kept = parts.filter((s) => !UNVERIFIED_CLAIM.test(s));
+  return kept.length === parts.length ? text : kept.join(" ").trim();
+}
+
 /** A line that is only praise ("Nice!", "That tracks.") is dropped; praise with specifics stays (QA 7:11 AM). */
 export function dropBarePraise(text: string | null | undefined): string {
   const t = (text ?? "").trim();
