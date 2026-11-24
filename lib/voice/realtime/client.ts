@@ -17,7 +17,7 @@ export type RtEvents = {
   echo?: (itemId: string) => void;
   pauDone?: (responseId: string, status: string | undefined) => void;
   pauCancelled?: (responseId: string) => void;
-  saveNote?: (callId: string, text: string, itemId: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote?: (callId: string, text: string, itemId: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
   sources?: (links: { title: string; url: string; why?: string }[]) => void;
   error?: (message: string) => void;
   metric?: (m: { e2eMs?: number; bargeMs?: number }) => void;
@@ -114,7 +114,7 @@ export class RealtimeVoice {
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number },
+    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number; stage?: 1 | 2 },
   ) {}
 
   /** Call inside the tap. */
@@ -179,6 +179,7 @@ export class RealtimeVoice {
     for (const [k, v] of Object.entries(this.opts.tuning ?? {})) q.set(k, v);
     if (this.resume) q.set("resume", this.resume);
     if (this.opts.gate) q.set("gate", String(this.opts.gate));
+    if (this.opts.stage === 1) q.set("stage", "1");
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -472,7 +473,7 @@ export class RealtimeVoice {
       case "rw.save_note": {
         const callId = String(e.call_id ?? "");
         const text = String(e.text ?? "");
-        const run = this.on.saveNote ? this.on.saveNote(callId, text, String(e.item_id ?? "")) : Promise.resolve({ ok: false, result: "unsupported" });
+        const run = this.on.saveNote ? this.on.saveNote(callId, text, String(e.item_id ?? ""), typeof e.kind === "string" ? e.kind : undefined) : Promise.resolve({ ok: false, result: "unsupported" });
         void run
           .catch(() => ({ ok: false, result: "error" }))
           .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen }));

@@ -5,8 +5,13 @@ import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
+import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { LiveTurns } from "@/components/stages/loop/live-turns";
+import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { appendSpoken, isControlPhrase, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
   CONFIRM_CHAT_FIELD,
+  isQuickConfirm,
   parseConfirmTurns,
   replayTurns,
   trimTurns,
@@ -719,6 +724,144 @@ export function AssignmentIntake({
     },
   });
 
+  // Grok Voice on Stage 1 (Colton t159u): the same relay as Stage 2, only while
+  // the paper is in Stage 1. Spoken words go through the typed paths (same
+  // checks, same strict yes); her "move on" (submit_answer) sends the box as is.
+  const rtMode = useRealtimeEnabled(paperId) && !demoMode && accountPaper?.current_stage === 1;
+  const voiceRef = useRef<(text: string, kind?: string) => Promise<string>>(async () => "ignored");
+  const draftRef = useRef(draftAnswer);
+  const storyRef = useRef(ownStory);
+  const confirmSendRef = useRef<((text: string) => Promise<void>) | null>(null);
+  const submitBusy = useRef(0);
+  const rt = useRealtimeCall({
+    paperId,
+    stage: 1,
+    saveNote: async (text, kind) => {
+      if (kind === "submit") submitBusy.current = Date.now() + 60_000;
+      try {
+        const result = await voiceRef.current(text, kind);
+        await new Promise((r) => setTimeout(r, 150));
+        return { ok: true, result, screen: rtScreenRef.current.text };
+      } finally {
+        if (kind === "submit") submitBusy.current = Date.now() + 1_500;
+      }
+    },
+    welcome: () => ({
+      welcome: Boolean(welcomeLine),
+      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      text: welcomeLine,
+    }),
+  });
+  const rtQuestion =
+    screen !== "coaching"
+      ? null
+      : qIndex < 0
+        ? earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value })
+        : (coachingPlan[qIndex]?.text ?? null);
+  const lastPauTurn = [...confirmTurns].reverse().find((t) => t.role === "pau") as { paras: string[] } | undefined;
+  const rtView = stage1VoiceScreen({
+    screen,
+    qIndex,
+    question: rtQuestion,
+    lastPau: lastPauTurn?.paras ?? [],
+    turns: confirmTurns.length,
+    angles: storyAngles.map((a) => a.question),
+    editing: editReturn !== null || editingDetails,
+    error,
+    greeting: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`,
+  });
+  const rtScreenRef = useRef(rtView);
+  useEffect(() => {
+    rtScreenRef.current = rtView;
+    draftRef.current = draftAnswer;
+    storyRef.current = ownStory;
+  });
+  // Spoken words on each screen go through the same handlers as typing.
+  useEffect(() => {
+    voiceRef.current = async (text, kind) => {
+      const before = rtScreenRef.current.key;
+      const moved = async () => {
+        await new Promise((r) => setTimeout(r, 200));
+        return rtScreenRef.current.key !== before ? "saved" : "needs_more";
+      };
+      if (kind === "submit") {
+        if (screen === "coaching") {
+          const box = draftRef.current.trim();
+          const q = coachingPlan[qIndex];
+          if (!box && (qIndex < 0 || (q && q.kind !== "background"))) return "empty";
+          if (submitting) return "busy";
+          setSubmitting(true);
+          try {
+            await (qIndex < 0 ? submitStanceAnswer(box) : submitAnswer({ text: box }));
+          } finally {
+            setSubmitting(false);
+          }
+          return moved();
+        }
+        if (screen === "story") {
+          const box = storyRef.current.trim();
+          if (!box) return "empty";
+          await submitOwnStory(box);
+          return moved();
+        }
+        return "nothing_to_submit";
+      }
+      if ((screen === "coaching" || screen === "story") && isControlPhrase(text)) return "move_on_words";
+      if (screen === "coaching") {
+        // The ref first: her move-on can arrive before the next render.
+        draftRef.current = appendSpoken(draftRef.current, text);
+        setDraftAnswer(draftRef.current);
+        setError(null);
+        return "in_box";
+      }
+      if (screen === "story") {
+        storyRef.current = appendSpoken(storyRef.current, text);
+        setOwnStory(storyRef.current);
+        setError(null);
+        return "in_box";
+      }
+      if (screen === "card" && confirmSendRef.current) {
+        await confirmSendRef.current(text);
+        return "sent_to_readback";
+      }
+      if (screen === "gate") {
+        // The same strict yes as typing; anything else is just talk.
+        const blocked = stanceStartBlockers({
+          checklistConfirmed: cardGate.ok,
+          hasStory: Boolean(storyAngle),
+          voiceOk: voiceEval.ok,
+          voiceReason: voiceEval.reasons[0],
+          stanceOk,
+        });
+        if (!isQuickConfirm(text) || blocked.length > 0) return "aside";
+        await completeStage1();
+        return "starting_stage2";
+      }
+      return "ignored";
+    };
+  });
+  const rtSeen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!rt.on) {
+      rtSeen.current = null;
+      return;
+    }
+    if (rtSeen.current === null || rtSeen.current === rtView.key) {
+      rtSeen.current = rtView.key;
+      rt.setScreen(rtView.text, rtView.choices);
+      return;
+    }
+    rtSeen.current = rtView.key;
+    rt.clearLive();
+    rt.setScreen(rtView.text, rtView.choices);
+    // Her own submit_answer already carries the next step: she asks it from the tool result.
+    if (Date.now() < submitBusy.current) return;
+    // A student turn on the read-back waits for the app's reply.
+    if (screen === "card" && confirmTurns[confirmTurns.length - 1]?.role !== "pau") return;
+    rt.sayTurn(rtView.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
+  }, [rtView.key, rt.on]);
+
   // Nothing (no intro, no prefill, no speech) until the restore completes,
   // including the saved read-back turns (QA 5:44 PM).
   if (!paper || resumePending || !confirmReady) {
@@ -1246,9 +1389,9 @@ export function AssignmentIntake({
     afterStoryPicked();
   }
 
-  async function submitOwnStory() {
+  async function submitOwnStory(spoken?: string) {
     setShortEcho(null);
-    const text = ownStory.trim();
+    const text = (spoken ?? ownStory).trim();
     if (wordCount(text) < 15) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 15, "Your own angle"));
@@ -1279,9 +1422,9 @@ export function AssignmentIntake({
     afterStoryPicked();
   }
 
-  async function submitStanceAnswer() {
+  async function submitStanceAnswer(spoken?: string) {
     setShortEcho(null);
-    const text = draftAnswer.trim();
+    const text = (spoken ?? draftAnswer).trim();
     if (wordCount(text) < 25) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 25, "Your early take"));
@@ -1562,6 +1705,7 @@ export function AssignmentIntake({
               onRetryFile={(id) => void retryFile(id)}
               onError={setError}
               onSend={() => void runParse()}
+              realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
               sendLabel="Send"
               sendBlocked={hasFiles && !rightsOk}
             />
@@ -1686,6 +1830,9 @@ export function AssignmentIntake({
               onTurns={setConfirmTurns}
               sheetText={rawText}
               welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />}
+              sendRef={confirmSendRef}
+              realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
+              live={rt.on ? <LiveTurns rows={rt.live} /> : null}
             />
           ) : (
             <ReadingBubble status="Getting your conversation back…" startedAt={Date.now()} />
@@ -2602,11 +2749,17 @@ export function AssignmentIntake({
                 <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
                   Want to change something? Tap any of your answers above.
                 </p>
+                {rtMode ? (
+                  <div className="mt-3">
+                    <RealtimeControls call={rt} />
+                  </div>
+                ) : null}
               </div>
             </PauPauGroup>
           ) : null}
 
           <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} />
+          {rt.on ? <LiveTurns rows={rt.live} /> : null}
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
             <PauPauBubble showName={false} live>
@@ -2632,6 +2785,7 @@ export function AssignmentIntake({
                 sending={pickingStory === "own"}
                 sendLabel="Send"
                 placeholder="Or write your own angle as a question"
+                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
                 onSend={() => void submitOwnStory()}
               />
             ) : (
@@ -2659,6 +2813,7 @@ export function AssignmentIntake({
                     : PLACEHOLDERS[q?.id ?? ""] ?? "Tell me in your own words"
                 }
                 onSend={() => send()}
+                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
               />
             )}
             {minNote ? (

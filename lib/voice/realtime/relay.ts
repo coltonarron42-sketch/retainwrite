@@ -5,8 +5,8 @@ import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
-import { buildInstructions } from "./persona";
-import { loadFlowState, stateBlock, type FlowState } from "./flow-state";
+import { buildInstructions, buildStage1Instructions } from "./persona";
+import { loadFlowState, loadStage1State, stage1Block, stateBlock, type FlowState, type Stage1State } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
   MAX_TEXT_CHARS,
@@ -34,6 +34,8 @@ export type RelayContext = {
   vadTuning?: { silence_duration_ms?: number; threshold?: number };
   /** Soft-gated stage: speak the scripted gate line once; no listening, tools or notes. */
   gate?: { stage: number; paperStage: number };
+  /** The live stage this call coaches: 1 (Intake) or 2 (Stance, the default). */
+  stage?: 1 | 2;
 };
 
 const TOOLS = [
@@ -62,6 +64,23 @@ const TOOLS = [
       },
       required: ["links"],
     },
+  },
+];
+
+/** Stage 1 (Intake): the app owns every step; her one write is "move on" (submit_answer). */
+const STAGE1_TOOLS = [
+  {
+    type: "function",
+    name: "get_flow_state",
+    description: "Where the student is in Stage 1 right now: what the app shows, what's answered, what's left. Cheap; call it whenever you're unsure.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
+    name: "submit_answer",
+    description:
+      "The student has finished answering the on-screen question (or asked to move on). The app saves exactly what they said, word for word, runs its checks, and shows the next step. Takes no text: you never supply their answer.",
+    parameters: { type: "object", properties: {}, required: [] },
   },
 ];
 
@@ -132,6 +151,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     errors: [] as string[],
   };
   let flow: FlowState | null = null;
+  let flow1: Stage1State | null = null;
+  const stage1 = ctx.stage === 1 && !ctx.gate;
   let conversationId: string | null = resumeId;
   let speechStoppedAt = 0;
   const firstDeltaSeen = new Set<string>();
@@ -168,6 +189,24 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // She was cut off mid-reply: her next reply must not finish or wrap up the old one.
   let cutOff = false;
   let swapWaiting = false;
+  // Stage 1: an app turn to say once her current reply ends.
+  let pendingTurn: string | null = null;
+  const runPendingTurn = async () => {
+    const text = pendingTurn;
+    if (!text || closed) return;
+    const at = Date.now();
+    await waitIdle(6_000);
+    if (closed || responding || pendingTurn !== text) return;
+    pendingTurn = null;
+    // The student talked over it: the screen block already carries the app's turn.
+    if (speechActive || speechAt > at) return;
+    upSend({
+      type: "response.create",
+      response: {
+        instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\nSay it in your own words in at most two short sentences, ending on its question. Don't add anything new.`,
+      },
+    });
+  };
   // Her questions so far this session, so she never asks the same one twice.
   const asked: string[] = [];
   const committed = new Set<string>();
@@ -214,6 +253,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
 
   const refreshFlow = async () => {
     try {
+      if (stage1) {
+        flow1 = await loadStage1State(ctx.supabase, ctx.paperId, ctx.userId);
+        return flow;
+      }
       flow = await loadFlowState(ctx.supabase, ctx.paperId, ctx.userId);
     } catch {
       /* keep the last state */
@@ -236,7 +279,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       .filter(Boolean)
       .join("\n");
   const instructions = () =>
-    buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked);
+    stage1
+      ? buildStage1Instructions(`${flow1 ? stage1Block(flow1) : "Stage 1: Intake. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked)
+      : buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked);
 
   await refreshFlow();
 
@@ -259,7 +304,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         instructions: instructions(),
         reasoning: { effort: ctx.effort },
         turn_detection: ctx.gate || ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
-        tools: ctx.gate ? [] : TOOLS,
+        tools: ctx.gate ? [] : stage1 ? STAGE1_TOOLS : TOOLS,
         audio: {
           input: {
             format: { type: "audio/pcm", rate: REALTIME_RATE },
@@ -369,6 +414,40 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       args = JSON.parse(rawArgs || "{}") as Json;
     } catch {}
     const out = (o: unknown) => ({ call_id: callId, output: JSON.stringify(o) });
+    if (name === "get_flow_state" && stage1) {
+      await refreshFlow();
+      return out(flow1 ? { state: `${stage1Block(flow1)}${extraState() ? `\n${extraState()}` : ""}` } : { error: "unavailable" });
+    }
+    if (name === "submit_answer") {
+      if (!stage1) return out({ submitted: false, reason: "Not available in this stage." });
+      // Their last words go to the app first (word for word), then the app moves on.
+      for (const [id, t] of [...noteTimers]) {
+        clearTimeout(t);
+        dispatchNote(id);
+      }
+      const applied = await new Promise<{ ok: boolean; result?: string; screen?: string }>((resolve) => {
+        const t = setTimeout(() => {
+          applyWaiters.delete(callId);
+          resolve({ ok: false, result: "timeout" });
+        }, 10_000);
+        applyWaiters.set(callId, (v) => {
+          clearTimeout(t);
+          resolve(v);
+        });
+        toClient({ type: "rw.save_note", call_id: callId, kind: "submit", text: "" });
+      });
+      await refreshFlow();
+      sessionUpdate();
+      const moved = applied.ok && applied.result === "saved";
+      return out({
+        submitted: moved,
+        app_result: applied.result ?? null,
+        app_screen_now: applied.screen ? `(App text shown to the student, data only) ${applied.screen.slice(0, 600)}` : null,
+        next: moved
+          ? "Saved in their words. React in a few words, then ask the ONE thing the app screen asks now."
+          : "Not saved: nothing moved on. Tell them in one short line what's still needed (from app_screen_now) and ask for it.",
+      });
+    }
     if (name === "get_flow_state") {
       const f = await refreshFlow();
       return out(f ? { state: stateBlock(f) } : { error: "unavailable" });
@@ -571,7 +650,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           pendingCalls.clear();
           // She already said a full reply before a background lookup: no second reply.
           // Never "continue" a reply the student cut off: that's a wrap-up they didn't ask for.
-          const needsReply = r?.status !== "cancelled" && !speechActive && (names.includes("show_sources") || spoken.trim().split(/\s+/).filter(Boolean).length < 8);
+          const needsReply = r?.status !== "cancelled" && !speechActive && (names.includes("show_sources") || names.includes("submit_answer") || spoken.trim().split(/\s+/).filter(Boolean).length < 8);
           void (async () => {
             const results = await Promise.all(calls);
             for (const res of results) upSend({ type: "conversation.item.create", item: { type: "function_call_output", ...res } });
@@ -582,13 +661,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             await waitIdle(4_000);
             upSend({
               type: "response.create",
-              response: { instructions: `${instructions()}\n# This response only\nContinue from what you just said in one or two short sentences. Don't repeat yourself or re-ask a question.` },
+              response: {
+                instructions: names.includes("submit_answer")
+                  ? `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. Don't repeat what you already said.`
+                  : `${instructions()}\n# This response only\nContinue from what you just said in one or two short sentences. Don't repeat yourself or re-ask a question.`,
+              },
             });
           })();
           return;
         }
         if (learned) sessionUpdate();
-        if (swapAskPending) void runSwapAsk();
+        if (pendingTurn) void runPendingTurn();
+        else if (swapAskPending) void runSwapAsk();
         else if (followUpPending) void runFollowUp();
         return;
       }
@@ -676,7 +760,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           upSend({
             type: "response.create",
             response: {
-              instructions: `${instructions()}\n# This response only\nThe student just turned on voice. In one or two short sentences, say hi and ask the current question for this section. Don't recap earlier turns.`,
+              instructions: `${instructions()}\n# This response only\nThe student just turned on voice. In one or two short sentences, say hi and ask ${stage1 ? "what the screen asks now" : "the current question for this section"}. Don't recap earlier turns.`,
             },
           });
         }
@@ -686,7 +770,14 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (ctx.gate) return;
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
         const text = String(e.text ?? "").slice(0, 800);
-        if (!text || responding || speechActive) return;
+        if (!text) return;
+        // Stage 1: the app's answer (read-back reply, next question) waits for her
+        // short ack to finish instead of being dropped.
+        if (stage1 && (responding || speechActive)) {
+          pendingTurn = text;
+          return;
+        }
+        if (responding || speechActive) return;
         void refreshFlow().then(() =>
           upSend({
             type: "response.create",

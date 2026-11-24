@@ -33,6 +33,7 @@ import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-
 import type { SpeakItem } from "@/lib/voice/speech";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { LiveTurns } from "@/components/stages/loop/live-turns";
 
 
 /** Typing pause before the intent check starts early. */
@@ -1012,39 +1013,3 @@ export function sectionResume(transcript: LoopLine[], key: string, title: string
   return transcript.some((l) => l.k === key && l.who === "pau" && mark(l.text) === mark(line)) ? [] : [line];
 }
 
-/** Grok Voice turns from this call, shown as normal chat turns (not saved history). */
-function LiveTurns({ rows }: { rows: import("@/components/stages/loop/realtime-voice").LiveTurn[] }) {
-  if (!rows.length) return null;
-  return (
-    <div className="space-y-4" data-rt-live>
-      {rows
-        .filter((r) => !r.saved && (r.text.trim() || r.sources?.length))
-        .map((r) =>
-          r.who === "you" ? (
-            <StudentBubble key={r.id} message={{ text: r.text, files: [], at: 0 }} />
-          ) : (
-            <PauPauGroup
-              key={r.id}
-              bubbles={[
-                r.text,
-                ...(r.sources?.length
-                  ? [
-                      <ul key="src" className="space-y-2" data-rt-sources>
-                        {r.sources.map((l) => (
-                          <li key={l.url}>
-                            <a href={l.url} target="_blank" rel="noopener noreferrer" className={dsLink}>
-                              {l.title}
-                            </a>
-                            {l.why ? <span className="block text-[13px] text-ds-muted">{l.why}</span> : null}
-                          </li>
-                        ))}
-                      </ul>,
-                    ]
-                  : []),
-              ].filter(Boolean)}
-            />
-          ),
-        )}
-    </div>
-  );
-}

@@ -79,8 +79,10 @@ export type RealtimeCall = ReturnType<typeof useRealtimeCall>;
 
 export function useRealtimeCall(opts: {
   paperId: string;
-  saveNote: (text: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
   welcome: () => { welcome: boolean; index: number; text?: string | null };
+  /** 1 on Stage 1 (Intake); Stage 2 otherwise. */
+  stage?: 1 | 2;
 }) {
   const [phase, setPhase] = useState<RtPhase>("off");
   const [muted, setMuted] = useState(false);
@@ -145,8 +147,8 @@ export function useRealtimeCall(opts: {
         },
         echo: (itemId) => setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x))),
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
-        saveNote: async (_id, text, itemId) => {
-          const r = await optsRef.current.saveNote(text);
+        saveNote: async (_id, text, itemId, kind) => {
+          const r = await optsRef.current.saveNote(text, kind);
           // Saved words already show in the chat history as their message.
           if (r.result === "saved" && itemId) setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x)));
           return r;
@@ -163,7 +165,7 @@ export function useRealtimeCall(opts: {
           if (m.bargeMs !== undefined) w2.__rwRt.barge.push(m.bargeMs);
         },
       },
-      { welcome: w.welcome && !welcomed.current, welcomeIndex: w.index, effort, vad, tuning },
+      { welcome: w.welcome && !welcomed.current, welcomeIndex: w.index, effort, vad, tuning, stage: optsRef.current.stage },
     );
     rt.current = voice;
     // The welcome-back line is said once per visit, never again on a restart.
@@ -211,6 +213,7 @@ export function useRealtimeCall(opts: {
     sayTurn: (text: string) => rt.current?.sayTurn(text),
     setScreen: (text: string, choices: string[], followUp = false) => rt.current?.setScreen(text, choices, followUp),
     interrupt: () => rt.current?.interrupt(),
+    clearLive: () => setLive([]),
     level: () => rt.current?.level() ?? 0,
   };
 }

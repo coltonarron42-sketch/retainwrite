@@ -50,6 +50,11 @@ type Props = {
   sheetText?: string;
   /** The welcome-back line on a return (rendered after her latest turn). */
   welcome?: ReactNode;
+  /** Grok Voice: spoken replies go through the same path as typed ones. */
+  sendRef?: { current: ((text: string) => Promise<void>) | null };
+  /** Grok Voice controls in the composer, and this call's live turns. */
+  realtimeSlot?: ReactNode;
+  live?: ReactNode;
 };
 
 export { PauPauAvatar };
@@ -79,6 +84,9 @@ export function PauPauConfirm({
   onTurns,
   sheetText,
   welcome,
+  sendRef,
+  realtimeSlot,
+  live,
 }: Props) {
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
@@ -92,6 +100,14 @@ export function PauPauConfirm({
   useEffect(() => {
     reqRef.current = requirements;
   }, [requirements]);
+
+  useEffect(() => {
+    if (!sendRef) return;
+    sendRef.current = (text: string) => sendReply(text);
+    return () => {
+      sendRef.current = null;
+    };
+  });
 
   const dismissed = useMemo(() => dismissedFromTurns(turns), [turns]);
   const ask = pauPauNextAsk(requirements, dismissed);
@@ -144,10 +160,10 @@ export function PauPauConfirm({
     return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
-  async function sendReply() {
-    const text = draft.replace(/\s+$/, "");
+  async function sendReply(spoken?: string) {
+    const text = (spoken ?? draft).replace(/\s+$/, "");
     if (!text.trim() || replying || confirming) return;
-    setDraft("");
+    if (spoken === undefined) setDraft("");
     // The ask Pau Pau is actually waiting on: only if her last reply ended with it
     // (sources/length are asked once; after that she's asking "does it look right?").
     const lastPau = [...turnsRef.current].reverse().find((t) => t.role === "pau");
@@ -344,6 +360,7 @@ export function PauPauConfirm({
         </button>
       </p>
       {welcome}
+      {live}
       <ScrollToNewest signal={`${turns.length}:${replying}`} />
       <ComposerDock>
         <span id="confirm-reply-label" className="sr-only">
@@ -355,6 +372,7 @@ export function PauPauConfirm({
           value={draft}
           onChange={setDraft}
           onSend={() => void sendReply()}
+          realtimeSlot={realtimeSlot}
           sending={replying || confirming}
           minRows={1}
           placeholder={ask === "topic" ? "What's the paper about?" : "Reply to Pau Pau… “looks good” or what to change"}
