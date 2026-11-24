@@ -1911,6 +1911,7 @@ export function AssignmentIntake({
       q.id === "material_check" &&
       brief?.northstar &&
       catchUpOffer !== q.id &&
+      !(brief?.lostAtStart && brief?.summary) &&
       materialLost(typed) &&
       !/catch me up|summar/i.test(typed)
     ) {
