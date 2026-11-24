@@ -92,3 +92,10 @@ describe("QA run 12:21 AM fixes", () => {
     expect(smartReadingAsk([{ title: "Obscure memo", known: false, offers: [] }])).toMatch(/Can you give me what you have/);
   });
 });
+
+import { pickFrom } from "@/lib/stage1/paper-context";
+describe("pick", () => {
+  it("'I'd pick transformational' picks Transformational leadership", () => {
+    expect(pickFrom("I'd pick transformational because it helps", [{ label: "Transformational leadership", why: "" }, { label: "Servant leadership", why: "" }])).toBe("Transformational leadership");
+  });
+});

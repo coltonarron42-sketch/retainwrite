@@ -430,6 +430,9 @@ export function shortWork(w: string): string {
   const by = t.match(/\bby\s+(?:[A-Z][\w.-]*\s+)*([A-Z][\w-]+)\b/)?.[1] ?? t.match(/\(([A-Z][\w-]+)[,)]/)?.[1];
   const ch = t.match(/\b(?:chapter|ch\.?)\s*(\d+)/i)?.[1];
   if (by && title) return `${by}'s “${title}”`;
+  // "Field Notes on Quiet Persistence by Marisol Tenhagen (course packet, 2019)" → "Tenhagen's “Field Notes on Quiet Persistence”"
+  const bare = t.match(/^([A-Z][^()]{3,70}?)\s+by\s+[A-Z]/)?.[1];
+  if (by && bare && !/\b(chapter|ch\.)/i.test(bare)) return `${by}'s “${bare.trim()}”`;
   if (by && ch) return `${by} Ch. ${ch}`;
   // "Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice)" → "Northouse's Leadership: Theory and Practice, Ch. 4"
   const ab = t.match(/\b([A-Z][\w-]+),\s+([A-Z][^,;()]{3,50}?)(?=[,;()]|$)/);

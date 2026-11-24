@@ -223,7 +223,7 @@ export function pickFrom(answer: string, options: DecisionOption[]): string {
     const words = tok(o.label).filter((x) => x.length > 3);
     if (!words.length) continue;
     const score = words.filter((x) => a.includes(x)).length / words.length;
-    if (score > 0.5 && (!best || score > best.score)) best = { label: o.label, score };
+    if (score >= 0.5 && (!best || score > best.score)) best = { label: o.label, score };
   }
   const m = a.match(/\b(?:option|number|choice)\s*(one|two|three|1|2|3)\b|\bthe (first|second|third) one\b/);
   if (!best && m) {
