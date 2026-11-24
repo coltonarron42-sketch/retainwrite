@@ -552,10 +552,20 @@ export function ChatComposer({
     armSpeech();
     onSend();
   }
+  // QA 10:21 walk C: a message sent while Pau Pau is still replying goes out exactly once,
+  // as soon as she's done (it used to sit in the box and look like a hang).
   useEffect(() => {
     if (!queued) return;
-    if (!sending || (!value.trim() && attachments.length === 0)) setQueued(false);
-  }, [queued, sending, value, attachments.length]);
+    if (!value.trim() && attachments.length === 0) {
+      setQueued(false);
+      return;
+    }
+    if (!sending && !blocked) {
+      setQueued(false);
+      send();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, sending, blocked, value, attachments.length]);
   useEffect(() => {
     sendRef.current = () => {
       if (!valueRef.current.trim()) return;
@@ -754,7 +764,7 @@ export function ChatComposer({
       {queued ? (
         // Floats just above the box, so it never changes the dock's height.
         <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note>
-          Pau Pau is still replying. Your message is still in the box: send it when she&apos;s done.
+          Got it. Your message is still in the box, and it goes out as soon as Pau Pau is done replying.
         </p>
       ) : null}
 

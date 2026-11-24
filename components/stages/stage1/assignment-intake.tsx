@@ -1105,14 +1105,12 @@ export function AssignmentIntake({
       return;
     }
     if (here?.id === want) return;
-    // They answered it and moved on in the same step: the new question is the right one.
-    if (here && answers.some((a) => a.questionId === want)) {
-      curQId.current = here.id;
-      return;
-    }
+    // Only a question that DROPPED out of the plan moves them (a plan that grew, e.g. the
+    // north-star steps arriving ahead of the hobby questions, keeps the index as it was).
     const at = coachingPlan.findIndex((x) => x.id === want);
-    if (at >= 0) {
-      setQIndex(at);
+    if (at >= 0 || (here && answers.some((a) => a.questionId === want))) {
+      if (here) curQId.current = here.id;
+      else if (at >= 0) setQIndex(at);
       return;
     }
     // The question it was on dropped out (already answered by an earlier message): the next open one.
