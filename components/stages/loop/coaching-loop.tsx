@@ -766,9 +766,13 @@ export function CoachingLoop({
         body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) }),
         signal: controller.signal,
       });
-      clearTimeout(timer);
-      if (!res.ok) return null;
+      // The 8 s cap covers reading the body too (a stalled body kept the buttons busy).
+      if (!res.ok) {
+        clearTimeout(timer);
+        return null;
+      }
       const d = (await res.json()) as { paras?: string[] };
+      clearTimeout(timer);
       return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
     } catch {
       return null;
