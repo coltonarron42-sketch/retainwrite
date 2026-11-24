@@ -47,6 +47,6 @@ describe("low priority: cut-off, stale note, late prompt", () => {
     expect(chat).toMatch(/if \(fromVoice\) return "tap_needed";\n\s+restore\(\);/);
   });
   it("a late choice prompt is dropped", () => {
-    expect(relay).toMatch(/speechActive \|\| speechAt > asked0\) return;\n\s+if \(screen\.choices\.join\("\|"\) !== choices0 \|\| Date\.now\(\) - asked0 > 8_000\) return;/);
+    expect(relay).toMatch(/speechActive \|\| speechAt > asked0\) return;\n\s+if \(choicesNow\(\)\.join\("\|"\) !== choices0 \|\| Date\.now\(\) - asked0 > 8_000\) return;/);
   });
 });

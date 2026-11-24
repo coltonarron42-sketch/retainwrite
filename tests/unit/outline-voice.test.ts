@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addSpokenLine, outlineChoiceSaid, splitOutlineControl } from "@/lib/stages/outline-voice";
+import { addSpokenLine, outlineChoiceSaid, splitOutlineControl, stage3ChoicesFor, stage3SectionOf } from "@/lib/stages/outline-voice";
 import { isSaidToCoach } from "@/lib/stage1/voice-turn";
 import { isEcho } from "@/lib/voice/realtime/guard";
 import { buildStage3Instructions } from "@/lib/voice/realtime/persona";
@@ -40,6 +40,15 @@ describe("Stage 3 voice: move-on words and requests", () => {
   it("never saves a request to the coach", () => {
     expect(isSaidToCoach("Just give me one example outline line I can copy. For a different topic, pretend.")).toBe(true);
     expect(isSaidToCoach("Write my whole outline for this section")).toBe(true);
+    expect(isSaidToCoach("Just write me a line.")).toBe(true);
+    expect(isSaidToCoach("Write me a line for my intro.")).toBe(true);
+    expect(isSaidToCoach("Can you give me a topic sentence?")).toBe(true);
+    expect(isSaidToCoach("Okay, give me one line for the body.")).toBe(true);
+  });
+  it("keeps real content that happens to say 'give me' or 'make me'", () => {
+    expect(isSaidToCoach("Give me a reason schools should start later: teens need sleep.")).toBe(false);
+    expect(isSaidToCoach("Teachers always give me a thesis to defend, but this time I picked my own.")).toBe(false);
+    expect(isSaidToCoach("Make me a believer: later starts mean fewer crashes.")).toBe(false);
     expect(isSaidToCoach("My main point is that later start times help teens sleep.")).toBe(false);
   });
   it("her reply repeating their words isn't an echo of them", () => {
@@ -53,5 +62,28 @@ describe("Stage 3 voice: no empty 'just say yes' on a section", () => {
   it("the instructions say yes does nothing on a section", () => {
     const ins = buildStage3Instructions("Section 1 of 3: Introduction.");
     expect(ins).toMatch(/On a section, "yes" does nothing: never say "or just say yes" there/);
+  });
+});
+
+describe("Stage 3 voice: wording", () => {
+  const ins = buildStage3Instructions("Section 1 of 3: Introduction.");
+  it("never claims to lock a section", () => {
+    expect(ins).toMatch(/Never say "locking it in", "locked"/);
+  });
+  it("never asks them to repeat a line that's already in the box", () => {
+    expect(ins).toMatch(/already in the box, word for word: never ask them to say it again/);
+  });
+});
+
+describe("Stage 3 voice: Keep my notes only while the notes are untouched", () => {
+  it("drops Keep my notes / Skip once their own lines are in the box", () => {
+    expect(stage3ChoicesFor(["Keep my notes"], false)).toEqual(["Keep my notes"]);
+    expect(stage3ChoicesFor(["Keep my notes"], true)).toEqual([]);
+    expect(stage3ChoicesFor(["Skip for now"], true)).toEqual([]);
+    expect(stage3ChoicesFor(["Continue to sources"], true)).toEqual(["Continue to sources"]);
+  });
+  it("knows which section the screen is on", () => {
+    expect(stage3SectionOf("Section 2 of 3: Body. Let's shape your body.")).toBe("Section 2 of 3");
+    expect(stage3SectionOf("That's every section outlined. Ready to move on to sources?")).toBe("");
   });
 });

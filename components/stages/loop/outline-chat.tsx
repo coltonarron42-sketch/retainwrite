@@ -189,6 +189,9 @@ export function OutlineChat(props: Props) {
     }),
   });
   const choice = current ? (notes ? "Keep my notes" : "Skip for now") : "Continue to sources";
+  // Their own lines (typed or spoken) are in the box: Keep my notes / Skip would replace them, so Pau Pau isn't told to offer it.
+  const ownLines = Boolean(current && text.trim() && text.trim() !== notes.trim());
+  const rtChoices = current && ownLines ? [] : [choice];
   const screenText = [
     current ? `Section ${index + 1} of ${sections.length}: ${current.title}.` : null,
     ...turnParas,
@@ -250,17 +253,22 @@ export function OutlineChat(props: Props) {
     }
     if (rtSeen.current === null || rtSeen.current === rtKey) {
       rtSeen.current = rtKey;
-      rt.setScreen(screenText, [choice]);
+      rt.setScreen(screenText, rtChoices);
       return;
     }
     rtSeen.current = rtKey;
     rt.clearLive();
-    rt.setScreen(screenText, [choice]);
+    rt.setScreen(screenText, rtChoices);
     // Her own submit_answer already carries the next step.
     if (Date.now() < submitBusy.current) return;
     rt.sayTurn(screenText);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtKey, rt.on]);
+  // Typing (or speaking) their own lines takes Keep my notes off what Pau Pau offers.
+  useEffect(() => {
+    if (rt.on && rtSeen.current === rtKey) rt.setScreen(screenText, rtChoices);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when it flips
+  }, [ownLines]);
 
   const speak: SpeakItem[] = rtMode ? [] : [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
 
