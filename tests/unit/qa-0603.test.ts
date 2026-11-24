@@ -158,10 +158,10 @@ describe("3. decision", () => {
     expect(intake).toContain('id: "decision_why"');
   });
   it("Stage 2 carries the actual decision and reason, never idk", () => {
-    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toMatch(/^Earlier you picked Transformational leadership: “I'd pick/);
+    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked Transformational leadership, because it helps a team buy into change.");
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "idk", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "I read both", at: 1 })).toBeNull();
-    expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toMatch(/^Earlier you said:/);
+    expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toMatch(/^Earlier you told me transformational, because Nadella/);
   });
   it("Stage 2 'just tell me some options' reuses the Stage 1 options as chips", () => {
     expect(isOptionsRequest("just tell me some options")).toBe(true);
@@ -204,7 +204,7 @@ describe("4. gate and checklist", () => {
   it("prepared students skip the hobby and APA-comfort detour; server gates stay", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).toMatch(/!skippedInterest && !prepared/);
-    expect(intake).toMatch(/!prepared \|\| has\("bg_comfort"\)/);
+    expect(intake).toMatch(/\(!prepared && !getToKnowOff\) \|\| has\("bg_comfort"\)/);
     expect(readFileSync("app/api/papers/[paperId]/intake/complete/route.ts", "utf8")).toMatch(/25/);
   });
 });
@@ -246,6 +246,6 @@ describe("preview walk follow-ups", () => {
     const grid = [{ label: "Team Management (9,9)", why: "" }, { label: "Authority-Compliance (9,1)", why: "" }];
     expect(pickFrom("I'd pick transformational because it helps a team get through change", grid)).toBe("their own");
     expect(pickFrom("Team management, because it balances task and people", grid)).toBe("Team Management (9,9)");
-    expect(stage2Earlier({ question: "q", pick: "Team Management (9,9)", answer: "I'd pick transformational because it helps a team get through change", at: 1 })).toMatch(/^Earlier you said:/);
+    expect(stage2Earlier({ question: "q", pick: "Team Management (9,9)", answer: "I'd pick transformational because it helps a team get through change", at: 1 })).toBe("Earlier you told me you'd pick transformational because it helps a team get through change.");
   });
 });
