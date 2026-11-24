@@ -126,3 +126,11 @@ describe("QA 3:51 Myers path and nits", () => {
     expect(intake).toContain("if (wordCount(t) < 15 || !CAUSAL_LINK.test(t)) return null;");
   });
 });
+
+describe("QA 3:51 React #185", () => {
+  it("the reading bubble's clock starts once; a new startedAt each render never restarts it", () => {
+    const bubbles = readFileSync("components/stages/stage1/chat-bubbles.tsx", "utf8");
+    expect(bubbles).toContain("const [since] = useState(startedAt);");
+    expect(bubbles).toContain("const seconds = useElapsed(since);");
+  });
+});

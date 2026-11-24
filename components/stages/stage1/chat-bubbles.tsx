@@ -244,7 +244,10 @@ function useElapsed(startedAt: number): number {
 
 /** Pau Pau is reading: three quiet dots (still under reduced motion) plus the status line. */
 export function ReadingBubble({ status, startedAt }: { status: string; startedAt: number }) {
-  const seconds = useElapsed(startedAt);
+  // QA 3:51 (React #185): callers pass Date.now() on every render. The clock starts once, when the
+  // bubble appears; a new prop each render must never restart it (that re-render chain dropped keystrokes).
+  const [since] = useState(startedAt);
+  const seconds = useElapsed(since);
   return (
     <div className="flex items-start gap-2 sm:gap-3" role="status">
       <PauPauAvatar />
