@@ -54,7 +54,7 @@ describe("1. prepared student stance (walk C)", () => {
     expect(intake).toContain("parseStance(text, bNow?.options?.options ?? [], people)");
     expect(intake).toContain('slot: "leader", named: said.leader');
     // No second "Which direction…?" after the decision on north-star papers.
-    expect(intake).toContain("!(brief?.northstar && brief.decision)");
+    expect(intake).toContain("!(brief.northstar && brief.decision)");
   });
   it("a stance said before the confirm is saved too", () => {
     const confirm = src("components/stages/stage1/pau-pau-confirm.tsx");
@@ -191,7 +191,7 @@ describe("7. polish", () => {
   it("Stage 2 paraphrases the decision", () => {
     expect(toSecondPerson("I think my team")).toBe("you think your team");
     expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because I think it helps my team buy into change", at: 1 }, { question: "q", pick: "Satya Nadella", answer: "x", at: 1 })).toBe(
-      "Earlier you picked Transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change.",
+      "Earlier you picked Transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change. That's a solid reason to build on.",
     );
   });
   it("an argument essay isn't labeled Lesson", () => {

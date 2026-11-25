@@ -44,7 +44,7 @@ describe("Stage 1 is one chat thread", () => {
     expect(intake).toContain("Skip the get-to-know-you questions");
     expect(intake).toContain("Cancel edit");
     expect(intake).toContain('<span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>');
-    expect(moreWordsNote(12, 25, "Your early take")).toMatch(/^Give me a little more — a couple more sentences\?/);
+    expect(moreWordsNote(12, 25, "Your early take")).toMatch(/^Give me a little more\. /);
   });
 
   it("every question has a placeholder in Pau's voice; the voice sample is mentioned once", () => {

@@ -1,3 +1,4 @@
+import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * QA 11:40 (preview retest): typed read-question replies, vague-pick escalation,
  * confusion, and no references to material the student hasn't read.
@@ -33,8 +34,15 @@ export function isFillerSaying(text: string): boolean {
   const t = raw.replace(/[.!?,\s]+$/, "");
   if (!t) return true;
   if (AMBIG.test(t) || YES.test(t) || NO.test(t)) return false;
-  return FILLER.test(t) || /^(?:([a-z])\1{2,}|[a-z]{1,2})$/i.test(t);
+  if (FILLER.test(t) || /^(?:([a-z])\1{2,}|[a-z]{1,2})$/i.test(t) || EMPTY_REASON.test(t)) return true;
+  // QA 11:08: "second quick message" (any run of filler phrases and nothing else) is filler too.
+  let rest = t;
+  for (let i = 0; i < 6 && FILLER_LEAD.test(rest); i++) rest = rest.replace(FILLER_LEAD, "").trim();
+  return rest !== t && !rest;
 }
+/** QA 11:08: a reason with nothing in it ("because it's good") is a non-answer, never part of the take. */
+const EMPTY_REASON = /^(?:(?:because|cuz|cause|bc)\s+)?(?:it'?s|its|it is|that'?s|thats)\s+(?:good|better|nice|cool|fine|great|right|ok(?:ay)?|the best)$/i;
+const EMPTY_REASON_LEAD = /^(?:because|cuz|bc)\s+(?:it'?s|its|it is)\s+(?:good|better|nice|cool|fine|great)[.!?,;:\s-]+(?=[A-Z])/;
 
 const FILLER_LEAD = /^(?:(?:just\s+)?(?:a\s+|another\s+)?(?:(?:first|second|third|fourth|another|quick|test|random|short|little)\s+)+(?:message|msg|reply|note|post|one|try)|test(?:ing)?(?:\s+(?:test(?:ing)?|1|123))*)\b[.!?,;:\s-]*/i;
 /**
@@ -46,7 +54,7 @@ export function withoutFiller(text: string): string {
     .split(/\n+/)
     .map((line) => {
       let t = line.trim();
-      for (let i = 0; i < 6 && FILLER_LEAD.test(t); i++) t = t.replace(FILLER_LEAD, "").trim();
+      for (let i = 0; i < 6 && (FILLER_LEAD.test(t) || EMPTY_REASON_LEAD.test(t)); i++) t = t.replace(FILLER_LEAD, "").trim().replace(EMPTY_REASON_LEAD, "").trim();
       return t;
     })
     .filter((line) => line && !isFillerSaying(line));
@@ -155,12 +163,15 @@ export function pickEscalation(input: {
       : `Another way to look at it:`;
   const lines = opts.map((o) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`);
   const recLine = `A lot of students in your spot start with ${rec.label} because it's the easiest one to show with one real example${rec.why ? ` (${plain(rec.why)})` : ""}.`;
-  const ask = `Want to start with ${rec.label}? Say yes or no, and a few words on why.${offerCatchUp ? " Or I can catch you up on the reading first." : ""}`;
+  // QA 11:08: one ask per turn (the catch-up stays a button, not a second question).
+  const ask = `Want to start with ${rec.label}? Say yes or no, and a few words on why.`;
   const ppl = (input.people ?? []).filter((p) => p.label !== rec.label).slice(0, 3);
   const exLine = input.kind !== "leader" && ppl.length
     ? `Leaders people often write about here: ${ppl.map((p) => `${p.label}${p.why ? ` (${plain(input.unread ? scrubUnreadRefs(p.why) : p.why)})` : ""}`).join("; ")}.`
     : null;
-  let paras = [intro, ...lines, ...(exLine && step <= 1 ? [exLine] : []), `${recLine} ${ask}`];
+  // QA 11:08: short: the options and one ask. Example leaders only when they're confused and
+  // being taught (Colton 12:08), never on a plain "make this easier".
+  let paras = [intro, ...lines, ...(exLine && step <= 1 && input.confused ? [exLine] : []), `${recLine} ${ask}`];
   if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...lines, `${recLine} ${ask}`];
   return { paras, recommend: rec, offerCatchUp };
 }
@@ -182,7 +193,7 @@ export function namedPerson(text: string): string | null {
     if (NOT_NAME.test(m[1]!) || NOT_NAME.test(m[2]!)) continue;
     return [m[1], m[2], m[3]].filter(Boolean).join(" ");
   }
-  return null;
+  return singleNamedLeader(text);
 }
 
 const IDEA_CUE =
@@ -219,8 +230,14 @@ export function stylesIn(text: string): string[] {
       if (x.length > 3 && !STYLE_STOP.test(x) && !out.includes(x)) out.push(x);
     }
   }
+  // QA 11:08 (Walton): a style named on its own ("I'd pick Servant because…") counts too.
+  for (const m of text.matchAll(KNOWN_STYLE)) {
+    const x = m[1]!.toLowerCase();
+    if (!out.includes(x)) out.push(x);
+  }
   return out;
 }
+const KNOWN_STYLE = /\b(transformational|transactional|servant|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting)\b(?!\s+(?:leadership|styles?)\b)/gi;
 
 const listJoin = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 

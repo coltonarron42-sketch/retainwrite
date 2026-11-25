@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inputHash, projectSkeleton, ruleShape, type SkeletonView } from "@/lib/skeleton/shape";
 
 /**
@@ -20,10 +20,13 @@ export function useSkeleton(
   },
 ): SkeletonView | null {
   const [view, setView] = useState<SkeletonView | null>(null);
+  const [poll, setPoll] = useState(0);
   const lastOutline = useRef<string>("");
   const fallbackRef = useRef(opts.fallbackText);
   const outlineKey = opts.outline && opts.outline.bodyNotes.some((n) => n.trim()) ? inputHash(JSON.stringify(opts.outline)) : "";
   const outlineRef = useRef(opts.outline);
+  // Round 4 #1: while ghost #1 (the real shape) is being made, keep asking; give up after a minute.
+  const buildingSince = useRef<number | null>(null);
   useEffect(() => {
     fallbackRef.current = opts.fallbackText;
     outlineRef.current = opts.outline;
@@ -32,33 +35,45 @@ export function useSkeleton(
   useEffect(() => {
     if (!opts.enabled) return;
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const post = Boolean(outlineKey) && outlineKey !== lastOutline.current;
     if (post) lastOutline.current = outlineKey;
+    const rules = () => {
+      const text = fallbackRef.current.trim();
+      return text ? projectSkeleton(ruleShape({ text }), null) : null;
+    };
     void fetch(`/api/papers/${paperId}/skeleton`, post
       ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(outlineRef.current) }
-      : { method: "GET" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ view: SkeletonView | null; reason?: string }>) : null))
+      : { method: "GET", cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ view: SkeletonView | null; reason?: string; building?: boolean }>) : null))
       .then((data) => {
         if (!live) return;
-        if (data?.view) setView(data.view);
-        else {
-          const text = fallbackRef.current.trim();
-          if (text) setView(projectSkeleton(ruleShape({ text }), null));
+        // Demo mode (no account): the rule shape is the skeleton there.
+        if (data?.reason === "demo") {
+          setView(rules());
+          return;
         }
+        const building = Boolean(data?.building) || data?.reason === "not_ready" || (!data?.view && data?.reason !== "error");
+        if (building) {
+          buildingSince.current ??= Date.now();
+          if (Date.now() - buildingSince.current < 60_000) {
+            // Never the generic template as if it were the real one: "Building…" until it's in.
+            timer = setTimeout(() => setPoll((n) => n + 1), 2000);
+            return;
+          }
+        }
+        buildingSince.current = null;
+        setView(data?.view ?? rules());
       })
       .catch(() => {
-        const text = fallbackRef.current.trim();
-        if (live && text) setView((v) => v ?? projectSkeleton(ruleShape({ text }), null));
+        if (!live) return;
+        timer = setTimeout(() => setPoll((n) => n + 1), 3000);
       });
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [paperId, opts.enabled, opts.refreshKey, outlineKey]);
+  }, [paperId, opts.enabled, opts.refreshKey, outlineKey, poll]);
 
-  // QA 3:26 AM #3: the rules shape from the assignment shows at once, never a "shows up once" note.
-  const rules = useMemo(() => {
-    const text = opts.fallbackText.trim();
-    return opts.enabled && text ? projectSkeleton(ruleShape({ text }), null) : null;
-  }, [opts.enabled, opts.fallbackText]);
-  return view ?? rules;
+  return opts.enabled ? view : null;
 }

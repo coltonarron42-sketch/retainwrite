@@ -18,7 +18,7 @@ export const runtime = "nodejs";
  * // SOP: coaching only, never generate submission text
  */
 const bodySchema = z.object({
-  mode: z.enum(["answer", "lost", "vague"]),
+  mode: z.enum(["answer", "lost", "vague", "interview"]),
   message: z.string().min(1).max(2000),
   stage: z.number().int().min(1).max(3),
   section: z.string().max(200).optional(),

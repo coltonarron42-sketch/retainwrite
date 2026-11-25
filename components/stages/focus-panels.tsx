@@ -239,9 +239,15 @@ export function SkeletonPanel({
       ) : null}
       {!view ? (
         <p className="text-[15px] leading-[1.6] text-ds-muted" role="status">
-          {waiting ?? "Share your assignment and I'll sketch your skeleton right away."}
+          {waiting ?? "Building your skeleton…"}
         </p>
       ) : (
+        <>
+        {view.source === "rules" ? (
+          <p className="mb-3 text-[13px] leading-[1.6] text-ds-muted" data-skeleton-basic>
+            A basic outline from your assignment&apos;s wording for now. It gets sharper as we go.
+          </p>
+        ) : null}
         <ol className="space-y-2">
           {view.blocks.map((b) => {
             const w = words[b.group];
@@ -292,6 +298,7 @@ export function SkeletonPanel({
             );
           })}
         </ol>
+        </>
       )}
     </Overlay>
   );

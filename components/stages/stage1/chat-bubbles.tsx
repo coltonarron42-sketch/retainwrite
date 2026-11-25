@@ -45,11 +45,11 @@ export function PauPauBubble({
   const Tag = as;
   const speaking = useBubbleSpeaking(plainText([children].flat()));
   return (
-    <div className={cn("flex items-start gap-2 sm:gap-3", className)}>
+    <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-chat-line="pau">
       <PauPauAvatar alive={speaking} />
       <div className="min-w-0 flex-1">
         {showName ? (
-          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted" data-chat-name>
             {COACH_NAME} <span className="font-normal normal-case tracking-normal">· {label}</span>
           </p>
         ) : null}
@@ -100,11 +100,11 @@ export function PauPauGroup({
     .map(({ b, i }) => ({ b: typeof b === "string" ? tidyPunct(b) : b, i }));
   const speaking = useBubbleSpeaking(plainText(shown.map(({ b }) => b)));
   return (
-    <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn>
+    <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn data-chat-line="pau">
       <PauPauAvatar alive={speaking} />
       <div className="min-w-0 flex-1">
         {showName ? (
-          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted">
+          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted" data-chat-name>
             {COACH_NAME} <span className="font-normal normal-case tracking-normal">· {label}</span>
           </p>
         ) : null}
@@ -138,7 +138,7 @@ export type SentMessage = { text: string; files: SentAttachment[]; at: number };
 export function StudentBubble({ message }: { message: SentMessage }) {
   return (
     <div className="flex justify-end">
-      <div className={STUDENT} data-student-turn>
+      <div className={STUDENT} data-student-turn data-chat-line="you" data-chat-text={message.text || message.files.map((f) => f.name).join(", ")}>
         <p className="sr-only">You sent:</p>
         {message.files.length ? (
           <ul className="flex flex-wrap justify-end gap-2" aria-label="Attached files">
@@ -168,12 +168,15 @@ export function StudentBubble({ message }: { message: SentMessage }) {
  */
 export function EchoBubble({
   text,
+  chatText,
   onEdit,
   editLabel,
   editing = false,
   muted = false,
 }: {
   text: string;
+  /** What Past chat records for this bubble when it differs from what's drawn (earlier sends shown with it were recorded already). */
+  chatText?: string;
   onEdit?: () => void;
   /** Screen-reader name for the edit action, e.g. "Edit your answer: What topics…". */
   editLabel?: string;
@@ -194,7 +197,7 @@ export function EchoBubble({
     </>
   );
   return (
-    <div className="flex flex-col items-end">
+    <div className="flex flex-col items-end" data-chat-line="you" data-chat-text={chatText ?? text}>
       {onEdit && !editing ? (
         <button
           type="button"
@@ -421,7 +424,7 @@ export function PickedChip({
   const cls =
     "inline-flex min-h-[48px] max-w-[85%] items-center whitespace-nowrap rounded-full border border-ds-border bg-ds-surface px-4 py-2 text-left text-[14px] leading-[1.4]";
   return (
-    <div className="flex justify-end" data-picked-chip>
+    <div className="flex justify-end" data-picked-chip data-chat-line="pick" data-chat-text={fullText}>
       {onEdit ? (
         <button type="button" onClick={onEdit} aria-label={`${editLabel ?? "Change"}: picked ${fullText}`} className={cn("ds-focus transition-colors duration-150 hover:brightness-[0.97]", cls)}>
           {body}

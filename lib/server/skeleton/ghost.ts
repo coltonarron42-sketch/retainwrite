@@ -16,6 +16,7 @@ import {
   projectSkeleton,
   ruleOutline,
   ruleShape,
+  wordsTarget,
   SHAPE_SYSTEM,
   shapeFromModel,
   type OutlineFacts,
@@ -210,4 +211,23 @@ export function shapeDecisionsBlock(shape: PaperShape | null): string {
   const body = shape.blocks.filter((b) => b.group === "body").length;
   const d = shape.decisions.length ? ` Decisions still needed from the student: ${shape.decisions.join(" ")}` : "";
   return `Paper shape: ${body} body paragraphs (${shape.blocks.filter((b) => b.group === "body").map((b) => b.sub).join("; ")}).${d}`;
+}
+
+type ShapeReq = { length?: { value?: { wordsMin?: number; wordsMax?: number; pagesMin?: number; pagesMax?: number } | null } | null; promptQuestion?: { value?: string | null } | null; topic?: { value?: string | null } | null };
+/** The one input ghost #1 is made from (the skeleton GET hashes the same text, so an early start is reused). */
+export function shapeInput(rawText: string | null | undefined, requirements: unknown): { text: string; words: number | null } {
+  const req = (requirements ?? {}) as ShapeReq;
+  const text = [rawText ?? "", req.promptQuestion?.value ?? "", req.topic?.value ?? ""].filter(Boolean).join("\n");
+  return { text, words: wordsTarget({ ...(req.length?.value ?? {}), text }) };
+}
+
+/** Round 4 #1: start ghost #1 (shape only) early: when the assignment is read, and again at confirm. */
+export async function kickShape(paperId: string, userId: string, rawText: string | null | undefined, requirements: unknown): Promise<void> {
+  try {
+    const { text, words } = shapeInput(rawText, requirements);
+    if (!text.trim()) return;
+    await ensureShape({ paperId, userId, assignmentText: text, words, material: "", existing: await readGhost(paperId) });
+  } catch {
+    /* the skeleton GET retries */
+  }
 }
