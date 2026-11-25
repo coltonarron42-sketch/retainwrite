@@ -203,7 +203,7 @@ describe("PC-31 grounding gate (side answers)", () => {
   it("labels an unlabeled claim about a reading we don't have", () => {
     const g = groundParas(["Northouse describes servant leadership as putting followers first.", "Want to go with that?"], { source, unreadRefs });
     expect(g.labeled).toBe(1);
-    expect(g.paras[0]).toMatch(/^General background, not from your copy: Northouse/);
+    expect(g.paras[0]).toMatch(/^I don't have your copy, so here's the general idea: Northouse/);
     expect(g.paras[1]).toBe("Want to go with that?");
   });
   it("leaves labeled lines, and lines once we have the text, alone", () => {

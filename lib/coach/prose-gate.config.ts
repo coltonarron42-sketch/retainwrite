@@ -82,9 +82,9 @@ export const GROUNDING = {
   /** A requirement count is kept only when that number appears in the assignment/paper context. */
   countNouns: "body paragraphs?|paragraphs?|sections?|sources?|references?|citations?|pages?|quotes?|examples?",
   /** Lines that already carry the R2 label. */
-  label: /general background|my own (?:general )?knowledge|from what i know|not from your (?:copy|pages|reading|textbook)|in general terms/i,
+  label: /general background|general idea|generally covers|my own (?:general )?knowledge|from what i know|not from your (?:copy|pages|reading|textbook)|(?:don't|do not) have your (?:copy|pages|chapter|reading)|couldn't find your|from the publisher|publisher's (?:page|description)|in general terms/i,
   /** What she prepends to an unlabeled claim about a reading we don't have the text of. */
-  prefix: "General background, not from your copy:",
+  prefix: "I don't have your copy, so here's the general idea:",
   /** Verbs that make a line a claim about what a reading says. */
   claimVerbs: /\b(?:argues?|says?|defines?|describes?|explains?|focus(?:es)?|covers?|notes?|puts?|outlines?|treats?|centers?|presents?|claims?|lists?|introduces?|discusses?|highlights?|emphasi[sz]es|names?|calls?|shows?|points? to|positions?|surveys?|stresses?)\b/i,
   /** Capitalized words in reading titles that aren't author names. */

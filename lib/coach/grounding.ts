@@ -3,7 +3,7 @@
  * 1. A requirement count ("needs six body paragraphs") that the assignment doesn't state is replaced with
  *    an honest line that the assignment doesn't set one.
  * 2. A claim about what a named reading says, when we don't have that reading's text, gets the R2 label
- *    ("General background, not from your copy:") unless the line already carries one.
+ *    ("I don't have your copy, so here's the general idea:") unless the line already carries one.
  * Tunables: GROUNDING in prose-gate.config.ts.
  * // SOP: coaching only, never generate submission text
  */

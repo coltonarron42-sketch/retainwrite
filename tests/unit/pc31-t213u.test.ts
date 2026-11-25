@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { _clearResearchCache, getCachedResearch, normalizeQuery, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
+import { searchingLine, readingLine, statusFromEvent, STATUS_ROTATION, WRITING_LINE } from "@/lib/coach/thinking-status";
+import { dropBlocked, isBlockedSource, unreadReadingNames, UPLOAD_INVITE, withUploadInvite } from "@/lib/coach/reading-sources";
+import { ndjsonLines, statusKindFor } from "@/lib/coach/pau-stream-client";
+import { groundParas } from "@/lib/coach/grounding";
+import { asideSpoken } from "@/lib/stage1/voice-turn";
+import { PAU_TEXT_MODES } from "@/lib/coach/pau-prompt";
+
+describe("t213u #1: dev/test search cache", () => {
+  it("is never on in production, on for preview/dev, off with PAU_SEARCH_CACHE=0", () => {
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "production" })).toBe(false);
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "production", PAU_SEARCH_CACHE: "1" })).toBe(false);
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview" })).toBe(true);
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview", PAU_SEARCH_CACHE: "0" })).toBe(false);
+    expect(searchCacheOn({ NODE_ENV: "test" })).toBe(true);
+    expect(searchCacheOn({ NODE_ENV: "production" })).toBe(false);
+  });
+  it("keys on the normalized query plus paper context", () => {
+    const base = { message: "Find me examples of servant leadership in business!", mode: "research", stage: 1, context: "ctx A" };
+    expect(normalizeQuery("Find me  examples, of SERVANT leadership?")).toBe("find me examples of servant leadership");
+    expect(researchCacheKey(base)).toBe(researchCacheKey({ ...base, message: "find me examples of servant leadership in business" }));
+    expect(researchCacheKey(base)).not.toBe(researchCacheKey({ ...base, context: "ctx B" }));
+    expect(researchCacheKey(base)).not.toBe(researchCacheKey({ ...base, mode: "reading" }));
+  });
+  it("round-trips in memory", async () => {
+    _clearResearchCache();
+    const k = researchCacheKey({ message: "x y z", mode: "research", stage: 2, context: "c" });
+    expect(await getCachedResearch(k)).toBeNull();
+    await putCachedResearch(k, { text: "• a", sources: [{ title: "t", url: "https://a.com" }], searches: 2 });
+    expect((await getCachedResearch(k))?.text).toBe("• a");
+  });
+  it("the route uses it only for search turns, with a dev-only bypass", () => {
+    const route = readFileSync("app/api/papers/[paperId]/coach/answer/route.ts", "utf8");
+    expect(route).toContain("searchCacheOn()");
+    expect(route).toMatch(/fresh: z\.boolean\(\)\.optional\(\)/);
+  });
+});
+
+describe("t213u #3: live thinking status", () => {
+  it("turns real steps into short lines", () => {
+    expect(searchingLine('servant leadership examples site:hbr.org "business"')).toBe("Searching for servant leadership examples business…");
+    expect(readingLine("https://www.strategypunk.com/top")).toBe("Reading strategypunk.com…");
+    const seen = { writing: false, hosts: new Set<string>() };
+    expect(statusFromEvent({ type: "response.output_item.added", item: { type: "web_search_call", action: { query: "servant leadership in business" } } }, seen)).toEqual(["Searching for servant leadership in business…"]);
+    expect(statusFromEvent({ type: "response.output_text.annotation.added", annotation: { type: "url_citation", url: "https://online.ben.edu/x" } }, seen)).toEqual(["Reading online.ben.edu…"]);
+    expect(statusFromEvent({ type: "response.output_text.annotation.added", annotation: { type: "url_citation", url: "https://online.ben.edu/y" } }, seen)).toEqual([]);
+    expect(statusFromEvent({ type: "response.output_text.delta", delta: "•" }, seen)).toEqual([WRITING_LINE]);
+    expect(statusFromEvent({ type: "response.output_text.delta", delta: "x" }, seen)).toEqual([]);
+  });
+  it("never shows her reasoning or a pirate site", () => {
+    expect(statusFromEvent({ type: "response.reasoning_summary_text.delta", delta: "I should search…" })).toEqual([]);
+    expect(readingLine("https://www.scribd.com/doc/1")).toBeNull();
+  });
+  it("rotation lines are short and in her voice", () => {
+    for (const lines of Object.values(STATUS_ROTATION)) for (const l of lines) expect(l.length).toBeLessThan(40);
+    expect(statusKindFor("research")).toBe("research");
+    expect(statusKindFor("story")).toBe("think");
+  });
+  it("parses NDJSON with a partial tail", () => {
+    const r = ndjsonLines('{"type":"status","text":"Searching…"}\n{"type":"tick"}\n{"type":"do');
+    expect(r.lines).toHaveLength(2);
+    expect(r.rest).toBe('{"type":"do');
+  });
+});
+
+describe("t213u #4: unread readings", () => {
+  it("blocks pirated hosts and bullets citing them", () => {
+    expect(isBlockedSource("https://dokumen.pub/leadership-theory.pdf")).toBe(true);
+    expect(isBlockedSource("https://us.sagepub.com/en-us/nam/leadership/book")).toBe(false);
+    const d = dropBlocked([{ title: "", url: "https://www.pdfdrive.com/x" }, { title: "", url: "https://hbr.org/2004/01/what-makes-a-leader" }], ["• From pdfdrive.com: chapter text", "• From hbr.org: EI matters"]);
+    expect(d.sources.map((s) => s.url)).toEqual(["https://hbr.org/2004/01/what-makes-a-leader"]);
+    expect(d.paras).toEqual(["• From hbr.org: EI matters"]);
+  });
+  it("always invites their own copy, before the closing question", () => {
+    expect(withUploadInvite(["• a", "Which fits?"])).toEqual(["• a", UPLOAD_INVITE, "Which fits?"]);
+    expect(withUploadInvite(["Upload your PDF and I'll use it.", "Which?"])).toHaveLength(2);
+  });
+  it("finds the unread readings from the paper context", () => {
+    const u = unreadReadingNames({ block: "Readings: Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice); HBR article by Daniel Goleman", readings: [] });
+    expect(u.tokens).toEqual(expect.arrayContaining(["Northouse", "Goleman"]));
+    const had = unreadReadingNames({ block: "", missing: ["Goleman, What Makes a Leader?"], readings: [{ title: "Goleman What Makes a Leader", text: "full text" }] });
+    expect(had.titles).toHaveLength(0);
+  });
+  it("the reading prompt looks for the reading first and labels topic answers naturally", () => {
+    expect(PAU_TEXT_MODES.reading).toMatch(/publisher's page/);
+    expect(PAU_TEXT_MODES.reading).toMatch(/Never use or cite pirated copies/);
+    expect(PAU_TEXT_MODES.reading).toMatch(/not from your copy/);
+  });
+});
+
+describe("#69 side-answer route: grounding + one speech path", () => {
+  it("'five body paragraphs' the assignment never set is replaced", () => {
+    const g = groundParas(["Your essay should have five body paragraphs, one per idea."], { source: "1,200-1,500 words, one real leader, APA 7", unreadRefs: [] });
+    expect(g.paras[0]).toMatch(/doesn't set a number of body paragraphs/);
+  });
+  it("voice reads the side answer, not its Sources line", () => {
+    const s = asideSpoken(["• Kelleher put staff first.", "Sources: strategypunk.com · hbr.org", "Okay, back to my question."]);
+    expect(s).not.toMatch(/Sources|strategypunk/);
+  });
+  it("Stage 1 asides are spoken only by #69's AsideVoice (no second signed say)", () => {
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(intake).not.toMatch(/rt\.sayAnswer\(/);
+    expect(intake).toMatch(/asideSpoken\(lastAside\.paras\)/);
+  });
+});
