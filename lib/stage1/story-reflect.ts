@@ -5,6 +5,7 @@
  * // SOP: coaching only, never generate submission text
  */
 import { namedPerson, stylesIn } from "@/lib/stage1/north-turns";
+import { yesWithMore } from "@/lib/stage1/lock-in";
 
 export type StoryReflect = { style: string; who: string; named: boolean; actions: string[]; tentative: boolean };
 
@@ -189,6 +190,8 @@ export function proposalReply(text: string): "yes" | "no" | "interview" | "summa
   if (/\b(interview(?:ing)? me|interview\b|you said you'?d interview|ask me (?:some |a few )?questions|one (?:question )?at a time|dig deeper)\b/i.test(t)) return "interview";
   if (/\b(summar\w*|catch me up|haven'?t (?:really )?read|didn'?t read|not read (?:it|them)|what do the readings say|key ideas)\b/i.test(t)) return "summary";
   // A yes is short ("Yes", "Okay, let's do it"); a long message that opens with "Okay, so…" is a story, not a yes.
+  // QA full prod walk (8979326a): "Yes, run with it! Although I also think the transformational side matters…" is a yes, with more.
+  if (n > 8 && yesWithMore(t) !== null) return "yes";
   if ((n <= 8 && /^\s*(yes|yeah|yep|yup|sure|ok(?:ay)?|sounds good|let'?s do (?:it|that)|let'?s go|run with it|that works|perfect|great|do it)\b/i.test(t)) || (n <= 12 && /\brun with it\b/i.test(t))) return "yes";
   if (n <= 10 && /^\s*(no|nope|nah|not quite|not really)\b/i.test(t)) return "no";
   if (/\b(i don'?t (?:get|understand)|no idea what|(?:doesn'?t|does not|don'?t) (?:seem to )?make (?:any )?sense|confus\w*|what do you mean|build on (?:my|the|this)(?: \w+)? story|use my story|connect it|how (?:it|they|these) relate)\b/i.test(t)) return "confused";
