@@ -52,6 +52,13 @@ export function relate(old: string, next: string): { grow: boolean; k: number; s
   return { grow: false, k };
 }
 
+const flat = (t: string) => pkey(t).replace(/\s+/g, " ").trim();
+/** next is old's closing words (old had a lead-in before them). */
+export function isTail(old: string, next: string): boolean {
+  const o = flat(old), n = flat(next);
+  return n.length >= 20 && o.length > n.length && o.endsWith(n);
+}
+
 /** Text that is still typing in (or a flash replaced within this long) stays the same line. */
 const SETTLE_MS = 1200;
 /** A bubble swapped for an identical one this quickly is a re-render, not a new turn. */
@@ -139,7 +146,9 @@ export function foldLines(
       (last && last.who === s.who && same(last) && gone(last) ? last : undefined) ??
       recs.find((r) => r.who === s.who && same(r) && gone(r) && (r.gone === undefined || recent(r))) ??
       // Swapped for a fresh bubble that also moved on a little (a checklist ticked as it remounted): still that turn.
-      [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.skip && relate(r.text, s.text).grow);
+      [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.skip && relate(r.text, s.text).grow) ??
+      // QA 11:26: redrawn without its lead-in ("Last one before the stance interview.", a lead line): the same turn, the line keeps what was shown.
+      [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.quiet && !r.skip && isTail(r.text, s.text));
     if (!again) {
       // Swapped for a fresh bubble that keeps the opening of a line that just left and adds a new ask:
       // the new ask is its own line.
@@ -179,7 +188,9 @@ export function foldLines(
 
 /** What Past chat shows: every line that was a real turn on screen. */
 export function linesOf(recs: Rec[]): PastLine[] {
-  return recs.filter((r) => !r.quiet && !r.flash).map(({ who, text }) => ({ who, text }));
+  const live = recs.filter((r) => !r.quiet);
+  // A flash is dropped only when Pau moved straight on (no reply from the student came next): a question they answered quickly stays.
+  return live.filter((r, i) => !r.flash || live.slice(i + 1).find((x) => !x.flash)?.who === "you").map(({ who, text }) => ({ who, text }));
 }
 
 /** Saved lines first; a bubble already on screen that matches one maps onto it; the rest is re-rendered history (quiet). */

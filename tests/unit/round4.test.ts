@@ -232,3 +232,24 @@ describe("QA 11:08 must-fix (live): the decline is never a reading question", ()
     expect(src).toMatch(/text &&\s*!offerAnswered &&\s*brief\?\.northstar &&\s*q\.id !== "stance_early"/);
   });
 });
+
+describe("QA 11:26: quick answers and lead-in redraws keep Past chat in order", () => {
+  it("a question answered within the flash window stays before the answer; its redraw without the lead-in is the same line", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [q, a, q2, a2, n] = [{}, {}, {}, {}, {}] as unknown as Element[];
+    const att = new Set<Element>([q!]);
+    const on = (x: Element) => att.has(x);
+    foldLines(recs, [{ el: q!, who: "pau", text: "Last one before the stance interview.\nWhat's your early take on which style works best?" }], on, 1_000);
+    att.add(a!);
+    foldLines(recs, [{ el: q!, who: "pau", text: "Last one before the stance interview.\nWhat's your early take on which style works best?" }, { el: a!, who: "you", text: "I think transformational works best" }], on, 1_500);
+    att.delete(q!); att.delete(a!); att.add(q2!); att.add(a2!);
+    foldLines(recs, [{ el: q2!, who: "pau", text: "What's your early take on which style works best?" }, { el: a2!, who: "you", text: "I think transformational works best" }], on, 2_000);
+    att.add(n!);
+    foldLines(recs, [{ el: q2!, who: "pau", text: "What's your early take on which style works best?" }, { el: a2!, who: "you", text: "I think transformational works best" }, { el: n!, who: "pau", text: "I pulled together a couple of places to start looking." }], on, 6_000);
+    expect(linesOf(recs).map((l) => l.text.split("\n").at(-1))).toEqual([
+      "What's your early take on which style works best?",
+      "I think transformational works best",
+      "I pulled together a couple of places to start looking.",
+    ]);
+  });
+});
