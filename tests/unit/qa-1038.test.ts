@@ -67,7 +67,7 @@ function stance(over: Record<string, unknown> = {}) {
 const turns = (html: string) => (html.match(/data-pau-turn/g) ?? []).length;
 
 describe("#1 Stage 2 opener is ONE reply", () => {
-  it("question + 'one section at a time' + prompt type + chips + the first ask are one Pau Pau turn", () => {
+  it("question + 'one section at a time' + prompt type + chips + the first ask are one Pau turn", () => {
     const html = stance();
     expect(turns(html)).toBe(1);
     expect(html).toContain("one section at a time");
@@ -106,7 +106,7 @@ describe("#2 taps are 'Picked' chips, never student bubbles", () => {
   });
 });
 
-describe("#3 requests and questions to Pau Pau are never saved as notes", () => {
+describe("#3 requests and questions to Pau are never saved as notes", () => {
   it("rules: requests, questions and content", () => {
     expect(rulesStanceIntent("Ask me some probing questions please.")).toBe("request_probe");
     expect(rulesStanceIntent("can you ask me questions")).toBe("request_probe");
