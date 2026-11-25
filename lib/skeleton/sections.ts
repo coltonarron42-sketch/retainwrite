@@ -16,6 +16,9 @@ export type SessionSectionLike = { key: string; kind: string; status: string; id
 export type PaperSection = {
   /** Stable id (the shape block key, or "title"). */
   id: string;
+  /** Where it sits in the paper ("Body Paragraph 2"); null when the title already says it. */
+  kicker: string | null;
+  /** The shaped title from #64's skeleton (ghost #2's short title, else the shape's focus). */
   title: string;
   group: SkeletonGroup | "title";
   /** The loop session section this is worked on in (intro | body | conclusion), or null. */
@@ -111,15 +114,33 @@ export function paperSections(input: {
   if (!view) return [];
   const body = view.blocks.filter((b) => b.group === "body");
   const out: PaperSection[] = [];
-  if (input.titlePage) out.push({ id: "title", title: "Title Page", group: "title", sectionKey: null, completed: false, preview: [] });
+  if (input.titlePage) out.push({ id: "title", kicker: null, title: "Title Page", group: "title", sectionKey: null, completed: false, preview: [] });
   for (const b of view.blocks) {
     const n = body.findIndex((x) => x.key === b.key);
-    const title = b.group === "intro" ? "Introduction" : b.group === "conclusion" ? "Conclusion" : `Body Paragraph ${n + 1}`;
+    const { kicker, title } = shapedTitle(b, n);
     const mine = wordsForBlock(b, body, words).map((t) => t.trim()).filter(Boolean);
     const completed = Boolean(words[b.group]?.locked) && mine.length > 0;
-    out.push({ id: b.key, title, group: b.group, sectionKey: sessionKeyFor(b.group, input.sessionKeys ?? null), completed, preview: completed ? mine : [] });
+    out.push({ id: b.key, kicker, title, group: b.group, sectionKey: sessionKeyFor(b.group, input.sessionKeys ?? null), completed, preview: completed ? mine : [] });
   }
   return out;
+}
+
+const cap = (t: string) => (t ? t[0]!.toUpperCase() + t.slice(1) : t);
+/**
+ * Round 3: the row titles come from #64's shaped skeleton. Body rows: ghost #2's short title (from
+ * the student's own choices, leak-checked server side), else the shape's focus for that paragraph,
+ * under a small "Body Paragraph n" kicker. Intro and conclusion keep their names, with the shape's
+ * subheading as the title line ("Introduction" / "Hook, context and your thesis").
+ */
+export function shapedTitle(b: SkeletonView["blocks"][number], bodyIndex: number): { kicker: string | null; title: string } {
+  const sub = cap((b.sub ?? "").replace(/\s+/g, " ").trim());
+  if (b.group === "body") {
+    const own = (b.title ?? "").replace(/\s+/g, " ").trim();
+    const kicker = `Body Paragraph ${bodyIndex + 1}`;
+    return { kicker, title: own || sub || kicker };
+  }
+  const name = b.group === "intro" ? "Introduction" : "Conclusion";
+  return sub ? { kicker: name, title: sub } : { kicker: null, title: name };
 }
 
 /**

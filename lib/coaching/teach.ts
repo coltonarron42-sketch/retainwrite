@@ -1,7 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
-import { decisionLabel } from "@/lib/stage1/paper-context";
+import { pickPhrase } from "@/lib/stage1/paper-context";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { wordCount } from "@/lib/utils";
 
@@ -120,14 +120,16 @@ export function contextTeachCard(
   const point = (b?.summary?.points ?? []).find((p) => wordCount(p) <= 35) ?? null;
   // QA 9:37 AM: after a pick, the lesson is about THEIR pick (never "You picked their own."),
   // and the options are not offered again.
-  const picked = b?.decision ? decisionLabel(b.decision) : null;
+  // PC-30 QA: every style they picked ("servant and transformational leadership"), never just one.
+  const picked = b?.decision ? pickPhrase(b.decision, opts) : null;
+  const several = Boolean(picked && / and /.test(picked));
   if (b?.decision) {
     if (!picked) return null;
     return {
       concept: picked,
       rubricRef,
       affirm: null,
-      definition: point ?? `${picked} is the idea this section has to show in action, with a real moment a reader can picture.`,
+      definition: point ?? `${picked} ${several ? "are the ideas" : "is the idea"} this section has to show in action, with a real moment a reader can picture.`,
       qualities: ["What it means, in your words", "One moment that shows it", "Why it fits a team going through change"],
       showsUpAs: ["A decision you can point to", "What changed for the people involved"],
       debate: null,
