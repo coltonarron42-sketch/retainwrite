@@ -11,7 +11,16 @@ import { rulesStanceIntent } from "@/lib/stages/stance-intent";
  * student sees it, which the call says word for word (QA round 2, PC-29: never a paraphrase,
  * never her own question). Empty when the screen has nothing to say aloud.
  */
-export type Stage1VoiceScreen = { key: string; text: string; choices: string[]; spoken: string };
+export type Stage1VoiceScreen = {
+  key: string;
+  text: string;
+  choices: string[];
+  spoken: string;
+  /** PC-29d: the prompt without the app's note (the nudge), so a nudge alone can be said. */
+  base: string;
+  /** The app's note shown with the prompt (a nudge or an error), "" when none. */
+  note: string;
+};
 
 /** The read-back's on-screen line: the card is the confirmation, so only its closing ask is said (QA SHOULD 3). */
 export function readBackSpoken(paras: string[], turns: number): string {
@@ -38,7 +47,9 @@ export function stage1VoiceScreen(s: {
   teach?: string;
 }): Stage1VoiceScreen {
   const v = stage1VoiceScreenText(s);
-  return { ...v, spoken: stage1Spoken(s) };
+  const spoken = stage1Spoken(s);
+  const note = s.error?.replace(/\s+/g, " ").trim() ?? "";
+  return { ...v, spoken, base: note ? stage1Spoken({ ...s, error: null }) : spoken, note: spoken ? note : "" };
 }
 
 function stage1Spoken(s: Parameters<typeof stage1VoiceScreen>[0]): string {
@@ -63,7 +74,7 @@ function stage1Spoken(s: Parameters<typeof stage1VoiceScreen>[0]): string {
   }
 }
 
-function stage1VoiceScreenText(s: Parameters<typeof stage1VoiceScreen>[0]): Omit<Stage1VoiceScreen, "spoken"> {
+function stage1VoiceScreenText(s: Parameters<typeof stage1VoiceScreen>[0]): Omit<Stage1VoiceScreen, "spoken" | "base" | "note"> {
   const note = s.error ? ` (App note shown to the student: ${s.error})` : "";
   switch (s.screen) {
     case "upload":
@@ -136,9 +147,18 @@ export class Stage1VoicePacer {
   private line: string | null = null;
   private changedAt = 0;
   /** What the call already said for this step; line null = the call's own start line will say it. */
-  private said: { key: string; line: string | null } | null = null;
+  private said: { key: string; line: string | null; base?: string; note?: string } | null = null;
 
   constructor(private readonly tune: { settleMs: number; maxMs: number } = VOICE_SETTLE) {}
+
+  /**
+   * PC-29d QA: a line the call already said another way (a side answer spoken as itself, which the
+   * intake then also shows as the open turn) is never said again as a prompt.
+   */
+  markSaid(key: string, line: string) {
+    const l = line.replace(/\s+/g, " ").trim();
+    if (l) this.said = { key, line: l, base: l, note: "" };
+  }
 
   /** Voice turned off (or on again): the next look is a fresh start. */
   reset() {
@@ -147,9 +167,17 @@ export class Stage1VoicePacer {
     this.said = null;
   }
 
-  /** One look at the screen: `busy` = a brief call is in flight; `hold` = say nothing yet (a student turn awaiting the app's reply); `hidden` = the line's question isn't rendered on the page. */
-  step(i: { key: string; line: string; now: number; busy: boolean; hold?: boolean; hidden?: boolean }): VoicePace {
-    const line = i.line.replace(/\s+/g, " ").trim();
+  /**
+   * One look at the screen: `busy` = a brief call is in flight; `hold` = say nothing yet (a student
+   * turn awaiting the app's reply); `hidden` = the line's question isn't rendered on the page.
+   * `base`/`note` (PC-29d): the line without the app's note, and the note. When only the note is
+   * new (a nudge on a prompt already said), only the note is said, never the whole prompt again.
+   */
+  step(i: { key: string; line: string; now: number; busy: boolean; hold?: boolean; hidden?: boolean; base?: string; note?: string }): VoicePace {
+    const norm = (t: string) => t.replace(/\s+/g, " ").trim();
+    const line = norm(i.line);
+    const base = i.base !== undefined ? norm(i.base) : line;
+    const note = i.note !== undefined && base !== line ? norm(i.note) : "";
     if (i.key !== this.key || line !== this.line) {
       this.key = i.key;
       this.line = line;
@@ -163,11 +191,17 @@ export class Stage1VoicePacer {
     // First settled look after voice came on: the relay's start line says this prompt itself.
     if (!this.said) this.said = { key: i.key, line: null };
     if (this.said.line === null && this.said.key === i.key) {
-      if (line) this.said = { key: i.key, line };
+      if (line) this.said = { key: i.key, line, base, note };
       return { spoken: line, say: null, wakeIn: null };
     }
     if (i.hold || !line || (this.said.key === i.key && this.said.line === line)) return { spoken: line, say: null, wakeIn: null };
-    this.said = { key: i.key, line };
+    // Same step, same prompt already said: only a new note (the nudge) is said; a cleared note says nothing.
+    if (this.said.key === i.key && this.said.base === base) {
+      const fresh = note && note !== this.said.note ? note : null;
+      this.said = { key: i.key, line, base, note };
+      return { spoken: line, say: fresh, wakeIn: null };
+    }
+    this.said = { key: i.key, line, base, note };
     return { spoken: line, say: line, wakeIn: null };
   }
 }
@@ -178,4 +212,113 @@ export function questionsRendered(line: string, pageText: string): boolean {
   const page = norm(pageText);
   const qs = (line.match(/[^.!?]*\?/g) ?? []).map(norm).filter((q) => q.split(" ").length >= 3);
   return qs.every((q) => page.includes(q));
+}
+
+/* ---------------- PC-29d: side answers are spoken ---------------- */
+
+/** The one line a side answer ends on, on screen and spoken (PC-29d QA: the two must match). */
+export const SIDE_RETURN = "Okay, back to your question.";
+// The current line, and the older on-screen one ("Back to my question whenever you're ready.").
+const BACK_LINE = /^(?:okay, )?back to (?:my|your) question\b/i;
+
+/**
+ * Sentences of a side answer. A "?" or "." inside a title or quote ('What Makes a Leader?' by
+ * Goleman) is not a sentence end: one needs a following capital/number (or the end of the text).
+ * PC-29d QA retest: splitting at that "?" made the opening sentence look like a question.
+ */
+export function sentencesOf(t: string): string[] {
+  const out: string[] = [];
+  const re = /[.!?]+["”’')\]]*(?=\s+["“‘(]?[A-Z0-9]|\s*$)/g;
+  let start = 0;
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    const end = m.index + m[0].length;
+    if (end > start) out.push(t.slice(start, end));
+    start = end;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  if (start < t.length && t.slice(start).trim()) out.push(t.slice(start));
+  return out;
+}
+/** Ends on a question mark (closing quotes allowed; "Leader?'." ends on a period). */
+const isQuestion = (x: string) => {
+  const t = x.trim();
+  // A quoted title that ends the sentence ("… Goleman's 'What Makes a Leader?'") isn't a question.
+  if (/(?:^|\s)["“'‘][^"“”'‘’]{2,120}\?["”'’]$/.test(t)) return false;
+  const m = t.match(/([.!?]+)["”’')\]]*$/);
+  return Boolean(m && m[1]!.endsWith("?"));
+};
+
+/**
+ * The on-screen side answer (PC-29d QA): the coaching answer's own words without a trailing coach
+ * question of its own (one question at a time: the on-screen prompt is the question), then the
+ * same return line voice says.
+ */
+export function sideAnswerParas(paras: string[]): string[] {
+  const out = paras.map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p && !BACK_LINE.test(p));
+  while (out.length) {
+    const last = out[out.length - 1]!;
+    const ss = sentencesOf(last);
+    let n = ss.length;
+    while (n > 0 && isQuestion(ss[n - 1]!)) n--;
+    if (n === ss.length) break;
+    const kept = ss.slice(0, n).join("").trim();
+    if (kept) {
+      out[out.length - 1] = kept;
+      break;
+    }
+    // The whole last paragraph was its question: drop it, unless it's all there is.
+    if (out.length === 1) break;
+    out.pop();
+  }
+  return out.length ? [...out, SIDE_RETURN] : out;
+}
+
+/**
+ * What the call says for a side answer (an aside bubble): the answer's own words (the coaching
+ * route already keeps them plain, short, labeled and never submission text), without links or
+ * markdown, then a short way back. The on-screen prompt is never re-read in full.
+ */
+export function asideSpoken(paras: string[], maxChars = 1100): string {
+  const clean = (t: string) =>
+    t
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/[*_#`>]+/g, "")
+      .replace(/^\s*[-•]\s+/gm, "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .trim();
+  const back = paras.some((p) => BACK_LINE.test(p.trim()));
+  let body = paras.filter((p) => !BACK_LINE.test(p.trim())).map(clean).filter(Boolean).join(" ");
+  // PC-29d QA retest: nothing is filtered here any more. The on-screen answer (sideAnswerParas)
+  // already has no trailing question of its own, so voice says the screen's words from the first
+  // word; filtering "questions" again dropped an opening sentence with a title ending in "?".
+  if (body.length > maxChars) {
+    const cut = body.slice(0, maxChars);
+    const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
+    body = end > maxChars / 3 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, "")}…`;
+  }
+  if (!body) return "";
+  return back ? `${body} ${SIDE_RETURN}` : body;
+}
+
+/** A new aside bubble while voice is on (not ones restored, or already there when voice came on). */
+export class AsideVoice {
+  private seen: number | null | undefined = undefined;
+  private wasOn = false;
+  step(lastId: number | null, on: boolean): boolean {
+    const fresh = on && this.wasOn && this.seen !== undefined && lastId !== null && lastId !== this.seen;
+    this.seen = lastId;
+    this.wasOn = on;
+    return fresh;
+  }
+}
+
+/** The line without the app's note (it leads the line, or trails it on the checklist). */
+export function withoutNote(line: string, note: string): string {
+  const l = line.replace(/\s+/g, " ").trim();
+  const n = note.replace(/\s+/g, " ").trim();
+  if (!n) return l;
+  if (l.startsWith(n)) return l.slice(n.length).trim();
+  if (l.endsWith(n)) return l.slice(0, l.length - n.length).trim();
+  return l;
 }
