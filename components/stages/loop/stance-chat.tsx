@@ -38,7 +38,7 @@ import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { sectionLabel } from "@/lib/coach/welcome-back";
-import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { RealtimeControls, useRealtimeCall, useRealtimeFlag } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 
 
@@ -346,7 +346,8 @@ export function StanceChat(props: Props) {
   const [openerOpen, setOpenerOpen] = useState(false);
   const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
   // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
-  const rtMode = useRealtimeEnabled(paperId);
+  const rtFlag = useRealtimeFlag(paperId);
+  const rtMode = rtFlag === true;
   const sendNowRef = useRef<(text: string, fromVoice?: boolean) => Promise<string>>(async () => "none");
   const screenRef = useRef("");
   const noteBusy = useRef(0);
@@ -639,11 +640,12 @@ export function StanceChat(props: Props) {
           </nav>
     </div>
   );
+  // QA 11:51: her opener is what they decided in Stage 1 ("Earlier you picked…"), then the assignment.
   const introBubbles: ReactNode[] = [
+    ...(intro.earlier ? [intro.earlier] : []),
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
     ...(intro.purpose ? [intro.purpose] : []),
-    ...(intro.earlier ? [intro.earlier] : []),
     introControls,
   ];
 
@@ -694,7 +696,7 @@ export function StanceChat(props: Props) {
   return (
     <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
-      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+      <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtFlag !== false} />
       <FocusBar
         onPast={() => setPanel("past")}
         hasPast={transcript.length > 0 || Boolean(props.earlier?.length)}

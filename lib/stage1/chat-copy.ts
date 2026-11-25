@@ -21,7 +21,15 @@ export const INTRO_BUBBLES = [
 ];
 
 /** Pau's nudge when an answer is under its minimum. */
-const OPENERS = ["Give me a little more — a couple more sentences?", "Closer.", "Getting there.", "One more push."];
+// Round 4 #2: openers are statements; the line after is the one question (never two asks in one turn).
+const OPENERS = ["Give me a little more.", "Closer.", "Getting there.", "One more push."];
+/** A reason in their words: "because", "so", "it helps", "which means", "that way"… */
+export const REASON_RE = /\b(because|since|so that|so (?:it|they|the|people|he|she|we|everyone)|cuz|cause|which (?:means|meant|lets|helps|made|makes)|that way|that's why|as a result|led to|leads to|helps?|lets|makes?|made|builds?|built|gets?|got|keeps?|kept|gives?|gave|means?|meant|works? (?:best|better) (?:when|for|because))\b/i;
+/** Round 4 #2: a real answer with its reason (accepted, never re-asked for "the why"). */
+export function isSolidReason(text: string): boolean {
+  const t = text.trim();
+  return t.split(/\s+/).filter(Boolean).length >= 10 && REASON_RE.test(t);
+}
 export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.|No rush, that one doesn't count|All good, that one doesn't count)/;
 /**
  * QA 8:31 AM: never the same line every time. Each try gets a different opener and
@@ -32,11 +40,15 @@ export function moreWordsNote(_have: number, _need: number, what: string, text =
   const opener = OPENERS[attempt % OPENERS.length]!;
   const t = text.trim();
   if (!t) return `${opener} ${what} is almost there. Add to it below.`;
-  const reason = /\b(because|since|so that|so it|which (means|lets|helps)|that way|it (helps|lets|gets|makes)|cuz|cause)\b/i.test(t);
+  const reason = REASON_RE.test(t);
   const example = /\b(for example|for instance|like when|such as|at [A-Z]\w+|[A-Z][a-z]+ [A-Z][a-z]+)\b/.test(t) || /\b(when (he|she|they)|did|led|changed|turned)\b/i.test(t);
   const claim = /\b(i think|i'?d argue|i want to argue|i believe|works? best|is (the )?(best|most)|better|transformational|situational|servant|democratic|task|relationship)\b/i.test(t);
+  // QA 11:51 (b): a full sentence is never told to "start with one plain sentence": one ask, about what it shows.
+  const sentence = t.split(/\s+/).length >= 8 && /[.!]["”]?\s*$/.test(t);
   const need = !claim
-    ? "Start with what you think, in one plain sentence."
+    ? sentence
+      ? "That's a real example. What does it show about which approach works best, and why?"
+      : "Start with what you think, in one plain sentence."
     : !reason
       ? "You've got your pick. Now the why: what makes it the right call for this assignment?"
       : !example

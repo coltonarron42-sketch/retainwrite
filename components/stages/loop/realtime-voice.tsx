@@ -5,7 +5,17 @@ import { AudioLines, Mic, MicOff } from "lucide-react";
 import { RealtimeVoice, type RtPhase } from "@/lib/voice/realtime/client";
 import { cn } from "@/lib/utils";
 
-export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; sources?: { title: string; url: string; why?: string }[] };
+export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; echo?: boolean; sources?: { title: string; url: string; why?: string }[] };
+
+/** An earlier Pau row whose words the newest row repeats (its whole text, at its end) is dropped. */
+export function dedupePau(rows: LiveTurn[], id: string): LiveTurn[] {
+  const cur = rows.find((r) => r.id === id);
+  const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const a = cur ? key(cur.text) : "";
+  if (!a) return rows;
+  const out = rows.filter((r) => r === cur || r.who !== "pau" || key(r.text).length < 12 || !a.endsWith(key(r.text)));
+  return out.length === rows.length ? rows : out;
+}
 
 /** Is the Grok Voice realtime PoC on for this student and paper? (server flag) */
 /** Voice on for this tab (kept across stage pages): a soft gate speaks its line only then. */
@@ -60,14 +70,15 @@ export function useGateVoice(paperId: string, stage: number, enabled: boolean) {
   return phase;
 }
 
-export function useRealtimeEnabled(paperId: string): boolean {
-  const [on, setOn] = useState(false);
+/** Grok Voice for this paper: null while the server flag is still loading. */
+export function useRealtimeFlag(paperId: string): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
     fetch(`/api/voice/realtime?paperId=${encodeURIComponent(paperId)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { enabled: false }))
       .then((j: { enabled?: boolean }) => live && setOn(j.enabled === true))
-      .catch(() => undefined);
+      .catch(() => live && setOn(false));
     return () => {
       live = false;
     };
@@ -75,11 +86,15 @@ export function useRealtimeEnabled(paperId: string): boolean {
   return on;
 }
 
+export function useRealtimeEnabled(paperId: string): boolean {
+  return useRealtimeFlag(paperId) === true;
+}
+
 export type RealtimeCall = ReturnType<typeof useRealtimeCall>;
 
 export function useRealtimeCall(opts: {
   paperId: string;
-  saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string; spoken?: string }>;
   welcome: () => { welcome: boolean; index: number; text?: string | null };
   /** 1 on Stage 1 (Intake); Stage 2 otherwise. */
   stage?: 1 | 2 | 3;
@@ -88,6 +103,8 @@ export function useRealtimeCall(opts: {
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<LiveTurn[]>([]);
+  // PC-29: the mic pauses while they type (one input channel at a time).
+  const [typing, setTyping] = useState(false);
   const rt = useRef<RealtimeVoice | null>(null);
   const optsRef = useRef(opts);
   useEffect(() => {
@@ -96,6 +113,13 @@ export function useRealtimeCall(opts: {
   const lastPau = useRef<string | null>(null);
   const welcomed = useRef(false);
   const welcomeText = useRef<string | null>(null);
+  /** The last few on-screen prompts the app had her say word for word (Stage 1). */
+  const prompts = useRef<string[]>([]);
+  const notePrompt = (t?: string) => {
+    const v = t?.trim();
+    if (!v || prompts.current.includes(v)) return;
+    prompts.current = [...prompts.current, v].slice(-3);
+  };
 
   const upsert = (id: string, who: LiveTurn["who"], fn: (cur: string) => string, extra?: Partial<LiveTurn>) =>
     setLive((rows) => {
@@ -119,6 +143,8 @@ export function useRealtimeCall(opts: {
       const v = params?.get(`rt_${k}`);
       if (v) tuning[k] = v;
     }
+    // A fresh call starts a fresh live transcript (the chat history keeps what was saved).
+    setLive([]);
     const voice = new RealtimeVoice(
       optsRef.current.paperId,
       {
@@ -128,6 +154,8 @@ export function useRealtimeCall(opts: {
         pauDelta: (rid, d) => {
           lastPau.current = rid;
           upsert(`p:${rid}`, "pau", (c) => c + d);
+          // PC-29 QA round 3 minor: the same prompt said again (voice back on, a re-said step) shows once.
+          setLive((rows) => dedupePau(rows, `p:${rid}`));
           // The welcome-back line already shows once at the top of the return; no copy below.
           const wt = welcomeText.current;
           if (wt)
@@ -144,9 +172,14 @@ export function useRealtimeCall(opts: {
               if (!hide) welcomeText.current = null;
               return rows.map((x) => (x === row ? { ...x, saved: hide } : x));
             });
+          // PC-29 follow-up: her word-for-word on-screen prompt (Stage 1) is already on the page;
+          // no copy of it lingers in the voice transcript (e.g. below "Start stance interview").
+          if (prompts.current.length) setLive((rows) => hidePromptEcho(rows, `p:${rid}`, prompts.current));
         },
         echo: (itemId) => setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x))),
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
+        pauDropped: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
+        typing: setTyping,
         saveNote: async (_id, text, itemId, kind) => {
           const r = await optsRef.current.saveNote(text, kind);
           // Saved words already show in the chat history as their message.
@@ -181,6 +214,8 @@ export function useRealtimeCall(opts: {
     rt.current?.stop();
     rt.current = null;
     setPhase("off");
+    // The call is over: nothing from it lingers under the chat.
+    setLive([]);
   }, []);
 
   useEffect(() => () => rt.current?.stop(), []);
@@ -205,13 +240,20 @@ export function useRealtimeCall(opts: {
     phase,
     on: phase !== "off" && phase !== "error",
     muted,
+    typing,
     error,
     live,
     start,
     stop,
     toggleMute,
-    sayTurn: (text: string, opts?: { detail?: boolean }) => rt.current?.sayTurn(text, opts),
-    setScreen: (text: string, choices: string[], followUp = false) => rt.current?.setScreen(text, choices, followUp),
+    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string }) => {
+      notePrompt(opts?.spoken);
+      return rt.current?.sayTurn(text, opts);
+    },
+    setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => {
+      notePrompt(spoken);
+      return rt.current?.setScreen(text, choices, followUp, spoken);
+    },
     interrupt: () => rt.current?.interrupt(),
     clearLive: () => setLive([]),
     level: () => rt.current?.level() ?? 0,
@@ -219,6 +261,29 @@ export function useRealtimeCall(opts: {
 }
 
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z]+/g, "");
+
+/** A Pau row that is (so far) one of the on-screen prompts, or ends with one (a welcome line + the prompt), is hidden. */
+export function hidePromptEcho(rows: LiveTurn[], id: string, prompts: string[]): LiveTurn[] {
+  const row = rows.find((r) => r.id === id);
+  if (!row || row.who !== "pau") return rows;
+  const a = norm(row.text);
+  if (!a) return rows;
+  const ps = prompts.map(norm).filter((p) => p.length >= 12);
+  // Her transcript of a prompt drifts a little from the copy ("1,200-1,500" → "1200 to 1500"):
+  // a row of 5+ words that is almost all the prompt's own words counts too.
+  const words = (t: string) => t.toLowerCase().replace(/[^a-z' ]+/g, " ").split(/\s+/).filter((w) => w.length > 1);
+  const rw = words(row.text);
+  const close = (p: string) => {
+    if (rw.length < 5) return false;
+    const pw = new Set(words(p));
+    return rw.filter((w) => pw.has(w)).length / rw.length >= 0.85;
+  };
+  const hide = ps.some((p) => p.startsWith(a) || a.endsWith(p)) || prompts.some(close);
+  if (hide && !row.saved) return rows.map((x) => (x === row ? { ...x, saved: true, echo: true } : x));
+  // Only a row this hid comes back (it turned out to be her own words, not the prompt).
+  if (!hide && row.echo) return rows.map((x) => (x === row ? { ...x, saved: false, echo: false } : x));
+  return rows;
+}
 
 const STATUS: Record<RtPhase, string> = {
   off: "Talk with Pau",
@@ -259,9 +324,9 @@ function Waves({ call }: { call: RealtimeCall }) {
 }
 
 /** Composer row controls: start/end the call (waveform), Mute, and the status line. */
-export function RealtimeControls({ call }: { call: RealtimeCall }) {
+export function RealtimeControls({ call, listenHint }: { call: RealtimeCall; listenHint?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-1" data-rt-controls data-rt-phase={call.phase}>
+    <div className="flex min-w-0 items-center gap-1" data-rt-controls data-rt-phase={call.phase} data-rt-typing={call.on && call.typing ? "" : undefined}>
       <button
         type="button"
         data-rt-call
@@ -291,7 +356,7 @@ export function RealtimeControls({ call }: { call: RealtimeCall }) {
         </button>
       ) : null}
       <span className="min-w-0 truncate px-1 text-[13px] leading-[1.4] text-ds-muted" role="status" data-rt-status>
-        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.error && !call.on ? call.error : STATUS[call.phase]}
+        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.on && call.typing ? "Typing — mic paused" : call.error && !call.on ? call.error : call.on && call.phase === "listening" && listenHint ? listenHint : STATUS[call.phase]}
       </span>
     </div>
   );
