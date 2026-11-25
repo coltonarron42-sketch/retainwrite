@@ -281,6 +281,20 @@ export function applySourceQuality(
     const attr = o.mode === "research" && page ? ` (${sourceName(page)})` : "";
     out.push(`• ${body.replace(/\.$/, "")}${attr}.`);
   }
+  // QA retest (749bd2a): three bullets on the same leader from one page read as one example said three ways.
+  // In research mode each named leader gets one bullet (the first, best-backed one).
+  if (o.mode === "research") {
+    const seenLead = new Set<string>();
+    for (let i = 0; i < out.length; i++) {
+      if (!out[i]!.startsWith("• ")) continue;
+      const lead = keyTerms(out[i]!).entities[0];
+      if (!lead) continue;
+      if (seenLead.has(lead)) {
+        checks.push({ bullet: out[i]!.slice(2, 162), tag: "duplicate", page: "", pageTitle: "", supported: false, retagged: false, terms: [lead] });
+        out.splice(i--, 1);
+      } else seenLead.add(lead);
+    }
+  }
   const rank = (s: Src, about = "") => tierOf(s.url, about);
   let passing: Src[];
   if (check && o.mode === "research") {
@@ -292,6 +306,9 @@ export function applySourceQuality(
   }
   // QA retest minor: a source's label is never a bare domain: its fetched page title when the citation gave none.
   const bare = (t: string, u: string) => !t || /^https?:/i.test(t) || t.toLowerCase().replace(/^www\./, "") === hostOf(u);
+  // A citation title cut off mid-word ('"…A Case Study in O" by Jose') reads worse than the page's own title.
+  const cut = (t: string) => /["“”]\s+by\s+\S+$|\s\S{1,2}["”]?$/.test(t.trim());
+  passing = passing.map((s) => (cut(s.title) && evidenceFor(s.url, o).title.length > 12 && !cut(evidenceFor(s.url, o).title) ? { ...s, title: evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim().slice(0, 90) } : s));
   passing = passing.map((s) => (bare(s.title, s.url) ? { ...s, title: evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim().slice(0, 90) || s.title } : s));
   const goodUnused = [...new Set((o.read ?? []).filter((u) => tierOf(u) >= 2).map(hostOf))].filter((h) => !used.has(h));
   return { text: out.join("\n"), sources: passing, kept: out.filter((l) => l.startsWith("• ")).length, dropped, checks, goodUnused };

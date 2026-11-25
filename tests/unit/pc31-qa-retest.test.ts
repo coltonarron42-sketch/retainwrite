@@ -59,3 +59,31 @@ describe("QA retest minors: titles and relevance", () => {
     expect([...offTopicPages(fetched, ["servant"])]).toEqual(["https://a.edu/x"]);
   });
 });
+
+describe("QA retest (749bd2a walk): one bullet per leader, readable titles", () => {
+  it("three Nadella bullets from one page collapse to one", async () => {
+    const { applySourceQuality } = await import("@/lib/coach/source-quality");
+    const U = "https://hbr.org/2014/02/how-microsoft-avoided-the-peter-principle-with-nadella";
+    const raw = [
+      "• Satya Nadella at Microsoft shifted culture toward a growth mindset [hbr.org]",
+      "• Satya Nadella at Microsoft received time and support during the CEO transition [hbr.org]",
+      "• Satya Nadella revived Microsoft's innovation edge through partnerships [hbr.org]",
+    ].join("\n");
+    const fetched = new Map([[U, { title: "How Microsoft Avoided the Peter Principle with Nadella", text: "Satya Nadella Microsoft culture growth mindset transition support partnerships innovation" }]]);
+    const q = applySourceQuality(raw, { mode: "research", sources: [{ title: "x", url: U }], read: [U], fetched });
+    expect(q.kept).toBe(1);
+    expect(q.checks.some((c) => c.tag === "duplicate")).toBe(true);
+  });
+  it("a cut-off citation title gives way to the page's own title", async () => {
+    const { applySourceQuality } = await import("@/lib/coach/source-quality");
+    const U = "https://csuepress.columbusstate.edu/sltp/vol2/iss1/3";
+    const fetched = new Map([[U, { title: "Implementing Servant Leadership at Cleveland Clinic: A Case Study in Organizational Change", text: "Joseph Patrnchak Cleveland Clinic servant leadership" }]]);
+    const q = applySourceQuality("• Joseph Patrnchak at Cleveland Clinic used servant leadership [csuepress.columbusstate.edu]", {
+      mode: "research",
+      sources: [{ title: '"Implementing Servant Leadership at Cleveland Clinic: A Case Study in O" by Jose', url: U }],
+      read: [U],
+      fetched,
+    });
+    expect(q.sources[0]!.title).toBe("Implementing Servant Leadership at Cleveland Clinic: A Case Study in Organizational Change");
+  });
+});
