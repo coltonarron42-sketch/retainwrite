@@ -15,7 +15,7 @@ export type PaperShape = {
   transitions: number;
   examples: number;
   theories: number;
-  /** What Pau Pau needs the student to decide (server-side only; never rendered). */
+  /** What Pau needs the student to decide (server-side only; never rendered). */
   decisions: string[];
   source: "model" | "rules";
 };

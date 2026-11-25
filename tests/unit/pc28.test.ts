@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fillWelcome, freshWelcomeIndex, isWelcomeLine, sectionLabel, welcomeBackLine, WELCOME_BACK_TEMPLATES } from "@/lib/coach/welcome-back";
 import { toneIssues } from "@/lib/coach/tone";
 import { bodyCountFor, outlineFromModel, projectSkeleton, ruleOutline, ruleShape, shapeFromModel, titleSafe, wordsTarget } from "@/lib/skeleton/shape";
-import { shortDirection, wordsForBlock } from "@/components/stages/focus-panels";
+import { coachNameNow, shortDirection, wordsForBlock } from "@/components/stages/focus-panels";
 import { focusFill, pastLines } from "@/components/stages/loop/stance-chat";
 import { stage1Fill } from "@/components/stages/stage1/assignment-intake";
 
@@ -160,5 +160,16 @@ describe("PC-28: the skeleton's direction line", () => {
     expect(shortDirection(raw)).toBe("I want to argue transformational leadership, using Satya Nadella at Microsoft. Transformational works best, because people buy in.");
     expect(shortDirection("")).toBeNull();
     expect(shortDirection("x ".repeat(400) + "end.")!.length).toBeLessThanOrEqual(241);
+  });
+});
+
+describe("t187u: the coach is just 'Pau'", () => {
+  it("old saved lines read with the new name in Past chat", () => {
+    expect(coachNameNow("Hi, I'm Pau" + " Pau. Pau" + " Pau's here.")).toBe("Hi, I'm Pau. Pau's here.");
+  });
+  it("no user-facing 'Pau Pau' left in the copy, prompts or voice", () => {
+    const files = ["lib/coach/personality.ts", "lib/voice/realtime/persona.ts", "lib/stage1/chat-copy.ts", "lib/stage1/pau-pau.ts", "lib/voice/speakable.ts", "lib/voice/realtime/relay.ts", "components/marketing/home-editorial.tsx"];
+    for (const f of files) expect(readFileSync(f, "utf8")).not.toMatch(new RegExp("Pau" + " Pau"));
+    expect(readFileSync("lib/voice/realtime/relay.ts", "utf8")).toMatch(/replace: \{ "Pau": "Pow" \}/);
   });
 });
