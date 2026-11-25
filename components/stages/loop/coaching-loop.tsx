@@ -109,6 +109,7 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { exploreNote, exploreTopic, type ListeningState } from "@/lib/stages/explore-intent";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -150,6 +151,8 @@ type RuntimeSection = {
   logic: FinalizedLogic | null;
   logicRevealed: boolean;
   continued: boolean;
+  listening?: ListeningState | null;
+  pendingKeep?: boolean;
 };
 
 type Session = {
@@ -719,6 +722,8 @@ export function CoachingLoop({
             status: "confirmed" as const,
             loopStep: "confirmed" as const,
             continued: choice === "continued",
+            listening: null,
+            pendingKeep: false,
           }
         : item,
     );
@@ -945,6 +950,42 @@ export function CoachingLoop({
     log("teach_aspect_picked");
   }
 
+  /** Exploring an option: acknowledge, note it, keep the floor open, don't lock or open a menu. */
+  function onListen(more: LoopLine[], opts?: { text?: string; done?: boolean; lock?: boolean }) {
+    const base = sessionRef.current ?? session;
+    if (!base || !section) return;
+    const live = base.sections.find((item) => item.key === section.key) ?? section;
+    const note = opts?.text ? exploreNote(opts.text) : null;
+    const topic = exploreTopic(opts?.text ?? "") ?? live.listening?.topic ?? "this idea";
+    const already = new Set((live.listening?.notes ?? []).map((n) => n.replace(/\s+/g, " ").toLowerCase()));
+    const notes = note && !already.has(note.replace(/\s+/g, " ").toLowerCase()) ? [...(live.listening?.notes ?? []), note] : (live.listening?.notes ?? []);
+    if (opts?.done) {
+      const patch: Partial<RuntimeSection> = { listening: null, pendingKeep: false };
+      if (note) patch.ideas = [note];
+      // Done talking: go to the confirm, never a fresh lead menu.
+      if (
+        (note || keptIdeas(live.ideas).length > 0) &&
+        (live.loopStep === "probe" || live.loopStep === "teach" || live.loopStep === "search")
+      ) {
+        patch.loopStep = "summarize";
+      }
+      updateSection(section.key, patch, { transcript: withLines(more) });
+      paste.reset();
+      clearSent(idea);
+      setThinNote(null);
+      if (opts.lock) onConfirm([]);
+      return;
+    }
+    updateSection(
+      section.key,
+      { listening: { topic, notes }, ...(note ? { ideas: [note] } : {}) },
+      { transcript: withLines(more), events: [...base.events, "stance_listening"] },
+    );
+    paste.reset();
+    clearSent(idea);
+    setThinNote(null);
+  }
+
   function onTeachSkip(more: LoopLine[]) {
     if (!section) return;
     updateSection(section.key, { teachStatus: "skipped_known", loopStep: "probe" }, { transcript: withLines(more) });
@@ -1148,6 +1189,8 @@ export function CoachingLoop({
         logic,
         logicRevealed: false,
         ideas: kept,
+        listening: null,
+        pendingKeep: false,
       },
       { transcript: withLines(more) },
     );
@@ -1208,6 +1251,13 @@ export function CoachingLoop({
       return;
     }
     if (choice === "keep") {
+      const base = sessionRef.current ?? session;
+      const live = (base?.sections.find((item) => item.key === section.key) ?? section);
+      if (!live.pendingKeep) {
+        updateSection(section.key, { pendingKeep: true }, { transcript: withLines(more) });
+        return;
+      }
+      updateSection(section.key, { pendingKeep: false, listening: null });
       void continueAfterLogic("keep", more);
       return;
     }
@@ -1430,6 +1480,8 @@ export function CoachingLoop({
               status: section.status,
               hasLogic: Boolean(section.logic),
               logicRevealed: section.logicRevealed,
+              listening: Boolean(section.listening),
+              pendingKeep: Boolean(section.pendingKeep),
             },
             { hasCard: Boolean(card), personalized: Boolean(examples?.personalized), hasBatch: Boolean(batch) },
           )}
@@ -1511,6 +1563,7 @@ export function CoachingLoop({
             logicResult: onLogicResult,
             skipSection: onSkipSection,
             discuss: onDiscuss,
+            listen: onListen,
             jumpTo: (index) => {
               if (index < 0) return;
               setActive(index);

@@ -22,6 +22,8 @@ export type StanceTurnKind =
   | "confirm"
   | "logic_opener"
   | "logic_result"
+  | "keep_confirm"
+  | "listening"
   | "locked_in"
   | "none";
 
@@ -31,6 +33,10 @@ export type StanceTurnInput = {
   status: string;
   hasLogic: boolean;
   logicRevealed: boolean;
+  /** Exploring an option: listen, don't lock or offer a new menu. */
+  listening?: boolean;
+  /** "Keep my angle" is waiting on a one-tap confirm. */
+  pendingKeep?: boolean;
 };
 
 /**
@@ -43,6 +49,8 @@ export function stanceTurnFor(
   s: StanceTurnInput,
   opts: { hasCard: boolean; personalized: boolean; hasBatch: boolean },
 ): StanceTurnKind {
+  if (s.listening) return "listening";
+  if (s.pendingKeep) return "keep_confirm";
   if (s.loopStep === "teach") {
     if (s.mode === "lesson") return opts.hasCard ? "teach_card" : "none";
     return "mirror";

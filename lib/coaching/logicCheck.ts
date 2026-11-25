@@ -6,6 +6,7 @@ import { assignmentQuestion, balanceQuotes, questionOf } from "@/lib/copy/senten
 import { z } from "zod";
 import { isVerbatimSubstring } from "@/lib/coaching/lesson";
 import { isThinAnswer } from "@/lib/coaching/thin";
+import { pressureTestLine } from "@/lib/stages/explore-intent";
 import { wordCount } from "@/lib/utils";
 
 export const LOGIC_OPENER = "Quick logic check. You feel good about this?";
@@ -367,7 +368,11 @@ export function logicCheckFromNotes(input: {
       tier: "moderate",
       basis: "debatable_interpretation",
       confidence: 0.72,
-      reason: "A reasonable reader could see this another way.",
+      reason: pressureTestLine({
+        claim: notes,
+        reason: "A reasonable reader could see this another way.",
+        counterpoint: "the same evidence also supports the opposite reading",
+      }),
       citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
