@@ -37,19 +37,44 @@ const STYLE_HINTS: [string, RegExp][] = [
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
 const PAST = /\b(?:\w{3,}ed|was|were|had|did|made|took|gave|held|ran|led|kept|got|went|told|taught|helped|knew|met|brought|built|stayed|would)\b/gi;
 
-/** Who the story is about: "Mandy" (from "my manager Mandy"), a named person, or "your manager". */
-export function storyWho(text: string): { who: string; named: boolean } | null {
+/** Spoken filler ("uh", "um", "you know") out, so detection reads the story, not the hesitations. */
+export function withoutSpokenFiller(text: string): string {
+  return text
+    .replace(/,\s*(?:u+h+|u+m+|e+r+m*)\s*,/gi, " ")
+    .replace(/(^|[\s,.;])(?:u+h+|u+m+|e+r+m*|hmm+|uh-huh)(?=[\s,.;!?]|$)[,]?/gi, "$1")
+    .replace(/,\s*you know,?/gi, ",")
+    .replace(/\s+,/g, ",")
+    .replace(/,{2,}/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+const NOT_WHO =
+  /^(I|Okay|Ok|So|And|But|If|We|She|He|They|It|Our|The|This|That|There|Then|When|Once|Honestly|Yeah|Yes|No|Maybe|Sorry|Can|Uh|Um|Doesn|Like|Well|Also|Her|His|My|Mr|Mrs|Ms|T-Mobile|Mobile|Walmart|Target|Starbucks|Amazon|Google|Microsoft|Apple|Costco|Verizon|Best|Buy|Servant|Transformational|Situational|Leadership|Monday|Friday)$/;
+const ROLE_WORD = "leader|manager|boss|supervisor|mentor|coach|lead|director|teacher|captain|principal|professor|pastor|sergeant|owner";
+
+/** Who the story is about: "Mandy" (from "my manager Mandy" or "an incredible leader, uh, Mandy, who…"), a named person, or "your manager". */
+export function storyWho(text0: string): { who: string; named: boolean } | null {
+  const text = withoutSpokenFiller(text0);
   const m = text.match(ROLE_RE);
-  if (m?.[2]) return { who: m[2], named: true };
+  if (m?.[2] && !NOT_WHO.test(m[2])) return { who: m[2], named: true };
+  const ok = (n?: string) => (n && !NOT_WHO.test(n) ? n : null);
+  // "a leader, Mandy, who…", "my boss named Dave", "leader called Ana"
+  for (const r of text.matchAll(new RegExp(`\\b(?:${ROLE_WORD})s?\\s*,?\\s*(?:named\\s+|called\\s+|was\\s+)?([A-Z][a-z]{2,})\\b`, "g"))) {
+    if (ok(r[1])) return { who: r[1]!, named: true };
+  }
+  // "Mandy, who used to…", "Mandy was my manager", "the Mandy story"
+  for (const r of text.matchAll(/\b([A-Z][a-z]{2,})(?:,?\s+who\b|\s+was\s+(?:my|our)\b)/g)) if (ok(r[1])) return { who: r[1]!, named: true };
+  for (const r of text.matchAll(/\bthe\s+([A-Z][a-z]{2,})\s+story\b/g)) if (ok(r[1])) return { who: r[1]!, named: true };
   const p = namedPerson(text);
-  if (p && !/^(T-Mobile|Walmart|Target|Starbucks|Amazon|Google|Microsoft|Apple)$/i.test(p)) return { who: p, named: true };
+  if (p && !p.split(/\s+/).some((w) => NOT_WHO.test(w))) return { who: p, named: true };
   if (m?.[1]) return { who: `your ${m[1].toLowerCase()}`, named: false };
   return null;
 }
 
 /** A real story of their own: a person, things that happened (past tense), and some length. */
 export function isRichStory(text: string): boolean {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = withoutSpokenFiller(text.replace(/\s+/g, " ").trim());
   if (words(t) < 30) return false;
   if ((t.match(PAST) ?? []).length < 3) return false;
   return Boolean(storyWho(t)) || /\b(when I|I worked|I was working|at my (?:job|work)|my job)\b/i.test(t);
@@ -58,8 +83,8 @@ export function isRichStory(text: string): boolean {
 /** Up to two things the person did, in their own past tense ("held weekly one-on-ones with every rep"). */
 export function storyActions(text: string, who: string): string[] {
   const name = who.replace(/^your\s+/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const subj = new RegExp(`\\b(?:she|he|they|${name})\\s+(?:also\\s+|always\\s+|would\\s+(?:always\\s+)?|really\\s+|even\\s+)?([a-z]+)\\s+([^.!?;]*)`, "gi");
-  const VERB = /^(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built|met|sat|put|set|let|paid|stayed)$/i;
+  const subj = new RegExp(`\\b(?:she|he|they|${name})\\s+(?:(?:also|always|actually|just|would|really|even|often)\\s+)*([a-z]+)\\s+([^.!?;]*)`, "gi");
+  const VERB = /^(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built|met|sat|put|set|let|paid|stayed|found|broke|showed)$/i;
   const out: string[] = [];
   const tidy = (rest: string) =>
     rest
@@ -76,13 +101,24 @@ export function storyActions(text: string, who: string): string[] {
       .replace(/\bherself\b|\bhimself\b|\bthemselves\b/gi, "")
       .replace(/\s+/g, " ")
       .trim();
-  for (const m of text.replace(/\s+/g, " ").matchAll(subj)) {
+  const clean = withoutSpokenFiller(text.replace(/\s+/g, " "));
+  // "Mandy, who used to take everybody's time and requests seriously": what they did, in past tense.
+  const PAST_OF: Record<string, string> = { take: "took", give: "gave", hold: "held", make: "made", keep: "kept", find: "found", run: "ran", lead: "led", teach: "taught", bring: "brought", build: "built", meet: "met", put: "put", let: "let", pay: "paid" };
+  const whoRe = new RegExp(`\\b${name},?\\s+who\\s+(?:used to|would)\\s+([a-z]+)\\s+([^.!?;]*)`, "i");
+  const wm = clean.match(whoRe);
+  if (wm) {
+    const v = wm[1]!.toLowerCase();
+    const past = PAST_OF[v] ?? (v.endsWith("e") ? `${v}d` : `${v}ed`);
+    out.push(`${past} ${tidy(wm[2]!.replace(/\s+/g, " "))}`.trim());
+  }
+  const clauses = clean.split(/[.!?;]|,\s+(?=(?:she|he|they|and|but|when|if)\b)/i);
+  for (const m of clauses.flatMap((c) => [...c.matchAll(subj)])) {
     const verb = m[1]!;
-    if (!VERB.test(verb) || /^(seemed|felt|became|said|wanted|started|tried|used|needed)$/i.test(verb)) continue;
+    if (!VERB.test(verb) || /^(seemed|felt|became|said|wanted|started|tried|used|needed|seen|explained)$/i.test(verb)) continue;
     const clause = m[2]!;
     if (stylesIn(clause).length || /\b(leader|leadership)\b/i.test(clause)) continue;
     // "coached people toward promotions and covered the shifts": two actions.
-    const parts = clause.split(/,?\s+and\s+(?=(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built)\b)/i);
+    const parts = clause.split(/,?\s+(?:and|but)\s+(?=(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built|broke|found)\b)/i);
     out.push(`${verb.toLowerCase()} ${tidy(parts[0]!)}`.trim());
     for (const more of parts.slice(1)) {
       const [v, ...r] = more.trim().split(/\s+/);
@@ -90,15 +126,19 @@ export function storyActions(text: string, who: string): string[] {
     }
     if (out.length >= 3) break;
   }
-  return out.slice(0, 2);
+  // The two that show the most about how they led (growth, listening, real responsibility), in story order.
+  const strong = /\b(gave|coached|promot\w*|one-on-ones?|listened|seriously|mentored|cared|develop\w*|grow\w*|responsibilit\w*)\b/i;
+  const ranked = out.map((a, i) => ({ a, i, s: strong.test(a) ? 0 : 1 })).sort((x, y) => x.s - y.s || x.i - y.i).slice(0, 2).sort((x, y) => x.i - y.i);
+  return ranked.map((x) => x.a);
 }
 
 /** The reflect-back, or null when it isn't a story with a style (named, or a clear hint when tentative is ok). */
 export function reflectStory(text: string, opts: { tentative?: boolean } = {}): StoryReflect | null {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = withoutSpokenFiller(text.replace(/\s+/g, " ").trim());
   const who = storyWho(t);
   if (!who) return null;
-  const named = stylesIn(t).find((s) => STYLE_MEANING[s]);
+  // QA 12:48: the style they name themselves ("She was truly a servant leader") always wins.
+  const named = stylesIn(t).find((s) => STYLE_MEANING[s]) ?? (Object.keys(STYLE_MEANING).find((s) => new RegExp(`\\b${s}\\s+(?:leader|leadership|style|type)\\b`, "i").test(t)) ?? undefined);
   const hinted = named ? null : opts.tentative ? STYLE_HINTS.find(([, re]) => re.test(t))?.[0] ?? null : null;
   const style = named ?? hinted;
   if (!style) return null;
@@ -123,16 +163,58 @@ export function reflectParas(r: StoryReflect, opts: { lead?: string } = {}): str
 
 /** Their reply to the proposal. */
 export function proposalReply(text: string): "yes" | "no" | "interview" | "summary" | "confused" | "other" {
-  const t = text.trim();
-  if (/\b(interview me|you said you'?d interview|ask me (?:some |a few )?questions|one (?:question )?at a time)\b/i.test(t)) return "interview";
-  if (/\b(summar\w*|catch me up|haven'?t read|didn'?t read|not read (?:it|them)|what do the readings say|key ideas)\b/i.test(t)) return "summary";
-  if (/^\s*(yes|yeah|yep|yup|sure|ok(?:ay)?|sounds good|let'?s do (?:it|that)|let'?s go|run with it|that works|perfect|great|do it)\b/i.test(t) || /\brun with it\b/i.test(t)) return "yes";
-  if (/^\s*(no|nope|nah|not quite|not really)\b/i.test(t)) return "no";
-  if (/\b(i don'?t (?:get|understand)|confus\w*|what do you mean|build on (?:my|the) story|use my story|connect it)\b/i.test(t)) return "confused";
+  const t = withoutSpokenFiller(text.trim());
+  const n = words(t);
+  if (/\b(interview(?:ing)? me|interview\b|you said you'?d interview|ask me (?:some |a few )?questions|one (?:question )?at a time|dig deeper)\b/i.test(t)) return "interview";
+  if (/\b(summar\w*|catch me up|haven'?t (?:really )?read|didn'?t read|not read (?:it|them)|what do the readings say|key ideas)\b/i.test(t)) return "summary";
+  // A yes is short ("Yes", "Okay, let's do it"); a long message that opens with "Okay, so…" is a story, not a yes.
+  if ((n <= 8 && /^\s*(yes|yeah|yep|yup|sure|ok(?:ay)?|sounds good|let'?s do (?:it|that)|let'?s go|run with it|that works|perfect|great|do it)\b/i.test(t)) || (n <= 12 && /\brun with it\b/i.test(t))) return "yes";
+  if (n <= 10 && /^\s*(no|nope|nah|not quite|not really)\b/i.test(t)) return "no";
+  if (/\b(i don'?t (?:get|understand)|no idea what|(?:doesn'?t|does not|don'?t) (?:seem to )?make (?:any )?sense|confus\w*|what do you mean|build on (?:my|the|this)(?: \w+)? story|use my story|connect it|how (?:it|they|these) relate)\b/i.test(t)) return "confused";
   return "other";
 }
 
 /** The ask a student makes to build on their story / be interviewed, before any proposal exists. */
 export function wantsStoryHelp(text: string): boolean {
   return proposalReply(text) === "interview" || proposalReply(text) === "confused";
+}
+
+/**
+ * QA 12:48 (a): "summarize the readings" while their story is on the table: 3–5 plain bullets in total
+ * (their pages when uploaded, otherwise clearly general background), tied back to their story,
+ * then at most one ask. No page or chapter details she doesn't have. Teaching only, never paper text.
+ */
+export function storySummaryParas(
+  summaries: { kind: string; title: string; points: string[] }[],
+  r: StoryReflect | null,
+): string[] {
+  const own = summaries.filter((s) => s.kind === "reading" || s.kind === "found");
+  const use = own.length ? own : summaries;
+  const bullets: string[] = [];
+  for (let i = 0; bullets.length < 4 && i < 6; i++) {
+    for (const s of use) {
+      const p = s.points[i];
+      if (p && bullets.length < 4) bullets.push(`• ${p.replace(/\s+/g, " ").trim()}`);
+    }
+  }
+  if (bullets.length < 3) {
+    for (const b of [
+      "• Leadership is about influencing a group toward a shared goal, not just holding a title.",
+      "• Different styles move people in different ways: some sell a vision, some adapt to the person, some put the team's needs first.",
+      "• Leading through change works best when people trust the leader and understand why the change matters.",
+    ]) if (bullets.length < 3) bullets.push(b);
+  }
+  const lead = own.length
+    ? "Here are the key ideas from your readings, in plain words:"
+    : "I don't have your copies yet, so this is general background, not from your chapters:";
+  const out = [lead, ...bullets];
+  if (!own.length) out.push("If you upload your pages later, I'll match your exact text.");
+  if (r) {
+    const meaning = STYLE_MEANING[r.style] ?? "how you lead people";
+    out.push(`How it connects to your story: ${cap(r.who)} is the ${r.style} idea in action, ${meaning}.`);
+    out.push(`Want to run with ${r.style} leadership, with ${r.who} as your proof?`);
+  } else {
+    out.push("Which of these sounds closest to a leader you've seen?");
+  }
+  return out;
 }
