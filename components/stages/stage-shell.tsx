@@ -14,6 +14,9 @@ import { STAGE_LABELS } from "@/lib/config";
 import { getDemoPaper, upsertDemoPaper, type DemoPaper } from "@/lib/demo/store";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { SkeletonDock } from "@/components/skeleton/skeleton-dock";
+import { needsTitlePage } from "@/lib/skeleton/sections";
+import { StageViewContext } from "@/lib/stages/stage-view-context";
 
 type Props = {
   paperId: string;
@@ -72,6 +75,20 @@ export function StageShell({
   // nothing live, nothing written). The paper's own stage: live. (Colton, Nov 23)
   const view = stageView(stage, paper.current_stage);
   const here = paper.current_stage;
+  // PC-30: The Skeleton's tab is on every stage page (outside the read-only fieldset).
+  const dock = (
+    <SkeletonDock
+      paperId={paperId}
+      stage={stage}
+      paperStage={here}
+      demoMode={demoMode}
+      titlePage={needsTitlePage({
+        formattingRules: initialRequirements?.formattingRules.value ?? null,
+        citationStyle: initialRequirements?.citationStyle.value ?? null,
+        text: initialRawText,
+      })}
+    />
+  );
   const backHref = `/app/papers/${paperId}/stage/${here}`;
   const backLabel = `Back to Stage ${here}: ${STAGE_LABELS[here - 1] ?? ""}`;
   if (view === "ahead") {
@@ -81,6 +98,7 @@ export function StageShell({
           <StageProgress paperId={paperId} current={stage} statuses={statuses} />
         </div>
         <SoftGateView paperId={paperId} stage={stage} paperStage={here} />
+        {dock}
       </div>
     );
   }
@@ -111,6 +129,7 @@ export function StageShell({
         onClickCapture={review ? (e) => { if (!(e.target as HTMLElement).closest("a")) { e.preventDefault(); e.stopPropagation(); } } : undefined}
         onKeyDownCapture={review ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); } } : undefined}
       >
+        <StageViewContext.Provider value={{ review, stage, paperStage: here }}>
         {stage === 1 ? (
           // Stage 1 is on the PLAN.md 8 Editorial-Warm system; later stages are not yet.
           <div className="font-ds-sans text-ds-ink">
@@ -166,7 +185,9 @@ export function StageShell({
             }}
           />
         )}
+        </StageViewContext.Provider>
       </fieldset>
+      {dock}
     </div>
   );
 }
