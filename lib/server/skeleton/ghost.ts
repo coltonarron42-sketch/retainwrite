@@ -70,6 +70,22 @@ async function askJson(system: string, user: string, strong: boolean, what: stri
   return null;
 }
 
+/** In-flight model refinements on this instance (QA 1:11 AM: one per paper and input, never stacked). */
+const inflight = new Set<string>();
+function once(key: string, later: (task: () => Promise<void>) => void, task: () => Promise<unknown>): void {
+  if (inflight.has(key)) return;
+  inflight.add(key);
+  later(async () => {
+    try {
+      await task();
+    } catch {
+      // the rules version stays; the next view retries
+    } finally {
+      inflight.delete(key);
+    }
+  });
+}
+
 /** Ghost #1: the shape, once the assignment (and any material) has been read. */
 export async function ensureShape(input: {
   paperId: string;
@@ -78,22 +94,40 @@ export async function ensureShape(input: {
   words: number | null;
   material: string;
   existing: GhostRow | null;
+  /** QA 1:11 AM: the model runs after the response (next/server after); the rules shape answers now. */
+  later?: (task: () => Promise<void>) => void;
 }): Promise<PaperShape> {
   // Only a new assignment re-plans the shape; material read later doesn't reshuffle the skeleton.
   // A rules fallback (the model missed) is retried on the next ask, never kept for good.
   const hash = `a:${inputHash(input.assignmentText)}`;
   if (input.existing?.shape && input.existing.shapeHash === hash && input.existing.shape.source === "model") return input.existing.shape;
-  const raw = await askJson(
-    SHAPE_SYSTEM,
-    JSON.stringify({ assignment: input.assignmentText.slice(0, 8000), target_words: input.words, course_material: input.material.slice(0, 4000) }),
-    true,
-    "shape",
-  );
-  const fromModel = raw ? shapeFromModel(raw) : null;
-  if (raw && !fromModel) console.warn("[ghost] shape rejected by schema");
-  const shape = fromModel ?? ruleShape({ text: input.assignmentText, words: input.words });
-  await writeGhost(input.paperId, input.userId, "shape", shape, hash).catch(() => undefined);
-  return shape;
+  const model = async (): Promise<PaperShape | null> => {
+    const raw = await askJson(
+      SHAPE_SYSTEM,
+      JSON.stringify({ assignment: input.assignmentText.slice(0, 8000), target_words: input.words, course_material: input.material.slice(0, 4000) }),
+      true,
+      "shape",
+    );
+    const fromModel = raw ? shapeFromModel(raw) : null;
+    if (raw && !fromModel) console.warn("[ghost] shape rejected by schema");
+    if (fromModel) await writeGhost(input.paperId, input.userId, "shape", fromModel, hash).catch(() => undefined);
+    return fromModel;
+  };
+  const sameRules = input.existing?.shape && input.existing.shapeHash === hash ? input.existing.shape : null;
+  const rules = sameRules ?? ruleShape({ text: input.assignmentText, words: input.words });
+  if (!hasGrokKey()) {
+    if (!sameRules) await writeGhost(input.paperId, input.userId, "shape", rules, hash).catch(() => undefined);
+    return rules;
+  }
+  if (input.later) {
+    if (!sameRules) await writeGhost(input.paperId, input.userId, "shape", rules, hash).catch(() => undefined);
+    once(`shape:${input.paperId}:${hash}`, input.later, model);
+    return rules;
+  }
+  const fromModel = await model().catch(() => null);
+  if (fromModel) return fromModel;
+  if (!sameRules) await writeGhost(input.paperId, input.userId, "shape", rules, hash).catch(() => undefined);
+  return rules;
 }
 
 /** Ghost #2: short body titles from the student's choices (leader, styles) and, later, their notes. */
@@ -107,6 +141,8 @@ export async function ensureOutline(input: {
   existing: GhostRow | null;
   /** QA 1:11 AM #1: run the model refinement after the response (next/server after); the rules titles answer now. */
   later?: (task: () => Promise<void>) => void;
+  /** False while the shape itself is still the rules stand-in (its model titles would be thrown away). */
+  refine?: boolean;
 }): Promise<ShapeOutline | null> {
   const studentCorpus = [...input.choices, ...input.bodyNotes].join("\n");
   if (!input.facts.leader && !input.facts.styles.length && !input.bodyNotes.length) return input.existing?.outline ?? null;
@@ -147,9 +183,7 @@ export async function ensureOutline(input: {
   if (input.later) {
     // Rules titles right away (kept as "pending"), the model's titles land for the next view.
     if (!(input.existing?.outline && input.existing.outlineHash === pending)) await writeGhost(input.paperId, input.userId, "outline", rules, pending).catch(() => undefined);
-    input.later(async () => {
-      await refine().catch(() => undefined);
-    });
+    if (input.refine !== false) once(`outline:${input.paperId}:${hash}`, input.later, refine);
     return input.existing?.outlineHash === pending && input.existing.outline ? input.existing.outline : rules;
   }
   const model = await refine().catch(() => null);

@@ -47,7 +47,7 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
   const material = (pctx?.summaries ?? []).map((s) => `${s.title ?? ""}: ${(s.points ?? []).join(" ")}`).join("\n");
   try {
     const existing = await readGhost(paperId);
-    const shape = await ensureShape({ paperId, userId: user.id, assignmentText: text, words, material, existing });
+    const shape = await ensureShape({ paperId, userId: user.id, assignmentText: text, words, material, existing, later: (task) => after(task) });
     let outline = existing?.outline ?? null;
     // Ghost #2 (QA 1:11 AM #1): bold titles as soon as their choices lock (leader, styles), then
     // refined from their body notes (POST). A shape change re-titles; a plain GET never churns them.
@@ -58,7 +58,7 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const leaderMissing = Boolean(facts.leader && outline && !outline.titles.some((t) => t.title.toLowerCase().includes(facts.leader!.toLowerCase())));
     if (post || ((!outline || shapeChanged || pendingModel || leaderMissing) && (facts.leader || facts.styles.length))) {
       const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
-      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task) });
+      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model" });
     }
     return NextResponse.json({ view: viewFor(shape, outline) });
   } catch {
