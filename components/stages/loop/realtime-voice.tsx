@@ -250,6 +250,7 @@ export function useRealtimeCall(opts: {
       notePrompt(opts?.spoken);
       return rt.current?.sayTurn(text, opts);
     },
+    sayAnswer: (text: string, sig: string) => rt.current?.sayAnswer(text, sig),
     setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => {
       notePrompt(spoken);
       return rt.current?.setScreen(text, choices, followUp, spoken);

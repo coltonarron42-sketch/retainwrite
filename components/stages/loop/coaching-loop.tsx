@@ -105,7 +105,10 @@ import {
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
-import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { finalStanceIntent, intentReply, isWriteRequest, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
+import { sourcesLine } from "@/lib/coach/sources-line";
+import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { oneQuip } from "@/lib/coach/quips";
 import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -794,10 +797,11 @@ export function CoachingLoop({
 
   /** A request or question is answered in her next turn and never saved as a note. */
   /** Her real answer (content question, "idk", a vague note), from the paper context; null = fall back. */
-  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+  async function coachAnswer(mode: CoachMode, message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      // PC-31: research and summaries run web search at high effort (up to ~30 s); other turns ~16 s.
+      const timer = setTimeout(() => controller.abort(), mode === "research" || mode === "summary" ? 50_000 : 17_000);
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -809,16 +813,22 @@ export function CoachingLoop({
         clearTimeout(timer);
         return null;
       }
-      const d = (await res.json()) as { paras?: string[] };
+      const d = (await res.json()) as { paras?: string[]; sources?: { title: string; url: string }[] };
       clearTimeout(timer);
-      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
+      if (!d.paras?.length) return null;
+      const src = sourcesLine(d.sources);
+      return [...d.paras.map((p) => oneQuip(p)), ...(src ? [src] : [])];
     } catch {
       return null;
     }
   }
 
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
-  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
+  function answerModeFor(intent: StanceIntent, text: string): CoachMode | null {
+    // PC-31: "write my intro" gets her reframe (a question about their point); "find me examples" gets real research.
+    if (isWriteRequest(text)) return "reframe";
+    if (RESEARCH_ASK.test(text)) return "research";
+    if (SUMMARY_ASK.test(text)) return "summary";
     if (intent === "content_question") return "answer";
     if (intent === "request_help" || isLostSaying(text)) return "lost";
     return null;
