@@ -122,3 +122,50 @@ describe("Round 4 QA: a leader named with one word is recognized", () => {
     expect(r?.leader).toBe("Walton");
   });
 });
+
+import { relate } from "@/lib/chat/turn-recorder";
+describe("QA 11:08: Past chat never merges a checklist with the next ask", () => {
+  const el = (n: string) => ({ n }) as unknown as Element;
+  const lead = "Awesome, sounds like you have a good idea.\n✓ A real leader: Walton.\n○ Your case";
+  it("relate reads ticks and typing as the same turn, a new ask as new", () => {
+    expect(relate(lead, lead.replace("○", "✓")).grow).toBe(true);
+    expect(relate("Hel", "Hello there").grow).toBe(true);
+    expect(relate(lead + "\nWhich one?", lead + "\nSay a bit more about why that one.")).toEqual({ grow: false, k: 3 });
+  });
+  it("the same bubble moving from one ask to the next records the new ask alone, once", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a"), b = el("b");
+    foldLines(recs, [{ el: a, who: "pau", text: lead + "\nWhat's your main reason?" }], () => true, 0);
+    foldLines(recs, [{ el: a, who: "pau", text: lead + "\nSay a bit more about why that one." }], () => true, 5000);
+    // then the ask shows on its own in a fresh bubble
+    foldLines(recs, [{ el: b, who: "pau", text: "Say a bit more about why that one." }], (x) => x === b, 6000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([lead + "\nWhat's your main reason?", "Say a bit more about why that one."]);
+  });
+  it("a bubble that drops its ask keeps the full line", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a");
+    foldLines(recs, [{ el: a, who: "pau", text: lead + "\nWhich one?" }], () => true, 0);
+    foldLines(recs, [{ el: a, who: "pau", text: lead }], () => true, 5000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([lead + "\nWhich one?"]);
+  });
+});
+
+import { isFillerSaying, withoutFiller, stylesIn, pickEscalation } from "@/lib/stage1/north-turns";
+describe("QA 11:08 Stage 1 text fixes", () => {
+  it("filler runs and empty reasons are filler, and never reach the stored take", () => {
+    expect(isFillerSaying("second quick message")).toBe(true);
+    expect(isFillerSaying("because it's good")).toBe(true);
+    expect(isFillerSaying("Servant, because people stay")).toBe(false);
+    expect(withoutFiller("because it's good When Walmart grew fast, Walton listened to associates.")).toBe("When Walmart grew fast, Walton listened to associates.");
+  });
+  it("a style named on its own is kept for the checklist", () => {
+    expect(stylesIn("I'd pick Servant because Walton put associates first")).toEqual(["servant"]);
+  });
+  it("a plain 'make this easier' asks one thing", () => {
+    const opts = [{ label: "Transformational", why: "vision" }, { label: "Servant", why: "people first" }] as never;
+    const e = pickEscalation({ options: opts, round: 2, people: [{ label: "Satya Nadella", why: "x" }] as never, catchUpSkipped: true });
+    const t = e.paras.join("\n");
+    expect((t.match(/\?/g) ?? []).length).toBe(1);
+    expect(t).not.toMatch(/Leaders people often write about|catch you up/);
+  });
+});
