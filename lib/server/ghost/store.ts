@@ -2,15 +2,22 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MODEL_FAST } from "@/lib/config";
+import { grokChatJson } from "@/lib/ai/grok";
 import {
   GHOST_FIELD,
+  assembleGhost,
   ghostInputHash,
   ghostLogDetail,
-  ghostPrompt,
+  ghostPlanPrompt,
+  ghostSectionPrompt,
+  ghostTargets,
   openGhost,
-  parseGhost,
+  parseGhostPlan,
+  parseSection,
   sealGhost,
+  sectionsToFix,
   type GhostInput,
+  type GhostPlan,
   type GhostScript,
 } from "@/lib/ghost/script";
 
@@ -65,13 +72,13 @@ async function claimTry(supabase: SupabaseClient, paperId: string, userId: strin
 /** Max searches the ghost may use for one paper (Colton t218u: be mindful of search counts). */
 export const GHOST_MAX_TURNS = 3;
 
-async function generate(input: GhostInput, inputHash: string): Promise<GhostScript | null> {
+/** Step 1: research (≤ GHOST_MAX_TURNS searches) and a section plan with word budgets. */
+async function plan(input: GhostInput): Promise<{ plan: GhostPlan; searches: number } | null> {
   const key = process.env.GROK_API_KEY?.trim();
   if (!key) return null;
-  const { system, user } = ghostPrompt(input);
+  const { system, user } = ghostPlanPrompt(input);
   const controller = new AbortController();
-  // Walk 3:56 PM: the strong model with search ran past 150 s; the fast model, inside the route's 300 s.
-  const timer = setTimeout(() => controller.abort(), 240_000);
+  const timer = setTimeout(() => controller.abort(), 110_000);
   try {
     const res = await fetch("https://api.x.ai/v1/responses", {
       method: "POST",
@@ -86,28 +93,10 @@ async function generate(input: GhostInput, inputHash: string): Promise<GhostScri
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "ghost_script",
-            strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                thesis: { type: "string" },
-                outline: { type: "array", items: { type: "object", additionalProperties: false, properties: { section: { type: "string" }, points: { type: "array", items: { type: "string" } } }, required: ["section", "points"] } },
-                paper: { type: "string" },
-                sources: { type: "array", items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, url: { type: "string" } }, required: ["title", "url"] } },
-              },
-              required: ["thesis", "outline", "paper", "sources"],
-            },
-          },
-        },
       }),
     });
     if (!res.ok) {
-      console.warn("[ghost] generate failed", { status: res.status });
+      console.warn("[ghost] plan failed", { status: res.status });
       return null;
     }
     const body = (await res.json()) as { output_text?: string; output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
@@ -116,13 +105,57 @@ async function generate(input: GhostInput, inputHash: string): Promise<GhostScri
       body.output_text ??
       body.output?.flatMap((o) => (o.type === "message" ? (o.content ?? []) : [])).find((c) => c.type === "output_text")?.text ??
       "";
-    return parseGhost(text, { inputHash, startingKind: input.startingKind, searches });
+    const parsed = parseGhostPlan(text, input);
+    return parsed ? { plan: parsed, searches } : null;
   } catch (e) {
-    console.warn("[ghost] generate error", { name: (e as Error)?.name ?? "error" });
+    console.warn("[ghost] plan error", { name: (e as Error)?.name ?? "error" });
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Step 2: one section to its budget (no search). */
+async function section(input: GhostInput, p: GhostPlan, i: number, opts: { have?: string; target?: number } = {}): Promise<string | null> {
+  const { system, user } = ghostSectionPrompt(input, p, i, opts);
+  const r = await grokChatJson({
+    model: MODEL_FAST,
+    system,
+    user,
+    jsonSchema: { name: "ghost_section", schema: { type: "object", additionalProperties: false, properties: { text: { type: "string" } }, required: ["text"] } },
+    timeoutMs: 75_000,
+  });
+  return r.ok ? parseSection(r.text) : null;
+}
+
+/**
+ * The full paper, section by section, to the instructor's word range (Colton 4:10 PM: "meet the
+ * instructor's requirements"). Searches happen only in the plan step. Runs in the background.
+ */
+async function generate(input: GhostInput, inputHash: string): Promise<GhostScript | null> {
+  const started = Date.now();
+  const planned = await plan(input);
+  if (!planned) return null;
+  const p = planned.plan;
+  const written = await Promise.all(p.outline.map((_, i) => section(input, p, i)));
+  if (written.some((t) => !t)) {
+    // One retry for any section that failed.
+    await Promise.all(written.map(async (t, i) => (t ? null : (written[i] = await section(input, p, i)))));
+  }
+  if (written.some((t) => !t)) return null;
+  const texts = written as string[];
+  // Up to two passes that bring the total into the range.
+  for (let pass = 0; pass < 2 && Date.now() - started < 520_000; pass++) {
+    const fixes = sectionsToFix(p.outline.map((x) => x.words), texts, input.targetMin, input.targetMax);
+    if (!fixes.length) break;
+    await Promise.all(
+      fixes.map(async ({ i, target }) => {
+        const t = await section(input, p, i, { have: texts[i], target });
+        if (t) texts[i] = t;
+      }),
+    );
+  }
+  return assembleGhost(p, texts, { inputHash, startingKind: input.startingKind, searches: planned.searches, targetMin: input.targetMin, targetMax: input.targetMax });
 }
 
 /**
@@ -194,5 +227,6 @@ export async function ghostInputFor(
     material: clip((pctx.summaries ?? []).map((s) => `${s.title}: ${s.points.join(" | ")}`).join("\n"), 3000),
     direction: sp?.kind === "has_ideas" ? clip([sp.ideas, sp.followUp].filter(Boolean).join(" "), 1500) : "",
     startingKind: sp?.kind ?? "no_clue",
+    ...(({ min, max }) => ({ targetMin: min, targetMax: max }))(ghostTargets((requirements as { length?: { value?: Parameters<typeof ghostTargets>[0] } } | null)?.length?.value)),
   };
 }

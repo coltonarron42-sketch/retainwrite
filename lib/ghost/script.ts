@@ -31,6 +31,9 @@ export type GhostScript = {
   startingKind: string;
   at: number;
   searches: number;
+  /** The instructor's word range it was written to (PC-32: full length, Colton t221u). */
+  targetMin?: number;
+  targetMax?: number;
 };
 
 export type GhostInput = {
@@ -40,7 +43,28 @@ export type GhostInput = {
   material: string;
   direction: string;
   startingKind: string;
+  /** Word range the paper must meet (from the confirmed card). */
+  targetMin: number;
+  targetMax: number;
 };
+
+/** Words per double-spaced page, for page-length assignments. */
+const WORDS_PER_PAGE = 275;
+
+/** The instructor's word range from the confirmed length (words, pages, or an estimate); a sane default otherwise. */
+export function ghostTargets(len: { wordsMin?: number; wordsMax?: number; pagesMin?: number; pagesMax?: number; wordsEstimateMin?: number; wordsEstimateMax?: number } | null | undefined): { min: number; max: number } {
+  const l = len ?? {};
+  const min0 = l.wordsMin ?? (l.pagesMin ? l.pagesMin * WORDS_PER_PAGE : undefined) ?? l.wordsEstimateMin;
+  const max0 = l.wordsMax ?? (l.pagesMax ? l.pagesMax * WORDS_PER_PAGE : undefined) ?? l.wordsEstimateMax;
+  let min = min0 ?? (max0 ? Math.round(max0 * 0.85) : 1000);
+  let max = max0 ?? Math.round(min * 1.2);
+  if (max < min) [min, max] = [max, min];
+  min = Math.max(250, Math.min(min, 6000));
+  max = Math.max(min, Math.min(max, 7000));
+  return { min, max };
+}
+
+export const wordsIn = (t: string) => t.split(/\s+/).filter(Boolean).length;
 
 export function ghostInputHash(input: GhostInput): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 32);
@@ -140,7 +164,7 @@ export function ghostLeakCheck(output: string, g: GhostScript | null, allowedCor
 /** Log-safe view: sizes and counts only, never text. */
 export function ghostLogDetail(g: GhostScript | null): Record<string, unknown> {
   if (!g) return { ghost: false };
-  return { ghost: true, words: g.paper.split(/\s+/).filter(Boolean).length, sections: g.outline.length, sources: g.sources.length, searches: g.searches, kind: g.startingKind };
+  return { ghost: true, words: wordsIn(g.paper), targetMin: g.targetMin ?? null, targetMax: g.targetMax ?? null, sections: g.outline.length, sources: g.sources.length, searches: g.searches, kind: g.startingKind };
 }
 
 /** Deep check that no ghost text appears in something about to leave the server. */
@@ -152,14 +176,24 @@ export function containsGhost(payload: unknown, g: GhostScript | null): boolean 
   return probes.some((p) => s.includes(p));
 }
 
-/** The ghost prompt (system + user) for the generator. */
-export function ghostPrompt(input: GhostInput): { system: string; user: string } {
+const SYSTEM_BASE =
+  "You are writing an INTERNAL reference paper for a writing coach. It is never shown to the student, never exported, and never submitted; the coach uses it only as hidden guidance to ask better questions.";
+
+export type GhostPlan = {
+  thesis: string;
+  outline: { section: string; points: string[]; words: number }[];
+  sources: { title: string; url: string }[];
+  notes: string[];
+};
+
+/** Step 1 (the only step that searches, ≤3): research and plan the paper section by section. */
+export function ghostPlanPrompt(input: GhostInput): { system: string; user: string } {
   return {
     system: [
-      "You are writing an INTERNAL reference paper for a writing coach. It is never shown to the student, never exported, and never submitted; the coach uses it only as hidden guidance to ask better questions.",
-      "Write a complete, well-organized paper that fully meets the instructor's requirements (prompt, structure, citation style), at the low end of the required length. Research quickly first with web search (at most 3 searches), then write from your own research and ideas. Be fast: no long deliberation.",
-      "If the student shared a direction, build the paper around it; otherwise pick the strongest defensible direction. Use only real sources you actually found; never invent quotes, page numbers or sources. If assigned readings aren't available to you, rely on well-known, verifiable information and say nothing about their specific pages.",
-      "Return JSON only.",
+      SYSTEM_BASE,
+      "Step 1 of 2: research and plan. Use web search (at most 3 searches) to find real, verifiable facts and sources, then plan a paper that fully meets the instructor's requirements (prompt, required parts, citation style).",
+      "If the student shared a direction, build the plan around it; otherwise pick the strongest defensible direction. Use only real sources you actually found; never invent quotes, page numbers or sources. If assigned readings aren't available to you, rely on well-known, verifiable information about them.",
+      `Plan sections whose word budgets ("words") add up to about ${Math.round((input.targetMin + input.targetMax) / 2)} words (the paper must land between ${input.targetMin} and ${input.targetMax} words), with an introduction and a conclusion. "notes" = 6-14 short research facts with their source, for the writer. Return JSON only.`,
     ].join("\n"),
     user: [
       `Assignment (verbatim, clipped):\n${input.assignment}`,
@@ -167,38 +201,128 @@ export function ghostPrompt(input: GhostInput): { system: string; user: string }
       input.readback ? `What the paper is truly asking (confirmed by the student):\n${input.readback}` : "",
       input.material ? `Course material we have (summaries):\n${input.material}` : "",
       `Student's starting point: ${input.startingKind}${input.direction ? `\nTheir direction, in their words: ${input.direction}` : " (no direction yet)"}`,
-      'Return JSON: {"thesis": string, "outline": [{"section": string, "points": string[]}], "paper": string (the full paper), "sources": [{"title": string, "url": string}]}',
+      'Return JSON: {"thesis": string, "outline": [{"section": string, "points": string[], "words": number}], "sources": [{"title": string, "url": string}], "notes": string[]}',
     ]
       .filter(Boolean)
       .join("\n\n"),
   };
 }
 
-/** Parse and bound the model's JSON. */
-export function parseGhost(text: string, meta: { inputHash: string; startingKind: string; searches: number }): GhostScript | null {
+const jsonOf = (text: string) => {
+  const t = text.trim();
+  return JSON.parse(t.startsWith("{") ? t : t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1));
+};
+
+/** Parse and bound the plan; word budgets are rescaled so they sum to the middle of the range. */
+export function parseGhostPlan(text: string, input: Pick<GhostInput, "targetMin" | "targetMax">): GhostPlan | null {
   try {
-    const t = text.trim();
-    const json = t.startsWith("{") ? t : t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1);
-    const o = JSON.parse(json) as Partial<GhostScript>;
-    const paper = typeof o.paper === "string" ? o.paper.trim() : "";
-    if (paper.split(/\s+/).length < 150) return null;
+    const o = jsonOf(text) as Partial<GhostPlan>;
+    const outline = (Array.isArray(o.outline) ? o.outline : [])
+      .slice(0, 10)
+      .map((x) => ({
+        section: String(x?.section ?? "").slice(0, 120),
+        points: (Array.isArray(x?.points) ? x.points : []).slice(0, 8).map((p) => String(p).slice(0, 400)),
+        words: Number(x?.words) > 0 ? Number(x?.words) : 0,
+      }))
+      .filter((x) => x.section);
+    if (outline.length < 3 || !String(o.thesis ?? "").trim()) return null;
     return {
-      v: 1,
-      inputHash: meta.inputHash,
-      thesis: String(o.thesis ?? "").slice(0, 600),
-      outline: (Array.isArray(o.outline) ? o.outline : [])
-        .slice(0, 12)
-        .map((s) => ({ section: String(s?.section ?? "").slice(0, 120), points: (Array.isArray(s?.points) ? s.points : []).slice(0, 8).map((p) => String(p).slice(0, 400)) })),
-      paper: paper.slice(0, 40_000),
+      thesis: String(o.thesis).slice(0, 600),
+      outline: withBudgets(outline, input.targetMin, input.targetMax),
       sources: (Array.isArray(o.sources) ? o.sources : [])
         .slice(0, 12)
-        .map((s) => ({ title: String(s?.title ?? "").slice(0, 200), url: String(s?.url ?? "").slice(0, 500) }))
-        .filter((s) => /^https?:\/\//.test(s.url)),
-      startingKind: meta.startingKind,
-      at: Date.now(),
-      searches: meta.searches,
+        .map((x) => ({ title: String(x?.title ?? "").slice(0, 200), url: String(x?.url ?? "").slice(0, 500) }))
+        .filter((x) => /^https?:\/\//.test(x.url)),
+      notes: (Array.isArray(o.notes) ? o.notes : []).slice(0, 16).map((n) => String(n).slice(0, 400)),
     };
   } catch {
     return null;
   }
+}
+
+/** Section budgets that add up to the middle of the instructor's range (their relative sizes kept). */
+export function withBudgets<T extends { words: number }>(outline: T[], min: number, max: number): T[] {
+  const goal = Math.round((min + max) / 2);
+  const raw = outline.map((x) => (x.words > 0 ? x.words : goal / outline.length));
+  const sum = raw.reduce((a, b) => a + b, 0) || 1;
+  return outline.map((x, i) => ({ ...x, words: Math.max(80, Math.round((raw[i]! / sum) * goal)) }));
+}
+
+/** Step 2 (no search): write one section to its word budget. */
+export function ghostSectionPrompt(input: GhostInput, plan: GhostPlan, i: number, opts: { have?: string; target?: number } = {}): { system: string; user: string } {
+  const sec = plan.outline[i]!;
+  const target = opts.target ?? sec.words;
+  return {
+    system: [
+      SYSTEM_BASE,
+      `Step 2 of 2: write ONE section of the paper, about ${target} words (stay within 10%). Polished academic prose in plain paragraphs, no heading, no bullet points. Use only the research notes and sources given; never invent quotes, numbers or sources. Cite in the assignment's citation style when you use a source. Return JSON only: {"text": string}.`,
+    ].join("\n"),
+    user: [
+      `Assignment requirements:\n${input.requirements.slice(0, 1500)}`,
+      `Thesis: ${plan.thesis}`,
+      `Whole outline:\n${plan.outline.map((x, k) => `${k + 1}. ${x.section} (~${x.words} words): ${x.points.join("; ")}`).join("\n")}`,
+      plan.notes.length ? `Research notes:\n${plan.notes.map((n) => `- ${n}`).join("\n")}` : "",
+      plan.sources.length ? `Sources:\n${plan.sources.map((x) => `- ${x.title} (${x.url})`).join("\n")}` : "",
+      input.direction ? `The student's direction (build on it): ${input.direction}` : "",
+      opts.have
+        ? `Here is the current draft of section ${i + 1} ("${sec.section}"), ${wordsIn(opts.have)} words. Rewrite it to about ${target} words, keeping its points:\n"""${opts.have}"""`
+        : `Write section ${i + 1}: "${sec.section}" covering: ${sec.points.join("; ")}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
+}
+
+export function parseSection(text: string): string | null {
+  try {
+    const t = String((jsonOf(text) as { text?: unknown }).text ?? "").trim();
+    return wordsIn(t) >= 30 ? t.slice(0, 20_000) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sections that need one more pass to bring the total into the range: the ones furthest from
+ * their budget (in the direction of the gap), rewritten to their budget, until the projected total fits.
+ */
+export function sectionsToFix(budgets: number[], written: string[], min: number, max: number): { i: number; target: number }[] {
+  const have = written.map(wordsIn);
+  let total = have.reduce((a, b) => a + b, 0);
+  if (total >= min && total <= max) return [];
+  const short = total < min;
+  const order = have
+    .map((h, i) => ({ i, off: h - budgets[i]! }))
+    .filter((x) => (short ? x.off < 0 : x.off > 0))
+    .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
+  const fixes: { i: number; target: number }[] = [];
+  for (const { i, off } of order) {
+    fixes.push({ i, target: budgets[i]! });
+    total -= off;
+    if (total >= min && total <= max) return fixes;
+  }
+  // Every section already met its budget but the total still misses: scale them all.
+  const goal = Math.round((min + max) / 2);
+  const factor = goal / Math.max(1, have.reduce((a, b) => a + b, 0));
+  return have.map((h, i) => ({ i, target: Math.max(60, Math.round(h * factor)) }));
+}
+
+/** The finished ghost (null if it can't meet the minimum: never a short "full paper"). */
+export function assembleGhost(plan: GhostPlan, written: string[], meta: { inputHash: string; startingKind: string; searches: number; targetMin: number; targetMax: number }): GhostScript | null {
+  const paper = written.filter(Boolean).join("\n\n").trim();
+  const words = wordsIn(paper);
+  if (words < Math.round(meta.targetMin * 0.95)) return null;
+  return {
+    v: 1,
+    inputHash: meta.inputHash,
+    thesis: plan.thesis,
+    outline: plan.outline.map((x) => ({ section: x.section, points: x.points })),
+    paper: paper.slice(0, 60_000),
+    sources: plan.sources,
+    startingKind: meta.startingKind,
+    at: Date.now(),
+    searches: meta.searches,
+    targetMin: meta.targetMin,
+    targetMax: meta.targetMax,
+  };
 }

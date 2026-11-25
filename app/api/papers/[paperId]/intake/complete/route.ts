@@ -16,8 +16,8 @@ import { wordCount } from "@/lib/utils";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
 
 export const runtime = "nodejs";
-/** The ghost script is written in after() (up to ~240 s) once the response has gone. */
-export const maxDuration = 300;
+/** The ghost script is written in after() (plan + section-by-section writing, usually 1-3 min) once the response has gone. */
+export const maxDuration = 800;
 
 const answerSchema = z.object({
   questionId: z.string(),

@@ -9,7 +9,13 @@ import {
   ghostLogDetail,
   isServerOnlyField,
   openGhost,
-  parseGhost,
+  assembleGhost,
+  ghostTargets,
+  parseGhostPlan,
+  parseSection,
+  sectionsToFix,
+  withBudgets,
+  wordsIn,
   sealGhost,
   type GhostScript,
 } from "@/lib/ghost/script";
@@ -131,14 +137,41 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
     expect(ghostLeakCheck("You said it builds the trust that employees need. Nice.", GHOST, student).ok).toBe(true);
     expect(src("app/api/papers/[paperId]/coach/answer/route.ts")).toMatch(/if \(paras\.some\(\(p\) => !ghostLeakCheck\(p, ghost, allowed\)\.ok\)\) \{\s*paras = \[\];/);
   });
-  it("parses only a full paper with real URLs", () => {
-    expect(parseGhost('{"thesis":"t","outline":[],"paper":"too short","sources":[]}', { inputHash: "h", startingKind: "no_clue", searches: 0 })).toBeNull();
-    const g = parseGhost(
-      "```json\n" + JSON.stringify({ thesis: "t", outline: [], paper: PAPER, sources: [{ title: "x", url: "not a url" }, { title: "y", url: "https://y.org" }] }) + "\n```",
-      { inputHash: "h", startingKind: "has_ideas", searches: 3 },
+  it("targets the instructor's word range (words, pages, estimate, default)", () => {
+    expect(ghostTargets({ wordsMin: 1200, wordsMax: 1500 })).toEqual({ min: 1200, max: 1500 });
+    expect(ghostTargets({ pagesMin: 4, pagesMax: 5 })).toEqual({ min: 1100, max: 1375 });
+    expect(ghostTargets({ wordsEstimateMin: 900, wordsEstimateMax: 1100 })).toEqual({ min: 900, max: 1100 });
+    expect(ghostTargets({ wordsMax: 1000 })).toEqual({ min: 850, max: 1000 });
+    expect(ghostTargets(null)).toEqual({ min: 1000, max: 1200 });
+  });
+  it("plans section budgets that add up to the middle of the range, with real URLs only", () => {
+    const plan = parseGhostPlan(
+      "```json\n" + JSON.stringify({ thesis: "t", outline: [{ section: "Intro", points: ["a"], words: 100 }, { section: "Body", points: ["b"], words: 300 }, { section: "End", points: ["c"], words: 100 }], sources: [{ title: "x", url: "nope" }, { title: "y", url: "https://y.org" }], notes: ["n"] }) + "\n```",
+      { targetMin: 1200, targetMax: 1500 },
     );
-    expect(g?.sources).toEqual([{ title: "y", url: "https://y.org" }]);
-    expect(g?.searches).toBe(3);
+    expect(plan?.outline.map((x) => x.words)).toEqual([270, 810, 270]);
+    expect(plan?.sources).toEqual([{ title: "y", url: "https://y.org" }]);
+    expect(parseGhostPlan('{"thesis":"t","outline":[{"section":"a","points":[]}]}', { targetMin: 1, targetMax: 2 })).toBeNull();
+    expect(withBudgets([{ words: 0 }, { words: 0 }], 1000, 1200).map((x) => x.words)).toEqual([550, 550]);
+  });
+  it("fixes the sections furthest from budget until the total is in range; never stores a short paper", () => {
+    const w = (n: number) => Array.from({ length: n }, () => "word").join(" ");
+    expect(sectionsToFix([300, 600, 300], [w(300), w(600), w(300)], 1100, 1300)).toEqual([]);
+    expect(sectionsToFix([300, 600, 300], [w(300), w(300), w(300)], 1100, 1300)).toEqual([{ i: 1, target: 600 }]);
+    expect(sectionsToFix([300, 600, 300], [w(500), w(900), w(300)], 1100, 1300)).toEqual([{ i: 1, target: 600 }, { i: 0, target: 300 }]);
+    const plan = { thesis: "t", outline: [{ section: "a", points: [], words: 600 }], sources: [], notes: [] };
+    const meta = { inputHash: "h", startingKind: "no_clue", searches: 3, targetMin: 1200, targetMax: 1500 };
+    expect(assembleGhost(plan, [w(659)], meta)).toBeNull();
+    const g = assembleGhost(plan, [w(700), w(600)], meta);
+    expect(wordsIn(g!.paper)).toBe(1300);
+    expect(g?.targetMin).toBe(1200);
+    expect(parseSection('{"text":"too short"}')).toBeNull();
+  });
+  it("searches only in the plan step (≤3); sections are written without tools", () => {
+    const store = src("lib/server/ghost/store.ts");
+    expect(store.match(/type: "web_search" \}/g)?.length).toBe(1);
+    expect(store).toContain("max_turns: GHOST_MAX_TURNS");
+    expect(store).toContain("export const GHOST_MAX_TURNS = 3;");
   });
 });
 
