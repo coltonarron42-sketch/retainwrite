@@ -77,7 +77,8 @@ describe("QA 11:40 preview retest", () => {
   });
   it("Colton 11:41: no get-to-know questions and a locked composer", () => {
     expect(intake).toContain("if (!northstar && !skippedInterest && !prepared) {");
-    expect(intake).toContain('if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({');
+    // PC-32: the personal voice question only stays where an older paper already answered it.
+    expect(intake).toContain('if (!northstar && has("personal_1")) plan.push({');
     const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
     expect(composer).toContain("readOnly={false}");
     expect(composer).not.toMatch(/setQueued\(false\);\s*send\(\);/);
