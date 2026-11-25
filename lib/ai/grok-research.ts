@@ -15,7 +15,7 @@ export type ResearchSource = { title: string; url: string };
 
 export type ResearchResult =
   | { ok: true; text: string; sources: ResearchSource[]; searches: number; ms: number }
-  | { ok: false; reason: string; ms: number };
+  | { ok: false; reason: string; ms: number; searches?: number };
 
 /** Cap per turn: she gets a few searches, not an open-ended crawl. */
 export const MAX_SEARCH_CALLS = 3;
@@ -121,25 +121,26 @@ export async function grokResearch(opts: {
     }
     // Event names only (never content): to see what the stream gives us on a preview.
     console.info("[grok-research] stream", { types: [...types].slice(0, 30) });
-    return final ?? { output_text: text, output: [] };
+    return { ...(final ?? { output_text: text, output: [] }), _searched: seen.searched };
   };
   try {
     let resp: AnyJson;
     try {
       resp = await call(body);
     } catch (err) {
-      // If the API doesn't take max_tool_calls, retry once without it (the prompt still asks for a few searches).
+      // If the API rejects the capped search request, retry once WITHOUT web search (t218u: never uncapped).
       if ((err as { status?: number } | null)?.status !== 400 || !opts.search) throw err;
-      const { max_tool_calls: _drop, ...rest } = body;
+      const { max_tool_calls: _drop, tools: _tools, ...rest } = body;
       void _drop;
-      console.warn("[grok-research] retry without max_tool_calls");
+      void _tools;
+      console.warn("[grok-research] retry without web search");
       resp = await call(rest);
     }
     clearTimeout(timer);
     const text = researchText(resp);
     const sources = extractSources(resp);
-    const searches = countSearches(resp);
-    return text ? { ok: true, text, sources, searches, ms: Date.now() - started } : { ok: false, reason: "empty", ms: Date.now() - started };
+    const searches = Math.max(countSearches(resp), typeof resp._searched === "number" ? resp._searched : 0);
+    return text ? { ok: true, text, sources, searches, ms: Date.now() - started } : { ok: false, reason: "empty", searches, ms: Date.now() - started };
   } catch (err) {
     clearTimeout(timer);
     const message = err instanceof Error ? err.message : "grok_error";

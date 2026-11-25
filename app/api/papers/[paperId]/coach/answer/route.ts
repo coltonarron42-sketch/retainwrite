@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, MAX_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
+import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
 import { askTopic, CHECKING_LINE, STATUS_ROTATION } from "@/lib/coach/thinking-status";
@@ -96,7 +97,11 @@ export async function POST(request: Request, ctx: Ctx) {
         ? "reading"
         : resolved;
     // Research and reading turns search. Summaries of uploaded pages work from them (no search).
-    const search = mode === "research" || mode === "reading";
+    // t218u: per-turn cap (2 research / 3 reading) plus a per-paper soft budget.
+    const wantsSearch = mode === "research" || mode === "reading";
+    const paperUsed = wantsSearch ? await paperSearchesUsed(paperId).catch(() => 0) : 0;
+    const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? MAX_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
+    const search = wantsSearch && searchCap > 0;
     const effort = mode === "reframe" ? "none" : mode === "reading" ? "high" : turn.effort;
     emit(STATUS_ROTATION[mode === "reading" ? "reading" : mode === "research" ? "research" : mode === "summary" ? "summary" : "think"][0]!);
     const userJson = JSON.stringify({
@@ -107,6 +112,7 @@ export async function POST(request: Request, ctx: Ctx) {
       student_message: body.message,
       paper_context: block,
       ...(mode === "reading" ? { unread_readings: unread.titles } : {}),
+      ...(wantsSearch && !search ? { web_search: "unavailable this turn: answer from general background and label it so" } : {}),
     });
 
     let paras: string[] = [];
@@ -114,7 +120,7 @@ export async function POST(request: Request, ctx: Ctx) {
     let searches = 0;
     let path = "chat";
     let cache: "off" | "hit" | "miss" | "bypass" = "off";
-    if (search || mode === "summary") {
+    if (wantsSearch || mode === "summary") {
       path = search ? "responses+web_search" : "responses";
       // t213u #1: dev/test search cache (never in production): repeated test turns reuse results.
       const cacheKey =
@@ -139,14 +145,14 @@ export async function POST(request: Request, ctx: Ctx) {
           user: userJson,
           effort,
           search,
-          maxSearches: mode === "reading" ? MAX_SEARCH_CALLS : RESEARCH_SEARCH_CALLS,
+          maxSearches: searchCap,
           timeoutMs: 45_000,
           onStatus: streaming ? emit : undefined,
           topic: askTopic(body.message),
         });
+        searches = r.searches ?? 0;
         if (r.ok) {
           paras = cleanPauParas(r.text);
-          searches = r.searches;
           sources = r.sources;
           if (cacheKey)
             void putCachedResearch(cacheKey, {
@@ -246,6 +252,7 @@ export async function POST(request: Request, ctx: Ctx) {
       }
     }
 
+    const paperSearches = wantsSearch ? await addPaperSearches(paperId, paperUsed, searches).catch(() => paperUsed + searches) : null;
     console.info("[coach-answer]", {
       mode,
       asked: body.mode,
@@ -253,6 +260,8 @@ export async function POST(request: Request, ctx: Ctx) {
       effort,
       path,
       searches,
+      searchCap: wantsSearch ? searchCap : undefined,
+      paperSearches: paperSearches ?? undefined,
       cache,
       blocked,
       sources: sources.length,
@@ -267,7 +276,7 @@ export async function POST(request: Request, ctx: Ctx) {
     // Voice on: the relay speaks exactly these words (signed for this paper), so research turns run here with tools and the voice says the result.
     const spokenText = paras.length ? spokenFrom(paras) : "";
     const spoken = spokenText ? { text: spokenText, sig: signSpoken(paperId, spokenText) } : null;
-    return { paras, sources, mode, effort, gated: gate.blocked, spoken };
+    return { paras, sources, mode, effort, gated: gate.blocked, spoken, ...(paperSearches !== null ? { searches, paperSearches } : {}) };
   };
 
   if (!streaming) return NextResponse.json(await compute(() => undefined));
