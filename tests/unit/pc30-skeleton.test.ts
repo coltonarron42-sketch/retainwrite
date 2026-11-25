@@ -118,3 +118,16 @@ describe("PC-30 long press", () => {
     expect(run([{ type: "down", id: "b2", x: 0, y: 0, t: 0 }, { type: "up", t: HOLD_MS + 10 }]).opened).toEqual(["b2"]);
   });
 });
+
+describe("PC-30 a note shows in one card only", () => {
+  it("two paragraphs pointing at the same note: the first one keeps it", () => {
+    const v = viewFor(1300);
+    const body = v.blocks.filter((b) => b.group === "body");
+    body[0]!.ideaRefs = [0];
+    body[3]!.ideaRefs = [0, 1];
+    const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["listen to the team", "second"] } }));
+    const rows = paperSections({ view: v, words }).filter((r) => r.group === "body");
+    expect(rows[0]!.preview).toEqual(["listen to the team"]);
+    expect(rows[3]!.preview).toEqual(["second"]);
+  });
+});

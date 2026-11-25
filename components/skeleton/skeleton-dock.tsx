@@ -34,8 +34,11 @@ export function SkeletonDock({ paperId, stage, paperStage, demoMode = false, tit
   const [fetched, setFetched] = useState<Fetched | null>(null);
   const tabRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  // Opening a section moves focus into the chat (its box); closing otherwise goes back to the tab.
+  const opening = useRef(false);
 
   const show = useCallback(() => {
+    opening.current = false;
     returnFocus.current = (document.activeElement as HTMLElement | null) ?? null;
     setOpen(true);
   }, []);
@@ -97,6 +100,7 @@ export function SkeletonDock({ paperId, stage, paperStage, demoMode = false, tit
   const openSection = (s: PaperSection) => {
     const target = sectionTarget(paperStage, s);
     if (!target) return;
+    opening.current = true;
     setOpen(false);
     if (target.stage === stage) {
       requestSection({ stage: target.stage, section: target.section, block: s.id });
@@ -131,7 +135,7 @@ export function SkeletonDock({ paperId, stage, paperStage, demoMode = false, tit
           interactive={(s) => Boolean(sectionTarget(paperStage, s))}
           onOpen={openSection}
           onClose={close}
-          returnFocus={() => (returnFocus.current && document.contains(returnFocus.current) ? returnFocus.current : tabRef.current)}
+          returnFocus={() => (opening.current ? null : returnFocus.current && document.contains(returnFocus.current) ? returnFocus.current : tabRef.current)}
         />
       ) : null}
     </>
@@ -263,9 +267,10 @@ export function SkeletonOverlay({
           <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Back to your work
+          <span className="md:hidden">Back</span>
+          <span className="hidden md:inline">Back to your work</span>
         </button>
-        <h2 id="skeleton-title" className="font-display text-[15px] font-semibold tracking-[0.08em] text-[#8e8f94] uppercase">
+        <h2 id="skeleton-title" className="whitespace-nowrap font-display text-[13px] font-semibold uppercase tracking-[0.08em] text-[#8e8f94] md:text-[15px]">
           The Skeleton
         </h2>
         <button
