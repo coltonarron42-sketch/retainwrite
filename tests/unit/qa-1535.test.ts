@@ -15,7 +15,7 @@ const sec = (title: string) => ({ key: title.toLowerCase(), title, mode: "lesson
 const ctx = (title: string, seed: string, index: number) => ({ section: sec(title), card: null, mirrorAsk: "", activeTrigger: null, seed, index });
 const SECTIONS = ["Introduction", "Body 1", "Body 2", "Body 3", "Conclusion"];
 
-/** Every line Pau Pau says across one paper's Stage 2 openers. */
+/** Every line Pau says across one paper's Stage 2 openers. */
 function paperLines(seed: string): string[][] {
   return SECTIONS.flatMap((t, i) => [
     stanceTurnParas("probe", ctx(t, seed, i)),

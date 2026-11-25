@@ -16,7 +16,7 @@ const sec = (title: string, mode: "lesson" | "memory", tier: "pass" | "moderate"
   ({ key: title.toLowerCase(), title, mode, ideas: [], concept: null, logic: logic(tier) }) as never;
 const ctx = (s: never, seed: string, index: number) => ({ section: s, card: null, mirrorAsk: "", activeTrigger: null, seed, index });
 
-/** Everything Pau Pau says from stock in Stage 2 for one whole paper. */
+/** Everything Pau says from stock in Stage 2 for one whole paper. */
 function wholePaper(seed: string, titles: string[], mode: "lesson" | "memory", tier: "pass" | "moderate"): string[] {
   return titles.flatMap((t, i) => {
     const s = sec(t, mode, tier);
