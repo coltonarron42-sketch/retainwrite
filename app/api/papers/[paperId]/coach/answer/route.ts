@@ -11,8 +11,8 @@ import { backfillGhost, readGhost } from "@/lib/server/ghost/store";
 import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, type CoachAnswerMode } from "@/lib/coach/answer";
 
 export const runtime = "nodejs";
-/** A missing ghost is backfilled in after() (up to ~240 s). */
-export const maxDuration = 300;
+/** A missing ghost is backfilled in after() (plan + section-by-section writing, usually 1-3 min). */
+export const maxDuration = 800;
 
 /**
  * Stages 1-3 typed: Pau ANSWERS content and teaching questions ("what are
