@@ -245,8 +245,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // force_message lines sent and not yet seen as a response (timestamps; stale ones expire).
   const forcedQ: number[] = [];
   const forcedRids = new Set<string>();
-  const screenWaiters: (() => void)[] = [];
-  let lastSubmit: { moved: boolean; spoken: string } | null = null;
+  let lastSubmit: { moved: boolean } | null = null;
+  // PC-29 QA round 3: the start line waits for the browser's first SETTLED prompt (rw.screen
+  // spoken is "" while the intake is still settling), and the last prompt said, so a repeat
+  // rw.turn of the same words never says it twice.
+  let startOpen = false;
+  let startLine = "";
+  let lastPrompt = { text: "", at: 0 };
   let pendingSpoken: string | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
@@ -303,16 +308,19 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     upSend(say(t));
     return true;
   };
-  /** Wait (bounded) for the browser's first on-screen prompt (rw.screen follows rw.start). */
-  const waitScreen = (maxMs: number) =>
-    new Promise<void>((resolve) => {
-      if (screen.spoken) return resolve();
-      const t = setTimeout(resolve, maxMs);
-      screenWaiters.push(() => {
-        clearTimeout(t);
-        resolve();
-      });
-    });
+  /** The on-screen prompt, word for word (Stage 1), remembered so the same words aren't said twice. */
+  const sayPrompt = (text: string, o: { cancel?: boolean; lead?: string } = {}) => {
+    const line = [o.lead ?? "", text].filter(Boolean).join(" ");
+    if (!line) return false;
+    if (text) lastPrompt = { text, at: Date.now() };
+    return sayLine(line, { cancel: o.cancel });
+  };
+  /** Voice came on: the welcome-back line (if any) and the settled on-screen prompt, once. */
+  const speakStart = () => {
+    if (!startOpen) return;
+    startOpen = false;
+    sayPrompt(screen.spoken, { cancel: false, lead: startLine });
+  };
   const turnAsk = (detail: boolean, tail: string) =>
     detail
       ? "Say it in your own words: up to six short sentences (about 90 words), covering each key point plainly (it's teaching content, never their paper text), then end on its question."
@@ -334,7 +342,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       return;
     }
     if (verbatim && spoken !== null) {
-      sayLine(spoken);
+      // Only the prompt on screen NOW: a queued one the screen has since replaced is dropped.
+      if (spoken !== screen.spoken) return;
+      sayPrompt(spoken);
       return;
     }
     // xAI still counts her last reply as playing until its audio would end; without
@@ -823,7 +833,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       void refreshFlow().then(() => sessionUpdate());
       const moved = applied.ok && applied.result === "saved";
       if (verbatim) {
-        lastSubmit = { moved, spoken: typeof applied.spoken === "string" ? applied.spoken : "" };
+        lastSubmit = { moved };
         return out({
           submitted: moved,
           app_result: applied.result ?? null,
@@ -1204,10 +1214,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             if (verbatim && names.includes("submit_answer") && lastSubmit) {
               const ls = lastSubmit;
               lastSubmit = null;
-              if (ls.moved) {
-                if (!speechActive && ls.spoken) sayLine(ls.spoken);
-                return;
-              }
+              // Moved on: the browser says its next prompt itself once its screen settles (rw.turn).
+              if (ls.moved) return;
             }
             // Her short reaction may still count as playing on xAI's side: cancel so this isn't ignored.
             if (names.includes("submit_answer")) upSend({ type: "response.cancel" });
@@ -1377,11 +1385,16 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (verbatim) {
           // PC-29 QA round 2: voice turned on mid-chat says the current on-screen prompt, word for
           // word (after the welcome-back line, if any); never "what's the screen showing?".
-          void waitScreen(1_500).then(() => {
-            if (closed) return;
-            const line = [welcomeLine, screen.spoken].filter(Boolean).join(" ");
-            if (line) sayLine(line, { cancel: false });
-          });
+          // QA round 3: only once the browser's prompt has settled (never a transient branch).
+          startOpen = true;
+          startLine = welcomeLine;
+          if (screen.spoken) speakStart();
+          else
+            setTimeout(() => {
+              if (closed || !startOpen) return;
+              startOpen = false;
+              if (startLine) sayLine(startLine, { cancel: false });
+            }, 9_000);
           return;
         }
         if (e.welcome === true) {
@@ -1406,13 +1419,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (verbatim && spoken !== null) {
           // PC-29 QA round 2: the on-screen prompt, word for word; nothing to say means silence.
           if (!spoken) return;
+          // The browser only sends a settled prompt: it IS the screen now.
+          screen = { ...screen, spoken };
+          if (startOpen) return void speakStart();
+          if (spoken === lastPrompt.text && Date.now() - lastPrompt.at < 20_000) return;
           if (responding || speechActive) {
             pendingTurn = text || spoken;
             pendingDetail = detail;
             pendingSpoken = spoken;
             return;
           }
-          sayLine(spoken);
+          sayPrompt(spoken);
           return;
         }
         if (!text) return;
@@ -1477,7 +1494,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const spoken = typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : screen.spoken;
         const changed = text !== screen.text || choices.join("|") !== screen.choices.join("|") || spoken !== screen.spoken;
         screen = { text, choices, spoken };
-        if (spoken) for (const w of screenWaiters.splice(0)) w();
+        if (verbatim && spoken && startOpen) speakStart();
         if (stage3 && stage3SectionOf(text) !== ownSection) {
           ownSection = stage3SectionOf(text);
           ownLines = false;

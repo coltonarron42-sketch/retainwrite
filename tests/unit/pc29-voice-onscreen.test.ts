@@ -9,7 +9,8 @@ import WebSocket, { WebSocketServer } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runRelay } from "@/lib/voice/realtime/relay";
 import { completeSentences, questionAllowed, questionsOf } from "@/lib/voice/realtime/turns";
-import { readBackSpoken, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import { questionsRendered, readBackSpoken, Stage1VoicePacer, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import { dedupePau, type LiveTurn } from "@/components/stages/loop/realtime-voice";
 import { buildStage1Instructions } from "@/lib/voice/realtime/persona";
 
 const base = { screen: "coaching", qIndex: 1, question: "Where are you with it?", ask: "Where are you with it?", lastPau: [], turns: 1, angles: ["A", "B"], editing: false, error: null, greeting: "Hi, I'm Pau. What's the assignment we're working on?" };
@@ -190,22 +191,69 @@ describe("relay: Stage 1 voice follows the screen (scripted xAI events)", () => 
     c.close();
   });
 
-  it("after a spoken answer moves the app on, the next prompt is the app's copy, word for word (QA case b)", async () => {
-    const { c, up } = await session({
+  it("QA round 3 (b): a spoken answer that moves the app on never says the tool result's (stale) prompt; only the settled screen's", async () => {
+    const LOST = "Which leadership style do you want to argue works best here? Servant lets you argue that putting people first carries a team. Which one would you pick, or something else, and why?";
+    const STANCE = "Last one before the stance interview. Next up is the change part: when did Sam Walton have to lead people through a big change?";
+    const { c, up, send } = await session({
       spoken: "Where are you with it?",
-      applied: (e) => ({ type: "rw.applied", call_id: e.call_id, ok: true, result: "saved", screen: "Question on screen: ...", spoken: "Last one before the stance interview. Next up is the change part: which style handles change best?" }),
+      // The old client sent its prompt snapshot back with the tool result: here the lost branch.
+      applied: (e) => ({ type: "rw.applied", call_id: e.call_id, ok: true, result: "saved", screen: "Question on screen: ...", spoken: LOST }),
     });
     up({ type: "response.created", response: { id: "rS" } });
     up({ type: "response.output_audio_transcript.delta", response_id: "rS", delta: "Nice, that's honest. " });
     up({ type: "response.function_call_arguments.done", response_id: "rS", call_id: "c_sub", name: "submit_answer", arguments: "{}" });
     up({ type: "response.done", response: { id: "rS", status: "completed" } });
+    // The intake is still settling: the relay is told there is no prompt yet.
+    send({ type: "rw.screen", text: "Question on screen: ...", choices: [], spoken: "" });
     await wait(400);
-    expect(forcedTexts(upstream)).toEqual(["Last one before the stance interview. Next up is the change part: which style handles change best?"]);
+    expect(forcedTexts(upstream)).toEqual([]);
+    // Settled: the screen shows the stance step and the browser says it.
+    send({ type: "rw.screen", text: "Question on screen: ...", choices: [], spoken: STANCE });
+    send({ type: "rw.turn", text: "Question on screen: ...", spoken: STANCE });
+    await wait(120);
+    expect(forcedTexts(upstream)).toEqual([STANCE]);
+    expect(forcedTexts(upstream).join(" ")).not.toMatch(/leadership style|which one would you pick/i);
     // No model-worded "ask the next question" response.
     expect(upstream.filter((e) => e.type === "response.create")).toHaveLength(0);
-    // Its tool result tells her the app says the prompt itself.
     const out = upstream.find((e) => (e.item as { type?: string } | undefined)?.type === "function_call_output") as { item: { output: string } } | undefined;
     expect(out?.item.output).toContain("says its next prompt aloud itself");
+    c.close();
+  });
+
+  it("QA round 3 (a): a queued prompt the screen has since replaced is dropped, never said after the current one", async () => {
+    const HOBBY = "What topics, hobbies, or people do you actually enjoy following right now?";
+    const WHERE = "So, in plain words: you need to write an essay. Where are you with it?";
+    const { c, up, send } = await session({ spoken: "Looks right?" });
+    up({ type: "response.created", response: { id: "rB" } });
+    up({ type: "response.output_audio_transcript.delta", response_id: "rB", delta: "Love it." });
+    for (let i = 0; i < 5; i++) up({ type: "response.output_audio.delta", response_id: "rB", delta: chunk100 });
+    // A prompt arrives while she's talking (queued), then the screen moves on before it plays.
+    send({ type: "rw.turn", text: "Question on screen", spoken: HOBBY });
+    await wait(30);
+    send({ type: "rw.screen", text: "Question on screen", choices: [], spoken: WHERE });
+    await wait(30);
+    up({ type: "response.done", response: { id: "rB", status: "completed" } });
+    await wait(300);
+    expect(forcedTexts(upstream)).toEqual([]);
+    send({ type: "rw.turn", text: "Question on screen", spoken: WHERE });
+    await wait(120);
+    expect(forcedTexts(upstream)).toEqual([WHERE]);
+    c.close();
+  });
+
+  it("voice on while the intake is still settling waits for the settled prompt (no transient branch)", async () => {
+    const { c, send } = await session();
+    send({ type: "rw.start", welcome: false, welcomeIndex: 0 });
+    send({ type: "rw.screen", text: "Question on screen", choices: [], spoken: "" });
+    await wait(150);
+    expect(forcedTexts(upstream)).toEqual([]);
+    send({ type: "rw.screen", text: "Question on screen", choices: [], spoken: "Where are you with it?" });
+    await wait(100);
+    expect(forcedTexts(upstream)).toEqual(["Where are you with it?"]);
+    // The browser's own rw.turn for the same prompt isn't said again.
+    send({ type: "rw.turn", text: "Question on screen", spoken: "Where are you with it?" });
+    await wait(100);
+    expect(forcedTexts(upstream)).toHaveLength(1);
     c.close();
   });
 
@@ -220,5 +268,135 @@ describe("relay: Stage 1 voice follows the screen (scripted xAI events)", () => 
     expect(got.some((e) => e.type === "response.output_audio.delta" && e.response_id === "rF")).toBe(true);
     expect(got.some((e) => e.type === "rw.drop" && e.response_id === "rF")).toBe(false);
     c.close();
+  });
+});
+
+describe("QA round 4 lead: a prompt that never renders is never spoken", () => {
+  const HOBBY = "What topics, hobbies, or people do you actually enjoy following right now?";
+  it("checks each question of the line against the page text", () => {
+    const page = "Stage 1 · Intake So, in plain words: you need to write an essay. Where are you with it? If you already have ideas…";
+    expect(questionsRendered("So, in plain words: you need to write an essay. Where are you with it?", page)).toBe(true);
+    expect(questionsRendered(HOBBY, page)).toBe(false);
+    expect(questionsRendered(`Where are you with it? ${HOBBY}`, page)).toBe(false);
+    // Curly quotes and spacing don't matter; a line with no question is fine.
+    expect(questionsRendered("Who\u2019s your leader?", "Who's   your leader?")).toBe(true);
+    expect(questionsRendered("Tap one, or write your own angle below.", "")).toBe(true);
+  });
+  it("a hidden plan item is never said, however long it stays, and never reported as on screen", () => {
+    const p = new Stage1VoicePacer();
+    p.step({ key: "q:0:", line: "Where are you with it?", now: 0, busy: false });
+    p.step({ key: "q:0:", line: "Where are you with it?", now: 1000, busy: false });
+    for (let now = 2000; now < 20000; now += 250) {
+      const r = p.step({ key: "q:1:", line: HOBBY, now, busy: false, hidden: true });
+      expect(r.say).toBeNull();
+      expect(r.spoken).toBe("");
+    }
+  });
+});
+
+describe("QA round 3 minor: voice back on doesn't show the prompt twice", () => {
+  it("an earlier Pau row the newest row repeats is dropped", () => {
+    const rows: LiveTurn[] = [
+      { id: "p:r1", who: "pau", text: "Where are you with it?" },
+      { id: "u:1", who: "you", text: "hmm" },
+      { id: "p:r2", who: "pau", text: "Welcome back! Where are you with it?" },
+    ];
+    expect(dedupePau(rows, "p:r2").map((r) => r.id)).toEqual(["u:1", "p:r2"]);
+    expect(dedupePau(rows, "p:r1")).toBe(rows);
+  });
+});
+
+/* ------------- QA round 3: one settled prompt per step (the intake's pacer) ------------- */
+
+describe("Stage 1 voice pacer: only the settled on-screen prompt is ever said", () => {
+  const WHERE = "So, in plain words: you need to write an essay. Where are you with it?";
+  const HOBBY = "What topics, hobbies, or people do you actually enjoy following right now?";
+  const LOST = "Which leadership style do you want to argue works best here? Which one would you pick, or something else, and why?";
+  const STANCE = "Last one before the stance interview. Next up is the change part: when did Sam Walton have to lead people through a big change?";
+  /** Drive the pacer through a timeline of renders; collect what it says and the prompts it reports. */
+  function run(frames: { at: number; key: string; line: string; busy?: boolean; hold?: boolean }[], until: number) {
+    const p = new Stage1VoicePacer();
+    const said: string[] = [];
+    const spoken: string[] = [];
+    let i = 0;
+    let cur = frames[0]!;
+    for (let now = 0; now <= until; now += 50) {
+      while (i < frames.length && frames[i]!.at <= now) cur = frames[i++]!;
+      const r = p.step({ key: cur.key, line: cur.line, now, busy: Boolean(cur.busy), hold: cur.hold });
+      if (r.say) said.push(r.say);
+      if (spoken[spoken.length - 1] !== r.spoken) spoken.push(r.spoken);
+    }
+    return { said, spoken };
+  }
+
+  it("(a) the plan flips under the same step (q:0) while the brief loads: only the settled prompt is said, once", () => {
+    const { said, spoken } = run(
+      [
+        { at: 0, key: "card:2:", line: "Looks right?" },
+        // "Looks right, let's start": q:0 renders with the not-yet-loaded plan, then re-shapes.
+        { at: 2000, key: "q:0:", line: HOBBY, busy: true },
+        { at: 2300, key: "q:0:", line: WHERE, busy: true },
+        { at: 2700, key: "q:0:", line: WHERE },
+      ],
+      8000,
+    );
+    expect(said).toEqual([WHERE]);
+    expect(spoken).not.toContain(HOBBY);
+  });
+
+  it("(a) also when the transient prompt comes second: a flip back before it settles is never said", () => {
+    const { said } = run(
+      [
+        { at: 0, key: "card:2:", line: "Looks right?" },
+        { at: 2000, key: "q:0:", line: WHERE },
+        { at: 2400, key: "q:0:", line: HOBBY },
+        { at: 2600, key: "q:0:", line: WHERE },
+      ],
+      8000,
+    );
+    expect(said).toEqual([WHERE]);
+  });
+
+  it("(b) an informed answer: the lost-branch decision question shows for a beat while the stance saves; only the stance step is said", () => {
+    const { said, spoken } = run(
+      [
+        { at: 0, key: "q:0:", line: WHERE },
+        { at: 3000, key: "q:1:", line: LOST, busy: true },
+        // Decision saved as "stated": the plan drops decision_pick; the early take is next.
+        { at: 4500, key: "q:-1:", line: STANCE, busy: true },
+        { at: 5200, key: "q:-1:", line: STANCE },
+      ],
+      10000,
+    );
+    expect(said).toEqual([STANCE]);
+    expect(spoken).not.toContain(LOST);
+  });
+
+  it("a brief call that never answers holds the prompt at most maxMs, then says what's on screen", () => {
+    const frames = [{ at: 0, key: "q:0:", line: "Earlier prompt?" }, { at: 2000, key: "q:1:", line: WHERE, busy: true }];
+    expect(run(frames, 10000).said).toEqual([WHERE]);
+    // Not before the 8 s cap.
+    expect(run(frames, 9900).said).toEqual([]);
+  });
+
+  it("voice on: the relay's start line says the first settled prompt; the pacer doesn't say it again", () => {
+    const p = new Stage1VoicePacer();
+    expect(p.step({ key: "q:1:", line: WHERE, now: 0, busy: false })).toEqual({ spoken: "", say: null, wakeIn: 900 });
+    expect(p.step({ key: "q:1:", line: WHERE, now: 900, busy: false })).toEqual({ spoken: WHERE, say: null, wakeIn: null });
+    expect(p.step({ key: "q:1:", line: WHERE, now: 5000, busy: false }).say).toBeNull();
+    expect(p.step({ key: "q:2:", line: STANCE, now: 6000, busy: false }).say).toBeNull();
+    expect(p.step({ key: "q:2:", line: STANCE, now: 6900, busy: false }).say).toBe(STANCE);
+  });
+
+  it("a student turn on the read-back (hold) waits; the app's reply is then said", () => {
+    const { said } = run(
+      [
+        { at: 0, key: "card:1:", line: "Read-back." },
+        { at: 2000, key: "card:2:", line: "Read-back.", hold: true },
+        { at: 4000, key: "card:3:", line: "Got it, fixed. Looks right?" },
+      ],
+      7000,
+    );
+    expect(said).toEqual(["Got it, fixed. Looks right?"]);
   });
 });

@@ -9,10 +9,10 @@ import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
-import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { RealtimeControls, useRealtimeCall, useRealtimeFlag } from "@/components/stages/loop/realtime-voice";
 import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
-import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import { appendSpoken, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
   decisionHasReason,
   decisionQuestion,
@@ -609,9 +609,26 @@ export function AssignmentIntake({
   /** How many times the early take came back short (QA 8:31 AM: the nudge changes each time). */
   const shortTries = useRef(0);
   briefRef.current = brief;
+  // PC-29 QA round 3: brief calls in flight (the plan can still re-shape while one is out), so the
+  // call never says a prompt that is about to change, and Stage 1 never ends before the last save.
+  const briefPending = useRef(0);
+  const briefIdleWaiters = useRef<(() => void)[]>([]);
+  const briefIdle = useCallback(
+    (maxMs: number) =>
+      new Promise<void>((resolve) => {
+        if (briefPending.current <= 0) return resolve();
+        const t = setTimeout(resolve, maxMs);
+        briefIdleWaiters.current.push(() => {
+          clearTimeout(t);
+          resolve();
+        });
+      }),
+    [],
+  );
   const briefCall = useCallback(
     async (body: Record<string, unknown>): Promise<BriefView | null> => {
       if (demoMode) return null;
+      briefPending.current += 1;
       try {
         // A stalled call never hangs the chat (QA 9:37 AM).
         const res = await fetchWithTimeout(`/api/papers/${paperId}/intake/brief`, {
@@ -645,6 +662,9 @@ export function AssignmentIntake({
         return data;
       } catch {
         return null;
+      } finally {
+        briefPending.current = Math.max(0, briefPending.current - 1);
+        if (briefPending.current === 0) for (const w of briefIdleWaiters.current.splice(0)) w();
       }
     },
     [demoMode, paperId],
@@ -1447,23 +1467,21 @@ export function AssignmentIntake({
   // Grok Voice on Stage 1 (Colton t159u): the same relay as Stage 2, only while
   // the paper is in Stage 1. Spoken words go through the typed paths (same
   // checks, same strict yes); her "move on" (submit_answer) sends the box as is.
-  const rtMode = useRealtimeEnabled(paperId) && !demoMode && accountPaper?.current_stage === 1;
+  const rtFlag = useRealtimeFlag(paperId);
+  const rtMode = rtFlag === true && !demoMode && accountPaper?.current_stage === 1;
+  // The old read-aloud switch ("Voice off") never shows while Grok Voice may be the voice path.
+  const hideReadAloud = rtMode || (rtFlag !== false && !demoMode);
   const voiceRef = useRef<(text: string, kind?: string) => Promise<string>>(async () => "ignored");
   const draftRef = useRef(draftAnswer);
   const storyRef = useRef(ownStory);
   const confirmSendRef = useRef<((text: string) => Promise<void>) | null>(null);
-  const submitBusy = useRef(0);
   const rt = useRealtimeCall({
     paperId,
     stage: 1,
     saveNote: async (text, kind) => {
-      if (kind === "submit") submitBusy.current = Date.now() + 60_000;
-      try {
-        const result = await voiceRef.current(text, kind);
-        return { ok: true, result, screen: rtScreenRef.current.text, spoken: voiceLineRef.current };
-      } finally {
-        if (kind === "submit") submitBusy.current = Date.now() + 1_500;
-      }
+      const result = await voiceRef.current(text, kind);
+      // No prompt rides back with the tool result: the pacer says the next one once it settles.
+      return { ok: true, result, screen: rtScreenRef.current.text };
     },
     welcome: () => ({
       welcome: Boolean(welcomeLine),
@@ -1515,6 +1533,10 @@ export function AssignmentIntake({
   const rtDetail = Boolean(teachFirst) || (screen === "card" && confirmTurns.length <= 1);
   const rtView = { ...rtView0, key: `${rtView0.key}${teachFirst ? `:t${brief?.summary ? 1 : 0}${brief?.missingAsk ? 1 : 0}${reoffer ?? ""}` : ""}` };
   const rtScreenRef = useRef(rtView);
+  const confirmTurnsRef = useRef(confirmTurns);
+  confirmTurnsRef.current = confirmTurns;
+  const rtDetailRef = useRef(rtDetail);
+  rtDetailRef.current = rtDetail;
   // PC-29 QA round 2: the on-screen prompt exactly as shown (the turn branches below refine it
   // during render with the copy they actually display); the call says it word for word.
   const voiceLineRef = useRef("");
@@ -1617,27 +1639,44 @@ export function AssignmentIntake({
       return "ignored";
     };
   });
-  const rtSeen = useRef<string | null>(null);
+  // PC-29 QA round 3: every render (the coaching branch below refines voiceLineRef during render),
+  // the pacer decides what the relay may treat as on screen and when the call says it. It is the
+  // ONLY source of Stage 1 prompts: one settled line, never a branch the plan is about to drop.
+  const pacer = useRef(new Stage1VoicePacer());
+  const paceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenSent = useRef<string | null>(null);
+  const paceRef = useRef<() => void>(() => undefined);
+  const rtOn = rt.on;
   useEffect(() => {
-    if (!rt.on) {
-      rtSeen.current = null;
-      return;
-    }
-    if (rtSeen.current === null || rtSeen.current === rtView.key) {
-      rtSeen.current = rtView.key;
-      rt.setScreen(rtView.text, rtView.choices, false, voiceLineRef.current);
-      return;
-    }
-    rtSeen.current = rtView.key;
-    rt.clearLive();
-    rt.setScreen(rtView.text, rtView.choices, false, voiceLineRef.current);
-    // Her own submit_answer already carries the next step: she asks it from the tool result.
-    if (Date.now() < submitBusy.current) return;
-    // A student turn on the read-back waits for the app's reply.
-    if (screen === "card" && confirmTurns[confirmTurns.length - 1]?.role !== "pau") return;
-    rt.sayTurn(rtView.text, { detail: rtDetail, spoken: voiceLineRef.current });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
-  }, [rtView.key, rt.on]);
+    paceRef.current = () => {
+      if (paceTimer.current) clearTimeout(paceTimer.current);
+      paceTimer.current = null;
+      if (!rtOn) {
+        pacer.current.reset();
+        screenSent.current = null;
+        return;
+      }
+      const view = rtScreenRef.current;
+      const hold = view.key.startsWith("card:") && confirmTurnsRef.current[confirmTurnsRef.current.length - 1]?.role !== "pau";
+      // Steer (QA round 4): a plan item that never renders (the hobby prompt) is never spoken.
+      const hidden = !questionsRendered(voiceLineRef.current, document.querySelector("main")?.textContent ?? document.body.textContent ?? "");
+      const pace = pacer.current.step({ key: view.key, line: voiceLineRef.current, now: Date.now(), busy: briefPending.current > 0, hold, hidden });
+      const sig = JSON.stringify([view.text, view.choices, pace.spoken]);
+      if (sig !== screenSent.current) {
+        screenSent.current = sig;
+        rt.setScreen(view.text, view.choices, false, pace.spoken);
+      }
+      if (pace.say) {
+        rt.clearLive();
+        rt.sayTurn(view.text, { detail: rtDetailRef.current, spoken: pace.say });
+      }
+      if (pace.wakeIn !== null) paceTimer.current = setTimeout(() => paceRef.current(), pace.wakeIn);
+    };
+    paceRef.current();
+  });
+  useEffect(() => () => {
+    if (paceTimer.current) clearTimeout(paceTimer.current);
+  }, []);
   // PC-29: the assignment is pasted or typed, never spoken: focusing the box pauses the mic.
   const typedPrompt = rt.on && screen === "upload";
   useEffect(() => {
@@ -2844,6 +2883,8 @@ export function AssignmentIntake({
     setStartingStance(true);
 
     try {
+      // PC-29 QA round 3: the last answer's decision save lands first, so Stage 2 opens with it.
+      await briefIdle(8_000);
       const post = () =>
         fetch(`/api/papers/${paperId}/intake/complete`, {
           method: "POST",
@@ -2934,7 +2975,7 @@ export function AssignmentIntake({
     return (
       <div className="mx-auto max-w-[680px]">
         <SpeakNew scope={paperId} items={rtMode ? [] : uploadSpeak} />
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={hideReadAloud} />
         <div className="mt-4 space-y-6">
           <PauPauGroup
             showName
@@ -3010,7 +3051,7 @@ export function AssignmentIntake({
   if (screen === "parsing") {
     return (
       <div className="mx-auto max-w-[680px]">
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={hideReadAloud} />
         <div className="mt-4 space-y-6">
           <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
           {sentMessage ? <StudentBubble message={sentMessage} /> : null}
@@ -3070,7 +3111,7 @@ export function AssignmentIntake({
   if (screen === "card" && requirements && !editingDetails) {
     return (
       <div className="mx-auto max-w-[680px]">
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={hideReadAloud} />
         {focusTools}
         <div className="mt-4 space-y-6">
           {snap ? null : <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />}
@@ -4066,7 +4107,7 @@ export function AssignmentIntake({
     return (
       <div className="mx-auto max-w-[680px]">
         <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
-        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={hideReadAloud} />
         {focusTools}
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau" role="log">
           {/* PC-28: on a return, the one opener first; earlier turns stay in "Past chat". */}

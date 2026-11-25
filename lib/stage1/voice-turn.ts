@@ -111,3 +111,71 @@ export function isSaidToCoach(spoken: string): boolean {
   if (TO_COACH.test(t) && t.split(" ").length <= 40) return true;
   return rulesStanceIntent(t) !== "content";
 }
+
+/**
+ * PC-29 QA round 3: the one place Stage 1 decides what the call says. The intake's plan can
+ * re-shape under the same step while the brief loads (no north star yet → the hobby question;
+ * the informed stance not saved yet → the lost-branch decision question), so a prompt is only
+ * handed to the call once the on-screen line has held still for `settleMs` with no brief call in
+ * flight (or for `maxMs`, whatever is still loading). Until then the call gets no prompt at all
+ * (spoken ""), so the relay's question gate lets no question through, and nothing is said.
+ */
+export const VOICE_SETTLE = { settleMs: 900, maxMs: 8_000 } as const;
+
+export type VoicePace = {
+  /** The prompt the relay may treat as on screen right now ("" while it is still settling). */
+  spoken: string;
+  /** Say this line now (word for word), or nothing. */
+  say: string | null;
+  /** Look again in this many ms (still settling), or null. */
+  wakeIn: number | null;
+};
+
+export class Stage1VoicePacer {
+  private key: string | null = null;
+  private line: string | null = null;
+  private changedAt = 0;
+  /** What the call already said for this step; line null = the call's own start line will say it. */
+  private said: { key: string; line: string | null } | null = null;
+
+  constructor(private readonly tune: { settleMs: number; maxMs: number } = VOICE_SETTLE) {}
+
+  /** Voice turned off (or on again): the next look is a fresh start. */
+  reset() {
+    this.key = null;
+    this.line = null;
+    this.said = null;
+  }
+
+  /** One look at the screen: `busy` = a brief call is in flight; `hold` = say nothing yet (a student turn awaiting the app's reply); `hidden` = the line's question isn't rendered on the page. */
+  step(i: { key: string; line: string; now: number; busy: boolean; hold?: boolean; hidden?: boolean }): VoicePace {
+    const line = i.line.replace(/\s+/g, " ").trim();
+    if (i.key !== this.key || line !== this.line) {
+      this.key = i.key;
+      this.line = line;
+      this.changedAt = i.now;
+    }
+    const age = i.now - this.changedAt;
+    // Its question isn't actually rendered on the page (a hidden plan item): never said, never "on screen".
+    if (i.hidden) return { spoken: "", say: null, wakeIn: 250 };
+    if (age < this.tune.settleMs) return { spoken: "", say: null, wakeIn: this.tune.settleMs - age };
+    if (i.busy && age < this.tune.maxMs) return { spoken: "", say: null, wakeIn: Math.min(250, this.tune.maxMs - age) };
+    // First settled look after voice came on: the relay's start line says this prompt itself.
+    if (!this.said) this.said = { key: i.key, line: null };
+    if (this.said.line === null && this.said.key === i.key) {
+      if (line) this.said = { key: i.key, line };
+      return { spoken: line, say: null, wakeIn: null };
+    }
+    if (i.hold || !line || (this.said.key === i.key && this.said.line === line)) return { spoken: line, say: null, wakeIn: null };
+    this.said = { key: i.key, line };
+    return { spoken: line, say: line, wakeIn: null };
+  }
+}
+
+/** Every question in the line shows in the page's text (whitespace and quotes normalized). */
+export function questionsRendered(line: string, pageText: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/[\u2018\u2019\u201c\u201d"'`]/g, "").replace(/[^a-z0-9?]+/g, " ").replace(/\s+/g, " ").trim();
+  const page = norm(pageText);
+  const qs = (line.match(/[^.!?]*\?/g) ?? []).map(norm).filter((q) => q.split(" ").length >= 3);
+  return qs.every((q) => page.includes(q));
+}
