@@ -23,45 +23,55 @@ describe("BargeGate: talking over her", () => {
     expect(frame(g, 0, 0.5, { guarded: false, playing: false })).toBe("pass");
   });
 
-  it("ignores everything in the first 1.5 s of her reply, then needs >= 500 ms of sustained voice", () => {
+  it("mutes barge-in for the first 1.5 s of her reply, then needs >= 500 ms of sustained voice", () => {
     const g = new BargeGate();
     g.herAudioStarted(1000);
     // Loud talk from the start: held through the grace window.
     let t = 1000;
     for (; t < 1000 + TURN_TUNING.graceMs; t += F) expect(frame(g, t, 0.3)).toBe("hold");
-    // The run kept counting during grace, so the first frame after grace barges.
+    // Grace works like a mute: after it, a fresh 500 ms of talk is needed.
+    for (let i = 0; i < 4; i++, t += F) expect(frame(g, t, 0.3)).toBe("hold");
     expect(frame(g, t, 0.3)).toBe("barge");
   });
 
   it("noise blips (a cough, a door, keys) never barge", () => {
     const g = new BargeGate();
-    g.herAudioStarted(0);
+    g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    const pattern = [0.3, 0.3, 0.01, 0.01, 0.3, 0.01, 0.01, 0.3, 0.3, 0.3, 0.01, 0.01, 0.2, 0.01, 0.01];
+    // Blips up to 400 ms with real gaps between them (3+ quiet frames).
+    const pattern = [0.3, 0.3, 0.01, 0.01, 0.01, 0.3, 0.01, 0.01, 0.01, 0.3, 0.3, 0.3, 0.3, 0.01, 0.01, 0.01, 0.2, 0.01, 0.01, 0.01];
     pattern.forEach((rms, i) => expect(frame(g, t0 + i * F, rms)).toBe("hold"));
   });
 
-  it("one quiet frame between words doesn't reset a real interruption", () => {
+  it("short pauses between words don't reset a real interruption", () => {
     const g = new BargeGate();
-    g.herAudioStarted(0);
+    g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    const out = [0.2, 0.2, 0.01, 0.2, 0.2, 0.2].map((rms, i) => frame(g, t0 + i * F, rms));
-    expect(out.slice(0, 5)).toEqual(["hold", "hold", "hold", "hold", "hold"]);
-    expect(out[5]).toBe("barge");
+    const out = [0.2, 0.2, 0.01, 0.01, 0.2, 0.2, 0.2].map((rms, i) => frame(g, t0 + i * F, rms));
+    expect(out.slice(0, 6)).toEqual(["hold", "hold", "hold", "hold", "hold", "hold"]);
+    expect(out[6]).toBe("barge");
+  });
+
+  it("a quiet talker (~0.05 RMS, phone at arm's length) can still interrupt", () => {
+    const g = new BargeGate();
+    g.herAudioStarted(1);
+    const t0 = TURN_TUNING.graceMs + 100;
+    const out = [0.05, 0.05, 0.05, 0.05, 0.05].map((rms, i) => frame(g, t0 + i * F, rms, { herOutRms: 0.1, coupling: 0.05 }));
+    expect(out[4]).toBe("barge");
   });
 
   it("her own echo (loud speakers) isn't the student: the bar rises with her output", () => {
     const g = new BargeGate();
     expect(g.threshold(0.3, 0.5, true)).toBeCloseTo(0.45);
     expect(g.threshold(0.0, 1, true)).toBe(TURN_TUNING.guardFloorRms);
-    g.herAudioStarted(0);
+    g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
     for (let i = 0; i < 10; i++) expect(frame(g, t0 + i * F, 0.4, { herOutRms: 0.3, coupling: 0.5 })).toBe("hold");
   });
 
   it("their words that started over her tail are flushed when her turn ends", () => {
     const g = new BargeGate();
-    g.herAudioStarted(0);
+    g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
     expect(frame(g, t0, 0.2)).toBe("hold");
     expect(frame(g, t0 + F, 0.2, { guarded: false, playing: false })).toBe("flush");
@@ -270,6 +280,18 @@ describe("relay turn-taking (scripted xAI events)", () => {
     expect(got.some((e) => e.type === "rw.drop" && e.response_id === "r2")).toBe(true);
     expect(got.some((e) => e.type === "response.output_audio.delta" && e.response_id === "r2")).toBe(false);
     expect(upstream.some((e) => e.type === "conversation.item.truncate")).toBe(false);
+    c.close();
+  });
+
+  it("a pause the server never hears as speech resumes her within ~1.2 s", async () => {
+    const { c, got, send, herLine } = await session();
+    herLine("r1", "So the prompt wants one clear claim and two reasons. What's your first reason?");
+    await wait(60);
+    send({ type: "rw.barge", response_id: "r1", played_ms: 900, total_ms: 4000, remainder: "two reasons. What's your first reason?" });
+    await wait(TURN_TUNING.verdictTimeoutMs - 300);
+    expect(got.some((e) => e.type === "rw.verdict")).toBe(false);
+    await wait(500);
+    expect(got.some((e) => e.type === "rw.verdict" && e.real === false && e.response_id === "r1")).toBe(true);
     c.close();
   });
 

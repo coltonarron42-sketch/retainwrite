@@ -16,10 +16,11 @@ export const TURN_TUNING = {
   graceMs: 1_500,
   /** Talking over her must be sustained this long before she pauses. */
   sustainMs: 500,
-  /** One quiet frame inside a run doesn't reset it (breaths between words). */
-  gapFrames: 1,
-  /** Floor RMS for "voiced" while she talks or is about to (0..1 full scale). */
-  guardFloorRms: 0.06,
+  /** Up to two quiet frames inside a run don't reset it (breaths, short gaps between words). */
+  gapFrames: 2,
+  /** Floor RMS for "voiced" while she talks or is about to (0..1 full scale). The transcript
+   *  verdict catches loud noise that gets past this, so it stays low enough for quiet talkers. */
+  guardFloorRms: 0.04,
   /** Mic must be this much louder than her measured echo to count as the student. */
   echoMargin: 3,
   /** Cap on the learned echo coupling (mic/out loudness ratio). */
@@ -28,8 +29,8 @@ export const TURN_TUNING = {
   idleFloorRms: 0.02,
   /** How much mic audio before a barge is kept so their first words aren't lost. */
   rollMs: 1_200,
-  /** Relay: after a barge-in pause, no turn heard within this (and no speech in progress) = noise. */
-  verdictTimeoutMs: 2_500,
+  /** Relay: after a barge-in pause, no speech heard by the server within this = noise (resume). */
+  verdictTimeoutMs: 1_200,
   /** Relay: never wait longer than this for a verdict, even while speech goes on. */
   verdictMaxMs: 6_000,
   /** Client fallback if the relay's verdict never arrives: resume her reply. */
@@ -88,6 +89,11 @@ export class BargeGate {
       this.reset();
       return talking ? "flush" : "pass";
     }
+    // Grace: her first ~1.5 s always plays, as if the mic were muted (nothing counts toward a barge).
+    if (o.playing && this.inGrace(o.now)) {
+      this.reset();
+      return "hold";
+    }
     const voiced = o.rms > this.threshold(o.herOutRms, o.coupling, true);
     if (voiced) {
       this.run += 1;
@@ -97,8 +103,6 @@ export class BargeGate {
     } else {
       this.reset();
     }
-    // Grace: her first ~1.5 s always plays; a run that started inside it still counts after.
-    if (o.playing && this.inGrace(o.now)) return "hold";
     if (voiced && this.run * this.t.frameMs >= this.t.sustainMs) {
       this.reset();
       return "barge";

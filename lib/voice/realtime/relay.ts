@@ -1103,6 +1103,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const check = () => {
           if (barge !== b) return;
           const age = Date.now() - b.at;
+          // The server never heard speech after the pause: it was noise, resume her now.
+          if (speechAt < b.at && !b.itemId) return verdict(false);
           // Still talking, or a turn is in and its words are on the way: wait (bounded).
           const waiting = speechActive || (b.itemId !== null && !completedItems.has(b.itemId));
           if (waiting && age < TURN_TUNING.verdictMaxMs) {
