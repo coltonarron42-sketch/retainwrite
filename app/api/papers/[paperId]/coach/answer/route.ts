@@ -107,7 +107,7 @@ export async function POST(request: Request, ctx: Ctx) {
           required: ["paras"],
         },
       },
-      timeoutMs: effort === "high" ? 20_000 : effort === "low" ? 11_000 : 7_000,
+      timeoutMs: effort === "high" ? 20_000 : effort === "low" ? 15_000 : 7_000,
     });
     if (res.ok) {
       try {
@@ -120,7 +120,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
   // Code gates: pasteable prose → reframe; then one ask per turn.
   const names = [paperCtx?.leader?.pick, ...(body.message.match(/\b[A-Z][a-z]{2,}\b/g) ?? [])].filter((n): n is string => Boolean(n));
-  const gate = gateParas(paras, { afterWriteRequest: turn.intent === "write_request", context: `${body.message} ${body.section ?? ""}`, names, seed: started });
+  const gate = gateParas(paras, { afterWriteRequest: turn.intent === "write_request", context: `${body.message} ${body.section ?? ""}`, names, seed: started, echo: body.message });
   paras = gate.paras;
   const capped = capOneAsk(paras);
   paras = capped.paras;

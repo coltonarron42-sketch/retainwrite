@@ -2088,7 +2088,7 @@ export function AssignmentIntake({
   async function pauTurn(mode: CoachMode, message: string, ask: string, ms?: number, o: { speak?: boolean } = {}): Promise<string[] | null> {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), ms ?? (mode === "research" || mode === "summary" ? 50_000 : 17_000));
+      const timer = setTimeout(() => controller.abort(), ms ?? (mode === "research" || mode === "summary" ? 50_000 : 19_000));
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2157,8 +2157,8 @@ export function AssignmentIntake({
     if (n === 0) return fallback;
     try {
       const controller = new AbortController();
-      // PC-31: interview questions are probing turns (high effort): up to ~12 s, then the plain fallback.
-      const timer = setTimeout(() => controller.abort(), 12_000);
+      // PC-31: interview questions are probing turns (low effort): up to ~17 s, then the plain fallback.
+      const timer = setTimeout(() => controller.abort(), 17_000);
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2194,7 +2194,7 @@ export function AssignmentIntake({
       setPendingSaid(said);
       dropSent(sentBox);
       setAsideBusy("Thinking…");
-      const llm = await pauTurn("story", `Their story: ${story}${said.trim() !== story.trim() ? `\nTheir latest message: ${said}` : ""}`, qn.text, 14_000);
+      const llm = await pauTurn("story", `Their story: ${story}${said.trim() !== story.trim() ? `\nTheir latest message: ${said}` : ""}`, qn.text, 18_000);
       setAsideBusy(null);
       setPendingSaid(null);
       setStoryProposal({ id, qid: qn.id, story, reflect: r });

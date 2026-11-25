@@ -801,7 +801,7 @@ export function CoachingLoop({
     try {
       const controller = new AbortController();
       // PC-31: research and summaries run web search at high effort (up to ~30 s); other turns ~16 s.
-      const timer = setTimeout(() => controller.abort(), mode === "research" || mode === "summary" ? 50_000 : 17_000);
+      const timer = setTimeout(() => controller.abort(), mode === "research" || mode === "summary" ? 50_000 : 19_000);
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
