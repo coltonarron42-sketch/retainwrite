@@ -13,8 +13,8 @@ describe("BLOCKER walk C", () => {
   it("the multi-intent pick has no reason, so its why is asked (not only for short picks)", () => {
     expect(decisionHasReason(WALK_C)).toBe(false);
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(src).toContain("!decisionHasReason(pickSaid)");
-    expect(src).toMatch(/shortPick \|\| noReason/);
+    // PC-32 (Colton t221u): Stage 1 no longer asks for the pick or its why (Stage 2 does).
+    expect(src).not.toMatch(/shortPick \|\| noReason/);
   });
   it("the early take's reason counts for an existing pick (QA's stuck paper recovers on reload)", () => {
     const g = northstarGateFrom({
@@ -41,8 +41,8 @@ describe("BLOCKER walk C", () => {
   });
   it("the server restores a pick from the answers and says what to re-ask", () => {
     const src = readFileSync("app/api/papers/[paperId]/intake/complete/route.ts", "utf8");
-    expect(src).toContain("reask");
-    expect(src).toContain('a.questionId === "decision_pick"');
+    // PC-32: an older answered pick still feeds their saved starting point.
+    expect(src).toContain('said("decision_pick")');
   });
   it("a status shows in the same tick as send on every path", () => {
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");

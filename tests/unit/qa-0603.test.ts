@@ -154,8 +154,9 @@ describe("3. decision", () => {
     const brief = readFileSync("lib/server/paper-context/brief.ts", "utf8");
     expect(brief).toMatch(/NEEDS_REAL_PERSON/);
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(intake).toContain('id: "leader_pick"');
-    expect(intake).toContain('id: "decision_why"');
+    // PC-32 (Colton t221u): the leader and the decision's reason moved to Stage 2's stance interview.
+    expect(intake).not.toContain('id: "leader_pick"');
+    expect(intake).toContain("for (const step of ideasPlan(answers))");
   });
   it("Stage 2 carries the actual decision and reason, never idk", () => {
     expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked Transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");

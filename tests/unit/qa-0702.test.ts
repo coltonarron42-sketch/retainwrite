@@ -149,7 +149,9 @@ describe("4. skip", () => {
   });
   it("the server gate rejects a skipped-through north-star Stage 1", () => {
     const route = src("app/api/papers/[paperId]/intake/complete/route.ts");
-    expect(route).toContain("northstarGateFrom(");
+    // PC-32 (Colton t221u): north-star papers need the confirmed read-back (and card); older papers
+    // keep the early-take and story gates.
+    expect(route).toContain('reasons: ["readback"]');
     expect(route).toContain('"Early stance needs at least 25 words"');
     expect(route).toContain('"Pick a story angle before finishing Stage 1"');
   });
@@ -183,7 +185,8 @@ describe("6. duplicates", () => {
     expect(src("components/stages/stage1/assignment-intake.tsx")).toContain("finishCoaching(answersAfterSkippingInterest(answers));");
   });
   it("material shown before the confirm is never re-asked", () => {
-    expect(src("components/stages/stage1/assignment-intake.tsx")).toContain('if (!brief?.materialShown || has("material_check"))');
+    // PC-32: the short Stage 1 has no "have you read it?" question at all.
+    expect(src("components/stages/stage1/assignment-intake.tsx")).not.toContain('id: "material_check",');
   });
 });
 
