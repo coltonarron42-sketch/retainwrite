@@ -14,6 +14,7 @@ import {
   isExploreLock,
   isGenericPressureReason,
   keepAngleSummary,
+  officialListenNote,
   listeningClaim,
   oneOptionLeadBatch,
   parseListenModelReply,
@@ -306,6 +307,10 @@ describe("PC-33: confirm phrases never become notes or claims", () => {
     expect(claim!).not.toMatch(/yeah that's what I want for now/i);
     expect(isClosingPhrase(claim!)).toBe(false);
     expect(listeningClaim([QA.done], "Introduction")).toBeNull();
+    const recap = keepAngleSummary(officialListenNote([claim!], QA.done), "Introduction");
+    expect(recap).toMatch(/transformational leaders get more credit/i);
+    expect(recap).not.toMatch(/yeah that's what I want for now/i);
+    expect(keepAngleSummary(QA.done, "Introduction")).not.toMatch(/yeah that's what I want for now/i);
     expect(pressureTestLine({ claim: QA.done, reason: "This doesn't answer the question your prompt asks." })).not.toMatch(/yeah that's what I want for now/i);
   });
 });

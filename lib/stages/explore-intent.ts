@@ -319,11 +319,21 @@ export function parseListenModelClaim(raw: string, fallback: string | null): str
 /** First-tap recap before "Keep my angle" actually advances. */
 export function keepAngleSummary(note: string, title: string): string {
   const part = (title || "this section").toLowerCase();
-  const claim = quoteOnWordBoundary((note ?? "").replace(/\s+/g, " ").trim(), 140);
+  const raw = (note ?? "").replace(/\s+/g, " ").trim();
+  const claim = raw && !isClosingPhrase(raw) && !isNoteFragment(raw) ? raw : "";
   if (claim) {
     return `Just to confirm before we leave your ${part}: you want to keep this angle — “${claim}.” Tap below if that's right, or tell me what to change.`;
   }
   return `Just to confirm before we leave your ${part}: you want to keep the angle you already have. Tap below if that's right, or tell me what to change.`;
+}
+
+/** Official section note for recaps and pressure tests; never a confirm/closing phrase. */
+export function officialListenNote(sectionIdeas: string[] | undefined, lastYou = ""): string {
+  const kept = (sectionIdeas ?? []).map((n) => n.replace(/\s+/g, " ").trim()).filter((n) => n && !isClosingPhrase(n) && !isNoteFragment(n));
+  if (kept.length) return kept.join(" ");
+  const last = lastYou.replace(/\s+/g, " ").trim();
+  if (last && !isClosingPhrase(last) && !isNoteFragment(last)) return last;
+  return "";
 }
 
 const GENERIC_PRESSURE = /^a reasonable reader could see this another way\.?$/i;

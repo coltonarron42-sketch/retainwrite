@@ -33,7 +33,7 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, oneOptionLeadBatch, pressureTestLine, asCounterpoint } from "@/lib/stages/explore-intent";
+import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint } from "@/lib/stages/explore-intent";
 import { fetchListenReply } from "@/lib/stages/listen-client";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
@@ -287,11 +287,11 @@ function stanceTurnParasRaw(
       if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
       // The concern is named in the same line as the flag (QA 11/23: "Here's a wrinkle." alone was hollow).
       if (r.tier === "moderate")
-        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${moderateConcern(r, ctx.lastNote ?? keptNote(section), section.title)}`, stockLine("logic_writer", ctx.seed, ctx.index)];
+        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${moderateConcern(r, officialListenNote(section.ideas, ctx.lastNote), section.title)}`, stockLine("logic_writer", ctx.seed, ctx.index)];
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
     case "keep_confirm":
-      return [keepAngleSummary(ctx.lastNote ?? keptNote(section), section.title)];
+      return [keepAngleSummary(officialListenNote(section.ideas, ctx.lastNote), section.title)];
     case "listening":
       return [];
     case "locked_in":
@@ -581,7 +581,7 @@ export function StanceChat(props: Props) {
       case "keep_confirm":
         if (yes) {
           clearSent();
-          h.logicResult("keep", [pau(paras[0] ?? keepAngleSummary(lastNote ?? "", section.title)), you(text)]);
+          h.logicResult("keep", [pau(paras[0] ?? keepAngleSummary(officialListenNote(section.ideas, lastNote), section.title)), you(text)]);
           return "saved";
         }
         break;
@@ -864,7 +864,7 @@ export function StanceChat(props: Props) {
               ))}
               {visibleBatch.wildcard ? (
                 <li className="rounded-[8px] border border-dashed border-ds-border p-3 text-[16px]">
-                  <p className="text-ds-muted">The ones above are usually cited. Here&apos;s one outside the box that shows the same pattern.</p>
+                  <p className="text-ds-muted">The ones above are usually cited. Here's one outside the box that shows the same pattern.</p>
                   <p className="font-semibold">{visibleBatch.wildcard.name}</p>
                   <p className="text-ds-muted">{visibleBatch.wildcard.wildcardWhy}</p>
                   {visibleBatch.wildcard.controversyNote ? <p className="text-ds-muted">{visibleBatch.wildcard.controversyNote}</p> : null}
