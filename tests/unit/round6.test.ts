@@ -24,7 +24,7 @@ describe("SHOULD-FIX: 'ok' right behind a real answer is part of it", () => {
 });
 
 describe("MINOR: a 4th 'not sure' changes approach", () => {
-  it("never the same ask three times: short, then an easy pick, then a different way in", () => {
+  it("never the same ask three times: short, then narrowed to two (their gut pick), then a different way in", () => {
     let last: string | null = null;
     const out: string[] = [];
     for (let round = 1; round <= 6; round++) {
@@ -33,10 +33,10 @@ describe("MINOR: a 4th 'not sure' changes approach", () => {
       out.push(last);
     }
     expect(out[2]).toMatch(/Simplest way in: start with Transformational/);
-    expect(out[3]).toMatch(/I'll pick one for you so we can keep moving: Transformational/);
+    expect(out[3]).toMatch(/Let's narrow it to two/);
     expect(out[3]).not.toMatch(/Want to start with/);
     expect(out[4]).toMatch(/different side/);
-    expect(out[5]).toMatch(/Let's go with Transformational for now/);
+    expect(out[5]).toMatch(/Down to two/);
     expect(out.filter((t) => /Want to start with Transformational\?/.test(t)).length).toBeLessThanOrEqual(2);
     for (const t of out) expect((t.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
   });
