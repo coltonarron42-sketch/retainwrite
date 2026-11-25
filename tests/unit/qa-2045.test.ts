@@ -41,8 +41,8 @@ describe("#2 demo: Voice on reads the greeting once when nothing was said yet", 
   it("demo + opener on screen: once; then nothing", () => {
     __resetSpeech();
     setLocalUser("demo");
-    takeNew("p1", [{ key: "ask", text: "Hi, I'm Pau Pau. What's the assignment?", turn: true, opener: true }]);
-    expect(currentTurn()).toEqual(["Hi, I'm Pau Pau. What's the assignment?"]);
+    takeNew("p1", [{ key: "ask", text: "Hi, I'm Pau. What's the assignment?", turn: true, opener: true }]);
+    expect(currentTurn()).toEqual(["Hi, I'm Pau. What's the assignment?"]);
     expect(currentTurn()).toEqual([]);
   });
   it("a return with student turns flags no opener, so old turns are never replayed", () => {

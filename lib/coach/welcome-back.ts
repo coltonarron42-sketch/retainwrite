@@ -1,5 +1,5 @@
 /**
- * PC-28 (Colton t185u): every return opens a clean chat. Pau Pau says ONE line,
+ * PC-28 (Colton t185u): every return opens a clean chat. Pau says ONE line,
  * picked at random, that means "we made progress: keep going, or check the
  * progress?" with the real last-locked piece ({done}) and the next one ({next}).
  * Casual, a little slangy, student-safe, in her voice. Then the student is back

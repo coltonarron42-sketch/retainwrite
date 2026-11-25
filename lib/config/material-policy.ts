@@ -1,5 +1,5 @@
 /**
- * THE switch for where Pau Pau's course-material summary comes from (Colton
+ * THE switch for where Pau's course-material summary comes from (Colton
  * decides; one place, one value). Uploaded/pasted/photographed/linked readings
  * always come first, then a long assignment sheet.
  *
