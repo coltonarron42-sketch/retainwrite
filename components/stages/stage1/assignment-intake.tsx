@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { isNoLeaderSaying, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -163,7 +163,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
-import { isRichStory, proposalReply, reflectParas, reflectStory, storySummaryParas, type StoryReflect } from "@/lib/stage1/story-reflect";
+import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 
@@ -551,6 +551,12 @@ export function AssignmentIntake({
   }, []);
   // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
   const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // QA 2:12 PM #1: messages sent back to back are one turn for Pau, but stay separate bubbles
+  // (and separate Past chat lines), true to what the student sent.
+  const saidParts = useRef(new Map<string, string[]>());
+  const partsOf = (t: string) => saidParts.current.get(t) ?? [t];
+  const saidBubbles = (t: string) =>
+    partsOf(t).map((p, i) => <StudentBubble key={`said:${i}`} message={{ text: p, files: [], at: 0 }} />);
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
   // QA 3:00: a message typed while Pau is replying waits here (shown in the chat) and goes right after.
   const queuedRef = useRef<string | null>(null);
@@ -987,7 +993,7 @@ export function AssignmentIntake({
   const interviewDone = useRef(false);
   /** QA round 5 (2): she asked them about a boss, coach or teacher (per question). */
   const noLeaderAsked = useRef<Record<string, boolean>>({});
-  const said0Named = (t: string) => Boolean(namedPerson(t) || singleNamedLeader(t));
+  const said0Named = (t: string) => Boolean(storyWho(t)?.named || namedPerson(t) || singleNamedLeader(t));
   const keepAsked = (qid: string, isEditing: boolean, bubbles: ReactNode[], introCount: number): ReactNode[] => {
     if (!isEditing) askedAs.current[qid] = bubbles.slice(introCount);
     return bubbles;
@@ -2316,7 +2322,10 @@ export function AssignmentIntake({
     if (!demoMode) {
       if (qn.id !== "stance_early") void persistField(paperId, { fieldKey: `stage1:${qn.id}`, text: story, submitted: true, resume: { stage: 1, questionId: "stance_early", screen: "coaching", at: Date.now() } });
       void persistField(paperId, { fieldKey: "stage1:stance_early", text: story, submitted: true, resume: { stage: 1, questionId: "stance_early", screen: "gate" } });
-      void fetch(`/api/papers/${paperId}/intake/story-pick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: story, source: "student" }) }).catch(() => undefined);
+      // QA 2:12 PM #2: the angle route takes at most 500 characters; a long story is sent as its
+      // opening (whole sentences, their words), never the 400 a 742-character story got.
+      const angle = storyAngleText(story);
+      if (wordCount(angle) >= 15) void fetch(`/api/papers/${paperId}/intake/story-pick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: angle, source: "student" }) }).catch(() => undefined);
     }
     const stanceQ = earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value });
     setAnswers((prev) => [
@@ -2497,6 +2506,23 @@ export function AssignmentIntake({
       dropSent(sentBox);
       setError(null);
       return;
+    }
+    // QA 2:12 PM #1: "My high school soccer coach, Mr. Alvarez" answers her boss/coach/teacher ask:
+    // that person is their leader, and one question about them starts the interview.
+    if (text && brief?.northstar && noLeaderAsked.current[q.id] && !isRichStory(text) && wordCount(text) <= 25) {
+      const w = storyWho(text);
+      const who = w?.named ? w.who : namedPerson(text) ?? singleNamedLeader(text);
+      if (who) {
+        const qid = q.id;
+        noLeaderAsked.current[qid] = false;
+        void briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: who });
+        const ask = await interviewAsk(text, text, "", 0, who);
+        setInterview({ qid, story: text, said: [], ask });
+        setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [`${who} works great. Let's dig in, one quick question at a time. ${ask}`] }].slice(-12));
+        dropSent(sentBox);
+        setError(null);
+        return;
+      }
     }
     // Her open ask is "who's a boss, coach or teacher…": a vague or filler reply stays on that, never the style again.
     if (text && noLeaderAsked.current[q.id] && !said0Named(text) && (isFillerSaying(text) || isVaguePick(text) || wordCount(text) <= 3)) {
@@ -4044,7 +4070,7 @@ export function AssignmentIntake({
                     Catch me up on the reading first
                   </DsButton>
                 ) : null}
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Options">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Options" hidden={Boolean(noLeaderAsked.current[q.id])}>
                   {brief.options.options.slice(0, 3).map((o) => (
                     <DsButton
                       key={o.label}
@@ -4166,6 +4192,9 @@ export function AssignmentIntake({
                       catchUpDone: northstarGate.catchUpDone,
                       decided: northstarGate.decided,
                       stanceOk,
+                      earlyFromStory:
+                        Boolean(stanceViaStory) ||
+                        Boolean(brief?.decision?.answer && answers.find((a) => a.questionId === "stance_early")?.answerText.trim() === brief.decision.answer.trim()),
                       style: stylesIn(brief?.decision?.answer ?? "").find((x) => /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral)$/i.test(x)) ?? null,
                       leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : null,
                       materialLabel: materialGateLabel({
@@ -4320,7 +4349,11 @@ export function AssignmentIntake({
       // QA 1:16 (composer): a second, different message sent right after the first joins it, so
       // both are kept and Pau replies once. Identical repeats (double Enter) add nothing.
       if (coalesce.current) {
-        if (typedNow && !coalesce.current.text.split("\n").includes(typedNow)) coalesce.current.text += `\n${typedNow}`;
+        if (typedNow && !coalesce.current.text.split("\n").includes(typedNow)) {
+          const parts = [...partsOf(coalesce.current.text), typedNow];
+          coalesce.current.text += `\n${typedNow}`;
+          saidParts.current.set(coalesce.current.text, parts);
+        }
         if (!text) setDraftAnswer("");
         setPendingSaid(coalesce.current.text);
         return;
@@ -4331,6 +4364,7 @@ export function AssignmentIntake({
         if (typedNow && !text) {
           const prev = queuedRef.current;
           queuedRef.current = prev ? (prev.split("\n").includes(typedNow) ? prev : `${prev}\n${typedNow}`) : typedNow;
+          if (prev && queuedRef.current !== prev) saidParts.current.set(queuedRef.current, [...partsOf(prev), typedNow]);
           setQueuedSaid(queuedRef.current);
           setDraftAnswer("");
         }
@@ -4342,8 +4376,12 @@ export function AssignmentIntake({
         setPendingSaid(typedNow);
         setAsideBusy(statusFor(typedNow));
         const entry = { text: typedNow, timer: setTimeout(() => {
-          const merged = coalesce.current?.text ?? typedNow;
+          const joined = coalesce.current?.text ?? typedNow;
           coalesce.current = null;
+          // QA 2:12 PM #1: "My high school soccer coach, Mr. Alvarez" then "ok": Pau answers the
+          // real answer; a trailing filler never turns it into a non-answer.
+          const merged = keepSubstance(partsOf(joined));
+          if (merged !== joined || partsOf(joined).length > 1) saidParts.current.set(merged, partsOf(joined));
           sendLock.current = false;
           // QA 5:46: between steps (the last question answered, the early take not up yet) the
           // render that took this Enter has nothing to send it to, so go through the latest
@@ -4387,7 +4425,9 @@ export function AssignmentIntake({
           // both go together as one answer, so neither is lost.
           queuedRef.current = null;
           // QA 3:26 AM #4: a turned-back filler send never merges into the next one.
-          const merged = fromBox && rejectedRef.current && withoutFiller(text ?? "") ? `${withoutFiller(text ?? "")}\n${queuedNext}` : queuedNext;
+          const merged0 = fromBox && rejectedRef.current && withoutFiller(text ?? "") ? `${withoutFiller(text ?? "")}\n${queuedNext}` : queuedNext;
+          const merged = keepSubstance(partsOf(queuedNext).length > 1 && merged0 === queuedNext ? partsOf(queuedNext) : [merged0]);
+          if (merged !== queuedNext || partsOf(queuedNext).length > 1) saidParts.current.set(merged, partsOf(queuedNext));
           // QA 3:51: the screen may not have re-rendered yet (a heavy render can take longer than a
           // beat), so a send that is still "busy" is retried, never silently dropped. It stays on
           // screen as queued until it actually goes.
@@ -4593,7 +4633,7 @@ export function AssignmentIntake({
                       .filter((x) => x.qid === item.id)
                       .map((x) => (
                         <div key={x.id} className="space-y-4" data-past-aside>
-                          <StudentBubble message={{ text: x.said, files: [], at: 0 }} />
+                          {saidBubbles(x.said)}
                           <PauPauGroup bubbles={x.paras} />
                         </div>
                       ))
@@ -4655,13 +4695,13 @@ export function AssignmentIntake({
                 .filter((x) => x.qid === "stance_early")
                 .map((x) => (
                   <div key={x.id} className="space-y-4" data-past-aside>
-                    <StudentBubble message={{ text: x.said, files: [], at: 0 }} />
+                    {saidBubbles(x.said)}
                     <PauPauGroup bubbles={x.paras} />
                   </div>
                 ))}
               {stanceTries.map((t) => (
                 <div key={t.id} className="space-y-4" data-stance-try>
-                  <StudentBubble message={{ text: t.said, files: [], at: 0 }} />
+                  {saidBubbles(t.said)}
                   <PauPauGroup bubbles={[t.nudge]} />
                 </div>
               ))}
@@ -4691,7 +4731,7 @@ export function AssignmentIntake({
                 .filter((a) => a.qid === q.id && !snap?.asides.has(a.id))
                 .map((a) => (
                   <div key={a.id} className="space-y-4" data-interview-aside>
-                    <StudentBubble message={{ text: a.said, files: [], at: 0 }} />
+                    {saidBubbles(a.said)}
                     <PauPauGroup bubbles={a.paras}>{storyProposal?.id === a.id && !storyTieBack ? storyChips : null}</PauPauGroup>
                   </div>
                 ))
@@ -4703,7 +4743,7 @@ export function AssignmentIntake({
           {q && storyTieBack?.qid === q.id && !summaryBusy ? <PauPauGroup bubbles={storyTieBack.paras}>{storyProposal ? storyChips : null}</PauPauGroup> : null}
           {pendingSaid ? (
             <div data-pending-said>
-              <StudentBubble message={{ text: pendingSaid, files: [], at: 0 }} />
+              {saidBubbles(pendingSaid)}
             </div>
           ) : null}
           {/* QA 1:16 (lag): a lost student is reassured and taught the core idea right away, while the summary loads. */}
@@ -4713,7 +4753,7 @@ export function AssignmentIntake({
           {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
           {queuedSaid ? (
             <div data-queued-said>
-              <StudentBubble message={{ text: queuedSaid, files: [], at: 0 }} />
+              {saidBubbles(queuedSaid)}
               <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau replies.</p>
             </div>
           ) : null}
@@ -4867,7 +4907,7 @@ export function AssignmentIntake({
           {screen === "gate"
             ? gateSaid.slice(snap?.gateSaid ?? 0).map((g) => (
                 <div key={g.id} className="space-y-4" data-gate-said>
-                  <StudentBubble message={{ text: g.said, files: [], at: 0 }} />
+                  {saidBubbles(g.said)}
                   <PauPauGroup bubbles={[GATE_SAID_REPLY]} />
                 </div>
               ))
@@ -4877,7 +4917,7 @@ export function AssignmentIntake({
           {stanceMode && !editing && stanceTries.length
             ? stanceTries.map((t) => (
                 <div key={t.id} className="space-y-4" data-stance-try>
-                  <StudentBubble message={{ text: t.said, files: [], at: 0 }} />
+                  {saidBubbles(t.said)}
                   <PauPauGroup bubbles={[t.nudge]} />
                 </div>
               ))

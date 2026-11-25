@@ -77,7 +77,7 @@ export function tallyVoiceWords(rows: CountedVoiceRow[]): number {
 
 export function readyVoiceLine(words: number, minimum = STAGE1_VOICE_MIN_WORDS): string | null {
   if (words < minimum) return null;
-  return "Pau has enough of your voice to coach you.";
+  return "I've got enough of your voice to coach you.";
 }
 
 export function evaluateStage1VoiceMinimum(

@@ -55,7 +55,7 @@ describe("(3) Past chat matches the screen", () => {
   it("the spark offer is its own line (a part drawn as its own block)", () => {
     expect(readFileSync("components/stages/stage1/hesitation.tsx", "utf8")).toMatch(/data-spark\n\s+data-chat-part/);
     const src = readFileSync("lib/chat/turn-recorder.ts", "utf8");
-    expect(src).toContain('querySelectorAll("[data-chat-part]")');
+    expect(src).toContain('querySelectorAll("[data-chat-line], [data-chat-part]")');
     expect(src).toContain("[data-chat-part], textarea");
   });
   it("two rapid sends: both student lines on screen stay in Past chat, in order", () => {
