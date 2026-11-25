@@ -14,7 +14,7 @@ import { statusFromEvent } from "@/lib/coach/thinking-status";
 export type ResearchSource = { title: string; url: string };
 
 export type ResearchResult =
-  | { ok: true; text: string; sources: ResearchSource[]; searches: number; ms: number }
+  | { ok: true; text: string; raw: string; read: string[]; sources: ResearchSource[]; searches: number; ms: number }
   | { ok: false; reason: string; ms: number; searches?: number };
 
 /** Cap per turn: she gets a few searches, not an open-ended crawl. */
@@ -56,6 +56,30 @@ export function extractSources(resp: AnyJson): ResearchSource[] {
   return out.slice(0, 6);
 }
 
+/** Pages the web_search calls opened (action.sources), whether or not the reply cited them. */
+export function readUrls(resp: AnyJson): string[] {
+  const output = Array.isArray(resp.output) ? (resp.output as AnyJson[]) : [];
+  const out: string[] = [];
+  for (const o of output) {
+    if (o.type !== "web_search_call") continue;
+    const action = (o.action && typeof o.action === "object" ? o.action : {}) as AnyJson;
+    for (const s of Array.isArray(action.sources) ? (action.sources as AnyJson[]) : []) if (typeof s?.url === "string") out.push(s.url);
+  }
+  if (Array.isArray(resp._read)) for (const u of resp._read as unknown[]) if (typeof u === "string") out.push(u);
+  return [...new Set(out)];
+}
+
+/** The assistant text with its inline citations intact (for the per-bullet source check). */
+export function rawText(resp: AnyJson): string {
+  if (typeof resp.output_text === "string" && resp.output_text) return resp.output_text;
+  const output = Array.isArray(resp.output) ? (resp.output as AnyJson[]) : [];
+  return output
+    .filter((o) => o.type === "message")
+    .flatMap((o) => (Array.isArray(o.content) ? (o.content as AnyJson[]) : []))
+    .map((c) => (typeof c.text === "string" ? c.text : ""))
+    .join("\n");
+}
+
 export function countSearches(resp: AnyJson): number {
   const output = Array.isArray(resp.output) ? (resp.output as AnyJson[]) : [];
   return output.filter((o) => o.type === "web_search_call").length;
@@ -93,6 +117,8 @@ export async function grokResearch(opts: {
   onStatus?: (line: string) => void;
   /** What she's looking for, in the student's words (the stream doesn't carry the query). */
   topic?: string | null;
+  /** QA 3:46: search only these sites (max 5), e.g. the good pages she read but didn't use. */
+  allowedDomains?: string[];
 }): Promise<ResearchResult> {
   const started = Date.now();
   const grok = getGrokClient();
@@ -103,7 +129,12 @@ export async function grokResearch(opts: {
     model: MODEL_FAST,
     instructions: opts.system,
     input: [{ role: "user", content: opts.user }],
-    ...(opts.search ? { tools: [{ type: "web_search" }], max_tool_calls: opts.maxSearches ?? MAX_SEARCH_CALLS } : {}),
+    ...(opts.search
+      ? {
+          tools: [{ type: "web_search", ...(opts.allowedDomains?.length ? { filters: { allowed_domains: opts.allowedDomains.slice(0, 5) } } : {}) }],
+          max_tool_calls: opts.maxSearches ?? MAX_SEARCH_CALLS,
+        }
+      : {}),
     reasoning: { effort: opts.effort },
     store: false,
   };
@@ -114,16 +145,21 @@ export async function grokResearch(opts: {
     const types = new Set<string>();
     let final: AnyJson | null = null;
     let text = "";
+    const read: string[] = [];
     for await (const ev of stream) {
       const type = String(ev.type ?? "");
       types.add(type);
+      const it = ev.item && typeof ev.item === "object" ? (ev.item as AnyJson) : null;
+      if (it?.type === "web_search_call" && it.action && typeof it.action === "object") {
+        for (const s of Array.isArray((it.action as AnyJson).sources) ? ((it.action as AnyJson).sources as AnyJson[]) : []) if (typeof s?.url === "string") read.push(s.url);
+      }
       for (const line of statusFromEvent(ev, seen)) opts.onStatus?.(line);
       if (type === "response.output_text.delta" && typeof ev.delta === "string") text += ev.delta;
       if ((type === "response.completed" || type === "response.done") && ev.response && typeof ev.response === "object") final = ev.response as AnyJson;
     }
     // Event names only (never content): to see what the stream gives us on a preview.
     console.info("[grok-research] stream", { types: [...types].slice(0, 30) });
-    return { ...(final ?? { output_text: text, output: [] }), _searched: seen.searched };
+    return { ...(final ?? { output_text: text, output: [] }), _searched: seen.searched, _read: read };
   };
   try {
     let resp: AnyJson;
@@ -142,7 +178,7 @@ export async function grokResearch(opts: {
     const text = researchText(resp);
     const sources = extractSources(resp);
     const searches = Math.max(countSearches(resp), typeof resp._searched === "number" ? resp._searched : 0);
-    return text ? { ok: true, text, sources, searches, ms: Date.now() - started } : { ok: false, reason: "empty", searches, ms: Date.now() - started };
+    return text ? { ok: true, text, raw: rawText(resp), read: readUrls(resp), sources, searches, ms: Date.now() - started } : { ok: false, reason: "empty", searches, ms: Date.now() - started };
   } catch (err) {
     clearTimeout(timer);
     const message = err instanceof Error ? err.message : "grok_error";

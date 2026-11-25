@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, READING_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
+import { sourceHost } from "@/lib/coach/sources-line";
+import { applySourceQuality, noGoodSourcesParas } from "@/lib/coach/source-quality";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
@@ -102,7 +104,8 @@ export async function POST(request: Request, ctx: Ctx) {
     const paperUsed = wantsSearch ? await paperSearchesUsed(paperId).catch(() => 0) : 0;
     const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? READING_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
     const search = wantsSearch && searchCap > 0;
-    const effort = mode === "reframe" ? "none" : mode === "reading" ? "high" : turn.effort;
+    // QA 3:46 speed: research synthesis runs at low (the source filter is in code); a reading lookup stays high.
+    const effort = mode === "reframe" ? "none" : mode === "reading" ? "high" : mode === "research" ? "low" : turn.effort;
     emit(STATUS_ROTATION[mode === "reading" ? "reading" : mode === "research" ? "research" : mode === "summary" ? "summary" : "think"][0]!);
     const userJson = JSON.stringify({
       mode,
@@ -120,6 +123,7 @@ export async function POST(request: Request, ctx: Ctx) {
     let searches = 0;
     let path = "chat";
     let cache: "off" | "hit" | "miss" | "bypass" = "off";
+    let quality: { kept: number; dropped: string[]; retried: boolean; none: boolean } | undefined;
     if (wantsSearch || mode === "summary") {
       path = search ? "responses+web_search" : "responses";
       // t213u #1: dev/test search cache (never in production): repeated test turns reuse results.
@@ -151,7 +155,43 @@ export async function POST(request: Request, ctx: Ctx) {
           topic: askTopic(body.message),
         });
         searches = r.searches ?? 0;
-        if (r.ok) {
+        if (r.ok && search) {
+          // QA 3:46: rank and filter the sources in code; bullets only from sources that pass.
+          const qmode = mode === "reading" ? "reading" : "research";
+          let q = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read });
+          let retried = false;
+          // She read a good page but leaned on weak ones: one more pass restricted to the good pages.
+          if (qmode === "research" && q.kept < 2 && q.goodUnused.length && turnSearchCap(paperUsed + searches, 1) > 0) {
+            retried = true;
+            emit("Finding sources you can cite…");
+            const r2 = await grokResearch({
+              system: coachAnswerSystem(mode, { plain: true }),
+              user: userJson,
+              effort: "low",
+              search: true,
+              maxSearches: 1,
+              allowedDomains: q.goodUnused.slice(0, 5),
+              timeoutMs: 22_000,
+              onStatus: streaming ? emit : undefined,
+              topic: askTopic(body.message),
+            });
+            searches += r2.searches ?? 0;
+            if (r2.ok) {
+              const q2 = applySourceQuality(r2.raw, { mode: qmode, sources: r2.sources, read: r2.read });
+              if (q2.kept > q.kept) q = q2;
+            }
+          }
+          const none = qmode === "research" && q.kept === 0;
+          quality = { kept: q.kept, dropped: [...new Set(q.dropped.flatMap((d) => d.hosts))].slice(0, 8), retried, none };
+          if (none) {
+            const lastQ = r.text.split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
+            paras = noGoodSourcesParas(q.dropped, lastQ);
+            sources = [];
+          } else {
+            paras = cleanPauParas(q.text);
+            sources = q.sources;
+          }
+        } else if (r.ok) {
           paras = cleanPauParas(r.text);
           sources = r.sources;
           if (cacheKey)
@@ -261,6 +301,8 @@ export async function POST(request: Request, ctx: Ctx) {
       path,
       searches,
       searchCap: wantsSearch ? searchCap : undefined,
+      quality,
+      cited: sources.map((s) => sourceHost(s.url)),
       paperSearches: paperSearches ?? undefined,
       cache,
       blocked,
@@ -276,7 +318,7 @@ export async function POST(request: Request, ctx: Ctx) {
     // Voice on: the relay speaks exactly these words (signed for this paper), so research turns run here with tools and the voice says the result.
     const spokenText = paras.length ? spokenFrom(paras) : "";
     const spoken = spokenText ? { text: spokenText, sig: signSpoken(paperId, spokenText) } : null;
-    return { paras, sources, mode, effort, gated: gate.blocked, spoken, ...(paperSearches !== null ? { searches, paperSearches } : {}) };
+    return { paras, sources, mode, effort, gated: gate.blocked, spoken, ...(paperSearches !== null ? { searches, paperSearches, cited: sources.map((s) => sourceHost(s.url)) } : {}) };
   };
 
   if (!streaming) return NextResponse.json(await compute(() => undefined));
