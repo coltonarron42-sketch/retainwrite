@@ -219,6 +219,24 @@ export function pickEscalation(input: {
   return { paras, recommend: rec, offerCatchUp };
 }
 
+/** The two labels of a narrowed turn ("Let's narrow it to two." / "No wrong answer here. Down to two:"), in order; [] otherwise. */
+export function narrowedTwo(last: string | null | undefined): string[] {
+  const t = String(last ?? "");
+  if (!/^(?:Let's narrow it to two\.|No wrong answer here\. Down to two:)/.test(t)) return [];
+  return [...t.matchAll(/^• ([^:\n]+):/gm)].map((m) => m[1]!.trim()).slice(0, 2);
+}
+
+/** Their gut pick after a narrowed turn: one of the two named (or "the first/second one"), else null. Never a guess. */
+export function gutPickOf(text: string, two: string[]): string | null {
+  const named = two.filter((l) => new RegExp(`\\b${l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
+  if (named.length === 1) return named[0]!;
+  if (named.length > 1) return null;
+  if (/\b(?:not|neither|none|no idea|not sure|don'?t know)\b/i.test(text)) return null;
+  if (/^\s*(?:the\s+)?(?:first|1st)(?:\s+one)?\b/i.test(text)) return two[0] ?? null;
+  if (/^\s*(?:the\s+)?(?:second|2nd|other|last)(?:\s+one)?\b/i.test(text)) return two[1] ?? null;
+  return null;
+}
+
 /* ------------------- Colton 12:08: diagnose first, then branch ------------------- */
 
 /** The first question after the confirm: what's really asked, in plain words, then where they are. */
