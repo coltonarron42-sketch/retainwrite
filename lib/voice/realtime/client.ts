@@ -681,6 +681,11 @@ export class RealtimeVoice {
     this.setPhase("thinking");
   }
 
+  /** PC-31: a typed Pau answer (signed by the coach route) that she says word for word. */
+  sayAnswer(text: string, sig: string) {
+    this.send({ type: "rw.say", text: text.slice(0, 1600), sig });
+  }
+
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
   sayTurn(text: string, opts: { detail?: boolean; spoken?: string } = {}) {
     // Stage 2+: the app moved on, so what she didn't get to say is superseded (truncate, no re-offer).

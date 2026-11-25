@@ -130,3 +130,46 @@ async function readShapeBlock(paperId: string): Promise<string> {
     return "";
   }
 }
+
+/* ------------------------- PC-31: Pau's full context ------------------------- */
+
+const clipTo = (s: string, n: number) => {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, "")}…` : t;
+};
+
+/**
+ * PC-31 (Colton t207u): what Pau always has in context on the typed path: the
+ * standard block (read-back, summaries, decision, early take, angle, locked points,
+ * the paper's shape) plus the uploaded source text (excerpts, by title), the
+ * leader they picked, and every saved section idea (not only locked ones).
+ */
+export function pauExtrasBlock(ctx: PaperContext, sections: SavedSection[]): string {
+  const lines: string[] = [];
+  if (ctx.leader?.pick) lines.push(`Their real person/leader (their pick): ${clipTo(ctx.leader.pick, 80)}. Why, in their words: "${clipTo(ctx.leader.answer, 220)}"`);
+  if (ctx.decision?.pick) lines.push(`North star (where the paper is headed): ${clipTo(ctx.decision.pick, 80)}${ctx.leader?.pick ? `, with ${clipTo(ctx.leader.pick, 60)} as the example` : ""}.`);
+  for (const s of sections) {
+    const ideas = (s.ideas ?? []).map((i) => i.trim()).filter(Boolean);
+    if (ideas.length) lines.push(`Saved ideas for ${s.title ?? "a section"} (${s.status === "confirmed" ? "locked" : "in progress"}, their words): ${clipTo(ideas.slice(-4).join(" | "), 260)}`);
+  }
+  for (const r of (ctx.readings ?? []).slice(-2)) {
+    if (r.text?.trim()) lines.push(`Uploaded reading "${clipTo(r.title, 80)}" (their actual text, excerpt; quote or cite only what's here): ${clipTo(r.text, 1400)}`);
+  }
+  if (!lines.length) return "";
+  return `# More you know about this paper (their material; build on it, never re-ask)\n${lines.map((l) => `- ${l}`).join("\n")}`;
+}
+
+export async function loadPauContextBlock(supabase: SupabaseClient, paperId: string): Promise<{ ctx: PaperContext; block: string }> {
+  const [base, sess] = await Promise.all([
+    loadPaperContextBlock(supabase, paperId),
+    supabase.from("paper_autosaves").select("draft_text").eq("paper_id", paperId).eq("field_key", "loop_session").maybeSingle(),
+  ]);
+  let sections: SavedSection[] = [];
+  try {
+    sections = ((JSON.parse(sess.data?.draft_text ?? "{}") as { sections?: SavedSection[] }).sections ?? []).slice(0, 8);
+  } catch {
+    sections = [];
+  }
+  const extra = pauExtrasBlock(base.ctx, sections);
+  return { ctx: base.ctx, block: [base.block, extra].filter(Boolean).join("\n") };
+}
