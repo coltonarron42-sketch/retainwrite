@@ -17,7 +17,8 @@ export function chatLineText(el: Element): string {
   const own = el.getAttribute("data-chat-text");
   if (own !== null) return own.trim();
   const clone = el.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll("button, [aria-hidden='true'], .sr-only, [data-chat-name], [data-chat-line], textarea, input, [role='status']").forEach((x) => {
+  // QA round 5 (3): a part drawn as its own paragraph block (the spark offer) is its own line.
+  clone.querySelectorAll("button, [aria-hidden='true'], .sr-only, [data-chat-name], [data-chat-line], [data-chat-part], textarea, input, [role='status']").forEach((x) => {
     // A nested bubble records itself; buttons and screen-reader labels aren't what was said.
     x.remove();
   });
@@ -299,7 +300,10 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
       raf = 0;
       const onScreen = [...document.querySelectorAll("[data-chat-line]")]
         .filter((el) => !el.closest(SKIP) && !el.parentElement?.closest("[data-chat-line]"))
-        .map((el) => ({ el, who: (el.getAttribute("data-chat-line") as PastLine["who"]) || "pau", text: chatLineText(el) }));
+        .flatMap((el) => {
+          const who = (el.getAttribute("data-chat-line") as PastLine["who"]) || "pau";
+          return [{ el, who, text: chatLineText(el) }, ...[...el.querySelectorAll("[data-chat-part]")].map((part) => ({ el: part, who, text: chatLineText(part) }))];
+        });
       const now = Date.now();
       foldLines(recs.current, onScreen, (el) => el.isConnected, now, now < restoreUntil.current);
       const next = screenLines(recs.current, onScreen);

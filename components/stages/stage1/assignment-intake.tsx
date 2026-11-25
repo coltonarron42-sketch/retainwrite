@@ -2,6 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { isNoLeaderSaying, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -982,6 +983,7 @@ export function AssignmentIntake({
   const [decisionSaving, setDecisionSaving] = useState(false);
   // QA 11:26: each question's turn exactly as it was last shown while current (without the intro).
   const askedAs = useRef<Record<string, ReactNode[]>>({});
+  const interviewDone = useRef(false);
   const keepAsked = (qid: string, isEditing: boolean, bubbles: ReactNode[], introCount: number): ReactNode[] => {
     if (!isEditing) askedAs.current[qid] = bubbles.slice(introCount);
     return bubbles;
@@ -2133,7 +2135,7 @@ export function AssignmentIntake({
   async function interviewAsk(story: string, latest: string, lastAsk: string, n: number, who: string | null): Promise<string> {
     const fallback = [
       `What's one moment with ${who ?? "them"} that stuck with you?`,
-      "What changed for you or the team because of it?",
+      `What changed for you or the team after ${who ?? "they"} did that?`,
       `Why do you think ${who ?? "they"} led that way?`,
     ][Math.min(n, 2)]!;
     // QA 12:48 (d): the first interview question is instant (it only needs their name), never an 11 s wait.
@@ -2195,6 +2197,8 @@ export function AssignmentIntake({
         const story = [interview.story, ...said].filter(Boolean).join("\n");
         if (said.length >= 3 || /\b(that'?s (?:it|all|enough)|i'?m done|let'?s move on)\b/i.test(typed)) {
           setInterview(null);
+          // QA round 5 minor: once the interview is done, "Interview me first" isn't offered again.
+          interviewDone.current = true;
           lastStory.current = story;
           // QA 12:48 #2: the style they named themselves ("truly a servant leader") wins over any guess.
           const r = reflectStory(story) ?? reflectStory(story, { tentative: true });
@@ -2479,6 +2483,15 @@ export function AssignmentIntake({
     // QA 11:40 #2/#3: a vague or confused pick. Round 1 names the options; from round 2 (or right away
     // when confused) she teaches the differences, recommends a starting point and asks yes or no plus why.
     // A yes to her recommendation is their pick; the same question is never sent twice in a row.
+    // QA round 5 (2): "I don't really know any leaders" is reassured with example leaders and one
+    // question about someone from their own life; never the style question again.
+    if (text && !offerAnswered && (q.id === "decision_pick" || q.id === "leader_pick" || q.id === "material_check") && isNoLeaderSaying(text) && wordCount(text) <= 25) {
+      const qid = q.id;
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: noLeaderReply(brief?.options?.people ?? []) }].slice(-12));
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
     let tookRec = false;
     if (q.id === "decision_pick" || q.id === "leader_pick") {
       const rec = recPending.current[q.id];
@@ -3971,9 +3984,11 @@ export function AssignmentIntake({
         <DsButton type="button" size="sm" disabled={submitting} data-story-yes onClick={() => send("Yes, let's run with it")}>
           Yes, run with it
         </DsButton>
-        <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-story-interview onClick={() => send("Interview me about it first")}>
-          Interview me first
-        </DsButton>
+        {interviewDone.current ? null : (
+          <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-story-interview onClick={() => send("Interview me about it first")}>
+            Interview me first
+          </DsButton>
+        )}
       </div>
     );
     const askKids = (q: NonNullable<typeof coachingPlan[number]>) => (
@@ -4131,6 +4146,8 @@ export function AssignmentIntake({
                       catchUpDone: northstarGate.catchUpDone,
                       decided: northstarGate.decided,
                       stanceOk,
+                      style: stylesIn(brief?.decision?.answer ?? "").find((x) => /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral)$/i.test(x)) ?? null,
+                      leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : null,
                       materialLabel: materialGateLabel({
                         catchUpDone: northstarGate.catchUpDone,
                         materialShown: Boolean(brief?.materialShown),
@@ -4639,9 +4656,13 @@ export function AssignmentIntake({
           ) : null}
 
           {/* QA 11:08 (lost-path order): her Stage 1 intro came first, so it stays above her replies to the first question. */}
-          {introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}
+          {introAbove && !asideQ ? <PauPauGroup bubbles={introBubbles} /> : null}
           {/* QA 12:48 #3: the question as it was first asked stays above her in-place replies. */}
-          {q && asideQ ? (
+          {/* QA round 5 (3): with the intro, it's one turn (as first drawn), never split in two. */}
+          {q && asideQ && introAbove ? (
+            <PauPauGroup bubbles={[...introBubbles, ...(askedAs.current[q.id] ?? [q.text])]} headingIndex={introBubbles.length + (askedAs.current[q.id] ?? [q.text]).length - 1} headingId="coach-question" />
+          ) : null}
+          {q && asideQ && !introAbove ? (
             <PauPauGroup bubbles={askedAs.current[q.id] ?? [q.text]} headingIndex={(askedAs.current[q.id] ?? [q.text]).length - 1} headingId="coach-question" />
           ) : null}
           {/* Questions and pastes she answered in place for this question (never saved as answers). */}
