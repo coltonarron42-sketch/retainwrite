@@ -4,7 +4,7 @@ import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, MAX_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
-import { CHECKING_LINE, STATUS_ROTATION } from "@/lib/coach/thinking-status";
+import { askTopic, CHECKING_LINE, STATUS_ROTATION } from "@/lib/coach/thinking-status";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -142,6 +142,7 @@ export async function POST(request: Request, ctx: Ctx) {
           maxSearches: mode === "reading" ? MAX_SEARCH_CALLS : RESEARCH_SEARCH_CALLS,
           timeoutMs: 45_000,
           onStatus: streaming ? emit : undefined,
+          topic: askTopic(body.message),
         });
         if (r.ok) {
           paras = cleanPauParas(r.text);

@@ -36,6 +36,28 @@ export function readingLine(url: unknown): string | null {
   return host ? `Reading ${host}…` : null;
 }
 
+/**
+ * xAI's stream doesn't carry the search query, so the "Searching for …" line names the student's own ask,
+ * cleaned to a few words ("find me examples of servant leadership in business" → "examples of servant
+ * leadership in business").
+ */
+export function askTopic(message: string): string | null {
+  const t = message
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/^\s*(?:hey|hi|ok(?:ay)?|so|pau)[,!.\s]+/i, "")
+    .replace(/^\s*(?:can|could|would) you\s+(?:please\s+)?/i, "")
+    .replace(/^\s*(?:please\s+)?(?:find|get|give|show|look up|search for|pull up|dig up)\s+(?:me\s+)?(?:some\s+)?/i, "")
+    .replace(/^\s*what (?:does|do|did) (.+?) (?:say|says) about (.+)$/i, "what $1 says about $2")
+    .replace(/^\s*what (?:does|do|did) (.+?) say\b\s*\??$/i, "what $1 says")
+    .replace(/^\s*(?:what|who)\s+(?:is|are)\s+/i, "")
+    .replace(/[?.!]+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length < 4) return null;
+  const words = t.split(" ").slice(0, 8).join(" ");
+  return words.length > 60 ? words.slice(0, 59).trim() : words;
+}
+
 export const WRITING_LINE = "Pulling it together…";
 export const CHECKING_LINE = "Double-checking the sources…";
 
@@ -46,7 +68,7 @@ const obj = (v: unknown): Ev | null => (v && typeof v === "object" ? (v as Ev) :
  * One Responses stream event → a status line (or null). Handles the web_search_call item (its action's
  * query and sources), URL citations, and the first text delta. Reasoning events are ignored on purpose.
  */
-export function statusFromEvent(ev: Ev, seen: { writing?: boolean; hosts?: Set<string> } = {}): string[] {
+export function statusFromEvent(ev: Ev, seen: { writing?: boolean; hosts?: Set<string>; topic?: string | null; searched?: number } = {}): string[] {
   const type = String(ev.type ?? "");
   if (/reasoning/.test(type)) return [];
   const out: string[] = [];
@@ -64,8 +86,9 @@ export function statusFromEvent(ev: Ev, seen: { writing?: boolean; hosts?: Set<s
         out.push(line);
       }
     }
-  } else if (/web_search_call\.(?:in_progress|searching)$/.test(type)) {
-    out.push("Searching…");
+  } else if (/web_search_call\.searching$/.test(type)) {
+    seen.searched = (seen.searched ?? 0) + 1;
+    out.push(seen.topic ? (seen.searched === 1 ? `Searching for ${seen.topic}…` : `Searching a bit more on ${seen.topic}…`) : "Searching…");
   }
   const ann = obj(ev.annotation);
   if (ann && ann.type === "url_citation") {

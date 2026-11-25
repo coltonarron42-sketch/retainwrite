@@ -89,6 +89,8 @@ export async function grokResearch(opts: {
   maxSearches?: number;
   /** PC-31 t213u: stream the response and report the real steps (searching, reading a site, writing). */
   onStatus?: (line: string) => void;
+  /** What she's looking for, in the student's words (the stream doesn't carry the query). */
+  topic?: string | null;
 }): Promise<ResearchResult> {
   const started = Date.now();
   const grok = getGrokClient();
@@ -106,7 +108,7 @@ export async function grokResearch(opts: {
   const call = async (b: AnyJson): Promise<AnyJson> => {
     if (!opts.onStatus) return (await grok.responses.create(b as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AnyJson;
     const stream = (await grok.responses.create({ ...(b as object), stream: true } as unknown as OpenAI.Responses.ResponseCreateParamsStreaming, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AsyncIterable<AnyJson>;
-    const seen = { writing: false, hosts: new Set<string>() };
+    const seen = { writing: false, hosts: new Set<string>(), topic: opts.topic ?? null, searched: 0 };
     const types = new Set<string>();
     let final: AnyJson | null = null;
     let text = "";

@@ -117,3 +117,14 @@ describe("t213u polish", () => {
     expect(route).toMatch(/chatOnce\("none", 7_000\)/);
   });
 });
+
+describe("t213u: Searching for <their ask>", () => {
+  it("names the student's ask when the stream has no query", async () => {
+    const { askTopic, statusFromEvent } = await import("@/lib/coach/thinking-status");
+    expect(askTopic("find me examples of servant leadership in business")).toBe("examples of servant leadership in business");
+    expect(askTopic("What does Northouse chapter 4 say about leadership?")).toBe("what Northouse chapter 4 says about leadership");
+    const seen = { topic: "examples of servant leadership", searched: 0, hosts: new Set<string>() };
+    expect(statusFromEvent({ type: "response.web_search_call.searching" }, seen)).toEqual(["Searching for examples of servant leadership…"]);
+    expect(statusFromEvent({ type: "response.web_search_call.searching" }, seen)).toEqual(["Searching a bit more on examples of servant leadership…"]);
+  });
+});
