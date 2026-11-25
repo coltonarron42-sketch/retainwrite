@@ -15,6 +15,13 @@ export const PROSE_GATE = {
   /** A run that scores this high on essay register only needs strongMinWords (a short but unmistakable essay paragraph). */
   strongScore: 5,
   strongMinWords: 40,
+  /**
+   * Read-back of their own words: when at least this share of a run's content words (4+ letters) come from
+   * what the student said, it's Pau reflecting their story back, not original prose (voice QA: her Mandy
+   * reflection was gated). Their words are theirs to paste. Measured: a Pau Mandy reflection reused 0.38 of the story's
+   * content words; a pasteable Mandy essay paragraph reused 0.18.
+   */
+  echoShare: 0.33,
   /** Tighter numbers right after "write my intro"-style requests. */
   afterWriteRequest: { minSentences: 2, minWords: 35, minEssayScore: 2 },
   /** A bullet item longer than this is treated as prose, not a summary bullet. */

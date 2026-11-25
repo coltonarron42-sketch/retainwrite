@@ -248,7 +248,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // PC-29 QA round 2 (Stage 1): on-screen prompts are said word for word (force_message), and
   // her own replies may never ask a question that isn't the on-screen one.
   const verbatim = stage1;
-  let lastLine: { text: string; at: number } | null = null;
+  let lastLine: { text: string; norm: string; at: number } | null = null;
   // force_message lines sent and not yet seen as a response (timestamps; stale ones expire).
   const forcedQ: number[] = [];
   const forcedRids = new Set<string>();
@@ -317,8 +317,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const sayLine = (text: string, o: { cancel?: boolean } = {}) => {
     const t = text.replace(/\s+/g, " ").trim().slice(0, 1600);
     if (!t || closed) return false;
-    if (lastLine && lastLine.text === t && Date.now() - lastLine.at < 10_000) return false;
-    lastLine = { text: t, at: Date.now() };
+    // Same words again (the signed answer, then the same answer as the on-screen prompt with its bullets): once.
+    const norm = t.replace(/[•·\s]+/g, " ").trim().toLowerCase();
+    if (lastLine && Date.now() - lastLine.at < 20_000 && (lastLine.norm === norm || (norm.length > 40 && lastLine.norm.includes(norm)))) return false;
+    lastLine = { text: t, norm, at: Date.now() };
     m.verbatimLines++;
     // xAI still counts her last reply as playing until its audio would end: cancel first.
     if (o.cancel !== false) upSend({ type: "response.cancel" });
@@ -1478,7 +1480,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           console.log(JSON.stringify({ evt: "pau_realtime_say_refused", sid }));
           return;
         }
-        if (proseVerdict(text).block) return;
+        // Signed = it already passed the server gate as paragraphs and bullets (flattened for speech it can
+        // look like prose, so the transcript gate isn't re-run here).
         m.tools.typed_answer = (m.tools.typed_answer ?? 0) + 1;
         if (responding || speechActive) {
           void waitIdle(8_000).then(() => {

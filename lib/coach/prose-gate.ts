@@ -24,7 +24,20 @@ export type GateOpts = {
   names?: string[];
   /** Rotates the generic reframe for variety. */
   seed?: number;
+  /** What the student said this turn (their story): a run that mostly reuses their words is a read-back, not prose. */
+  echo?: string;
 };
+
+const contentWords = (s: string) => (s.toLowerCase().match(/[a-z][a-z'’-]{3,}/g) ?? []).map((w) => w.replace(/['’]s$/, ""));
+
+/** Share of the run's content words that the student already said. */
+export function echoShare(text: string, echo: string | undefined): number {
+  if (!echo) return 0;
+  const theirs = new Set(contentWords(echo));
+  const ws = contentWords(text);
+  if (!ws.length || !theirs.size) return 0;
+  return ws.filter((w) => theirs.has(w)).length / ws.length;
+}
 
 type Piece = { item: number; text: string; kind: "decl" | "question" | "bullet" | "starter" | "quote" };
 
@@ -117,7 +130,7 @@ export function findPasteableRuns(items: string[] | string, o: GateOpts = {}): P
       const words = wc(text);
       const sc = words >= Math.min(lim.minWords, PROSE_GATE.strongMinWords) ? score(text, o.names) : null;
       if (sc && (words >= lim.minWords || sc.score >= PROSE_GATE.strongScore)) {
-        if (sc.score >= lim.minEssayScore) runs.push({ sentences: cur.length, words, score: sc.score, reasons: sc.reasons, text, pieces: cur });
+        if (sc.score >= lim.minEssayScore && echoShare(text, o.echo) < PROSE_GATE.echoShare) runs.push({ sentences: cur.length, words, score: sc.score, reasons: sc.reasons, text, pieces: cur });
       }
     }
     cur = [];

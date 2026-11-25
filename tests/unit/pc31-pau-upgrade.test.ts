@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { findPasteableRuns, gateParas, proseVerdict, reframeQuestion } from "@/lib/coach/prose-gate";
+import { echoShare, findPasteableRuns, gateParas, proseVerdict, reframeQuestion } from "@/lib/coach/prose-gate";
 import { PROSE_GATE } from "@/lib/coach/prose-gate.config";
 import { capOneAsk, countAsks } from "@/lib/coach/one-ask";
 import { voiceEffort, classifyTurn, EFFORT_TABLE, resolveMode } from "@/lib/coach/effort";
@@ -167,5 +167,20 @@ describe("PC-31 sources line", () => {
     const { sourcesLine } = await import("@/lib/coach/sources-line");
     expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: strategypunk.com · blanchard.com");
     expect(sourcesLine([{ title: "Servant leadership examples", url: "https://oakcover.com/a" }])).toBe("Sources: Servant leadership examples (oakcover.com)");
+  });
+});
+
+describe("PC-31 gate: read-backs of their own story pass", () => {
+  const reflection =
+    "Mandy took time requests seriously and found ways to approve time off while explaining the challenges. She ran weekly one-on-ones, spotted growth potential, and broke down exact tasks for promotions, which made the team the highest performer. This lines up with servant leadership in Northouse chapter 4, since she focused on team needs first and it produced strong results.";
+  it("a reflection that mostly reuses their words is not gated", () => {
+    expect(echoShare(reflection, exact.story)).toBeGreaterThanOrEqual(PROSE_GATE.echoShare);
+    expect(gateParas([reflection], { names: ["Mandy"], echo: exact.story }).blocked).toBe(false);
+  });
+  it("an original essay paragraph about their leader is still gated with their story as echo", () => {
+    const essay =
+      "Mandy exemplified servant leadership by consistently prioritizing the needs and development of her team members. Through weekly one-on-one meetings, she identified growth opportunities and established clear pathways toward promotion. Consequently, her team emerged as the highest-performing unit, which demonstrates that servant leadership ultimately produces superior organizational outcomes during periods of change.";
+    expect(echoShare(essay, exact.story)).toBeLessThan(PROSE_GATE.echoShare);
+    expect(gateParas([essay], { names: ["Mandy"], echo: exact.story }).blocked).toBe(true);
   });
 });
