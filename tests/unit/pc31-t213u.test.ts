@@ -10,12 +10,14 @@ import { PAU_TEXT_MODES } from "@/lib/coach/pau-prompt";
 
 describe("t213u #1: dev/test search cache", () => {
   it("is never on in production, on for preview/dev, off with PAU_SEARCH_CACHE=0", () => {
+    // t218u: off by default everywhere; PAU_SEARCH_CACHE=1 opts in, never in production.
     expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "production" })).toBe(false);
     expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "production", PAU_SEARCH_CACHE: "1" })).toBe(false);
-    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview" })).toBe(true);
-    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview", PAU_SEARCH_CACHE: "0" })).toBe(false);
-    expect(searchCacheOn({ NODE_ENV: "test" })).toBe(true);
-    expect(searchCacheOn({ NODE_ENV: "production" })).toBe(false);
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview" })).toBe(false);
+    expect(searchCacheOn({ VERCEL: "1", VERCEL_ENV: "preview", PAU_SEARCH_CACHE: "1" })).toBe(true);
+    expect(searchCacheOn({ NODE_ENV: "test" })).toBe(false);
+    expect(searchCacheOn({ NODE_ENV: "test", PAU_SEARCH_CACHE: "1" })).toBe(true);
+    expect(searchCacheOn({ NODE_ENV: "production", PAU_SEARCH_CACHE: "1" })).toBe(false);
   });
   it("keys on the normalized query plus paper context", () => {
     const base = { message: "Find me examples of servant leadership in business!", mode: "research", stage: 1, context: "ctx A" };
@@ -137,5 +139,33 @@ describe("t213u: status topic and domain spacing (walk6)", () => {
     expect(joinSpacedDomains("From sagepub. com the chapter covers")).toBe("From sagepub.com the chapter covers");
     expect(joinSpacedDomains("From hbr . org's page")).toBe("From hbr.org's page");
     expect(joinSpacedDomains("It ends here. Common sense says")).toBe("It ends here. Common sense says");
+  });
+});
+
+describe("t218u: per-paper search budget", () => {
+  it("keeps the per-turn cap and tapers per paper", async () => {
+    const { turnSearchCap, PAPER_SEARCH_BUDGET, addPaperSearches, paperSearchesUsed, _clearSearchBudget } = await import("@/lib/ai/search-budget");
+    expect(turnSearchCap(0, 2)).toBe(2);
+    expect(turnSearchCap(0, 5)).toBe(3);
+    expect(turnSearchCap(PAPER_SEARCH_BUDGET.soft, 3)).toBe(1);
+    expect(turnSearchCap(PAPER_SEARCH_BUDGET.hard, 3)).toBe(0);
+    expect(turnSearchCap(PAPER_SEARCH_BUDGET.hard - 1, 3)).toBe(1);
+    // A paper can't get near 25: the worst case is soft + (hard - soft) one-search turns.
+    let used = 0;
+    for (let i = 0; i < 40; i++) used += turnSearchCap(used, 3);
+    expect(used).toBeLessThanOrEqual(PAPER_SEARCH_BUDGET.hard);
+    _clearSearchBudget();
+    const id = "00000000-0000-4000-8000-000000000001";
+    expect(await paperSearchesUsed(id)).toBe(0);
+    expect(await addPaperSearches(id, 0, 2)).toBe(2);
+    expect(await paperSearchesUsed(id)).toBe(2);
+  });
+  it("route uses the cap, logs paperSearches, and never retries uncapped", async () => {
+    const fs = await import("node:fs");
+    const route = fs.readFileSync("app/api/papers/[paperId]/coach/answer/route.ts", "utf8");
+    expect(route).toContain("maxSearches: searchCap");
+    expect(route).toContain("paperSearches");
+    const gr = fs.readFileSync("lib/ai/grok-research.ts", "utf8");
+    expect(gr).toContain("retry without web search");
   });
 });

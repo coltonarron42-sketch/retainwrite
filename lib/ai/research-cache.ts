@@ -1,5 +1,7 @@
 /**
- * PC-31 (Colton t213u #1): a dev/test cache for Pau's web-search turns, so repeated test turns reuse results
+ * PC-31: OFF BY DEFAULT (Colton t218u: real searches in testing too, so nothing is missed; the per-paper
+ * budget in search-budget.ts keeps the count down instead). Opt in with PAU_SEARCH_CACHE=1 off production.
+ * Originally (t213u #1): a dev/test cache for Pau's web-search turns, so repeated test turns reuse results
  * instead of running fresh searches. Never on in production: it's on only when VERCEL_ENV is preview or
  * development (or a local/test run), and PAU_SEARCH_CACHE=0 turns it off anywhere. No DB: process memory plus
  * Vercel's Runtime Cache (per region, ephemeral) on preview deployments.
@@ -13,7 +15,7 @@ const TTL_S = 7 * 24 * 3600;
 const mem = new Map<string, { at: number; v: CachedResearch }>();
 
 export function searchCacheOn(env: Record<string, string | undefined> = process.env): boolean {
-  if (env.PAU_SEARCH_CACHE === "0") return false;
+  if (env.PAU_SEARCH_CACHE !== "1") return false;
   if (env.VERCEL_ENV === "production") return false;
   if (env.VERCEL_ENV === "preview" || env.VERCEL_ENV === "development") return true;
   // Off Vercel: local dev and tests only (a self-hosted production build has NODE_ENV=production).
