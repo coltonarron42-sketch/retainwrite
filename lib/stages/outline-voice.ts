@@ -1,6 +1,6 @@
 /**
  * Stage 3 on Grok Voice: how the student's spoken words join the outline box.
- * Their words are kept verbatim; Pau Pau never writes into the box.
+ * Their words are kept verbatim; Pau never writes into the box.
  */
 
 /** One spoken outline point = one line. The untouched Stance-notes prefill gives way to their spoken outline. */

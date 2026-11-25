@@ -12,12 +12,12 @@ const STAGE_PREVIEWS = [
   "Stance: find what you think, section by section, and lock it in.",
   "Outline: your locked-in ideas become the skeleton of the whole paper.",
   "Sources: find and check the sources that back up each section.",
-  "Drafting: write each paragraph yourself, with Pau Pau coaching.",
+  "Drafting: write each paragraph yourself, with Pau coaching.",
   "Revise: tighten your draft and get it ready to hand in.",
 ];
 
 /**
- * A later stage, soft-gated (Colton, Nov 23): Pau Pau's scripted overview and what
+ * A later stage, soft-gated (Colton, Nov 23): Pau's scripted overview and what
  * we still need, a way back, and an inactive look. No stage component is mounted,
  * so nothing here can write data or move the paper; the server gates stay hard.
  */
@@ -49,7 +49,7 @@ export function SoftGateView({ paperId, stage, paperStage }: { paperId: string; 
           disabled
           rows={2}
           className="mt-3 w-full resize-none rounded-[8px] border border-ds-border bg-transparent p-2 text-[15px]"
-          placeholder="Pau Pau opens here once the earlier stage is done."
+          placeholder="Pau opens here once the earlier stage is done."
         />
       </div>
     </div>

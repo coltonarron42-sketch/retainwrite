@@ -12,7 +12,7 @@ describe("soft gate copy (Stages 2-6): overview, then what we still need", () =>
       const o = GATE_OVERVIEW[s]!;
       expect(o.length).toBeGreaterThan(40);
       expect((o.match(/[.!?](\s|$)/g) ?? []).length).toBeLessThanOrEqual(2);
-      expect(o).not.toMatch(/Pau Pau/);
+      expect(o).not.toMatch(/Pau/);
     }
   });
   it("Stage 3 keeps Colton's line; others name the missing stage in the default line", () => {
