@@ -59,8 +59,9 @@ describe("1. read-back confirm", () => {
   it("every reading refusal line is stripped", () => {
     expect(stripReadingRefusal("I can't summarize Goleman for you, that'd be doing the reading. Here's the idea: EI matters.")).toBe("Here's the idea: EI matters.");
     expect(cleanCoachAnswer(["That would be doing the reading for you. Goleman names five parts."])).toEqual(["Goleman names five parts."]);
-    expect(COACH_ANSWER_SYSTEM).toMatch(/Never refuse to explain or summarize/);
-    expect(readFileSync("lib/voice/realtime/persona.ts", "utf8")).toMatch(/Never refuse to explain or summarize/);
+    // PC-31: phrased as what she does (answer with what you know; label general background).
+    expect(COACH_ANSWER_SYSTEM).toMatch(/You may research, summarize/);
+    expect(readFileSync("lib/voice/realtime/persona.ts", "utf8")).toMatch(/Answer with what you know/);
   });
   it("the confirm card has a visible Confirm button", () => {
     const src = readFileSync("components/stages/stage1/pau-pau-confirm.tsx", "utf8");

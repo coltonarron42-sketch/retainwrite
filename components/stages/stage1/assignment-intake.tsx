@@ -121,6 +121,10 @@ import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, le
 import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angles";
 import { clipWords } from "@/lib/copy/clip";
 import { isContentQuestion } from "@/lib/coach/answer";
+import { isWriteRequest } from "@/lib/stages/stance-intent";
+import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
+import { sourcesLine, type SourceRef } from "@/lib/coach/sources-line";
+import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
 import {
   evaluateStage1VoiceMinimum,
@@ -2080,28 +2084,41 @@ export function AssignmentIntake({
     };
   }
 
-  /** Her answer to a question asked mid-interview ("what does Notes on the Quiet Kitchen say?"). Never saved. */
-  async function answerAside(qid: string, ask: string, said: string) {
-    setAsideBusy("Digging it up…");
-    let paras: string[] = [];
+  /** PC-31: one free-form Pau turn from the coach route (new prompt, paper context, web search on research turns, gates). Null = fall back. */
+  async function pauTurn(mode: CoachMode, message: string, ask: string, ms?: number, o: { speak?: boolean } = {}): Promise<string[] | null> {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 9000);
+      const timer = setTimeout(() => controller.abort(), ms ?? (mode === "research" || mode === "summary" ? 50_000 : 17_000));
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "answer", message: said.slice(0, 2000), stage: 1, ask: ask.slice(0, 1000) }),
+        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: 1, ask: ask.slice(0, 1000) }),
         signal: controller.signal,
       });
+      const d = (await res.json().catch(() => null)) as { paras?: string[]; sources?: SourceRef[]; spoken?: { text: string; sig: string } | null } | null;
       clearTimeout(timer);
-      const d = (await res.json().catch(() => null)) as { paras?: string[] } | null;
-      paras = (d?.paras ?? []).map((p) => stripReadingRefusal(p)).filter(Boolean);
+      const paras = (d?.paras ?? []).map((p) => stripReadingRefusal(p)).filter(Boolean);
+      if (!paras.length) return null;
+      // PC-31 (QA #68: side questions were silent on a voice call): the voice says her answer, word for word.
+      if (o.speak && rtMode && rt.on && d?.spoken?.text && d.spoken.sig) rt.sayAnswer(d.spoken.text, d.spoken.sig);
+      const src = sourcesLine(d?.sources);
+      return src ? [...paras, src] : paras;
     } catch {
-      paras = [];
+      return null;
     }
+  }
+
+  /** Her answer to a question asked mid-interview ("what does Notes on the Quiet Kitchen say?"). Never saved. */
+  async function answerAside(qid: string, ask: string, said: string) {
+    // PC-31: "write my intro" → her reframe; "find me examples…" → real research (2-4 sourced options, one ask).
+    const mode: CoachMode = isWriteRequest(said) ? "reframe" : RESEARCH_ASK.test(said) ? "research" : SUMMARY_ASK.test(said) ? "summary" : "answer";
+    setAsideBusy(mode === "research" ? "Looking that up…" : mode === "reframe" ? "Thinking…" : "Digging it up…");
+    const paras0 = await pauTurn(mode, said, ask, undefined, { speak: true });
     setAsideBusy(null);
-    if (!paras.length) paras = ["I couldn't pull that together just now. Ask me again in a sec, or add the reading and I'll work from it."];
-    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: [...paras, "Back to my question whenever you're ready."] }].slice(-12));
+    const paras = paras0 ?? ["I couldn't pull that together just now. Ask me again in a sec, or add the reading and I'll work from it."];
+    // One ask per turn: her reply ends on its own question, so the "back to my question" line only follows a reply without one.
+    const tail = /\?\s*$/.test(paras.filter((p) => !/^Sources:/.test(p)).slice(-1)[0] ?? "") ? [] : ["Back to my question whenever you're ready."];
+    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: [...paras, ...tail] }].slice(-12));
   }
 
   /** A pasted reading paragraph goes in as material, never as their answer or angle. */
@@ -2140,7 +2157,8 @@ export function AssignmentIntake({
     if (n === 0) return fallback;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 4500);
+      // PC-31: interview questions are probing turns (high effort): up to ~12 s, then the plain fallback.
+      const timer = setTimeout(() => controller.abort(), 12_000);
       const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2169,10 +2187,18 @@ export function AssignmentIntake({
       dropSent(sentBox);
       setError(null);
     };
-    const propose = (said: string, story: string, r: StoryReflect, lead?: string) => {
+    // PC-31: her reflection comes from the new Pau prompt (their details, the concept it shows, one yes-or-no);
+    // the rule-based reflection is the fallback. The Yes / Interview chips stay the same.
+    const propose = async (said: string, story: string, r: StoryReflect, lead?: string) => {
       const id = Date.now();
+      setPendingSaid(said);
+      dropSent(sentBox);
+      setAsideBusy("Thinking…");
+      const llm = await pauTurn("story", `Their story: ${story}${said.trim() !== story.trim() ? `\nTheir latest message: ${said}` : ""}`, qn.text, 14_000);
+      setAsideBusy(null);
+      setPendingSaid(null);
       setStoryProposal({ id, qid: qn.id, story, reflect: r });
-      push(said, reflectParas(r, { lead }), true, id);
+      push(said, llm && /\?\s*$/.test(llm[llm.length - 1] ?? "") ? llm : reflectParas(r, { lead }), true, id);
       done();
     };
     const startInterview = async (story: string, said: string) => {
@@ -2199,7 +2225,7 @@ export function AssignmentIntake({
           // QA 12:48 #2: the style they named themselves ("truly a servant leader") wins over any guess.
           const r = reflectStory(story) ?? reflectStory(story, { tentative: true });
           if (r) {
-            propose(typed, story, r, "Thanks, that gives me plenty.");
+            await propose(typed, story, r, "Thanks, that gives me plenty.");
             return true;
           }
           push(typed, ["Thanks, that gives me plenty. Which leadership style do you think that shows?"]);
@@ -2227,9 +2253,15 @@ export function AssignmentIntake({
       setError(null);
       setAsideBusy("Digging it up… pulling together the key points.");
       setSummaryBusy(true);
+      // PC-31: the summary is a Pau research turn (their uploaded pages first, otherwise web search + "general background"),
+      // tied to their story, one ask. The stored brief summary still runs alongside (R5: saved for later stages) and is the fallback.
       let got: BriefView | null = null;
+      let llm: string[] | null = null;
       try {
-        got = await briefCall({ action: "summary" });
+        [llm, got] = await Promise.all([
+          pauTurn("summary", `${typed}${story0 ? `\nTheir story so far: ${story0}\n(Close by asking if they want to run with the idea their story fits, as a yes-or-no question.)` : ""}`, qn.text),
+          briefCall({ action: "summary" }),
+        ]);
       } finally {
         setSummaryBusy(false);
         setAsideBusy(null);
@@ -2240,7 +2272,7 @@ export function AssignmentIntake({
       const list = b?.summaries?.length ? b.summaries : b?.summary ? [b.summary] : [];
       const r = story0 ? reflectStory(story0) ?? reflectStory(story0, { tentative: true }) : null;
       const id = Date.now();
-      push(typed, storySummaryParas(list, r), true, id);
+      push(typed, llm ?? storySummaryParas(list, r), true, id);
       if (story0 && r) setStoryProposal({ id, qid: qn.id, story: story0, reflect: r });
       setPendingSaid(null);
       return true;
@@ -2256,7 +2288,7 @@ export function AssignmentIntake({
         return true;
       }
       if (kind === "confused") {
-        propose(typed, storyProposal.story, storyProposal.reflect, "No problem, here's what I mean.");
+        await propose(typed, storyProposal.story, storyProposal.reflect, "No problem, here's what I mean.");
         return true;
       }
       if (kind === "no") {
@@ -2278,14 +2310,14 @@ export function AssignmentIntake({
       lastStory.current = typed;
       const r = reflectStory(typed);
       if (r) {
-        propose(typed, typed, r);
+        await propose(typed, typed, r);
         return true;
       }
     }
     if (kind === "confused" && story0) {
       const r = reflectStory(story0, { tentative: true });
       if (r) {
-        propose(typed, story0, r, "No problem, let me build on your story.");
+        await propose(typed, story0, r, "No problem, let me build on your story.");
         return true;
       }
     }
@@ -2467,9 +2499,10 @@ export function AssignmentIntake({
       text &&
       !offerAnswered &&
       brief?.northstar &&
-      q.id !== "stance_early" &&
       !(q.id === "material_check" && materialLost(text)) &&
-      (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))
+      ((q.id !== "stance_early" && (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))) ||
+        isWriteRequest(text) ||
+        (RESEARCH_ASK.test(text) && text.split(/\s+/).length <= 30))
     ) {
       dropSent(sentBox);
       setError(null);
@@ -2948,6 +2981,14 @@ export function AssignmentIntake({
     }
     if (fresh && (await storyTurn({ id: "stance_early", text: earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }) }, fresh, (spoken ?? draftAnswer).trim()))) {
       if (prevShort) setShortEcho(prevShort);
+      return;
+    }
+    // PC-31: "write my take for me" or "find me examples…" on the early take is a request to her, never their take.
+    if (fresh && brief?.northstar && (isWriteRequest(fresh) || (RESEARCH_ASK.test(fresh) && fresh.split(/\s+/).length <= 30))) {
+      if (prevShort) setShortEcho(prevShort);
+      if (!spoken) setDraftAnswer("");
+      setError(null);
+      await answerAside("stance_early", earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }), fresh);
       return;
     }
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
