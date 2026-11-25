@@ -165,7 +165,7 @@ export function useRealtimeCall(opts: {
           if (m.bargeMs !== undefined) w2.__rwRt.barge.push(m.bargeMs);
         },
       },
-      { welcome: w.welcome && !welcomed.current, welcomeIndex: w.index, effort, vad, tuning, stage: optsRef.current.stage },
+      { welcome: w.welcome && !welcomed.current, welcomeIndex: w.index, welcomeText: w.text ?? null, effort, vad, tuning, stage: optsRef.current.stage },
     );
     rt.current = voice;
     // The welcome-back line is said once per visit, never again on a restart.

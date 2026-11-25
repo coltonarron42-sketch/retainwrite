@@ -93,6 +93,8 @@ import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-chat";
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
+import type { SkeletonWords } from "@/components/stages/focus-panels";
+import { useSkeleton } from "@/lib/skeleton/use-skeleton";
 import {
   afterMirror,
   afterProbe,
@@ -298,6 +300,23 @@ export function CoachingLoop({
       live = false;
     };
   }, [paperId, persist, stage]);
+  // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
+  const skelSections = session?.sections ?? [];
+  const skelWords: SkeletonWords = {};
+  for (const item of skelSections) {
+    const g = item.kind === "intro" ? "intro" : item.kind === "conclusion" ? "conclusion" : "body";
+    skelWords[g] = { locked: item.status === "confirmed" || (session?.outlineDone ?? []).includes(item.key), notes: keptIdeas(item.ideas) };
+  }
+  const skeletonView = useSkeleton(paperId, {
+    enabled: stage >= 2 && stage <= 3,
+    fallbackText: session?.assignmentText ?? "",
+    refreshKey: skelSections.map((item) => `${item.key}:${item.status}:${item.ideas.length}`).join("|"),
+    outline:
+      persist && skelWords.body?.locked
+        ? { choices: [pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].filter(Boolean), bodyNotes: skelWords.body.notes }
+        : null,
+  });
+  const skeleton = { view: skeletonView, words: skelWords, direction: pctx?.decision?.answer ?? null };
   const [idea, setIdea] = useState("");
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
@@ -1303,6 +1322,7 @@ export function CoachingLoop({
 
       {stage === 2 && section ? (
         <StanceChat
+          skeleton={skeleton}
           paperId={paperId}
           intro={{
             ...stage2IntroText(pctx?.readback, {
@@ -1426,6 +1446,7 @@ export function CoachingLoop({
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
+          skeleton={skeleton}
           pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
           paperId={paperId}
           persist={persist}

@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type 
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
-import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
+import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
+import { FocusBar, PastChatPanel, SkeletonPanel, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { asHeading } from "@/lib/copy/topic-phrase";
@@ -33,7 +35,7 @@ import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { sectionLabel } from "@/lib/coach/welcome-back";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 
@@ -151,7 +153,25 @@ type Props = {
   /** Voice note slot (PLAN.md 9: folded into her reply, never its own bubble). */
   voiceNote: string | null;
   handlers: StanceHandlers;
+  /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
+  skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
 };
+
+/** PC-28: the earlier conversation for the read-only "Past chat" (section headings once). */
+export function pastLines(transcript: LoopLine[], sections: { key: string; title: string }[]): PastLine[] {
+  let lastK: string | null = null;
+  return transcript.map((l) => {
+    const heading = l.k !== lastK ? (sections.find((x) => x.key === l.k)?.title ?? null) : null;
+    lastK = l.k;
+    return { who: l.who, text: l.text, heading };
+  });
+}
+
+/** PC-28: what the welcome line names: the last locked section and the one they're on. */
+export function focusFill(sections: { title: string; status: string }[], active: number): { done: string | null; next: string } {
+  const done = [...sections.slice(0, active)].reverse().find((s) => s.status === "confirmed");
+  return { done: done ? sectionLabel(done.title) : null, next: sectionLabel(sections[active]?.title) || "the next section" };
+}
 
 /** Said when a new reply joins their note (QA 8:31 AM: never a silent overwrite). */
 export const ADDED_NOTE = "I added that to your note, and your earlier words stay too. If it should replace them instead, say \"change it to\" and the new words.";
@@ -316,8 +336,10 @@ export function StanceChat(props: Props) {
   const inFlight = useRef(false);
   const vaguePushed = useRef(new Set<string>());
   const section = sections[active];
-  // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
-  const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
+  // PC-28: a return with history opens a clean chat: one welcome line, then the exact turn they were on.
+  const focus = useFocusReturn(paperId, true, transcript.some((l) => l.who !== "pau"), focusFill(sections, active));
+  const welcomeLine = focus.line;
+  const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
   // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
   const rtMode = useRealtimeEnabled(paperId);
   const sendNowRef = useRef<(text: string, fromVoice?: boolean) => Promise<string>>(async () => "none");
@@ -326,6 +348,7 @@ export function StanceChat(props: Props) {
   // A replacement waiting for "Want me to swap that in?" (section:turn, the new note).
   const swapRef = useRef<{ key: string; text: string } | null>(null);
   const mountLen = useRef(transcript.length);
+  const [mountAt] = useState(transcript.length);
   const rt = useRealtimeCall({
     paperId,
     saveNote: async (text) => {
@@ -340,7 +363,7 @@ export function StanceChat(props: Props) {
     },
     welcome: () => ({
       welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
-      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      index: focus.index,
       text: welcomeLine,
     }),
   });
@@ -618,16 +641,20 @@ export function StanceChat(props: Props) {
 
   // History as replies: consecutive Pau Pau lines in one section are one reply;
   // a tapped choice is a "Picked" chip; only typed words are student bubbles.
-  type Group = { k: string; who: LoopLine["who"]; texts: string[] };
-  const groups: Group[] = [];
-  for (const line of transcript) {
-    const last = groups[groups.length - 1];
+  type Group = { k: string; who: LoopLine["who"]; texts: string[]; start: number };
+  const allGroups: Group[] = [];
+  transcript.forEach((line, i) => {
+    const last = allGroups[allGroups.length - 1];
     if (last && line.who === "pau" && last.who === "pau" && last.k === line.k) last.texts.push(line.text);
-    else groups.push({ k: line.k, who: line.who, texts: [line.text] });
-  }
+    else allGroups.push({ k: line.k, who: line.who, texts: [line.text], start: i });
+  });
   // Pau Pau lines at the very end belong to the current reply.
-  const trailing = groups.length && groups[groups.length - 1]!.who === "pau" && groups[groups.length - 1]!.k === section.key ? groups.pop()!.texts : [];
-  const introInCurrent = groups.length === 0;
+  const trailing = allGroups.length && allGroups[allGroups.length - 1]!.who === "pau" && allGroups[allGroups.length - 1]!.k === section.key ? allGroups.pop()!.texts : [];
+  const introInCurrent = allGroups.length === 0 && !focus.focused;
+  // PC-28 one idea at a time: only this section's turns, and on a return only what's said since.
+  // Locked sections and earlier turns live in the skeleton and "Past chat", never above the prompt.
+  const focusFrom = focus.focused ? mountAt : 0;
+  const groups = allGroups.filter((g) => g.k === section.key && g.start >= focusFrom);
   const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
   // eslint-disable-next-line react-hooks/refs -- latest screen text for her tools
   screenRef.current = [...trailing, ...asideParas, ...paras].join(" ");
@@ -635,14 +662,15 @@ export function StanceChat(props: Props) {
     { key: "s2:intro", text: `${intro.heading}. ${intro.body}`, opener: !transcript.some((l) => l.who !== "pau") },
     { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
   ];
+  const showIntro = allGroups.length > 0 && allGroups[0]!.k === section.key && groups[0]?.start === 0 && !focus.focused;
   const history = groups.map((group, i) => {
-    const head = i === 0 || groups[i - 1]!.k !== group.k ? sections.find((item) => item.key === group.k)?.title : null;
-    const first = i === 0 && group.who === "pau";
+    const head = i === 0 ? sections.find((item) => item.key === group.k)?.title : null;
+    const first = i === 0 && group.who === "pau" && showIntro;
     return (
       <div key={i} className="space-y-4">
         {head && !(i === 0 && !first) ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
-        {i === 0 && !first ? <PauPauGroup showName bubbles={introBubbles} /> : null}
-        {i === 0 && !first && head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
+        {i === 0 && !first && showIntro ? <PauPauGroup showName bubbles={introBubbles} /> : null}
+        {i === 0 && !first && showIntro && head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
         {group.who === "pau" ? (
           <PauPauGroup showName={first} bubbles={first ? [...introBubbles, ...group.texts] : group.texts} />
         ) : group.who === "pick" ? (
@@ -658,7 +686,14 @@ export function StanceChat(props: Props) {
     <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
       <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={transcript.length > 0} />
+      {panel === "skeleton" ? (
+        <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
+      ) : null}
+      {panel === "past" ? <PastChatPanel lines={pastLines(transcript, sections)} onClose={() => setPanel(null)} /> : null}
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
+        {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
         {history}
 
         {/* Pau Pau's current turn: ONE reply. */}
@@ -937,8 +972,6 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
-        {/* The welcome-back line belongs to the start of the return: above this call's turns, once. */}
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} />
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
