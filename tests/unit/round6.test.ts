@@ -51,9 +51,25 @@ describe("MINOR: reading help sits apart from the style chips", () => {
     const help = intake.indexOf('aria-label="Reading help"');
     expect(opt).toBeGreaterThan(0);
     expect(help).toBeGreaterThan(opt);
-    expect(intake).toContain("Not ready to pick?");
+    expect(intake).toContain("Before you pick, if it helps:");
     const optGroup = intake.slice(opt, intake.indexOf("</div>", opt));
     expect(optGroup).not.toContain("Catch me up on the reading first");
     expect(optGroup).not.toContain("Add a reading");
   });
 });
+
+describe("folded 'ok' and the spark trigger", () => {
+  const hes = readFileSync("components/stages/stage1/hesitation.tsx", "utf8");
+  it("a folded 'ok' stays on screen under the saved answer (and early take)", () => {
+    expect(intake).toContain("{foldedAfter(said)}");
+    expect(intake).toContain("{foldedAfter(stanceSent ?? stanceAnswer)}");
+  });
+  it("sending (the box emptying) is never a 'deleted most of it' hesitation", () => {
+    expect(hes).toContain("resetRef.current !== resetKey");
+    expect(intake).toContain("resetKey: `${qaAsides.length}:${answers.length}:${pendingSaid ?? \"\"}:${queuedSaid ?? \"\"}:${submitting ? 1 : 0}`");
+  });
+  it("spark questions are one Past chat line each", () => {
+    expect(hes).toContain("<li key={q} data-chat-part>");
+  });
+});
+

@@ -563,6 +563,13 @@ export function AssignmentIntake({
   const [, setFoldTick] = useState(0);
   const saidBubbles = (t: string) =>
     partsOf(t).map((p, i) => <StudentBubble key={`said:${i}`} message={{ text: p, files: [], at: 0 }} />);
+  // QA round 6: an "ok" folded into an answer that is now shown as the saved answer: its own bubble right under it.
+  const foldedAfter = (t: string | null | undefined) =>
+    t
+      ? partsOf(t)
+          .filter((p) => !t.split("\n").includes(p))
+          .map((p, i) => <StudentBubble key={`fold:${i}`} message={{ text: p, files: [], at: 0 }} />)
+      : null;
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
   // QA 3:00: a message typed while Pau is replying waits here (shown in the chat) and goes right after.
   const queuedRef = useRef<string | null>(null);
@@ -1499,6 +1506,8 @@ export function AssignmentIntake({
   useHesitation({
     questionKey: hesitationKey,
     text: draftAnswer,
+    // A send empties the box: that's not a hesitation (QA round 6: the spark showed up right after a side question).
+    resetKey: `${qaAsides.length}:${answers.length}:${pendingSaid ?? ""}:${queuedSaid ?? ""}:${submitting ? 1 : 0}`,
     enabled:
       Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]) && !(hesitationKey === "stance_early" && (shortEcho || stanceTries.length)),
     onHesitate: (key) => {
@@ -4112,7 +4121,7 @@ export function AssignmentIntake({
                 {/* QA round 6 minor: the reading help is its own row under the styles, never read as a style option. */}
                 {catchUpOffer === q.id || brief.missing?.length ? (
                   <div className="flex flex-wrap items-center gap-2 border-t border-ds-border pt-3" role="group" aria-label="Reading help" data-reading-help>
-                    <span className={dsCaption}>Not ready to pick?</span>
+                    <span className={dsCaption}>Before you pick, if it helps:</span>
                     {catchUpOffer === q.id ? (
                       <DsButton type="button" size="sm" variant="ghost" disabled={submitting} data-catchup-offer onClick={() => void catchUpNow(q.id)}>
                         Catch me up on the reading first
@@ -4702,6 +4711,7 @@ export function AssignmentIntake({
                   onEdit={() => editAnswer(i)}
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
+                {foldedAfter(said)}
                 {item.id === "material_check" && brief && (brief.lostAtStart || materialLost(said)) ? (
                   <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask, hasSummary: Boolean(brief.summary || brief.summaries?.length) })} />
                 ) : null}
@@ -4762,6 +4772,7 @@ export function AssignmentIntake({
                 onEdit={() => editAnswer("stance")}
                 editLabel="Edit your early take"
               />
+              {foldedAfter(stanceSent ?? stanceAnswer)}
             </div>
           ) : null}
 
