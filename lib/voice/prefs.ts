@@ -14,7 +14,7 @@ import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
 export type ChatPrefs = {
   voice: boolean;
   sparkOff: boolean;
-  /** Voice call: the student's mic is muted (Pau Pau still speaks). */
+  /** Voice call: the student's mic is muted (Pau still speaks). */
   micMuted: boolean;
 };
 
