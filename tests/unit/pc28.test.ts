@@ -113,7 +113,7 @@ describe("PC-28: ghost #2 titles and the client view", () => {
   it("titles are short and capped", () => {
     expect(titleSafe('"Legere, winners circle, culture change, and a whole lot more words here too."').split(" ").length).toBeLessThanOrEqual(10);
     const o = outlineFromModel({ titles: [{ title: "Legere, winners circle, culture change", ideas: [0, 9] }] }, shape, 2)!;
-    expect(o.titles[0]).toEqual({ key: "body-1", title: "Legere, winners circle, culture change", ideaRefs: [0] });
+    expect(o.titles[0]).toEqual({ key: "body-1", title: "Legere, winners circle, culture change", ideaRefs: [0], fixed: true });
     expect(ruleOutline(shape, { leader: "John Legere", styles: ["Transformational"] }).titles[0]!.title).toBe("John Legere, transformational leadership");
   });
   it("projection carries only labels, subheadings and titles (no shape internals)", () => {
@@ -345,5 +345,18 @@ describe("QA 3:26 AM #3: shown body titles stay put", () => {
     const next = { leader: "Sam Walton", styles: ["transformational"] };
     const out = keepShownTitles(shown, refined, factsKeyOf(next));
     expect(out.titles[0]!.title).toBe("Sam Walton, Northouse styles, change");
+  });
+});
+
+import { ruleOutline as ro326, ruleShape as rs326 } from "@/lib/skeleton/shape";
+describe("QA 3:26 AM #3: placeholder titles still improve", () => {
+  it("a stand-in shape's 'leadership example 2' is replaced once the real shape lands; the picked title stays", () => {
+    const facts = { leader: "Satya Nadella", styles: ["transformational"] };
+    const stand = ro326(rs326({ text: "Write 1,200 words on which leadership style is best for change using one real leader." }), facts);
+    const shownOutline = { ...stand, factsKey: factsKeyOf(facts) };
+    const real = { v: 1 as const, source: "model" as const, titles: stand.titles.map((t, i) => ({ key: t.key, title: i === 0 ? "Satya Nadella, vision" : `Satya Nadella, real ${i + 1}`, ideaRefs: [], fixed: true })) };
+    const out = keepShownTitles(shownOutline, real, factsKeyOf(facts));
+    expect(out.titles[0]!.title).toBe(stand.titles[0]!.title);
+    if (out.titles.length > 1 && stand.titles[1]!.fixed === false) expect(out.titles[1]!.title).toBe("Satya Nadella, real 2");
   });
 });

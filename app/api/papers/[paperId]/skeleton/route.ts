@@ -58,7 +58,9 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const leaderMissing = Boolean(facts.leader && outline && !outline.titles.some((t) => t.title.toLowerCase().includes(facts.leader!.toLowerCase())));
     // QA 3:26 AM #3: new locked choices (leader, styles) are the one thing that re-titles.
     const factsChanged = Boolean(outline && outline.factsKey && outline.factsKey !== factsKeyOf(facts));
-    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing || factsChanged) && (facts.leader || facts.styles.length))) {
+    // A stand-in shape's placeholder titles improve once the real shape is in (picked titles stay).
+    const placeholders = shape.source === "model" && Boolean(outline?.titles.some((t) => t.fixed === false));
+    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing || factsChanged || placeholders) && (facts.leader || facts.styles.length))) {
       const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
       outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model", shown: existing?.outline ?? null });
     }

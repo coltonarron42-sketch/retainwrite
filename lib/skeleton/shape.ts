@@ -23,7 +23,8 @@ export type PaperShape = {
 /** Ghost #2: one short title per body paragraph and which of the student's body notes it uses. */
 export type ShapeOutline = {
   v: 1;
-  titles: { key: string; title: string; ideaRefs: number[] }[];
+  /** fixed: made from their choices (or a real shape); a rules-shape placeholder ("leadership example 2") is not. */
+  titles: { key: string; title: string; ideaRefs: number[]; fixed?: boolean }[];
   source: "model" | "rules";
   /** QA 3:26 AM #3: the locked choices (leader, styles) the shown titles were made from. */
   factsKey?: string;
@@ -192,6 +193,7 @@ export function outlineFromModel(raw: unknown, shape: PaperShape, bodyNotes: num
       key: b.key,
       title: title || rules?.titles.find((t) => t.key === b.key)?.title || "",
       ideaRefs: (m?.ideas ?? []).filter((n) => n < bodyNotes),
+      fixed: true,
     };
   });
   return { v: 1, titles: titles.filter((t) => t.title), source: "model" };
@@ -210,9 +212,9 @@ export function keepShownTitles(prev: ShapeOutline | null | undefined, next: Sha
   if (!prev?.titles.length || (prev.factsKey && prev.factsKey !== factsKey)) return { ...next, factsKey };
   const titles = next.titles.map((t, i) => {
     const shown = prev.titles.find((x) => x.key === t.key) ?? prev.titles[i];
-    return shown?.title ? { ...t, title: shown.title } : t;
+    return shown?.title && shown.fixed !== false ? { ...t, title: shown.title, fixed: true } : t;
   });
-  for (const [i, p] of prev.titles.entries()) if (p.title && !titles.some((t) => t.key === p.key) && i >= titles.length) titles.push(p);
+  for (const [i, p] of prev.titles.entries()) if (p.title && p.fixed !== false && !titles.some((t) => t.key === p.key) && i >= titles.length) titles.push(p);
   return { ...next, titles, factsKey };
 }
 
@@ -232,7 +234,8 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
     // A theory, reading or counterargument paragraph is about the idea, not the leader.
     const aboutIdea = Boolean(job) && /\b(theor|reading|northouse|goleman|counter|limit|research|definition|framework|model)\w*/i.test(job!);
     const parts = [aboutIdea ? null : facts.leader, style ? `${style}${/leader|style/i.test(style) ? "" : " leadership"}` : job].filter((x): x is string => Boolean(x));
-    return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[] };
+    // A title from their pick (or a real shape) stays once shown; a stand-in shape's placeholder can still improve.
+    return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[], fixed: Boolean(style) || shape.source === "model" };
   });
   return { v: 1, titles: titles.filter((t) => t.title), source: "rules" };
 }
