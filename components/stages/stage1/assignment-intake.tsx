@@ -2380,7 +2380,8 @@ export function AssignmentIntake({
   }
 
   function goToStanceOnStory() {
-    setDraftAnswer(savedAnswerText("stance_early"));
+    // QA 5:46: this runs after her reply lands; words typed since Enter stay in the box.
+    setBoxUnlessTyped(savedAnswerText("stance_early"));
     setError(null);
     pasteMeta.reset();
     setScreen("coaching");

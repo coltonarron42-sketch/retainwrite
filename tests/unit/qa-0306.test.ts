@@ -213,3 +213,10 @@ describe("QA 5:46: Stage 2 clearSent never calls itself", () => {
     expect(src).toContain('if (!cur || cur === text.trim()) props.onIdea("");');
   });
 });
+
+describe("QA 5:46: moving on to the early take never wipes words typed since Enter", () => {
+  it("goToStanceOnStory keeps typed words", () => {
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain('setBoxUnlessTyped(savedAnswerText("stance_early"));');
+  });
+});
