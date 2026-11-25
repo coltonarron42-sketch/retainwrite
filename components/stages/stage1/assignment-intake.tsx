@@ -82,7 +82,7 @@ import {
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
 import { readBackParas } from "@/lib/stage1/pau-pau";
-import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, isSolidReason, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, askKind, isSolidReason, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -154,6 +154,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
+import { asOnSheet, studentTurns, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
 import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
@@ -625,6 +626,8 @@ export function AssignmentIntake({
   // The style their story showed, for the gate ("your style: servant, your leader: Mr. Alvarez").
   const [storyStyle, setStoryStyle] = useState<string | null>(null);
   const lastStory = useRef<string | null>(null);
+  /** QA full prod walk (8979326a): "Want to run with it?" is asked once; after a yes it's never asked again. */
+  const proposalTaken = useRef(false);
   // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
   const [savedPast, setSavedPast] = useState<PastLine[]>([]);
   const recordedPast = useTurnRecorder({ enabled: true, saved: savedPast });
@@ -641,6 +644,8 @@ export function AssignmentIntake({
   const briefRef = useRef<BriefView | null>(null);
   /** How many times the early take came back short (QA 8:31 AM: the nudge changes each time). */
   const shortTries = useRef(0);
+  /** QA prod smoke (51dddefe): the early-take question on screen now, so its nudges ask for the same thing. */
+  const stanceAskRef = useRef<string | null>(null);
   briefRef.current = brief;
   // PC-29 QA round 3: brief calls in flight (the plan can still re-shape while one is out), so the
   // call never says a prompt that is about to change, and Stage 1 never ends before the last save.
@@ -1004,6 +1009,11 @@ export function AssignmentIntake({
   };
   // QA 11:26: the angle came from their decision (north star); the old "Which direction…?" turn never shows, even while the decision save lands.
   const [storyFromDecision, setStoryFromDecision] = useState(false);
+  // QA full prod walk (8979326a): the leader they named in any turn so far (never an author from the sheet).
+  const leaderAlready = leaderAcross(
+    [brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null, brief?.leader?.answer, brief?.decision?.answer, ...answers.map((a) => a.answerText)],
+    rawText ?? "",
+  );
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     // QA 11:08 (root cause of the hobbies line): a new paper's first brief comes before the read-back
@@ -1295,7 +1305,10 @@ export function AssignmentIntake({
     // Only a question that DROPPED out of the plan moves them (a plan that grew, e.g. the
     // north-star steps arriving ahead of the hobby questions, keeps the index as it was).
     const at = coachingPlan.findIndex((x) => x.id === want);
-    if (at >= 0 || (here && answers.some((a) => a.questionId === want))) {
+    // QA full prod walk (8979326a): when the step after an answer drops out (a leader they already
+    // named fills the leader slot), never step back to the question they just answered.
+    const wantDone = answers.some((a) => a.questionId === want);
+    if ((at >= 0 && !(wantDone && !here)) || (here && wantDone)) {
       if (here) curQId.current = here.id;
       else if (at >= 0) setQIndex(at);
       return;
@@ -2175,7 +2188,12 @@ export function AssignmentIntake({
     if (storyProposal && storyProposal.qid === qn.id) {
       if (kind === "yes") {
         done();
-        await runWithStory(storyProposal, qn);
+        proposalTaken.current = true;
+        // QA full prod walk (8979326a): "Yes, run with it! Although I also think the transformational side
+        // matters…": what they added is part of their pick (styles and reasons add up), never dropped.
+        const more = yesWithMore(typed);
+        const withMore = Boolean(more && more.split(/\s+/).length >= 4);
+        await runWithStory(withMore ? { ...storyProposal, story: `${storyProposal.story}\n${typed}` } : storyProposal, qn, withMore ? typed : undefined);
         return true;
       }
       if (kind === "interview") {
@@ -2203,7 +2221,7 @@ export function AssignmentIntake({
     }
     if (isRichStory(typed)) {
       lastStory.current = typed;
-      const r = reflectStory(typed);
+      const r = proposalTaken.current ? null : reflectStory(typed);
       if (r) {
         propose(typed, typed, r);
         return true;
@@ -2220,7 +2238,7 @@ export function AssignmentIntake({
   }
 
   /** t204u: "yes, run with it": their story is their answer, their decision and their early take. */
-  async function runWithStory(pr: { story: string; reflect: StoryReflect }, qn: { id: string; text: string }) {
+  async function runWithStory(pr: { story: string; reflect: StoryReflect }, qn: { id: string; text: string }, said?: string) {
     setStoryProposal(null);
     setStoryTieBack(null);
     setInterview(null);
@@ -2245,8 +2263,9 @@ export function AssignmentIntake({
       ...(qn.id !== "stance_early" ? [{ questionId: qn.id, questionText: qn.text, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 }] : []),
       { questionId: "stance_early", questionText: stanceQ, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 },
     ]);
-    setOfferReply((prev) => ({ ...prev, [qn.id]: "Yes, let's run with it" }));
-    if (qn.id === "stance_early") setStanceSent("Yes, let's run with it");
+    // QA full prod walk (8979326a): a yes with more shows (and is recorded) as they typed it.
+    setOfferReply((prev) => ({ ...prev, [qn.id]: said ?? "Yes, let's run with it" }));
+    if (qn.id === "stance_early") setStanceSent(said ?? "Yes, let's run with it");
     setStoryAngle({ text: story, source: "student" });
     setStoryFromDecision(true);
     setStanceViaStory(qn.id);
@@ -2532,7 +2551,7 @@ export function AssignmentIntake({
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25 && earlyTakeFull(text)) text = earlyTakeFull(text)!;
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
+      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++, askKind(q.text)));
       return;
     }
 
@@ -2611,9 +2630,10 @@ export function AssignmentIntake({
     // (affirm by name, locked in word for word, the checklist), never angle cards.
     if (q.id === "decision_pick" && text && said?.leader && !tookRec) {
       setInformedLead(
-        informedAffirm(text, {
+        // QA full prod walk (8979326a): what they said in earlier turns counts too (styles add up).
+        informedAffirm(studentTurns([lastStory.current, answers.find((a) => a.questionId === "material_check")?.answerText, text]).join("\n"), {
           leader: said.leader,
-          mustInclude: bNow?.readback?.mustInclude ?? [],
+          mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => asOnSheet(x, rawText)),
           needsPerson: true,
         }),
       );
@@ -2637,13 +2657,17 @@ export function AssignmentIntake({
       const lost = materialLost(text);
       // Their stance is saved right away (QA 7:02 AM walk): no decision question flashes while options load.
       // Colton 12:08 INFORMED: a stance, or ideas with a leader/example, is locked in (the fallback keeps their words word for word).
-      const informed = !lost && !bNow?.decision ? informedSaying(text, bNow?.options?.options ?? []) : null;
-      const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) ?? (informed ? { stance: informed.stance, leader: informed.leader } : null) : null;
+      // QA full prod walk (8979326a): everything they've said so far counts (the story they told before
+      // this reply named Sam Walton and both styles), never only this last message.
+      const pool = studentTurns([lastStory.current, text]).join("\n");
+      const informed = !lost && !bNow?.decision ? informedSaying(pool, bNow?.options?.options ?? []) : null;
+      const early0 = !lost && !bNow?.decision ? parseStance(pool, bNow?.options?.options ?? [], people) ?? (informed ? { stance: informed.stance, leader: informed.leader } : null) : null;
+      const early = early0 ? { ...early0, leader: early0.leader ?? leaderAcross([pool], rawText) } : null;
       if (early) {
         setInformedLead(
-          informedAffirm(text, {
+          informedAffirm(pool, {
             leader: early.leader,
-            mustInclude: bNow?.readback?.mustInclude ?? [],
+            mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => asOnSheet(x, rawText)),
             needsPerson: people.length > 0 || /\b(?:real|one)\s+(?:leader|person)\b/i.test(bNow?.readback?.ask ?? ""),
           }),
         );
@@ -2837,7 +2861,9 @@ export function AssignmentIntake({
     }
     if (wordCount(text) < 15) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 15, "Your own angle", text, shortTries.current++));
+      // QA prod smoke (51dddefe): on the informed path this step asks for their example ("When did … lead people through a big change"): example nudges.
+      const exampleStep = Boolean(brief?.northstar && (brief?.decision?.source === "stated" || informedLead));
+      setError(moreWordsNote(wordCount(text), 15, "Your own angle", text, shortTries.current++, exampleStep ? "example" : "claim"));
       return;
     }
     if (pickingStory) return;
@@ -2927,7 +2953,7 @@ export function AssignmentIntake({
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
     const text = earlyTakeFull(joined) ?? joined;
     if (wordCount(text) < 25) {
-      const nudge = moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++);
+      const nudge = moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++, askKind(stanceAskRef.current));
       setShortEcho(text);
       setStanceTries((prev) => [...prev, { id: Date.now(), said: fresh || joined, nudge }].slice(-8));
       setError(nudge);
@@ -3239,10 +3265,10 @@ export function AssignmentIntake({
                       if (e.target.checked) setError(null);
                     }}
                   />
-                  <span>I&apos;m uploading this for my own coursework.</span>
+                  <span>I'm uploading this for my own coursework.</span>
                 </label>
                 <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
-                  We keep these files while this paper is on your account, and for 90 days after it&apos;s deleted. You
+                  We keep these files while this paper is on your account, and for 90 days after it's deleted. You
                   can remove a file anytime.
                 </p>
               </>
@@ -3318,7 +3344,7 @@ export function AssignmentIntake({
               setScreen("card");
             }}
           >
-            No, that&apos;s everything
+            No, that's everything
           </DsButton>
         </div>
       </div>
@@ -3873,7 +3899,7 @@ export function AssignmentIntake({
               setError(null);
             }}
           >
-            I&apos;ll check first
+            I'll check first
           </DsButton>
           <DsButton
             type="button"
@@ -3903,6 +3929,7 @@ export function AssignmentIntake({
             answers.some((a) => a.questionId === "story_own"),
           )
         : stanceBase;
+    stanceAskRef.current = stanceText;
     const informedStance = [brief?.decision?.answer ?? "", answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" ").trim();
     const informedLeader =
       (brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null) ?? informedSaying(informedStance)?.leader ?? null;
@@ -3945,7 +3972,7 @@ export function AssignmentIntake({
                           Yes, catch me up
                         </DsButton>
                         <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-no onClick={() => send("No thanks, let's pick a direction")}>
-                          No thanks, let&apos;s pick
+                          No thanks, let's pick
                         </DsButton>
                       </>
                     ) : null}
@@ -4104,7 +4131,7 @@ export function AssignmentIntake({
                         const all = chosenStyles([brief?.decision?.answer, ...["material_check", "decision_pick", "decision_why", "stance_early"].flatMap((id) => answers.filter((a) => a.questionId === id).map((a) => a.answerText))]);
                         return all.length ? all : storyStyle ? [storyStyle] : [];
                       })(),
-                      leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : null,
+                      leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : leaderAlready,
                       materialLabel: materialGateLabel({
                         catchUpDone: northstarGate.catchUpDone,
                         materialShown: Boolean(brief?.materialShown),
@@ -4208,7 +4235,7 @@ export function AssignmentIntake({
                         </p>
                       ) : null}
                       <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
-                        Paste the reading (or the part you were assigned). I&apos;ll use it for the key points.
+                        Paste the reading (or the part you were assigned). I'll use it for the key points.
                       </label>
                       <textarea
                         id="reading-paste"
