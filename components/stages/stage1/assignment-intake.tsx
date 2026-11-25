@@ -944,6 +944,8 @@ export function AssignmentIntake({
   const [informedLead, setInformedLead] = useState<string[] | null>(null);
 
   const [needWhy, setNeedWhy] = useState(false);
+  /** An informed answer's stated decision is on its way to the server (see the plan). */
+  const [decisionSaving, setDecisionSaving] = useState(false);
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     // QA 11:08 (root cause of the hobbies line): a new paper's first brief comes before the read-back
@@ -2396,7 +2398,11 @@ export function AssignmentIntake({
         : null;
       // QA 11:40 #5 (lag): the stance save and the options load run side by side, not one after the other.
       const optionsEarly = !lost && !briefRef.current?.options ? briefCall({ action: "options" }) : null;
-      if (savedEarly) await Promise.race([savedEarly, new Promise((r) => setTimeout(r, 4_000))]);
+      if (savedEarly) {
+        setDecisionSaving(true);
+        await Promise.race([savedEarly, new Promise((r) => setTimeout(r, 4_000))]);
+        setDecisionSaving(false);
+      }
       const work = (async () => {
         if (lost) {
           setSummaryBusy(true);
@@ -3971,7 +3977,7 @@ export function AssignmentIntake({
       });
     };
     // Only Pau's own spoken sentences go to read-aloud.
-    const currentTurnTexts: string[] = q
+    const currentTurnTexts: string[] = q && !(decisionSaving && q.id === "decision_pick")
       ? [
           editing
             ? `Sure, change anything and send it again. ${q.text}`
@@ -4187,8 +4193,9 @@ export function AssignmentIntake({
               <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau replies.</p>
             </div>
           ) : null}
+          {/* QA 11:21: never the style question while an informed answer's decision is still saving (an in-between plan). */}
           {/* Pau's current turn. */}
-          {q ? (
+          {q && !(decisionSaving && q.id === "decision_pick") ? (
             <PauPauGroup
               bubbles={[
                 ...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : []),

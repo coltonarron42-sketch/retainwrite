@@ -169,3 +169,13 @@ describe("QA 11:08 Stage 1 text fixes", () => {
     expect(t).not.toMatch(/Leaders people often write about|catch you up/);
   });
 });
+
+describe("QA 11:21: in-between plan items are never rendered or spoken", () => {
+  it("hides the style question while an informed answer's decision is saving", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") ? (');
+    expect(src).toContain('const currentTurnTexts: string[] = q && !(decisionSaving && q.id === "decision_pick")');
+    expect(src).toMatch(/setDecisionSaving\(true\)[\s\S]{0,400}setDecisionSaving\(false\)/);
+  });
+});
