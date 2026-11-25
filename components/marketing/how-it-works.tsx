@@ -2,7 +2,7 @@ import Link from "next/link";
 
 // Colton, Nov 24 12:18 AM: no public stage count; the method is the light "how".
 const STAGES = [
-  { n: "", title: "Get on the same page", copy: "Pau Pau reads the assignment with you and checks what it's really asking." },
+  { n: "", title: "Get on the same page", copy: "Pau reads the assignment with you and checks what it's really asking." },
   { n: "", title: "Catch up on the material", copy: "Haven't read it? Get the gist in plain words. Already read it? Skip ahead." },
   { n: "", title: "Pick your direction", copy: "Choose your angle and say why, in your own words." },
   { n: "", title: "Build it sentence by sentence", copy: "You write every sentence; the coach asks the questions." },

@@ -1,6 +1,6 @@
 /**
  * Server voice settings (no secrets here). PAU_TTS_VOICE picks the xAI voice.
- * Pau Pau sounds like a younger, down-to-earth comic (Colton, Nov 22 4:00 PM);
+ * Pau sounds like a younger, down-to-earth comic (Colton, Nov 22 4:00 PM);
  * the candidates come from the xAI voice list (docs.x.ai, Voice Overview).
  */
 export const TTS_MAX_CHARS = 600;
