@@ -7,10 +7,7 @@ import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
 import { buildInstructions, buildStage1Instructions, buildStage3Instructions } from "./persona";
-import { loadPauContextBlock } from "@/lib/server/paper-context/store";
-import { classifyTurn, voiceEffort } from "@/lib/coach/effort";
-import { proseVerdict } from "@/lib/coach/prose-gate";
-import { verifySpoken } from "@/lib/coach/spoken-sign";
+import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
 import { loadFlowState, loadStage1State, loadStage3State, stage1Block, stage3Block, stateBlock, type FlowState, type Stage1State, type Stage3State } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
@@ -79,11 +76,7 @@ const TOOLS = [
   },
 ];
 
-/**
- * Stage 1 (Intake): the app owns every step; her one write is "move on" (submit_answer).
- * PC-31: side questions go through submit_answer too: the app answers them with the text
- * model (paper context + web search + gates) and she speaks that answer word for word.
- */
+/** Stage 1 (Intake): the app owns every step; her one write is "move on" (submit_answer). */
 const STAGE1_TOOLS = [
   {
     type: "function",
@@ -101,7 +94,7 @@ const STAGE1_TOOLS = [
     type: "function",
     name: "submit_answer",
     description:
-      "The student has finished answering the on-screen question (or asked to move on), OR asked you something on the side (a question about the assignment or a concept, a request for examples or sources, a summary, or for you to write something). The app takes exactly what they said, word for word: an answer is saved and the next step shows; a side question gets a researched answer on screen that you then say aloud. Takes no text: you never supply their words.",
+      "The student has finished answering the on-screen question (or asked to move on). The app saves exactly what they said, word for word, runs its checks, and shows the next step. Takes no text: you never supply their answer.",
     parameters: { type: "object", properties: {}, required: [] },
   },
 ];
@@ -248,7 +241,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // PC-29 QA round 2 (Stage 1): on-screen prompts are said word for word (force_message), and
   // her own replies may never ask a question that isn't the on-screen one.
   const verbatim = stage1;
-  let lastLine: { text: string; norm: string; at: number } | null = null;
+  let lastLine: { text: string; at: number } | null = null;
   // force_message lines sent and not yet seen as a response (timestamps; stale ones expire).
   const forcedQ: number[] = [];
   const forcedRids = new Set<string>();
@@ -260,6 +253,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let startLine = "";
   let lastPrompt = { text: "", at: 0 };
   let pendingSpoken: string | null = null;
+  // PC-29d: words to say that aren't the prompt (a side answer, a nudge), queued like a prompt.
+  let pendingSay: string | null = null;
+  // When her audio last went to the browser (a "responding" flag with no audio for a while is stale).
+  let lastAudioAt = 0;
+  let sayKick: ReturnType<typeof setInterval> | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
   let ownSection = "";
@@ -302,25 +300,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let pendingDetail = false;
   // The paper context (north star D): read-back, material key points, decision, early take, locked points.
   let paperBlock = "";
-  // PC-31: reasoning effort per turn ("high" for research/probing, "none" for acks and read-backs).
-  // A typed turn switches before its reply; a spoken turn's reply has already started, so it applies from the next one.
-  let turnEffort: "high" | "none" = ctx.effort;
-  const effortFor = (text: string, why: "typed" | "spoken") => {
-    const c = classifyTurn(text, { step: stage1 && flow1 && !flow1.confirmed ? "readback" : null });
-    const want = ctx.effort === "high" ? "high" : voiceEffort(c.effort);
-    console.log(JSON.stringify({ evt: "pau_realtime_effort", sid, intent: c.intent, effort: want, changed: want !== turnEffort, why }));
-    if (want === turnEffort) return false;
-    turnEffort = want;
-    return true;
-  };
   /** Say the app's line exactly (no model wording). One line, once: the same line within 10 s is skipped. */
   const sayLine = (text: string, o: { cancel?: boolean } = {}) => {
     const t = text.replace(/\s+/g, " ").trim().slice(0, 1600);
     if (!t || closed) return false;
-    // Same words again (the signed answer, then the same answer as the on-screen prompt with its bullets): once.
-    const norm = t.replace(/[•·\s]+/g, " ").trim().toLowerCase();
-    if (lastLine && Date.now() - lastLine.at < 20_000 && (lastLine.norm === norm || (norm.length > 40 && lastLine.norm.includes(norm)))) return false;
-    lastLine = { text: t, norm, at: Date.now() };
+    if (lastLine && lastLine.text === t && Date.now() - lastLine.at < 10_000) return false;
+    lastLine = { text: t, at: Date.now() };
     m.verbatimLines++;
     // xAI still counts her last reply as playing until its audio would end: cancel first.
     if (o.cancel !== false) upSend({ type: "response.cancel" });
@@ -355,10 +340,23 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     const detail = pendingDetail;
     const spoken = pendingSpoken;
     pendingSpoken = null;
+    const sayExtra = pendingSay;
+    pendingSay = null;
     // The student talked over it: the screen block already carries the app's turn
     // (kept, in case that "talk" turns out to be noise).
     if (speechActive || speechAt > at) {
       skippedTurn = { text, detail, at: Date.now(), spoken };
+      return;
+    }
+    if (verbatim && sayExtra) {
+      // A side answer or nudge: said even if the prompt moved on meanwhile (it answers them).
+      sayLine(sayExtra);
+      // A new prompt that arrived meanwhile and was never said follows it (after this line ends).
+      if (spoken && spoken === screen.spoken && spoken !== lastPrompt.text) {
+        pendingTurn = spoken;
+        pendingSpoken = spoken;
+        pendingDetail = false;
+      }
       return;
     }
     if (verbatim && spoken !== null) {
@@ -639,7 +637,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   });
 
   const refreshFlow = async () => {
-    void loadPauContextBlock(ctx.supabase, ctx.paperId)
+    void loadPaperContextBlock(ctx.supabase, ctx.paperId)
       .then((r) => {
         paperBlock = r.block;
       })
@@ -743,7 +741,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       session: {
         voice: REALTIME_VOICE,
         instructions: instructions(),
-        reasoning: { effort: turnEffort },
+        reasoning: { effort: ctx.effort },
         turn_detection: ctx.gate || ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
         tools: ctx.gate ? [] : stage1 ? STAGE1_TOOLS : stage3 ? STAGE3_TOOLS : TOOLS,
         audio: {
@@ -860,7 +858,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     } catch {}
     const out = (o: unknown) => ({ call_id: callId, output: JSON.stringify(o) });
     if (name === "get_paper_context") {
-      const r = await loadPauContextBlock(ctx.supabase, ctx.paperId).catch(() => null);
+      const r = await loadPaperContextBlock(ctx.supabase, ctx.paperId).catch(() => null);
       if (r) paperBlock = r.block;
       return out({ context: r?.block || "Nothing saved about this paper yet." });
     }
@@ -1052,7 +1050,6 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               afterNoise(null);
             }
           }
-          if (final && !echo && realWords(t).length >= 2 && effortFor(t, "spoken")) sessionUpdate();
           if (final && (echo || isNoiseTurn(t, false))) noiseItems.add(id);
           // Real words from the student: an app turn held back for them stays superseded.
           else if (done && realWords(t).length) skippedTurn = null;
@@ -1126,6 +1123,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const rid = String(e.response_id ?? "");
         if (guarded.has(rid)) return;
         const d = String(e.delta ?? "");
+        lastAudioAt = Date.now();
         m.audioOutBytes += Math.floor((d.length * 3) / 4);
         if (!firstDeltaSeen.has(rid)) {
           firstDeltaSeen.add(rid);
@@ -1161,10 +1159,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             release(rid, "repeat");
           }
         }
-        // App lines said word for word (force_message) were checked before; her own words get the essay
-        // guard plus the PC-31 pasteable-prose gate before more of them are heard.
-        const forcedLine = forcedRids.has(rid);
-        const v = forcedLine ? ({ block: false } as const) : essayGuard(so).block ? essayGuard(so) : proseVerdict(so);
+        // PC-29d QA: the app's own lines (force_message: prompts, side answers, nudges) are app copy,
+        // already composed under the coaching rules. The essay guard is a net for HER words only: on a
+        // two-paragraph side answer its word cap tripped and swapped the answer for a refusal.
+        const v = forcedRids.has(rid) ? ({ block: false } as const) : essayGuard(so);
         if (v.block) {
           guarded.add(rid);
           m.guardTrips++;
@@ -1428,7 +1426,6 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         m.textInputs++;
         studentSaid.push(text);
         speechStoppedAt = Date.now();
-        if (effortFor(text, "typed")) sessionUpdate();
         upSend({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
         upSend({ type: "response.create" });
         return;
@@ -1471,33 +1468,50 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         }
         return;
       }
-      case "rw.say": {
-        // PC-31: a typed Pau answer (text model + web search, gated server-side), spoken word for word.
-        // Only words the coach route signed for this paper are said.
-        if (ctx.gate) return;
-        const text = String(e.text ?? "").replace(/\s+/g, " ").trim().slice(0, 1600);
-        if (!text || !verifySpoken(ctx.paperId, text, String(e.sig ?? ""))) {
-          console.log(JSON.stringify({ evt: "pau_realtime_say_refused", sid }));
-          return;
-        }
-        // Signed = it already passed the server gate as paragraphs and bullets (flattened for speech it can
-        // look like prose, so the transcript gate isn't re-run here).
-        m.tools.typed_answer = (m.tools.typed_answer ?? 0) + 1;
-        if (responding || speechActive) {
-          void waitIdle(8_000).then(() => {
-            if (!closed) sayLine(text);
-          });
-          return;
-        }
-        sayLine(text);
-        return;
-      }
       case "rw.turn": {
         if (ctx.gate) return;
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
         const detail = e.detail === true;
         const text = String(e.text ?? "").slice(0, detail ? 1600 : 800);
         const spoken = verbatim && typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : null;
+        // PC-29d: `say` = words that aren't the prompt (a side answer, a nudge). The prompt stays
+        // what's on screen (the question gate keeps using it); only `say` is spoken, never the prompt again.
+        const sayExtra = verbatim && typeof e.say === "string" ? e.say.slice(0, 1600).trim() : "";
+        if (sayExtra) {
+          if (spoken) screen = { ...screen, spoken };
+          if (startOpen) startOpen = false;
+          console.log(JSON.stringify({ evt: "pau_realtime_say", sid, wait: responding || speechActive, responding, speechActive, chars: sayExtra.length }));
+          if (responding || speechActive) {
+            pendingTurn = text || sayExtra;
+            pendingDetail = false;
+            pendingSpoken = spoken;
+            pendingSay = sayExtra;
+            // Never wedged: once she's done (or "responding" has sent no audio for a while), it plays.
+            const mine = sayExtra;
+            const at = Date.now();
+            if (sayKick) clearInterval(sayKick);
+            sayKick = setInterval(() => {
+              const age = Date.now() - at;
+              if (pendingSay !== mine || closed || age > 20_000) {
+                if (sayKick) clearInterval(sayKick);
+                sayKick = null;
+                return;
+              }
+              if (speechActive) return;
+              if (responding && !(age >= 6_000 && Date.now() - lastAudioAt > 3_000)) return;
+              if (responding) {
+                console.log(JSON.stringify({ evt: "pau_realtime_stale_responding", sid }));
+                responding = false;
+              }
+              if (sayKick) clearInterval(sayKick);
+              sayKick = null;
+              void runPendingTurn();
+            }, 1_000);
+            return;
+          }
+          sayLine(sayExtra);
+          return;
+        }
         if (verbatim && spoken !== null) {
           // PC-29 QA round 2: the on-screen prompt, word for word; nothing to say means silence.
           if (!spoken) return;
