@@ -3680,7 +3680,22 @@ export function AssignmentIntake({
           const merged = coalesce.current?.text ?? typedNow;
           coalesce.current = null;
           sendLock.current = false;
-          sendNow(merged, true);
+          // QA 5:46: between steps (the last question answered, the early take not up yet) the
+          // render that took this Enter has nothing to send it to, so go through the latest
+          // screen and retry until something takes it; never dropped silently.
+          const fireNow = (n: number) => {
+            const went = latestSendNow.current?.(merged, true);
+            if (went === false && n < 80) {
+              setTimeout(() => fireNow(n + 1), 75);
+              return;
+            }
+            if (went === false) {
+              setPendingSaid(null);
+              setAsideBusy(null);
+              setDraftAnswer((d) => (d.trim() ? `${merged}\n${d}` : merged));
+            }
+          };
+          fireNow(0);
         }, 450) };
         coalesce.current = entry;
         return;
