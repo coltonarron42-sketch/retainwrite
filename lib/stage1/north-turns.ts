@@ -1,3 +1,4 @@
+import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * QA 11:40 (preview retest): typed read-question replies, vague-pick escalation,
  * confusion, and no references to material the student hasn't read.
@@ -182,7 +183,7 @@ export function namedPerson(text: string): string | null {
     if (NOT_NAME.test(m[1]!) || NOT_NAME.test(m[2]!)) continue;
     return [m[1], m[2], m[3]].filter(Boolean).join(" ");
   }
-  return null;
+  return singleNamedLeader(text);
 }
 
 const IDEA_CUE =

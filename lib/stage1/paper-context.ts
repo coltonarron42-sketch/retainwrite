@@ -1,3 +1,4 @@
+import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * Paper-level context (Colton t161u, the north star): what Pau knows about this
  * paper across Stages 1-3, so she meets the student where they are and never
@@ -582,6 +583,7 @@ export function parseStance(
     person?.label ??
     stance.match(/\b(?:using|with|like|such as|example(?: of)?|for example|e\.g\.?|leader(?: is)?|specifically)\s+((?:[A-Z][a-z'’-]+)(?:\s+[A-Z][a-z'’-]+){1,2})\b/)?.[1] ??
     stance.replace(/^\S+\s/, "").match(/\b([A-Z][a-z'’-]+\s+[A-Z][a-z'’-]+)\b/)?.[1] ??
+    singleNamedLeader(stance) ??
     null;
   return { stance, leader: named && !/^(The|This|My|Chapter|Northouse|Leadership)\b/.test(named) ? named : null };
 }

@@ -104,3 +104,21 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     expect(linesOf(out).map((r) => r.text)).toEqual(["Hi", "BUS 210"]);
   });
 });
+
+import { singleNamedLeader } from "@/lib/stage1/single-name";
+import { parseStance } from "@/lib/stage1/paper-context";
+import { namedPerson } from "@/lib/stage1/north-turns";
+describe("Round 4 QA: a leader named with one word is recognized", () => {
+  it("finds Walton, not the style or a company", () => {
+    expect(singleNamedLeader("I'd pick Servant because Walton put associates first, and that kept people with him during growth and change.")).toBe("Walton");
+    expect(singleNamedLeader("Transformational, because Nadella's vision got people to want the change.")).toBe("Nadella");
+    expect(singleNamedLeader("I'd pick Situational because Microsoft changed fast.")).toBeNull();
+    expect(singleNamedLeader("Servant works best because people stay.")).toBeNull();
+    expect(singleNamedLeader("Walton put people first.")).toBeNull(); // first word: too risky to call a name
+    expect(namedPerson("I'd pick Servant because Walton put associates first")).toBe("Walton");
+  });
+  it("parseStance carries the one-word leader", () => {
+    const r = parseStance("I'd pick Servant because Walton put associates first, and that kept people with him during growth and change.", [{ label: "Servant", why: "x" }] as never, [{ label: "Satya Nadella", why: "y" }] as never);
+    expect(r?.leader).toBe("Walton");
+  });
+});
