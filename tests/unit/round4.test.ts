@@ -63,6 +63,14 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     foldLines(recs, [{ el: b, who: "pau", text: "Stage 1 is about this." }], (x) => x === b, 9000);
     expect(linesOf(recs)).toHaveLength(1);
   });
+  it("a checklist remounting with a new tick stays one line", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a"), b = el("b");
+    const head = "Stage 1 is about getting clear on what the assignment really asks. ";
+    foldLines(recs, [{ el: a, who: "pau", text: head + "○ Decision made" }], (x) => x === a, 0);
+    foldLines(recs, [{ el: b, who: "pau", text: head + "✓ Decision made" }], (x) => x === b, 9000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([head + "✓ Decision made"]);
+  });
   it("after a reload, history the screen re-renders is not added again", () => {
     const x = el("x"), y = el("y");
     const out = seedLines([{ who: "pau", text: "Hi" }], [{ who: "pau", text: "Next up is the change part.", el: y }, { who: "pau", text: "Hi", el: x }]);

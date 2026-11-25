@@ -79,7 +79,14 @@ export function foldLines(
       // The newest line drawn again after its bubble went away (however long that took): the same turn.
       // Two identical bubbles on screen together stay two replies.
       (last && last.who === s.who && last.text === s.text && (!last.el || !isAttached(last.el)) ? last : undefined) ??
-      recs.find((r) => r.who === s.who && r.text === s.text && (!r.el || !isAttached(r.el)) && (r.gone === undefined || now - r.gone < REMOUNT_MS));
+      recs.find((r) => r.who === s.who && r.text === s.text && (!r.el || !isAttached(r.el)) && (r.gone === undefined || now - r.gone < REMOUNT_MS)) ??
+      // Swapped for a fresh bubble that also moved on a little (a checklist ticked as it remounted): still that turn.
+      recs.find((r) => r.who === s.who && r.el && !isAttached(r.el) && r.gone !== undefined && now - r.gone < REMOUNT_MS && sameTurn(r.text, s.text));
+    if (again && again.text !== s.text) {
+      again.text = s.text;
+      again.at = now;
+      if (!again.quiet) changed = true;
+    }
     if (again) {
       again.el = s.el;
       again.gone = undefined;
@@ -126,7 +133,7 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
     restoreUntil.current = Date.now() + 20000;
     const end = (e: Event) => {
       // Opening Past chat or the skeleton is reading, not a new turn.
-      if ((e.target as Element | null)?.closest?.("[data-past-chat], [data-past-chat-open], [data-skeleton-panel], [data-skeleton-open]")) return;
+      if ((e.target as Element | null)?.closest?.("[data-past-chat], [data-past-chat-open], [data-skeleton-panel], [data-skeleton-open], [data-show-answers], [data-chat-reveal]")) return;
       restoreUntil.current = 0;
       document.removeEventListener("keydown", end, true);
       document.removeEventListener("pointerdown", end, true);
@@ -154,8 +161,16 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
       if (!raf) raf = window.requestAnimationFrame(scan);
     });
     mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    // "Show my answers" (and anything marked data-chat-reveal) redraws earlier turns: not new ones.
+    const reveal = (e: Event) => {
+      if ((e.target as Element | null)?.closest?.("[data-show-answers], [data-chat-reveal]")) restoreUntil.current = Date.now() + 3000;
+    };
+    document.addEventListener("pointerdown", reveal, true);
+    document.addEventListener("click", reveal, true);
     scan();
     return () => {
+      document.removeEventListener("pointerdown", reveal, true);
+      document.removeEventListener("click", reveal, true);
       mo.disconnect();
       if (raf) window.cancelAnimationFrame(raf);
     };
