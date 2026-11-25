@@ -204,7 +204,16 @@ export function SkeletonOverlay({
     closeRef.current?.focus({ preventScroll: true });
     const raf = requestAnimationFrame(() => setShown(true));
     const back = returnFocus;
+    // Escape must close no matter where focus is: clicking a non-interactive title
+    // (live Stage 1) can blur the dialog so a div onKeyDown never sees the key.
+    const onDocKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onDocKey, true);
     return () => {
+      document.removeEventListener("keydown", onDocKey, true);
       undo();
       cancelAnimationFrame(raf);
       // Focus goes back where it was (the tab) when it closes.
@@ -216,11 +225,6 @@ export function SkeletonOverlay({
   }, []);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-      return;
-    }
     const root = dialogRef.current;
     if (!root) return;
     if (e.key === "Tab") {
