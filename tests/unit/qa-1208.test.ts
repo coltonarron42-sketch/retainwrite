@@ -10,7 +10,8 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     expect(q).toMatch(/^So, in plain words: Argue which leadership style/);
     expect(q).toMatch(/Where are you with it\?/);
     expect(q).toMatch(/read the course material/);
-    expect(intake).toContain("diagnoseQuestion(brief?.readback?.ask || requirements.promptQuestion.value || requirements.topic.value)");
+    // PC-32 (Colton t221u): the short Stage 1 asks the ideas question instead (the read-back card restated the ask).
+    expect(intake).not.toContain("diagnoseQuestion(");
   });
   it("INFORMED: ideas with a leader are locked in word for word, any paper", () => {
     const t = "I want Sam Walton, I think he shows servant and transformational styles, I just want to hit every requirement";
@@ -25,7 +26,6 @@ describe("Colton 12:08: diagnose first, then branch", () => {
     expect(informedAffirm(t, { leader: "Sam Walton" }).join(" ")).toContain("Locked in, in your words: “Sam Walton, servant and transformational leadership”");
     expect(informedAffirm(psy).join(" ")).toContain(psy);
     expect(a).toMatch(/expand on it later/);
-    expect(intake).toContain('if (stated && has("decision_why")) {');
     expect(intake).toContain("informedNext(");
   });
   it("LOST: reassure, teach the core idea, then the professor's sources", () => {

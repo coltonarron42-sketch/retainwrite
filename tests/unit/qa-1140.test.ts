@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { IDEAS_CHECK_ASK } from "@/lib/stage1/starting-point";
 import {
   isAmbiguousReply,
   isConfusedSaying,
@@ -73,7 +74,8 @@ describe("QA 11:40 preview retest", () => {
     expect(refsUnreadMaterial(q), q).toBe(false);
     const e = pickEscalation({ options: OPTS, round: 2, unread: true });
     expect(refsUnreadMaterial(e.paras.join(" ")), e.paras.join(" ")).toBe(false);
-    expect(intake).toContain("const clean = (t: string) => (unread ? scrubUnreadRefs(t) : t);");
+    // PC-32: Stage 1's only question (the ideas check) never references the material at all.
+    expect(refsUnreadMaterial(IDEAS_CHECK_ASK)).toBe(false);
   });
   it("Colton 11:41: no get-to-know questions and a locked composer", () => {
     expect(intake).toContain("if (!northstar && !skippedInterest && !prepared) {");
