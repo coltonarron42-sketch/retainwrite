@@ -579,11 +579,7 @@ export function StanceChat(props: Props) {
 
   // The opener: question, "one section at a time", edit link, prompt type and
   // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
-  const introBubbles: ReactNode[] = [
-    `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
-    intro.body,
-    ...(intro.purpose ? [intro.purpose] : []),
-    ...(intro.earlier ? [intro.earlier] : []),
+  const introControls = (
     <div key="intro-controls" className="space-y-3">
           {intro.material?.length ? (
             <details className="text-[14px] leading-[1.6]" data-material-summary>
@@ -636,7 +632,14 @@ export function StanceChat(props: Props) {
               ))}
             </ol>
           </nav>
-    </div>,
+    </div>
+  );
+  const introBubbles: ReactNode[] = [
+    `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
+    intro.body,
+    ...(intro.purpose ? [intro.purpose] : []),
+    ...(intro.earlier ? [intro.earlier] : []),
+    introControls,
   ];
 
   // History as replies: consecutive Pau Pau lines in one section are one reply;
@@ -686,7 +689,12 @@ export function StanceChat(props: Props) {
     <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
       <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
-      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={transcript.length > 0} />
+      <FocusBar
+        onSkeleton={() => setPanel("skeleton")}
+        onPast={() => setPanel("past")}
+        hasPast={transcript.length > 0}
+        menu={introInCurrent || showIntro ? undefined : introControls}
+      />
       {panel === "skeleton" ? (
         <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
       ) : null}

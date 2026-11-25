@@ -62,6 +62,14 @@ export function welcomeBackLine(fill: WelcomeFill, index?: number): { line: stri
   return { line: fillWelcome(WELCOME_BACK_TEMPLATES[i]!, fill), index: i };
 }
 
+/** A random template index that is never the one used last time (no repeat on reload). */
+export function freshWelcomeIndex(last: number | null, rand: number = Math.random()): number {
+  const n = WELCOME_BACK_TEMPLATES.length;
+  if (last === null || last < 0 || last >= n) return Math.floor(rand * n) % n;
+  const j = Math.floor(rand * (n - 1)) % (n - 1);
+  return j >= last ? j + 1 : j;
+}
+
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const TEMPLATE_RES = WELCOME_BACK_TEMPLATES.map(
   (t) => new RegExp(`^${esc(t).replace(/\\\{(done|Done|next|Next)\\\}/g, ".{1,120}?")}$`),

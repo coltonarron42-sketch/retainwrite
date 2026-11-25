@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
-import { welcomeBackLine, type WelcomeFill } from "@/lib/coach/welcome-back";
+import { freshWelcomeIndex, welcomeBackLine, type WelcomeFill } from "@/lib/coach/welcome-back";
 import { DsButton } from "@/components/ui/ds-button";
 import { useChatPrefs } from "@/lib/voice/prefs";
 import { markHeard, speak } from "@/lib/voice/speech";
@@ -63,6 +63,8 @@ export function resetReturnForTests(): void {
   returnPaper = null;
 }
 
+const WELCOME_LAST_KEY = "rw:welcome-last";
+
 export type FocusState = {
   /** History existed when this visit opened: the chat starts clean (PC-28). */
   focused: boolean;
@@ -91,7 +93,20 @@ export function useFocusReturn(paperId: string, ready: boolean, hasHistory: bool
     decided.current = true;
     if (!hasHistory) return;
     const returning = claimReturn(paperId);
-    const pick = welcomeBackLine(fillRef.current);
+    let pick = welcomeBackLine(fillRef.current, 0);
+    if (returning) {
+      // Never the same line twice in a row, even across reloads.
+      let last: number | null = null;
+      try {
+        const raw = window.localStorage.getItem(WELCOME_LAST_KEY);
+        last = raw === null ? null : Number.parseInt(raw, 10);
+        if (Number.isNaN(last)) last = null;
+      } catch {}
+      pick = welcomeBackLine(fillRef.current, freshWelcomeIndex(last));
+      try {
+        window.localStorage.setItem(WELCOME_LAST_KEY, String(pick.index));
+      } catch {}
+    }
     setState({ focused: true, line: returning ? pick.line : null, index: pick.index });
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [ready, hasHistory, paperId]);

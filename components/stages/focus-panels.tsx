@@ -179,9 +179,9 @@ export function SkeletonPanel({
 }
 
 /** The two buttons under the chat header. */
-export function FocusBar({ onSkeleton, onPast, hasPast }: { onSkeleton: () => void; onPast: () => void; hasPast: boolean }) {
+export function FocusBar({ onSkeleton, onPast, hasPast, menu }: { onSkeleton: () => void; onPast: () => void; hasPast: boolean; menu?: ReactNode }) {
   return (
-    <div className="mt-2 flex flex-wrap gap-2" data-focus-bar>
+    <div className="mt-2 flex flex-wrap items-start gap-2" data-focus-bar>
       <button type="button" className="ds-focus rounded-full border border-ds-border px-3 py-1 text-[13px] font-semibold text-ds-ink" data-skeleton-open onClick={onSkeleton}>
         See skeleton
       </button>
@@ -189,6 +189,15 @@ export function FocusBar({ onSkeleton, onPast, hasPast }: { onSkeleton: () => vo
         <button type="button" className="ds-focus rounded-full border border-ds-border px-3 py-1 text-[13px] font-semibold text-ds-ink" data-past-chat-open onClick={onPast}>
           Past chat
         </button>
+      ) : null}
+      {menu ? (
+        // PC-28: the section tools (edit assignment, prompt type, sections) stay one tap away after a return.
+        <details className="w-full sm:w-auto" data-section-tools>
+          <summary className="ds-focus inline-block cursor-pointer rounded-full border border-ds-border px-3 py-1 text-[13px] font-semibold text-ds-ink">
+            Section tools
+          </summary>
+          <div className="mt-2 rounded-ds border border-ds-border bg-ds-surface p-3">{menu}</div>
+        </details>
       ) : null}
     </div>
   );
