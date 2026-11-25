@@ -2,7 +2,7 @@
 
 /**
  * Voice call (PLAN.md 9): with Voice on, the chat works like a Teams/Skype
- * call. Pau Pau speaks her own words; the student's mic listens between her
+ * call. Pau speaks her own words; the student's mic listens between her
  * turns (paused while she talks, so she doesn't hear herself), and a reply
  * sends itself after a short silence. Only one chat box listens at a time:
  * the newest one on screen.
@@ -56,7 +56,7 @@ export function callStatusText(status: CallStatus): string | null {
       return "Listening… just talk, and I'll send it when you pause.";
     case "paused":
       // Short: at 390px it must fit beside 'Talk now' in two lines like 'Listening…'.
-      return "Pau Pau is talking. Your mic is paused.";
+      return "Pau is talking. Your mic is paused.";
     case "starting":
       // Her turn is queued but no sound is playing yet: never claim she's talking.
       return "Getting her voice ready…";
