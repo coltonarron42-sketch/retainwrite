@@ -154,7 +154,8 @@ function exampleLeadBatchRaw(input: {
   const ref = input.rubricRef;
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
-    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea, ref, searchTerm: input.searchTerm ?? null });
+    const ideaForCards = idea && !isQuotedStudentQuestion(idea) && !isQuotedStudentQuestion(noteFocus(idea)) ? idea : "";
+    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null });
   }
   const candidates: LeadCandidate[] = [
     {
@@ -206,6 +207,17 @@ function exampleLeadBatchRaw(input: {
 
 const NOTE_LEAD_IN = /^(i think( that)?|i believe( that)?|my point is( that)?|in my opinion,?|i feel( like)?|honestly,?|so,?|basically,?)\s+/i;
 
+/**
+ * A student question is never a claim to quote on a direction card
+ * (QA on main: "You wrote “can I talk through the counterargument idea…?”").
+ */
+export function isQuotedStudentQuestion(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (/\?/.test(t)) return true;
+  return /^(can|could|would|should|may|will|do|does|did|is|are|was|were)\s+(i|we|you|it|this|that)\b/i.test(t);
+}
+
 /** The student's note as a short focus: “Social Security made the federal government…”. */
 export function noteFocus(idea: string, words = 24): string {
   const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
@@ -238,7 +250,8 @@ function sectionLeadBatch(ctx: {
   const { section, subject, question, idea, ref } = ctx;
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
-  const focus = idea ? noteFocus(idea) : "";
+  const rawFocus = idea ? noteFocus(idea) : "";
+  const focus = rawFocus && !isQuotedStudentQuestion(rawFocus) && !isQuotedStudentQuestion(idea) ? rawFocus : "";
   // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
   // added inside the marks) and is never last in a question, so a template '?'
   // can't turn it into one (QA 2:31 #3a). One framing rule for every section:

@@ -17,6 +17,8 @@ import {
   pressureTestLine,
 } from "@/lib/stages/explore-intent";
 import { stanceTurnFor } from "@/lib/stages/stance-turn";
+import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
+import { keptIdeas } from "@/lib/coaching/thin";
 
 const QA = {
   counter: "can I talk through the counterargument idea a bit before I commit?",
@@ -53,9 +55,10 @@ describe("PC-33: explore intent", () => {
     expect(isExploreLock("I'm not ready to lock that in")).toBe(false);
   });
 
-  it("pulls a topic and only notes real substance, never a bare request", () => {
-    expect(exploreTopic(QA.counter)).toMatch(/counter-?argument/i);
-    expect(exploreTopic(QA.costco)).toMatch(/costco comparison/i);
+  it("pulls a clean noun-phrase topic and only notes real substance, never a bare request", () => {
+    expect(exploreTopic(QA.counter)).toBe("the counterargument idea");
+    expect(exploreTopic(QA.costco)).toBe("the Costco comparison");
+    expect(exploreTopic(QA.hearMeOut)).toBeNull();
     expect(exploreNote(QA.counter)).toBeNull();
     expect(exploreNote(QA.hearMeOut)).toBeNull();
     expect(exploreNote("Can I talk through the Costco comparison — they treat workers well, but I'm not sure it belongs")).toMatch(/treat workers well/i);
@@ -63,16 +66,57 @@ describe("PC-33: explore intent", () => {
 
   it("the listen reply acknowledges, reflects, keeps the floor open, and does not interview", () => {
     const reply = exploreReply(QA.costco, "Body");
-    expect(reply).toMatch(/talk through/i);
-    expect(reply).toMatch(/Costco comparison/i);
+    expect(reply).toMatch(/talk through the Costco comparison/i);
     expect(reply).toMatch(/body/i);
     expect(reply).toMatch(/what you want for now/i);
     expect(reply).not.toMatch(/Going with it|lock it in|Your call is below|Pick one to chase/i);
+    expect(reply).not.toMatch(/talk through (?!(?:the|a|an) )/i);
     // At most one question, and only when there is nothing to reflect.
     expect((exploreReply("Can I talk through the Costco comparison — they treat workers well, but I haven't decided if it belongs", "Body").match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
     const bare = exploreReply("hear me out", "Introduction");
     expect((bare.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
-    expect(bare).toMatch(/introduction/i);
+    expect(bare).toMatch(/let's talk it through before anything gets locked/i);
+    expect(bare).not.toMatch(/talk through this/i);
+  });
+});
+
+describe("PC-33: listening acknowledgements stay grammatical", () => {
+  const cues: Array<[string, string | null]> = [
+    ["can I talk through the counterargument idea a bit before I commit?", "the counterargument idea"],
+    ["Can I talk through the Costco comparison… haven't decided if it belongs", "the Costco comparison"],
+    ["I'm not ready to lock that in… hear me out", null],
+    ["hear me out", null],
+    ["Let's talk this through before I lock it", null],
+    ["can I talk through it a bit before I commit?", null],
+    ["I want to talk through my Walton angle before I commit", "the Walton angle"],
+    ["talk through an opposing view first", "an opposing view"],
+    ["let me think out loud about a second example", "a second example"],
+    ["I want to bounce the profit-sharing example off you", "the profit-sharing example"],
+    ["I haven't decided if a Costco comparison belongs", "a Costco comparison"],
+  ];
+
+  function assertGrammatical(reply: string) {
+    expect(reply).not.toMatch(/talk through I(?:'m| am|'d|'ve|'ll)?\b/i);
+    expect(reply).not.toMatch(/talk through (?:not|ready|lock|it|this|that|my)\b/i);
+    expect(reply).not.toMatch(/talk through (?!(?:the|a|an) )[A-Za-z]/i);
+    expect(reply).not.toMatch(/talk through (?:counterargument idea|Costco comparison)(?!\w)/);
+  }
+
+  it("extracts an article + noun phrase, or falls back, for about ten cue phrasings", () => {
+    expect(cues).toHaveLength(11);
+    for (const [cue, topic] of cues) {
+      expect(exploreTopic(cue), cue).toBe(topic);
+      const reply = exploreReply(cue, "Introduction");
+      assertGrammatical(reply);
+      if (topic) {
+        expect(reply, cue).toContain(`talk through ${topic}`);
+        expect(reply, cue).toMatch(/before anything gets locked in your introduction/i);
+      } else {
+        expect(reply, cue).toMatch(/Got it, let's talk it through before anything gets locked\./);
+        expect(reply, cue).not.toMatch(/you want to talk through /i);
+      }
+      expect(reply, cue).not.toMatch(/Going with it|lock it in|Your call is below|Pick one to chase/i);
+    }
   });
 });
 
@@ -188,5 +232,48 @@ describe("PC-33: wiring stays out of Stage 1 and the gate", () => {
     expect(chat).not.toMatch(/Going with it\?[\s\S]{0,200}isExploreIntent/);
     expect(loop).toContain("onListen");
     expect(loop).toContain("listening:");
+  });
+});
+
+describe("PC-33: explore cues beat the wandering lead path", () => {
+  const sheet = "Prompt: Which leadership style is most effective? Write an argument essay.";
+
+  it("the wander-plus-explore QA line is listen-first, never an official note", () => {
+    expect(isExploreIntent(QA.counter)).toBe(true);
+    expect(keptIdeas([QA.counter])).toEqual([]);
+    expect(keptIdeas(["Sam Walton put associates first.", QA.counter])).toEqual(["Sam Walton put associates first."]);
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    const listenAt = chat.search(/if \(kind === "listening" \|\| isExploreIntent\(text\)\)/);
+    const classifyAt = chat.indexOf("props.classify(text, ask)");
+    expect(listenAt).toBeGreaterThan(0);
+    expect(classifyAt).toBeGreaterThan(listenAt);
+  });
+
+  it("direction cards never echo the student's own question, including the QA explore line", () => {
+    const cues = [QA.counter, QA.hearMeOut, QA.costco, "Is a later bell fair to parents?"];
+    for (const idea of cues) {
+      const b = exampleLeadBatch({
+        concept: "servant leadership",
+        assignmentText: sheet,
+        studentIdea: idea,
+        rubricRef: "prompt",
+        section: { key: "intro", title: "Introduction" },
+      });
+      const cards = [...b.candidates, b.wildcard].filter(Boolean);
+      expect(cards.length).toBeGreaterThan(0);
+      for (const c of cards) {
+        expect(c!.name, idea).not.toContain("You wrote");
+        expect(c!.name, idea).not.toContain(idea.replace(/[?…]+$/u, "").trim());
+        expect(c!.whyFits, idea).not.toContain(idea.replace(/[?…]+$/u, "").trim());
+      }
+    }
+    const claim = exampleLeadBatch({
+      concept: "servant leadership",
+      assignmentText: sheet,
+      studentIdea: "Sam Walton put associates first.",
+      rubricRef: "prompt",
+      section: { key: "intro", title: "Introduction" },
+    });
+    expect(claim.candidates[0]!.name).toMatch(/^You wrote “Sam Walton put associates first\.?”/);
   });
 });

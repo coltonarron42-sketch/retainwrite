@@ -54,27 +54,77 @@ export function isExploreLock(text: string): boolean {
   return LOCK_CUE.test(t);
 }
 
-const TALK_THROUGH =
-  /\btalk(?: it| this| that)? through\s+(?:the |this |that |my )?(.+?)(?:\s+(?:a bit|a little|with you|here|first|before|because|but|and|—|–|\.\.\.|…)|[.?!]|$)/i;
-const NAMED_IDEA =
-  /\b(?:the |this |that |my )?((?:[A-Z][\w'&-]*(?:\s+[A-Z][\w'&-]*){0,3}|counter-?arguments?|comparisons?|examples?|angles?|ideas?|leads?)(?:\s+(?:idea|comparison|example|angle|lead|option|point))?)\b/;
-
-/** A short topic phrase from their words, or null. */
+/**
+ * A clean noun phrase for the acknowledgement ("the counterargument idea"),
+ * or null when there isn't one. Never a leftover cue ("I'm", "it", "this").
+ */
 export function exploreTopic(text: string): string | null {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return null;
-  const through = t.match(TALK_THROUGH);
-  const raw = (through?.[1] ?? "").trim();
-  if (raw && wordCount(raw) <= 8) return cleanTopic(raw);
-  const named = t.match(NAMED_IDEA);
-  if (named?.[1] && !/^(idea|this|that|it)$/i.test(named[1])) return cleanTopic(named[1]);
-  return null;
+  const cuts = [
+    t.match(/\btalk(?:\s+(?:it|this|that))?\s+through\s+(.+)/i)?.[1],
+    t.match(/\bthink\s+(?:this\s+|it\s+)?out\s+loud\s+about\s+(.+)/i)?.[1],
+    t.match(/\bbounce\s+(.+?)\s+off you\b/i)?.[1],
+    t.match(/\b(?:haven'?t decided if|not sure if)\s+(.+?)\s+belongs\b/i)?.[1],
+    t.match(/\btalk about\s+(.+)/i)?.[1],
+  ];
+  for (const raw of cuts) {
+    const phrase = nounPhraseFrom(raw);
+    if (phrase) return phrase;
+  }
+  const det = nounPhraseFrom(t.match(/\b((?:the|a|an)\s+[A-Za-z][\w'&-]*(?:\s+[A-Za-z][\w'&-]*){0,4})\b/)?.[1]);
+  return det && isTopicalPhrase(det) ? det : null;
 }
 
-function cleanTopic(s: string): string {
-  const t = s.replace(/[“”"']+$/g, "").replace(/^[“”"']+/g, "").trim();
-  if (!t) return t;
-  return t.charAt(0).toLowerCase() === t.charAt(0) ? t : t;
+/** Cut at punctuation or a trailing cue, then require a real noun phrase with an article. */
+function nounPhraseFrom(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.replace(/\s+/g, " ").trim();
+  const tail = s.search(/(?:\s*(?:[.?!…]+|\.{2,})\s*|\s+[—–-]+\s+|\s+(?:a bit|a little|with you|here|first|before|because|but|and|or|so)\b|,)/i);
+  if (tail > 0) s = s.slice(0, tail);
+  s = s.replace(/^[,.\s"“”'’—–…-]+/, "").replace(/[,.\s"“”'’—–…-]+$/, "").trim();
+  if (!s) return null;
+  const had = s.match(/^(the|a|an|this|that|my)\s+(.+)$/i);
+  let article = had?.[1]?.toLowerCase() ?? null;
+  let rest = had ? had[2]! : s;
+  const words = rest.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 6) return null;
+  if (words.some(isCueWord) || /^(idea|thing|it)$/i.test(rest)) return null;
+  rest = words.map(tidyTopicWord).join(" ");
+  if (article === "my" || article === "this" || article === "that") article = "the";
+  if (article === "a" || article === "an") {
+    article = startsWithVowelSound(words[0]!) ? "an" : "a";
+  }
+  if (!article) {
+    article = startsWithVowelSound(words[0]!) && !/^[A-Z]/.test(words[0]!) ? "an" : "the";
+  }
+  return `${article} ${rest}`;
+}
+
+const COMMON_TOPIC = /^(counter-?arguments?|comparisons?|examples?|angles?|ideas?|leads?|options?|points?|rebuttals?|views?|opposing|second)$/i;
+const CUE_WORD = /^(i|i'?m|i'?d|i'?ve|i'?ll|you|we|he|she|they|it|this|that|not|ready|lock|commit|decide|hear|out|me|us)$/i;
+
+function isCueWord(w: string): boolean {
+  return CUE_WORD.test(w.replace(/[^a-zA-Z'’-]/g, ""));
+}
+
+function tidyTopicWord(w: string): string {
+  return COMMON_TOPIC.test(w) ? w.toLowerCase() : w;
+}
+
+function startsWithVowelSound(w: string): boolean {
+  return /^[aeiou]/i.test(w.replace(/[^a-zA-Z]/g, ""));
+}
+
+const WEAK_SINGLE = /^(bit|little|lot|while|moment|time|now|first|here|there|way|stuff|thing|one|part|section)$/i;
+const TOPIC_NOUN = /^(counter-?arguments?|comparisons?|examples?|angles?|ideas?|leads?|options?|points?|rebuttals?|views?)$/i;
+
+function isTopicalPhrase(phrase: string): boolean {
+  const rest = phrase.replace(/^(the|a|an)\s+/i, "");
+  const words = rest.split(/\s+/).filter(Boolean);
+  if (!words.length || (words.length === 1 && WEAK_SINGLE.test(words[0]!))) return false;
+  if (words.length >= 2) return true;
+  return TOPIC_NOUN.test(rest) || /^[A-Z][a-zA-Z'&-]+$/.test(words[0]!);
 }
 
 /**
@@ -87,6 +137,7 @@ export function exploreNote(text: string): string | null {
   t = t
     .replace(/^(?:(?:ok(?:ay)?|so|um+|uh+|well|hey)[,.!\s]+)*/i, "")
     .replace(/^(?:can I |could I |I want to |I'?d like to |let me |let's )?(?:talk(?: it| this| that)? through|hear me out|think (?:this |it )?out loud)\s*(?:the |this |that |my )?/i, "")
+    .replace(/^(?:I'?m not ready to lock(?: that)? in|hear me out)\b[,.\s—–…]*/i, "")
     .replace(/\b(?:a bit |a little )?(?:before I (?:commit|lock(?: it)?(?: in)?|decide)|I'?m not ready to lock(?: that)? in|haven'?t decided if it belongs)\b/gi, "")
     .replace(/^[,.\s—–…-]+/, "")
     .replace(/[,.\s—–…-]+$/, "")
@@ -102,8 +153,9 @@ export function exploreReply(text: string, sectionTitle: string): string {
   const topic = exploreTopic(text);
   const note = exploreNote(text);
   const reflected = note ? quoteOnWordBoundary(note, 110) : "";
-  const about = topic ? ` ${topic}` : " this";
-  const ack = `Got it — you want to talk through${about} before anything gets locked in your ${part}.`;
+  const ack = topic
+    ? `Got it — you want to talk through ${topic} before anything gets locked in your ${part}.`
+    : "Got it, let's talk it through before anything gets locked.";
   const hold = reflected
     ? ` I'm hearing “${reflected}.” I'll note it for this section.`
     : ` I'll note it for this section and keep this open.`;
