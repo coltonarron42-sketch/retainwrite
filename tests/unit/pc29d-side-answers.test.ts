@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runRelay } from "@/lib/voice/realtime/relay";
-import { asideSpoken, AsideVoice, SIDE_RETURN, sideAnswerParas, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
+import { asideSpoken, AsideVoice, sentencesOf, SIDE_RETURN, sideAnswerParas, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
 import { friendlyStatus, isAssignmentRead, readingFooter } from "@/lib/stage1/reading-status";
 
 describe("side answers are spoken", () => {
@@ -25,10 +25,10 @@ describe("side answers are spoken", () => {
     expect(s).not.toContain("whenever you're ready");
     // Preview run: the answer's own question isn't said before heading back (one question at a time).
     expect(
-      asideSpoken([
+      asideSpoken(sideAnswerParas([
         "It asks you to pick one style and argue it with one real leader. Northouse, from my own knowledge, covers trait, situational and servant approaches. Which style do you want to argue for?",
         "Back to my question whenever you're ready.",
-      ]),
+      ])),
     ).toBe("It asks you to pick one style and argue it with one real leader. Northouse, from my own knowledge, covers trait, situational and servant approaches. Okay, back to your question.");
     // Without a way back (a pasted reading's own ask), its question stays.
     expect(asideSpoken(["Here's the gist. Now, in your own words: what do you make of it?"])).toBe("Here's the gist. Now, in your own words: what do you make of it?");
@@ -75,6 +75,33 @@ describe("QA must-fix (PR #69): screen and voice say the same side answer", () =
     expect(sideAnswerParas(["Do you mean the reading or the style?"])).toEqual(["Do you mean the reading or the style?", SIDE_RETURN]);
     expect(sideAnswerParas(["It means X.", "Back to my question whenever you're ready."])).toEqual(["It means X.", SIDE_RETURN]);
     expect(sideAnswerParas([])).toEqual([]);
+  });
+});
+
+describe("QA retest must-fix (a44e1e1): a multi-paragraph assignment answer is spoken from its first word", () => {
+  // QA's shape: paragraph 1 names Goleman's article, whose title ends in "?"; voice started at paragraph 2.
+  const raw = [
+    "The assignment asks you to argue which leadership style works best for leading a team through change, using one real leader as your example, citing Chapter 4 of Northouse plus Goleman's HBR article 'What Makes a Leader?' as your sources. It's 1,200 to 1,500 words in APA 7 format.",
+    "Northouse covers several styles, like transformational, servant and situational leadership. From general background, not your readings: Goleman's 'What Makes a Leader?' argues emotional intelligence matters more than IQ. Which style do you want to argue for?",
+  ];
+  it("screen keeps both paragraphs (only the trailing coach question goes) and voice says exactly the screen, in order", () => {
+    const paras = sideAnswerParas(raw);
+    expect(paras).toEqual([
+      raw[0],
+      "Northouse covers several styles, like transformational, servant and situational leadership. From general background, not your readings: Goleman's 'What Makes a Leader?' argues emotional intelligence matters more than IQ.",
+      SIDE_RETURN,
+    ]);
+    const spoken = asideSpoken(paras);
+    expect(spoken).toBe(paras.join(" "));
+    expect(spoken.startsWith("The assignment asks you to argue")).toBe(true);
+    expect(spoken.indexOf("The assignment asks")).toBeLessThan(spoken.indexOf("Northouse covers"));
+  });
+  it("a title ending in '?' never ends a sentence or counts as a question", () => {
+    expect(sentencesOf("Read Goleman's 'What Makes a Leader?' by Friday. Then pick one.").map((x) => x.trim())).toEqual([
+      "Read Goleman's 'What Makes a Leader?' by Friday.",
+      "Then pick one.",
+    ]);
+    expect(sideAnswerParas(["It uses Goleman's 'What Makes a Leader?'"])).toEqual(["It uses Goleman's 'What Makes a Leader?'", SIDE_RETURN]);
   });
 });
 

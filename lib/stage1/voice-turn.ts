@@ -221,8 +221,32 @@ export const SIDE_RETURN = "Okay, back to your question.";
 // The current line, and the older on-screen one ("Back to my question whenever you're ready.").
 const BACK_LINE = /^(?:okay, )?back to (?:my|your) question\b/i;
 
-const sentencesOf = (t: string) => t.match(/[^.!?]+(?:[.!?]+["”’')\]]*|$)/g) ?? [];
-const isQuestion = (x: string) => /\?["”’')\]]*\s*$/.test(x.trim());
+/**
+ * Sentences of a side answer. A "?" or "." inside a title or quote ('What Makes a Leader?' by
+ * Goleman) is not a sentence end: one needs a following capital/number (or the end of the text).
+ * PC-29d QA retest: splitting at that "?" made the opening sentence look like a question.
+ */
+export function sentencesOf(t: string): string[] {
+  const out: string[] = [];
+  const re = /[.!?]+["”’')\]]*(?=\s+["“‘(]?[A-Z0-9]|\s*$)/g;
+  let start = 0;
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    const end = m.index + m[0].length;
+    if (end > start) out.push(t.slice(start, end));
+    start = end;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  if (start < t.length && t.slice(start).trim()) out.push(t.slice(start));
+  return out;
+}
+/** Ends on a question mark (closing quotes allowed; "Leader?'." ends on a period). */
+const isQuestion = (x: string) => {
+  const t = x.trim();
+  // A quoted title that ends the sentence ("… Goleman's 'What Makes a Leader?'") isn't a question.
+  if (/(?:^|\s)["“'‘][^"“”'‘’]{2,120}\?["”'’]$/.test(t)) return false;
+  const m = t.match(/([.!?]+)["”’')\]]*$/);
+  return Boolean(m && m[1]!.endsWith("?"));
+};
 
 /**
  * The on-screen side answer (PC-29d QA): the coaching answer's own words without a trailing coach
@@ -265,12 +289,9 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
       .trim();
   const back = paras.some((p) => BACK_LINE.test(p.trim()));
   let body = paras.filter((p) => !BACK_LINE.test(p.trim())).map(clean).filter(Boolean).join(" ");
-  // Heading back to the on-screen prompt: one question at a time, so the answer's own question
-  // (still in the bubble) isn't said before "back to your question".
-  if (back) {
-    const kept = sentencesOf(body).filter((x) => !isQuestion(x));
-    if (kept.join("").trim()) body = kept.join("").replace(/\s+/g, " ").trim();
-  }
+  // PC-29d QA retest: nothing is filtered here any more. The on-screen answer (sideAnswerParas)
+  // already has no trailing question of its own, so voice says the screen's words from the first
+  // word; filtering "questions" again dropped an opening sentence with a title ending in "?".
   if (body.length > maxChars) {
     const cut = body.slice(0, maxChars);
     const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
