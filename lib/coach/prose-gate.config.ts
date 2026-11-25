@@ -73,3 +73,20 @@ export const REFRAME_FOR: { re: RegExp; q: string }[] = [
   { re: /\bconclu(?:sion|de)\b/i, q: "I can help you think through that — what do you want a reader to walk away with at the end?" },
   { re: /\bthesis\b/i, q: "I can help you think through that — what's the one claim you want the whole paper to prove?" },
 ];
+
+/**
+ * PC-31 grounding gate for side answers (preview QA: "the essay needs six body paragraphs", not in the
+ * assignment; Northouse described with no "general background" label, rule R2).
+ */
+export const GROUNDING = {
+  /** A requirement count is kept only when that number appears in the assignment/paper context. */
+  countNouns: "body paragraphs?|paragraphs?|sections?|sources?|references?|citations?|pages?|quotes?|examples?",
+  /** Lines that already carry the R2 label. */
+  label: /general background|my own (?:general )?knowledge|from what i know|not from your (?:copy|pages|reading|textbook)|in general terms/i,
+  /** What she prepends to an unlabeled claim about a reading we don't have the text of. */
+  prefix: "General background, not from your copy:",
+  /** Verbs that make a line a claim about what a reading says. */
+  claimVerbs: /\b(?:argues?|says?|defines?|describes?|explains?|focus(?:es)?|covers?|notes?|puts?|outlines?|treats?|centers?|presents?|claims?|lists?|introduces?|discusses?|highlights?|emphasi[sz]es|names?|calls?|shows?|points? to|positions?|surveys?|stresses?)\b/i,
+  /** Capitalized words in reading titles that aren't author names. */
+  stopTitleWords: /^(?:Chapter|Chapters|Leadership|Theory|Practice|What|Makes|Leader|Article|Textbook|Harvard|Business|Review|Using|Reading|Readings|Book|Part|Unit|Edition|The|And|Our|Assigned|Introduction|Principles|Guide|Notes|Handout|Journal|Week|Module|Lecture|Case|Study)$/,
+};

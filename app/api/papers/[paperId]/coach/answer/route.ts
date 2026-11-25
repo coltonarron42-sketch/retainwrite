@@ -9,8 +9,9 @@ import { createClient } from "@/lib/supabase/server";
 import { loadPauContextBlock } from "@/lib/server/paper-context/store";
 import { cleanPauParas, coachAnswerSystem } from "@/lib/coach/answer";
 import { classifyTurn, resolveMode } from "@/lib/coach/effort";
-import { gateParas } from "@/lib/coach/prose-gate";
-import { capOneAsk } from "@/lib/coach/one-ask";
+import { gateParas, reframeQuestion } from "@/lib/coach/prose-gate";
+import { groundParas } from "@/lib/coach/grounding";
+import { capOneAsk, countAsks } from "@/lib/coach/one-ask";
 import { checkLinks } from "@/lib/voice/realtime/links";
 import { signSpoken, spokenFrom } from "@/lib/coach/spoken-sign";
 import type { PaperContext } from "@/lib/stage1/paper-context";
@@ -120,10 +121,28 @@ export async function POST(request: Request, ctx: Ctx) {
 
   // Code gates: pasteable prose → reframe; then one ask per turn.
   const names = [paperCtx?.leader?.pick, ...(body.message.match(/\b[A-Z][a-z]{2,}\b/g) ?? [])].filter((n): n is string => Boolean(n));
+  // Grounding (side answers): requirement counts only from the assignment; reading claims labeled when we lack the text.
+  let grounded = { fixedCounts: [] as string[], labeled: 0 };
+  if (mode !== "research" && mode !== "reframe" && paras.length) {
+    const haveText = (paperCtx?.readings ?? []).filter((r) => r.text?.trim()).map((r) => r.title);
+    const named = [
+      ...(paperCtx?.missing ?? []),
+      ...(paperCtx?.whereToGet ?? []).map((w) => w.title),
+      ...(paperCtx?.readback?.mustInclude ?? []).filter((x) => /chapter|reading|textbook|article|book|\(/i.test(x)),
+      ...block.split("\n").filter((l) => /chapter|reading|textbook|article|\bbook\b/i.test(l)),
+      ...(paperCtx?.readings ?? []).filter((r) => !r.text?.trim()).map((r) => r.title),
+    ];
+    const haveTok = new Set(haveText.flatMap((t) => t.match(/\b[A-Z][a-zA-Z'’-]{3,}\b/g) ?? []));
+    const g = groundParas(paras, { source: `${block}\n${body.section ?? ""}`, unreadRefs: named.map((t) => (t.match(/\b[A-Z][a-zA-Z'’-]{3,}\b/g) ?? []).filter((w) => !haveTok.has(w)).join(" ")) });
+    paras = g.paras;
+    grounded = { fixedCounts: g.fixedCounts, labeled: g.labeled };
+  }
   const gate = gateParas(paras, { afterWriteRequest: turn.intent === "write_request", context: `${body.message} ${body.section ?? ""}`, names, seed: started, echo: body.message });
   paras = gate.paras;
   const capped = capOneAsk(paras);
   paras = capped.paras;
+  // A write request always ends on the one question that hands it back (preview: a reframe came back as one line).
+  if (mode === "reframe" && paras.length && countAsks(paras) === 0) paras = [...paras, reframeQuestion({ context: `${body.message} ${body.section ?? ""}`, seed: started })];
   if (paras.some((p) => !assertCoachingOnly(p).ok)) paras = [];
 
   // Only links that resolve (the same checker the voice relay uses for show_sources).
@@ -144,6 +163,7 @@ export async function POST(request: Request, ctx: Ctx) {
     searches,
     sources: sources.length,
     gate: gate.blocked ? gate.reason : "pass",
+    grounded: grounded.fixedCounts.length || grounded.labeled ? { counts: grounded.fixedCounts.length, labeled: grounded.labeled } : "ok",
     asksDropped: capped.dropped,
     stage: body.stage,
     ms: Date.now() - started,
