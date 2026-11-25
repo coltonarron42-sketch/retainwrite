@@ -1106,7 +1106,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           // The server never heard speech after the pause: it was noise, resume her now.
           if (speechAt < b.at && !b.itemId) return verdict(false);
           // Still talking, or a turn is in and its words are on the way: wait (bounded).
-          const waiting = speechActive || (b.itemId !== null && !completedItems.has(b.itemId));
+          // (Server VAD lags: speech can start, stop and still be waiting on its commit/transcript.)
+          const waiting = speechActive || (b.itemId !== null ? !completedItems.has(b.itemId) : speechAt >= b.at);
           if (waiting && age < TURN_TUNING.verdictMaxMs) {
             b.timer = setTimeout(check, 250);
             return;

@@ -305,6 +305,25 @@ describe("relay turn-taking (scripted xAI events)", () => {
     c.close();
   });
 
+  it("a short real interrupt whose words arrive after the verdict window still counts as real", async () => {
+    const { c, got, up, send, herLine } = await session();
+    herLine("r1", "So the prompt wants one clear claim about school start times and two reasons. What's your first reason?");
+    await wait(60);
+    send({ type: "rw.barge", response_id: "r1", played_ms: 2900, total_ms: 7000, remainder: "two reasons. What's your first reason?" });
+    // Recorded on the preview: speech_started +0.8 s, stopped before the 1.2 s check, words at +2.9 s.
+    await wait(800);
+    up({ type: "input_audio_buffer.speech_started" });
+    await wait(200);
+    up({ type: "input_audio_buffer.speech_stopped" });
+    await wait(TURN_TUNING.verdictTimeoutMs);
+    expect(got.some((e) => e.type === "rw.verdict")).toBe(false);
+    up({ type: "input_audio_buffer.committed", item_id: "b9" });
+    up({ type: "conversation.item.input_audio_transcription.completed", item_id: "b9", transcript: "Wait, hold on a second." });
+    await wait(80);
+    expect(got.filter((e) => e.type === "rw.verdict")).toEqual([expect.objectContaining({ real: true, response_id: "r1" })]);
+    c.close();
+  });
+
   it("a real barge-in truncates her turn where it was heard and keeps the unheard point for after the answer", async () => {
     const { c, got, up, send, herLine } = await session();
     herLine("r1", "So the prompt wants one clear claim about school start times and two reasons. What's your first reason?");
