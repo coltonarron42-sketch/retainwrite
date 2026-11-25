@@ -1,3 +1,4 @@
+import { pickedLeader, pickedStyles } from "@/lib/stage1/paper-context";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -47,9 +48,14 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const existing = await readGhost(paperId);
     const shape = await ensureShape({ paperId, userId: user.id, assignmentText: text, words, material, existing });
     let outline = existing?.outline ?? null;
-    if (post) {
-      const choices = [...post.choices, pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].map((c) => c.trim()).filter(Boolean);
-      outline = await ensureOutline({ paperId, userId: user.id, shape, choices, bodyNotes: post.bodyNotes.map((n) => n.trim()).filter(Boolean), existing });
+    // Ghost #2 (QA 1:11 AM #1): bold titles as soon as their choices lock (leader, styles), then
+    // refined from their body notes (POST). A shape change re-titles; a plain GET never churns them.
+    const facts = { leader: pickedLeader(pctx), styles: pickedStyles(pctx?.decision, pctx?.options?.options ?? []) };
+    const choices = [...(post?.choices ?? []), pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].map((c) => c.trim()).filter(Boolean);
+    const shapeChanged = Boolean(outline && outline.titles.some((t) => !shape.blocks.some((b) => b.key === t.key)));
+    if (post || ((!outline || shapeChanged) && (facts.leader || facts.styles.length))) {
+      const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
+      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing });
     }
     return NextResponse.json({ view: viewFor(shape, outline) });
   } catch {

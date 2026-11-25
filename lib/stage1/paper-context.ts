@@ -705,3 +705,49 @@ export function decisionLabel(d: { pick?: string | null; answer?: string | null 
   return head;
 }
 
+
+const STYLE_WORDS = ["transformational", "servant", "situational", "transactional", "democratic", "autocratic", "authentic", "laissez-faire", "charismatic", "behavioral", "participative", "adaptive", "path-goal", "coaching", "visionary"];
+
+/**
+ * QA 1:11 AM #7: every style/option they picked, in the order they said them
+ * ("servant and transformational" → ["Servant", "Transformational"]), never just the first.
+ */
+export function pickedStyles(decision: { pick?: string | null; answer?: string | null } | null | undefined, options: DecisionOption[] = []): string[] {
+  if (!decision) return [];
+  const said = `${decision.answer ?? ""}`.toLowerCase();
+  const hits: { at: number; label: string }[] = [];
+  const add = (word: string, label: string) => {
+    const m = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").exec(said);
+    if (m && !hits.some((h) => h.label.toLowerCase() === label.toLowerCase())) hits.push({ at: m.index, label });
+  };
+  for (const o of options) {
+    const head = o.label.split(/[:(–]/)[0]!.trim();
+    // A whole label ("team management"), never one shared word like "team" (QA 6:03 follow-up).
+    if (head.length > 3) add(head.toLowerCase(), head);
+  }
+  for (const w of STYLE_WORDS) add(w, w.charAt(0).toUpperCase() + w.slice(1));
+  hits.sort((a, b) => a.at - b.at);
+  const out = hits.map((h) => h.label);
+  const pick = decision.pick && decision.pick !== "their own" ? decision.pick.split(/[:(–]/)[0]!.trim() : null;
+  if (pick && decision.pick && answerNamesOption(decision.answer ?? "", decision.pick) && !out.some((x) => x.toLowerCase().startsWith(pick.toLowerCase().split(" ")[0]!))) out.unshift(pick);
+  return out.slice(0, 4);
+}
+
+/** Their leader or example person, from the leader pick or named in the decision. */
+export function pickedLeader(ctx: Pick<PaperContext, "leader" | "decision" | "options"> | null | undefined): string | null {
+  if (!ctx) return null;
+  const pick = ctx.leader?.pick && ctx.leader.pick !== "their own" ? ctx.leader.pick : null;
+  if (pick && pick.split(" ").length <= 5) return pick;
+  for (const text of [ctx.leader?.answer, ctx.decision?.answer]) {
+    if (!text) continue;
+    const parsed = parseStance(text, ctx.options?.options ?? [], ctx.options?.people ?? []);
+    if (parsed?.leader) return parsed.leader;
+  }
+  return null;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function andList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}

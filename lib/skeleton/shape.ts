@@ -87,18 +87,36 @@ export function ruleShape(input: { text: string; words?: number | null }): Paper
 
 const modelShapeSchema = z.object({
   body: z
-    .array(z.object({ focus: z.string().min(2).max(120), kind: z.string().max(40).optional() }))
-    .min(BODY_MIN)
-    .max(BODY_MAX),
-  transitions: z.number().int().min(0).max(20).optional(),
-  examples: z.number().int().min(0).max(20).optional(),
-  theories: z.number().int().min(0).max(10).optional(),
-  decisions: z.array(z.string().max(160)).max(6).optional(),
+    .array(z.object({ focus: z.string().min(2), kind: z.string().optional() }))
+    .min(BODY_MIN),
+  transitions: z.number().optional(),
+  examples: z.number().optional(),
+  theories: z.number().optional(),
+  decisions: z.array(z.string()).optional(),
 });
+
+/** QA 1:11 AM #1: a model answer that is a little off (long focus, 7 decisions) is trimmed, not thrown away. */
+function lenientShape(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+  const body = (Array.isArray(r.body) ? r.body : Array.isArray(r.paragraphs) ? r.paragraphs : [])
+    .map((b) => (typeof b === "string" ? { focus: b } : b))
+    .filter((b): b is { focus: unknown; kind?: unknown } => Boolean(b) && typeof b === "object" && typeof (b as { focus?: unknown }).focus === "string")
+    .slice(0, BODY_MAX)
+    .map((b) => ({ focus: String(b.focus).slice(0, 120), kind: typeof b.kind === "string" ? b.kind.slice(0, 40) : undefined }));
+  const int = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : undefined);
+  return {
+    body,
+    transitions: int(r.transitions, 20),
+    examples: int(r.examples, 20),
+    theories: int(r.theories, 10),
+    decisions: Array.isArray(r.decisions) ? r.decisions.filter((d): d is string => typeof d === "string").slice(0, 6).map((d) => d.slice(0, 160)) : undefined,
+  };
+}
 
 /** A model shape, checked and capped. Labels stay generic (no names: it's shape only). */
 export function shapeFromModel(raw: unknown): PaperShape | null {
-  const parsed = modelShapeSchema.safeParse(raw);
+  const parsed = modelShapeSchema.safeParse(lenientShape(raw));
   if (!parsed.success) return null;
   const body = parsed.data.body;
   const blocks: ShapeBlock[] = [{ key: "intro", group: "intro", label: "Introduction", sub: INTRO_SUB }];
@@ -120,8 +138,8 @@ export function shapeFromModel(raw: unknown): PaperShape | null {
 
 export const SHAPE_SYSTEM = `You plan the SHAPE of a student's paper so a writing coach knows the structure. You never write any part of the paper.
 Return JSON only: {"body":[{"focus":"...","kind":"example|theory|analysis|counter|evidence"}],"transitions":n,"examples":n,"theories":n,"decisions":["..."]}.
-- body: one entry per body paragraph, in order. Size it to the assignment's length (about 250 words per body paragraph; a 10-page paper has many more than a 2-page one) and to what it requires (named examples, theories, styles, counterarguments).
-- focus: 2 to 6 generic words naming the paragraph's job, lowercase, no names, no claims, no sentences (e.g. "leadership example 2", "tie in the theory", "counterargument").
+- body: one entry per body paragraph, in order. Size it to the assignment's length (about 250 words per body paragraph; a 10-page paper has many more than a 2-page one) and to what it requires (named examples, theories, styles, readings, counterarguments).
+- focus: 2 to 7 words naming the paragraph's job for THIS assignment, lowercase, e.g. "the leader's change story", "style in action: first example", "tie it to Northouse's styles", "Goleman's emotional intelligence link", "counterargument and reply". You may name the theories, styles and readings the assignment itself names. Never the student's own choices, no claims, no sentences.
 - decisions: up to 5 short questions the student must decide before drafting (e.g. "Which leader will you use?"). Never answer them.`;
 
 const modelOutlineSchema = z.object({
@@ -137,35 +155,64 @@ export function titleSafe(title: string): string {
   return words.slice(0, 10).join(" ");
 }
 
-export function outlineFromModel(raw: unknown, shape: PaperShape, bodyNotes: number): ShapeOutline | null {
+const DANGLING = /\b(?:of|the|a|an|to|and|or|with|for|in|on|at|by|from|as|that|which|who|his|her|their|its|my|your|our|is|was|be|very|big|so|but)$/i;
+
+/** QA 1:11 AM #1: a clean short title (whole comma parts, never cut mid-phrase), or "" to reject. */
+export function cleanTitle(title: string, maxWords = 8): string {
+  const t = title.replace(/["“”‘’]/g, "").replace(/\s+/g, " ").replace(/[.!?;:]+$/g, "").trim();
+  if (!t || /[.!?]\s/.test(t)) return "";
+  const parts = t.split(/\s*,\s*/).filter(Boolean);
+  const out: string[] = [];
+  for (const part of parts) {
+    if ([...out, part].join(" ").split(" ").length > maxWords) break;
+    out.push(part);
+  }
+  const joined = out.join(", ");
+  if (!joined || DANGLING.test(joined) || joined.split(" ").length < 2 && out.length < 2) return "";
+  return joined;
+}
+
+export type OutlineFacts = { leader: string | null; styles: string[] };
+
+export function outlineFromModel(raw: unknown, shape: PaperShape, bodyNotes: number, facts?: OutlineFacts): ShapeOutline | null {
   const parsed = modelOutlineSchema.safeParse(raw);
   if (!parsed.success) return null;
   const body = shape.blocks.filter((b) => b.group === "body");
+  const rules = facts ? ruleOutline(shape, facts) : null;
   const titles = body.map((b, i) => {
     const m = parsed.data.titles[i];
+    const title = m ? cleanTitle(m.title) : "";
     return {
       key: b.key,
-      title: m ? titleSafe(m.title) : "",
+      title: title || rules?.titles.find((t) => t.key === b.key)?.title || "",
       ideaRefs: (m?.ideas ?? []).filter((n) => n < bodyNotes),
     };
   });
   return { v: 1, titles: titles.filter((t) => t.title), source: "model" };
 }
 
-/** Rules fallback for ghost #2: titles from the student's own body notes (first words). */
-export function ruleOutline(shape: PaperShape, bodyNotes: string[]): ShapeOutline {
+const lowerStyle = (s: string) => (/^[A-Z][a-z]+(?:[- ][a-z]+)*$/.test(s) ? s.toLowerCase() : s);
+
+/**
+ * Rules fallback for ghost #2 (QA 1:11 AM #1): titles from their CHOICES (leader, styles),
+ * never the first words of a note. "Body 1 – Sam Walton, servant", "Body 2 – Sam Walton, transformational".
+ */
+export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutline {
   const body = shape.blocks.filter((b) => b.group === "body");
-  const titles = bodyNotes.slice(0, body.length).map((note, i) => ({
-    key: body[i]!.key,
-    title: titleSafe(note.split(/(?<=[.!?])\s/)[0] ?? note).split(/\s+/).slice(0, 7).join(" "),
-    ideaRefs: [i],
-  }));
+  const styles = facts.styles.map(lowerStyle);
+  if (!facts.leader && !styles.length) return { v: 1, titles: [], source: "rules" };
+  const titles = body.map((b, i) => {
+    const style = styles[i] ?? (styles.length === 1 && i === 0 ? styles[0] : null);
+    const job = style ? null : clean(b.sub, 40);
+    const parts = [facts.leader, style ? `${style}${/leader|style/i.test(style) ? "" : " leadership"}` : job].filter((x): x is string => Boolean(x));
+    return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[] };
+  });
   return { v: 1, titles: titles.filter((t) => t.title), source: "rules" };
 }
 
 export const OUTLINE_SYSTEM = `You label the body paragraphs of a student's paper plan with short titles, using ONLY the student's own choices and notes. You never write any part of the paper.
 Return JSON only: {"titles":[{"title":"...","ideas":[0,2]}]} with one entry per body paragraph, in order.
-- title: 3 to 8 words, like "Legere, winners circle, culture change". Names and topics the student chose, comma-separated. No sentences, no claims, no new facts.
+- title: 3 to 7 words, comma-separated parts: their leader or example, the style or idea that paragraph shows, and (if their notes give one) the example in 1 to 3 words. E.g. "Sam Walton, transformational vision", "Sam Walton, servant leadership, listening to associates", "Legere, winners circle, culture change". Each part is a complete noun phrase; never end on a word like "of", "the" or "a". No sentences, no claims, no new facts, nothing the student didn't choose or write.
 - ideas: indexes of the student's body notes that belong in that paragraph (may be empty).`;
 
 /** The client view: labels, subheadings and short titles only. */
