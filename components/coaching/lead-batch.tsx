@@ -22,7 +22,7 @@ export function LeadBatchView({ ranked, wildcard, capReached, searchPrompt, onPi
                 {lead.rank === 1 ? <span className="mr-2 text-xs uppercase text-rw-teal">Best fit</span> : null}
                 {lead.name}
               </p>
-              <span className="text-xs font-semibold uppercase text-rw-ink/75">To verify</span>
+              {" "}<span className="text-xs font-semibold uppercase text-rw-ink/75">Check it yourself</span>
             </div>
             <p className="mt-1 text-sm text-rw-ink/70">{lead.whyFits}</p>
             <Button type="button" size="sm" className="mt-3" variant="outline" onClick={() => onPick(lead)}>

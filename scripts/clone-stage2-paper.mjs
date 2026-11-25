@@ -64,7 +64,7 @@ try {
   const style = must(await db.from("style_profiles").select("*").eq("paper_id", from), "style");
   for (const s of style) must(await db.from("style_profiles").insert({ ...s, paper_id: pid, user_id: uid, created_at: now }), "style profile");
   const saves = must(await db.from("paper_autosaves").select("field_key, draft_text, submitted").eq("paper_id", from), "autosaves");
-  const keep = saves.filter((s) => /^(intake:|stage1:)/.test(s.field_key));
+  const keep = saves.filter((s) => /^(intake:|stage1:|paper_context$)/.test(s.field_key));
   if (keep.length) must(await db.from("paper_autosaves").insert(keep.map((s) => ({ ...s, paper_id: pid, user_id: uid, updated_at: now }))), "autosaves");
   const s1 = must(await db.from("stage_progress").select("data").eq("paper_id", from).eq("stage", 1).maybeSingle(), "stage 1");
   // A trigger seeds stage_progress on insert: upsert over it.

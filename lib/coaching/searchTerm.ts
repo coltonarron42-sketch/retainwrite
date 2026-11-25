@@ -7,7 +7,7 @@
  */
 export const SEARCH_TERM_SYSTEM = `You write one library search query for a student's research.
 Input: the assignment topic, the paper section, and the student's note for that section.
-Return a natural research query of 2 to 6 words that a librarian would type into JSTOR, e.g. "teen sleep and school start times" or "later school start academic performance".
+Return a natural research query of 2 to 6 words that a librarian would type into a research database (about the idea itself, never the course textbook's title or author), e.g. "teen sleep and school start times" or "later school start academic performance".
 Rules: noun phrases only; no first person; no question; no quotes; no filler words at the end ("about", "part", "best", "things"); never copy a sentence or fragment of the student's note; no punctuation except "and".
 Never write or suggest sentences for the paper.`;
 
@@ -43,7 +43,7 @@ export function parseSearchTerm(raw: unknown): string | null {
  */
 export const SEARCH_TERMS_SYSTEM = `You write library search queries for a student's research, one per paper section.
 Input: the assignment topic and a list of sections (key, title, what the section needs).
-For every section return a natural research query of 2 to 6 words that a librarian would type into JSTOR, built from the topic plus that section's focus, e.g. "teen sleep and school start times" or "later school start academic performance".
+For every section return a natural research query of 2 to 6 words that a librarian would type into a research database (about the idea itself, never the course textbook's title or author), built from the topic plus that section's focus, e.g. "teen sleep and school start times" or "later school start academic performance".
 Rules: noun phrases only; no first person; no question; no quotes; no filler words at the end ("about", "part", "best", "things"); no punctuation except "and". Keep every query on the assignment topic.
 Never write or suggest sentences for the paper.`;
 

@@ -1,3 +1,4 @@
+import { dropChapterClaims, isLostSaying, stripHollowPraise } from "@/lib/stage1/paper-context";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
@@ -94,7 +95,12 @@ export async function POST(request: Request, ctx: Ctx) {
       result = null;
     }
   }
-  const out = finalizeResult(result, rules, pendingAsk);
+  const fin = finalizeResult(result, rules, pendingAsk);
+  // No hollow praise for "idk what this even means" (QA 6:03 AM).
+  const lost = isLostSaying(body.message) && fin.reply ? { ...fin, reply: stripHollowPraise(fin.reply) } : fin;
+  // R0: no unverified "Chapter 4 covers…" claims before the reading is in (QA 8:31 AM).
+  const cleaned = lost.reply ? dropChapterClaims(lost.reply) : lost.reply;
+  const out = cleaned === lost.reply ? lost : { ...lost, reply: cleaned || "I haven't seen your chapter yet, so I won't guess what it lists." };
   if (!demo) {
     after(() =>
       logSessionEvent({

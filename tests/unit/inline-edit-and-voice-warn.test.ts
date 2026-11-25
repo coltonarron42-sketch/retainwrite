@@ -48,8 +48,8 @@ describe("stage 1 follow-ups", () => {
 describe("intake Continue feedback", () => {
   it("disables Continue and shows Saving… while the answer save is in flight", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(intake).toContain("sending={submitting}");
+    expect(intake).toContain("sending={screen === \"story\" ? pickingStory === \"own\" : submitting}");
     expect(intake).toContain('{submitting ? <span role="status">Saving… </span> : null}');
-    expect(intake).toContain("if (submitting) return;");
+    expect(intake).toContain("if (submitting || sendLock.current) return false;");
   });
 });

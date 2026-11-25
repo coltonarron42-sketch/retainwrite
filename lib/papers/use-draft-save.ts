@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { writeLocalDraft } from "@/lib/papers/local-draft";
 import { persistField } from "@/lib/papers/persist";
 import { onSignedOut, signedOut } from "@/lib/session/signedOut";
@@ -18,7 +18,16 @@ export function useDraftSave(input: {
   /** Also keep a same-browser copy on every change (instant reload restore). */
   localCopy?: boolean;
 }): SaveStatusValue {
-  const [status, setStatus] = useState<SaveStatusValue>("idle");
+  const [status, setStatusRaw] = useState<SaveStatusValue>("idle");
+  // QA 3:51 (React #185): this runs on every keystroke. A same-value set still queues a render
+  // after each typed commit, and fast typing (50+ keys during a reply) tripped React's update-depth
+  // limit and dropped keystrokes. Only real changes set state.
+  const statusRef = useRef<SaveStatusValue>("idle");
+  const setStatus = useCallback((next: SaveStatusValue) => {
+    if (statusRef.current === next) return;
+    statusRef.current = next;
+    setStatusRaw(next);
+  }, []);
   // Text already known for this field (loaded, prefilled, or saved). Moving
   // between questions changes the field and the text together, so that is a
   // new baseline, not an edit; only real changes against it are saved.

@@ -24,7 +24,7 @@ export default function PricingPage() {
           <div className="flex items-baseline justify-between border-t border-rw-ink/15 py-5">
             <dt>
               <p className="font-semibold text-rw-ink">First paper</p>
-              <p className="text-sm text-rw-ink/60">All stages. No audio. No card.</p>
+              <p className="text-sm text-rw-ink/60">The full coaching run. No audio. No card.</p>
             </dt>
             <dd className="text-lg font-semibold">Free</dd>
           </div>
@@ -47,7 +47,7 @@ export default function PricingPage() {
           <div className="flex items-baseline justify-between border-t border-b border-rw-ink/15 py-5">
             <dt>
               <p className="font-semibold text-rw-ink">Audio study beats</p>
-              <p className="text-sm text-rw-ink/60">Optional add-on mid Stage 4</p>
+              <p className="text-sm text-rw-ink/60">Optional add-on while you review sources</p>
             </dt>
             <dd className="text-lg font-semibold">{formatUsd(PRICES.audio)}</dd>
           </div>

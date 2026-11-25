@@ -16,6 +16,7 @@ export function intentKey(sectionKey: string, ask: string, text: string): string
 import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
+import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -38,6 +39,7 @@ import {
   extractLesson,
   type LessonExtraction,
   type PromptType,
+  lessonKindLabel,
 } from "@/lib/coaching/lesson";
 import {
   finalizeLogicCheck,
@@ -65,7 +67,7 @@ import {
   sectionContinueTarget,
 } from "@/lib/stages/advance";
 import type { StageProgressRow } from "@/lib/stages/assert";
-import { defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
+import { conceptTeachCard, contextTeachCard, defaultTeachCard, SOMETHING_ELSE, teachThenAsk, type TeachStatus } from "@/lib/coaching/teach";
 import {
   checklistItem5Resolved,
   VOICE_NUDGE_EVENTS,
@@ -101,6 +103,25 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { oneQuip } from "@/lib/coach/quips";
+import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+
+/** Key points from the material, labeled by where they came from (shown under a disclosure). */
+function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
+  const list = b?.summaries?.length ? b.summaries : b?.summary ? [b.summary] : [];
+  return list.map((m) => ({ label: summaryLabel(m), points: m.points }));
+}
+
+/** The Stage 1 brief, as Stages 2-3 read it (north star D). */
+type PaperBrief = {
+  summary: MaterialSummary | null;
+  summaries?: MaterialSummary[];
+  options: PaperContext["options"] | null;
+  decision: PaperContext["decision"] | null;
+  leader?: PaperContext["leader"] | null;
+  readback?: ReadbackPlain | null;
+  missingAsk?: string | null;
+};
 
 type RuntimeSection = {
   key: string;
@@ -257,6 +278,26 @@ export function CoachingLoop({
   // Before that, show a loading line, not the paste box: the confirmed
   // assignment is on its way and must not be asked for again.
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  // North star D: what Stage 1 learned (read-back, material key points, decision), for Stages 2-3.
+  const [pctx, setPctx] = useState<PaperBrief | null>(null);
+  const [asideChips, setAsideChips] = useState<string[]>([]);
+  useEffect(() => {
+    if (!persist || stage < 2 || stage > 3) return;
+    let live = true;
+    void fetch(`/api/papers/${paperId}/intake/brief`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "context" }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<PaperBrief & { ok?: boolean }>) : null))
+      .then((d) => {
+        if (live && d?.ok) setPctx(d);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [paperId, persist, stage]);
   const [idea, setIdea] = useState("");
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
@@ -298,6 +339,7 @@ export function CoachingLoop({
   // student's live progress (it reset Stance to the first section's leads).
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
+  const [answering, setAnswering] = useState(false);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
@@ -713,9 +755,53 @@ export function CoachingLoop({
   }
 
   /** A request or question is answered in her next turn and never saved as a note. */
-  function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[]) {
+  /** Her real answer (content question, "idk", a vague note), from the paper context; null = fall back. */
+  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) }),
+        signal: controller.signal,
+      });
+      // The 8 s cap covers reading the body too (a stalled body kept the buttons busy).
+      if (!res.ok) {
+        clearTimeout(timer);
+        return null;
+      }
+      const d = (await res.json()) as { paras?: string[] };
+      clearTimeout(timer);
+      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
+  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
+    if (intent === "content_question") return "answer";
+    if (intent === "request_help" || isLostSaying(text)) return "lost";
+    return null;
+  }
+
+  async function onAside(intent: StanceIntent, turn: IntentTurn, more: LoopLine[], forced?: "vague") {
     if (!session || !section) return;
-    const paras = intentReply(intent, { turn, section });
+    const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
+    const ask = more.find((l) => l.who === "pau")?.text ?? "";
+    const mode = forced ?? answerModeFor(intent, said);
+    // "just tell me some options": the Stage 1 options again, as chips (QA 6:03 AM).
+    const again = isOptionsRequest(said) ? optionsAgain(pctx?.options?.options, pctx?.options?.people) : null;
+    setAnswering(true);
+    let answered: string[] | null = null;
+    try {
+      answered = again ? again.paras : mode ? await coachAnswer(mode, said, section.title, ask) : null;
+    } finally {
+      setAnswering(false);
+    }
+    setAsideChips(again ? again.chips : []);
+    const paras = answered ?? intentReply(intent === "content" ? "request_help" : intent, { turn, section, text: said });
     // Never the same answer twice in a row for the same words (QA 2:08 #4).
     const prior = session.transcript ?? [];
     const tail = prior.slice(-(more.length + paras.length));
@@ -829,7 +915,7 @@ export function CoachingLoop({
     clearSent(note);
   }
 
-  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string }) {
+  async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string; append?: boolean }) {
     // A Grok Voice note arrives as text (the box is empty): same checks and gates.
     const note = opts?.text ?? idea;
     if (!session || !section) return;
@@ -842,8 +928,12 @@ export function CoachingLoop({
     }
     setThinNote(null);
     if (opts?.replace) replacingClaim.current = true;
+    // A new reply over the confirm is added to their note, never swapped in silently (QA 8:31 AM).
+    if (opts?.append) replacingClaim.current = false;
     const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
-    const step = afterProbe(section, note, replacingClaim.current);
+    const probed = afterProbe(section, note, replacingClaim.current);
+    // An added reply over the confirm goes back to the confirm with both notes, not to new directions.
+    const step = opts?.append ? { ...probed, loopStep: "summarize" as const } : probed;
     replacingClaim.current = false;
     const transcript = withLines(more);
     const nextSession: Session = {
@@ -922,8 +1012,19 @@ export function CoachingLoop({
   }
 
   function checkNotes(target: RuntimeSection, notes: string, onPrompt: boolean | null) {
+    // Their own thesis: the Stage 1 decision (and leader) plus their thesis/intro notes (QA 7:11 AM).
+    const thesis = [
+      pctx?.decision?.answer ?? "",
+      pctx?.leader?.answer && pctx.leader.answer !== pctx?.decision?.answer ? pctx.leader.answer : "",
+      ...(session?.sections ?? [])
+        .filter((item) => item.key !== target.key && /thesis|intro/i.test(`${item.key} ${item.title}`))
+        .map((item) => keptIdeas(item.ideas).join(" ")),
+    ]
+      .filter(Boolean)
+      .join(". ");
     const raw = logicCheckFromNotes({
       notes,
+      thesis,
       assignmentText: session?.assignmentText ?? "",
       rubricRef: target.rubricRef,
       mode: target.mode,
@@ -942,7 +1043,9 @@ export function CoachingLoop({
 
   function onConfirm(more: LoopLine[]) {
     if (!session || !section) return;
-    const notes = keptIdeas(section.ideas).at(-1) ?? "";
+    // Every kept note stays at lock-in; an added reply never silently replaces the thesis (QA 8:31 AM).
+    const kept = keptIdeas(section.ideas);
+    const notes = kept.join(" ");
     // Relevance first, on every section: ask the model now, use it at "Yes, check it".
     relevance.current = { key: `${section.key}:${notes}`, verdict: fetchRelevance(notes, section.title) };
     const logic = checkNotes(section, notes, null);
@@ -952,7 +1055,7 @@ export function CoachingLoop({
         loopStep: "logic_check",
         logic,
         logicRevealed: false,
-        ideas: notes.trim() ? [notes.trim()] : [],
+        ideas: kept,
       },
       { transcript: withLines(more) },
     );
@@ -962,11 +1065,16 @@ export function CoachingLoop({
   async function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
     if (!section) return;
     if (choice === "yes") {
-      const notes = keptIdeas(section.ideas).at(-1) ?? "";
+      const notes = keptIdeas(section.ideas).join(" ");
       const pending = relevance.current?.key === `${section.key}:${notes}` ? relevance.current.verdict : fetchRelevance(notes, section.title);
       setCheckingLogic(true);
-      const verdict = await pending;
-      setCheckingLogic(false);
+      // Never left busy: the check gives up after 9 s and uses the rule-based verdict (suite r16/r17).
+      let verdict: boolean | null = null;
+      try {
+        verdict = await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 9000))]);
+      } finally {
+        setCheckingLogic(false);
+      }
       if (verdict !== null) {
         const logic = checkNotes(section, notes, verdict);
         const passed = logic.result.tier === "pass";
@@ -1108,11 +1216,20 @@ export function CoachingLoop({
     // "Ready to move on to sources?" first (QA 10:38 #9).
   }
 
-  function onOutlineAside(intent: StanceIntent, key: string, more: LoopLine[]) {
+  async function onOutlineAside(intent: StanceIntent, key: string, more: LoopLine[]) {
     if (!session) return;
     const item = session.sections.find((sectionItem) => sectionItem.key === key);
     if (!item) return;
-    const paras = intentReply(intent, { turn: "outline", section: item });
+    const said = more.filter((l) => l.who === "you").map((l) => l.text).join(" ");
+    const mode = answerModeFor(intent, said);
+    setAnswering(true);
+    let answered: string[] | null = null;
+    try {
+      answered = mode ? await coachAnswer(mode, said, item.title, more.find((l) => l.who === "pau")?.text ?? "") : null;
+    } finally {
+      setAnswering(false);
+    }
+    const paras = answered ?? intentReply(intent, { turn: "outline", section: item, text: said });
     const outlineTranscript = appendLines(session.outlineTranscript, [...more, ...paras.map((text): LoopLine => ({ k: key, who: "pau", text }))]);
     commit({
       ...session,
@@ -1128,7 +1245,12 @@ export function CoachingLoop({
 
   const card =
     section?.mode === "lesson" && section.concept
-      ? defaultTeachCard(clipWords(subject === "your topic" ? section.concept : subject, 60), section.rubricRef)
+      ? conceptTeachCard(pctx, section.rubricRef) ??
+        // QA 10:21: before the paper context loads (or when it lost the pick), the lesson still
+        // comes from THEIR words (thesis and notes), never the assignment's clause read back.
+        conceptTeachCard({ decision: { pick: "", answer: [...session.answers.map((x) => x.text), ...session.sections.flatMap((x) => keptIdeas(x.ideas))].join(" ") }, leader: pctx?.leader ?? null }, section.rubricRef) ??
+        contextTeachCard(pctx, section.rubricRef) ??
+        defaultTeachCard(subject === "your topic" ? clipWords(section.concept, 60) : subject, section.rubricRef)
       : null;
   const followUp = section?.mode === "lesson" && idea.trim() ? teachThenAsk(idea) : null;
   const examples =
@@ -1183,17 +1305,23 @@ export function CoachingLoop({
         <StanceChat
           paperId={paperId}
           intro={{
-            heading: stageLessonHeader(subject, lesson.statement),
-            body:
-              session.extraction.promptType === "personal_experience"
-                ? "This looks like a personal-story assignment. We'll help you remember and tell it."
-                : subject === "your topic"
-                  ? "The assignment topic is still missing. Add it on the checklist before this lesson."
-                  : isQuestionTopic(subject)
-                    ? "This is the question your paper answers. We'll work through it one section at a time."
-                    : assignmentPurposeLine(subject),
+            ...stage2IntroText(pctx?.readback, {
+              heading: stageLessonHeader(subject, lesson.statement),
+              body:
+                session.extraction.promptType === "personal_experience"
+                  ? "This looks like a personal-story assignment. We'll help you remember and tell it."
+                  : subject === "your topic"
+                    ? "The assignment topic is still missing. Add it on the checklist before this lesson."
+                    : isQuestionTopic(subject)
+                      ? "This is the question your paper answers. We'll work through it one section at a time."
+                      : assignmentPurposeLine(subject),
+            }),
+            purpose: STAGE_PURPOSE[2],
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader),
+            material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
+          lessonLabel={lessonKindLabel(session.assignmentText)}
           sections={session.sections}
           active={active}
           kind={stanceTurnFor(
@@ -1240,9 +1368,10 @@ export function CoachingLoop({
           }
           transcript={session.transcript ?? []}
           aside={session.aside ?? null}
+          asideChips={asideChips}
           classify={classifyIntent}
           onAside={onAside}
-          busy={checkingLogic}
+          busy={checkingLogic || answering}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
@@ -1297,6 +1426,7 @@ export function CoachingLoop({
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
+          pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}
@@ -1577,7 +1707,7 @@ function ProductNotes({
             ))
           )}
           {showLeads && visibleSourceLead(item.chosenLead) ? (
-            <p className={`mt-2 ${dsBody}`}>To verify: {visibleSourceLead(item.chosenLead)}</p>
+            <p className={`mt-2 ${dsBody}`}>Look up: {visibleSourceLead(item.chosenLead)}</p>
           ) : null}
         </article>
       ))}

@@ -28,8 +28,8 @@ export function HomeHero() {
             Write your paper. Keep the learning.
           </h1>
           <p className="mt-4 max-w-md text-base leading-relaxed text-rw-ink/70 md:text-lg">
-            A coaching path through six stages — questions, feedback, and study
-            beats — without ever writing the submission for you.
+            We meet you where you are: haven&apos;t opened the book, or already have
+            your idea? We got you. You write every sentence; we never write it for you.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button asChild size="lg" variant="secondary">

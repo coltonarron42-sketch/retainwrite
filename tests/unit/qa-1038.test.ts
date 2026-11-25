@@ -113,7 +113,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     expect(rulesStanceIntent("what do you mean?")).toBe("question");
     expect(rulesStanceIntent("I don't get it")).toBe("question");
     expect(rulesStanceIntent("I'm stuck")).toBe("request_help");
-    expect(rulesStanceIntent("Can you give me an example?")).toBe("request_help");
+    expect(rulesStanceIntent("Can you give me an example?")).toBe("content_question");
     expect(rulesStanceIntent("Later start times help teens sleep more and focus in first period.")).toBe("content");
     expect(rulesStanceIntent("Should schools start later?")).toBe("content");
     expect(rulesStanceIntent("I think teachers should ask students questions about sleep, because surveys show most teens get under seven hours a night and that hurts their grades in first period.")).toBe("content");
@@ -134,7 +134,7 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
     const reply = intentReply("request_probe", { turn: "probe", section: { title: "Introduction" } }).join(" ");
     expect(reply).toMatch(/^Sure\. A few questions for your introduction/);
     expect((reply.match(/\?/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(intentReply("question", { turn: "probe", section: { title: "Body" } })[0]).toMatch(/^Good question\. I'm asking what you want your body to say/);
+    expect(intentReply("question", { turn: "probe", section: { title: "Body" } })[0]).toMatch(/^I'm asking what you want your body to say/);
   });
   it("Stage 2 and Stage 3 check typed words before saving; the aside is not a note", () => {
     const stanceSrc = read("components/stages/loop/stance-chat.tsx");

@@ -42,8 +42,8 @@ describe("A: one Pau Pau reply per turn", () => {
   });
   it("intro and the first question share one reply", () => {
     const src = read("components/stages/stage1/assignment-intake.tsx");
-    expect(src).toContain("bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]}");
-    expect(src).toContain("...(!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES : [])");
+    expect(src).toContain("bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}");
+    expect(src).toContain("...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : [])");
     expect(src).not.toContain("<PauPauGroup bubbles={INTRO_BUBBLES} />");
   });
   it("the hesitation offer, its choices and the answer are one reply", () => {

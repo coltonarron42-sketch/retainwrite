@@ -15,6 +15,7 @@ const bodySchema = z.object({
     .max(100)
     .transform((list) => list.slice(0, 20))
     .optional(),
+  decision: z.object({ pick: z.string().max(200).nullable().optional(), leader: z.string().max(120).nullable().optional() }).nullable().optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -38,6 +39,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const angles = buildStoryAngleFallback({
     topic: body.topic || "this assignment",
+    decision: body.decision ?? null,
     studentPhrases: body.studentPhrases ?? [],
   });
 

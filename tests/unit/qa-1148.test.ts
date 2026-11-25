@@ -78,7 +78,7 @@ describe("#2 relevance is checked first, on every section", () => {
   it("the client asks the model at lock-in and uses it at 'Yes, check it'", () => {
     const loop = read("components/stages/loop/coaching-loop.tsx");
     expect(loop).toContain("/stance/relevance");
-    expect(loop).toMatch(/async function onLogicOpener[\s\S]*const verdict = await pending;[\s\S]*checkNotes\(section, notes, verdict\)/);
+    expect(loop).toMatch(/async function onLogicOpener[\s\S]*verdict = await Promise.race\(\[pending,[\s\S]*checkNotes\(section, notes, verdict\)/);
   });
 });
 
@@ -116,10 +116,10 @@ describe("#3 history is append-only; the opener never re-asks", () => {
   it("her probing questions stay after the next turn (and after a reload: they're in the saved transcript)", () => {
     const html = stance({ transcript: t2, aside: { k: "intro", at: t2.length, paras: [], intent: "question" } });
     expect(html).toContain("Sure. A few questions for your introduction.");
-    expect(html).toContain("Good question.");
+    expect(html).toMatch(/I(&#x27;|')m asking what you want your introduction to say/);
     expect(html.split("or do you want me to ask some probing questions").length - 1).toBe(1);
     const current = html.slice(html.lastIndexOf("data-pau-turn"));
-    expect(current).toContain("Good question.");
+    expect(current).toMatch(/I(&#x27;|')m asking what you want your introduction to say/);
     expect(current).toMatch(/When you(&#x27;|')re ready, tell me your idea for your introduction in your own words\./);
     expect(current).not.toContain("or do you want me to ask");
   });

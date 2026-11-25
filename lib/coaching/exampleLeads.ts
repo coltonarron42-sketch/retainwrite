@@ -42,11 +42,17 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
   return text;
 }
 
+/** QA 7:02 AM: JSTOR doesn't carry course textbooks, so never point a textbook search there. */
+export const TEXTBOOK_TERM = /\b(textbook|chapter|ch\.|edition|northouse|theory and practice|course reading|assigned reading)\b/i;
+export function searchWhere(term: string): string {
+  return TEXTBOOK_TERM.test(term) ? "Google Scholar or your school library" : "JSTOR, Google Scholar, or your school library";
+}
+
 export function sourceSearchDirections(topic: string, _note?: string): string {
   const subject = topicSearchTerms(topic);
   const term = subject ? searchPhrase(subject) : "";
   const where = term
-    ? `Try “${term}” in JSTOR, Google Scholar, or your school library, then add a word or two of your own.`
+    ? `Try “${term}” in ${searchWhere(term)}, then add a word or two of your own.`
     : "Try a few words from your topic in JSTOR, Google Scholar, or your school library.";
   return `What would you search first? ${where} Look for a peer-reviewed study or a report you can open, then check the author and the date. This is a direction, not a sentence to paste.`;
 }
@@ -62,6 +68,7 @@ export function subjectMidSentence(subject: string): string {
  * lesson that "teaches" (QA 2:08 #7d).
  */
 export function assignmentPurposeLine(subject: string): string {
+  if (isTitleLike(subject)) return "Here's what your paper has to do, in plain words, and what you'll decide in this stage.";
   const mid = topicMidSentence(subject).replace(/[\s.?!]+$/, "");
   if (/^(whether|if)\b/i.test(mid)) return `This assignment asks you to argue ${mid.replace(/^if\b/i, "whether")}.`;
   if (/^(to what extent|how far)\b/i.test(mid)) return `This assignment asks you to argue ${mid}.`;
@@ -83,7 +90,13 @@ export function lessonStatementUsable(statement: string | null | undefined): boo
   return true;
 }
 
+/** A paper title, not a topic ("BUS 210 Leadership essay for Prof"): never "How X shows up…" (QA 6:03 AM). */
+export function isTitleLike(subject: string): boolean {
+  return /\b[A-Z]{2,5}\s?-?\d{2,4}[A-Z]?\b|\b(essay|paper|assignment|project|report|homework|module|worksheet)\b(?!\s+(?:about|on)\b)|\bfor (?:prof|professor|dr|mr|mrs|ms)\b\.?/i.test(subject) && !isQuestionTopic(subject) && !isClauseTopic(subject);
+}
+
 export function stageLessonHeader(subject: string, lessonStatement: string): string {
+  if (subject && isTitleLike(subject)) return lessonStatementUsable(lessonStatement) ? lessonStatement : "What this assignment is asking you to learn";
   if (subject && subject !== "your topic" && !/the assigned concept/i.test(subject)) {
     // The student's confirmed question is the best heading there is.
     if (isQuestionTopic(subject) || isClauseTopic(subject)) return asHeading(subject);
@@ -146,7 +159,7 @@ function exampleLeadBatchRaw(input: {
       rubricMatch: 0.9,
       rubricRef: ref,
       lessonLink: `About ${subject}`,
-      whyFits: `Try searching JSTOR or your school library for “${searchPhrase(search)}”, then narrow it with a word or two of your own. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
+      whyFits: `Try searching ${searchWhere(searchPhrase(search)).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${searchPhrase(search)}”, then narrow it with a word or two of your own. Open a study and notice what it measured. This is a question to pursue, not a sentence to paste.`,
     },
     {
       name: question
@@ -272,7 +285,12 @@ function sectionLeadBatch(ctx: {
         rubricMatch: 0.9,
         rubricRef: ref,
         lessonLink: `For your ${part}`,
-        whyFits: `Try searching JSTOR or your school library for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
+        // QA 10:21: an introduction sets up background, so it never sends them to a journal
+        // database; it starts from their own readings and one checkable fact.
+        whyFits:
+          role === "intro"
+            ? `Start with your own readings: what do they say that sets up ${about}? Then find one fact about “${term}” in a source you can open, like a news report or the organization's own announcement, and check the author and date yourself. This is a question to pursue, not a sentence to paste.`
+            : `Try searching ${searchWhere(term).replace(/^JSTOR, Google Scholar,/, "JSTOR")} for “${term}”, then narrow it with a word or two of your own. This is a question to pursue, not a sentence to paste.`,
       },
       {
         name: second,

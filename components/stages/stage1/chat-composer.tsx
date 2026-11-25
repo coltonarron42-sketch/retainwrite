@@ -92,6 +92,8 @@ export type ChatComposerProps = {
   placeholder: string;
   sendLabel?: string;
   sending?: boolean;
+  /** QA 3:00: while a reply is in flight they can keep typing; Send/Enter hands the text to the parent's queue. */
+  onQueue?: () => void;
   /** Extra reason Send is off (beyond empty, reading, or failed files). */
   sendBlocked?: boolean;
   /** Attachments: omit to show a text-only box (later questions). */
@@ -126,6 +128,7 @@ export function ChatComposer({
   placeholder,
   sendLabel = "Send",
   sending = false,
+  onQueue,
   sendBlocked = false,
   files,
   onFilesChange,
@@ -192,7 +195,11 @@ export function ChatComposer({
   const blocked = !hasContent || reading || failed || sendBlocked;
   // Send while Pau Pau is still replying: queue it (visibly) and send when she
   // is done. A send is never dropped (QA 12:25 #4).
-  const [queued, setQueued] = useState(false);
+  // QA 3:51: while she replies the box stays live. Enter/Send queues the full text (shown as
+  // queued) and it goes out the moment she's done, in order. Callers with onQueue keep their own queue.
+  const [queuedText, setQueuedText] = useState<string | null>(null);
+  const queued = Boolean(queuedText);
+  const fireQueued = useRef<string | null>(null);
 
   useEffect(() => setCanDictate(legacyVoiceOn() && Boolean(speechRecognition())), []);
   useEffect(() => () => recRef.current?.abort(), []);
@@ -529,13 +536,26 @@ export function ChatComposer({
     else setCameraOpen(true);
   }
 
+  const queueWhileSending = Boolean(onQueue);
   function send() {
     if (blocked) return;
-    if (sending) {
-      setQueued(true);
+    // QA 9:37 AM: one send at a time. While a reply is in flight the button is off and Enter
+    // keeps the text in the box (never dropped, never sent twice).
+    // Colton 11:41: the composer is locked while a reply is pending. One student turn, one reply:
+    // extra taps or Enters do nothing (the box says why), so rapid sends never double up.
+    if (sending && queueWhileSending) {
+      // Never dropped: the parent queues it and sends it right after Pau's reply.
+      if (value.trim()) onQueue?.();
       return;
     }
-    setQueued(false);
+    if (sending) {
+      const t = value.trim();
+      if (t) {
+        setQueuedText((prev) => (prev ? `${prev}\n${t}` : t));
+        onChange("");
+      }
+      return;
+    }
     // A tap on Send unlocks speech on phones, so Pau Pau's answer can play.
     unlockSpeech();
     // Barge-in: Send while Pau Pau is talking stops her and takes the reply.
@@ -550,15 +570,21 @@ export function ChatComposer({
     armSpeech();
     onSend();
   }
+  // Her reply is in: the queued text goes back in the box (ahead of anything typed since) and is sent.
   useEffect(() => {
-    if (!queued) return;
-    if (!value.trim() && attachments.length === 0) {
-      setQueued(false);
-      return;
-    }
-    if (!sending) send();
+    if (sending || !queuedText) return;
+    const now = valueRef.current.trim();
+    const next = now ? `${queuedText}\n${now}` : queuedText;
+    setQueuedText(null);
+    fireQueued.current = next;
+    onChange(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queued, sending, value]);
+  }, [sending, queuedText]);
+  useEffect(() => {
+    if (fireQueued.current === null || sending || value !== fireQueued.current) return;
+    fireQueued.current = null;
+    send();
+  });
   useEffect(() => {
     sendRef.current = () => {
       if (!valueRef.current.trim()) return;
@@ -659,6 +685,7 @@ export function ChatComposer({
           rows={minRows}
           value={value}
           placeholder={placeholder}
+          data-composer-sending={sending || undefined}
           onChange={(e) => onChange(e.target.value)}
           onPaste={onPaste}
           onKeyDown={(e) => {
@@ -668,8 +695,10 @@ export function ChatComposer({
               send();
             }
           }}
-          className="block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0"
+          className={`block w-full resize-none border-0 bg-transparent px-4 pt-3 text-[16px] leading-[1.6] text-ds-ink placeholder:text-ds-faint focus:outline-none focus:ring-0`}
           {...inputProps}
+          // QA 3:51: never read-only or disabled; only Send is held while she replies (Enter queues).
+          readOnly={false}
         />
 
         {/* Fixed-height row: status text changes never change the dock's height (QA 3:35 A). */}
@@ -743,7 +772,7 @@ export function ChatComposer({
           <button
             type="button"
             aria-label={sendLabel}
-            disabled={blocked || queued}
+            disabled={blocked}
             aria-busy={sending || reading || undefined}
             data-send-queued={queued || undefined}
             className="ds-focus flex h-11 w-11 items-center justify-center rounded-full bg-ds-accent text-white shadow-ds-button transition-colors duration-150 hover:brightness-95 disabled:cursor-not-allowed disabled:bg-ds-border disabled:text-ds-muted disabled:shadow-none"
@@ -754,10 +783,10 @@ export function ChatComposer({
         </div>
       </div>
 
-      {queued ? (
+      {queuedText ? (
         // Floats just above the box, so it never changes the dock's height.
-        <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note>
-          Pau Pau is still replying. Your message sends as soon as she&apos;s done.
+        <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note data-composer-queued={queuedText}>
+          Queued: “{queuedText.length > 80 ? `${queuedText.slice(0, 77)}…` : queuedText}”. Sends as soon as Pau Pau replies.
         </p>
       ) : null}
 

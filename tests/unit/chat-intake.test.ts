@@ -15,8 +15,8 @@ describe("Stage 1 chat-style assignment input", () => {
 
   it("keeps Send off while files are reading or failed", () => {
     expect(composer).toContain("const blocked = !hasContent || reading || failed || sendBlocked;");
-    // While a reply loads, Send queues the message (QA 12:25 #4) instead of dropping it.
-    expect(composer).toMatch(/disabled=\{blocked \|\| queued\}/);
+    // While a reply loads, Send is off and the text stays in the box (QA 9:37 AM).
+    expect(composer).toContain("disabled={blocked}");
   });
 
   it("the mic only types the student's words into the field, never sends", () => {
@@ -40,7 +40,7 @@ describe("Stage 1 chat-style assignment input", () => {
   });
 
   it("the later Stage 1 questions use the same bubble and input", () => {
-    expect(intake).toContain('labelledBy="coach-question"');
+    expect(intake).toContain('labelledBy={screen === "story" ? "story-ask" : "coach-question"}');
     expect(intake).toContain('sendLabel="Send"');
     expect(intake).not.toContain('sendLabel="Continue"');
   });

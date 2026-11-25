@@ -108,7 +108,7 @@ export function highlightReelFor(input: {
     confidence: known.confidence,
     toVerify: true,
     dropped: false,
-    line: `${known.shortName} is often discussed as a ${conceptRolePhrase(input.concept)}. To verify.`,
+    line: `${known.shortName} is often discussed as a ${conceptRolePhrase(input.concept)}. Check it yourself.`,
     searchOffer: searchOffer(known.shortName, input.concept),
   };
   return reel;

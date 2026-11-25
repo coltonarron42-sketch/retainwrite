@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { namedWorksFrom } from "@/lib/stage1/readings";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { extractFileText } from "@/lib/assignment/client-extract";
 import { markFieldConfirmed } from "@/lib/assignment/confirm";
 import { dsCaption } from "@/lib/ds/classes";
@@ -15,9 +17,12 @@ import {
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ReplayButton, SpeakNew } from "@/components/stages/stage1/voice";
 import type { AssignmentRequirements, ProvidedReading } from "@/lib/assignment/schema";
+import { decisionQuestion, looksLikePastedReading, pastedReadingParas, mayNeedLookup, parseStance, summaryParas, withoutDarkWeb, type MaterialSummary, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import {
   COACH_NAME,
   PAU_PAU_ASK_TEXT,
+  askWasMade,
+  sourcesAskText,
   pauPauNextAsk,
   readBackParas,
   reconfirmParas,
@@ -57,6 +62,10 @@ type Props = {
   live?: ReactNode;
   /** On a Grok Voice call she speaks through the call only (no old text-to-speech). */
   oldVoiceOff?: boolean;
+  /** The paper context after a save here (a stated stance, the material shown), so the chat after the confirm is current. */
+  onBrief?: (view: Record<string, unknown>) => void;
+  /** The material catch-up with its buttons (QA 9:37 AM), shown under the reply that taught it. */
+  materialSlot?: ReactNode;
 };
 
 export { PauPauAvatar };
@@ -90,13 +99,19 @@ export function PauPauConfirm({
   realtimeSlot,
   live,
   oldVoiceOff = false,
+  onBrief,
+  materialSlot,
 }: Props) {
+  const materialShownRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState(false);
+  const [replyStatus, setReplyStatus] = useState("Thinking…");
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const turnsRef = useRef(turns);
   const reqRef = useRef(requirements);
+  /** The material lookup, started the moment a message may need it (QA 7:02 AM latency). */
+  const summaryEarly = useRef<Promise<unknown> | null>(null);
   useEffect(() => {
     turnsRef.current = turns;
   }, [turns]);
@@ -113,14 +128,38 @@ export function PauPauConfirm({
   });
 
   const dismissed = useMemo(() => dismissedFromTurns(turns), [turns]);
-  const ask = pauPauNextAsk(requirements, dismissed);
+  const ask = pauPauNextAsk(requirements, dismissed, sheetText ?? "");
+
+  // North star (Colton t161u): the plain-words read-back (what's asked, what a strong
+  // answer needs, how it's graded). Waits a few seconds for it; the sheet facts otherwise.
+  const [plain, setPlain] = useState<ReadbackPlain | null | undefined>(turns.length ? null : undefined);
+  useEffect(() => {
+    if (turns.length || plain !== undefined) return;
+    let done = false;
+    const finish = (v: ReadbackPlain | null) => {
+      if (done) return;
+      done = true;
+      setPlain(v);
+    };
+    const timer = window.setTimeout(() => finish(null), 9_000);
+    void fetch(`/api/papers/${paperId}/intake/brief`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "readback" }),
+    })
+      .then(async (res) => (res.ok ? ((await res.json()) as { readback?: ReadbackPlain | null }) : null))
+      .then((data) => finish(data?.readback ?? null))
+      .catch(() => finish(null))
+      .finally(() => window.clearTimeout(timer));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The first reply: the read-back, saved as the start of the conversation.
   useEffect(() => {
-    if (turns.length) return;
-    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId }) }]);
+    if (turns.length || plain === undefined) return;
+    onTurns([{ role: "pau", paras: readBackParas(requirements, { pendingAsk: ask, seed: paperId, plain, sheetText }) }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns.length]);
+  }, [turns.length, plain]);
 
   function push(...more: ConfirmTurn[]) {
     const next = [...turnsRef.current, ...more];
@@ -147,23 +186,36 @@ export function PauPauConfirm({
   function askedBefore(): Set<PauPauAsk> {
     const said = turnsRef.current.flatMap((t) => (t.role === "pau" ? t.paras : [])).join(" ");
     const out = new Set<PauPauAsk>();
-    for (const key of ["sources", "length"] as const) if (said.includes(PAU_PAU_ASK_TEXT[key])) out.add(key);
+    for (const key of ["sources", "length"] as const) if (askWasMade(said, key)) out.add(key);
     return out;
   }
 
   /** The next missing thing Pau Pau hasn't asked yet, or null. */
   function nextNewAsk(req: AssignmentRequirements, after: Set<PauPauAsk>): PauPauAsk | null {
-    const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]));
+    const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]), sheetText ?? "");
     return next;
   }
 
   /** What to ask after this reply: the next missing thing, else "does it look right?". */
   function followUp(after: Set<PauPauAsk>): string {
     const next = nextNewAsk(reqRef.current, after);
+    if (next === "sources") return sourcesAskText(namedWorksFrom(reqRef.current, sheetText ?? ""));
     return next ? PAU_PAU_ASK_TEXT[next] : "Anything else, or does the rest look right?";
   }
 
+  // QA 9:37 AM: one send at a time, even for two taps in the same tick (idempotent).
+  const sendLock = useRef(false);
   async function sendReply(spoken?: string) {
+    if (sendLock.current) return;
+    sendLock.current = true;
+    try {
+      await sendReplyNow(spoken);
+    } finally {
+      sendLock.current = false;
+    }
+  }
+
+  async function sendReplyNow(spoken?: string) {
     const text = (spoken ?? draft).replace(/\s+$/, "");
     if (!text.trim() || replying || confirming) return;
     if (spoken === undefined) setDraft("");
@@ -171,7 +223,7 @@ export function PauPauConfirm({
     // (sources/length are asked once; after that she's asking "does it look right?").
     const lastPau = [...turnsRef.current].reverse().find((t) => t.role === "pau");
     const liveAsk: PauPauAsk | null =
-      ask === "topic" || (ask && lastPau?.role === "pau" && (lastPau.paras.at(-1) ?? "").includes(PAU_PAU_ASK_TEXT[ask])) ? ask : null;
+      ask === "topic" || (ask && lastPau?.role === "pau" && askWasMade(lastPau.paras.at(-1) ?? "", ask)) ? ask : null;
     push({ role: "student", text });
     const currentAsk = ask;
 
@@ -186,6 +238,38 @@ export function PauPauConfirm({
     }
 
     setReplying(true);
+    // A long paste here is material (QA 8:31 AM walk B): saved and summarized, never parsed as a pick.
+    if (looksLikePastedReading(text)) {
+      setReplyStatus("Reading it now…");
+      try {
+        const v = (await briefPost({ action: "reading", title: "Pasted reading", text: text.slice(0, 200_000) })) as { summaries?: MaterialSummary[]; summary?: MaterialSummary | null } | null;
+        const s0 = v?.summaries?.find((x) => x.title === "Pasted reading") ?? [...(v?.summaries ?? [])].reverse().find((x) => x.kind === "reading") ?? null;
+        if (s0) void briefPost({ action: "material_shown" });
+        push({
+          role: "pau",
+          paras: pastedReadingParas({ title: "Pasted reading", summary: s0, text, tail: "What do you make of it, in your own words? And tell me if the rest of the read-back looks right." }),
+        });
+      } finally {
+        setReplying(false);
+        setReplyStatus("Thinking…");
+      }
+      return;
+    }
+    // QA 7:02 AM: "Digging it up…" shows at send time, and the lookup starts now, in parallel
+    // with the classify call, instead of ~8 s later.
+    if (mayNeedLookup(text)) {
+      setReplyStatus("Digging it up…");
+      summaryEarly.current ??= briefPost({ action: "summary" });
+    }
+    // A stance said here ("I want to argue transformational, using Satya Nadella") is saved now,
+    // so the chat after the confirm never re-asks it.
+    const stance = /\?\s*$/.test(text) ? null : parseStance(text);
+    if (stance && /\b(argue|arguing|thesis|my (?:stance|argument|angle)|write about|focus on|go(?:ing)? with)\b/i.test(stance.stance)) {
+      const leader = stance.leader;
+      void briefPost({ action: "decision", question: "Said before the read-back was confirmed", answer: stance.stance, source: "stated" }).then(() =>
+        leader ? briefPost({ action: "decision", question: "stated", answer: stance.stance, slot: "leader", named: leader }) : null,
+      );
+    }
     try {
       // A link while Pau Pau is asking for sources: check it and keep it.
       const url = currentAsk === "sources" ? linkIn(text) : null;
@@ -214,7 +298,8 @@ export function PauPauConfirm({
         return;
       }
 
-      const res = await fetch(`/api/papers/${paperId}/assignment/reply`, {
+      // A stalled reply falls back to the same rules the server uses (QA 9:37 AM: 45 s with no reply).
+      const res = await fetchWithTimeout(`/api/papers/${paperId}/assignment/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -226,9 +311,9 @@ export function PauPauConfirm({
             t.role === "student" ? { role: "student", text: t.text.slice(0, 2000) } : { role: "pau", paras: t.paras.slice(0, 12) },
           ),
         }),
-      });
-      // Offline or the server failed: the same rules the server falls back to.
-      const result = ((res.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, liveAsk);
+      }, 15_000);
+      // Offline, stalled, or the server failed: the same rules the server falls back to.
+      const result = ((res?.ok ? await res.json().catch(() => null) : null) as ConfirmResult | null) ?? rulesClassify(text, liveAsk);
 
       const skip = result.skipAsk && currentAsk ? currentAsk : undefined;
       const after = skip ? new Set(dismissed).add(skip) : dismissed;
@@ -268,7 +353,16 @@ export function PauPauConfirm({
         return;
       }
       if (result.intent === "question") {
-        push({ role: "pau", paras: [result.reply, followUp(after)], skip });
+        // QA 6:03 AM: answered in place, never deflected.
+        materialShownRef.current = false;
+        const extra = result.route ? await answerInPlace(result.route, text) : [];
+        const material = materialShownRef.current;
+        materialShownRef.current = false;
+        // No "here's the gist" lead-in when all she has is an honest ask (QA 6:03 AM handout walk).
+        const noGist = result.route === "material" && !material && !extra.some((x) => /^Here's what I know|^I found|key points|general overview|general background|^•/.test(x));
+        const lead = noGist && /\b(gist|here'?s|here it is|key points)\b/i.test(result.reply) ? "" : result.reply;
+        push({ role: "pau", paras: [lead, ...extra, ...(material ? [] : [followUp(after)])].filter(Boolean), skip, ...(material ? { material: true } : {}) });
+        if (material) push({ role: "pau", paras: [followUp(after)] });
         return;
       }
       // Ambiguous: a real clarifying question, never move on.
@@ -277,6 +371,63 @@ export function PauPauConfirm({
       push({ role: "pau", paras: [clarifyingAsk(liveAsk)] });
     } finally {
       setReplying(false);
+      setReplyStatus("Thinking…");
+    }
+  }
+
+  /** The catch-up, the options, or the assignment in plain words, right here before the confirm. */
+  function briefPost(body: Record<string, unknown>): Promise<unknown> {
+    return fetchWithTimeout(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 25_000)
+      .then((r) => (r?.ok ? r.json() : null))
+      .then((v: unknown) => {
+        if (v && typeof v === "object" && "northstar" in v) onBrief?.(v as Record<string, unknown>);
+        return v;
+      })
+      .catch(() => null);
+  }
+
+  async function answerInPlace(route: "material" | "options" | "explain", said = ""): Promise<string[]> {
+    if (route === "explain") {
+      const p = plain ?? null;
+      if (!p?.ask) return [];
+      return [
+        `In plain words: ${p.ask}`,
+        p.mustInclude.length ? `To do well, it needs ${p.mustInclude.join(", ")}.` : "",
+      ].filter(Boolean);
+    }
+    setReplyStatus(route === "material" ? "Digging it up… (I'm checking what I know about your readings)" : "Pulling together a few real options…");
+    type View = { summary?: MaterialSummary | null; summaries?: MaterialSummary[]; missingAsk?: string | null; whereToGet?: { title: string; offers: { seller: string; url: string; price?: string | null }[] }[]; options?: { question: string; options: { label: string; why: string }[] } | null };
+    const call = async (action: string): Promise<View | null> =>
+      fetch(`/api/papers/${paperId}/intake/brief`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })
+        .then((r) => (r.ok ? (r.json() as Promise<View>) : null))
+        .catch(() => null);
+    try {
+      if (route === "options") {
+        const v = await call("options");
+        if (!v?.options?.options.length) return ["Once you confirm the read-back, I'll ask which one you'd argue. I only list options I can see in your materials, so I won't guess at the chapter's."];
+        return [decisionQuestion(v.options), "You'll lock one in right after we confirm the read-back."];
+      }
+      // The early lookup (started at send) when there is one; she shows it, so the chat never re-asks "have you read it?".
+      const early = summaryEarly.current;
+      summaryEarly.current = null;
+      const v = ((early ? await early : null) as View | null) ?? (await briefPost({ action: "summary" }) as View | null);
+      if (!v) return ["I couldn't pull the key points together just now. Ask me again in a sec, and I'll pick it right back up."];
+      const list0 = v?.summaries?.length ? v.summaries : v?.summary ? [v.summary] : [];
+      // The reading they asked about first ("what is Goleman saying?"), then the rest.
+      const asked = said.toLowerCase();
+      const hits = (x: MaterialSummary) => x.title.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && asked.includes(w)).length;
+      const list = [...list0].sort((a, b) => hits(b) - hits(a));
+      const paras = list.flatMap((x) => summaryParas(x));
+      if (paras.length) void briefPost({ action: "material_shown" });
+      // The catch-up renders as the material panel, buttons included (QA 9:37 AM).
+      if (paras.length && materialSlot !== undefined) {
+        materialShownRef.current = true;
+        return [];
+      }
+      const offers = (v?.whereToGet ?? []).flatMap((w) => w.offers.map((o) => `${w.title} at ${o.seller}${o.price ? ` · ${o.price} (price from search; check the page)` : ""}: ${o.url}`));
+      return [...paras, ...(v?.missingAsk ? [withoutDarkWeb(v.missingAsk)] : []), ...offers].slice(0, 28);
+    } finally {
+      setReplyStatus("Thinking…");
     }
   }
 
@@ -286,6 +437,14 @@ export function PauPauConfirm({
     // Title from the file's own first line; the student's file name otherwise.
     const read = await extractFileText(paperId, file).catch(() => null);
     const firstLine = read && read.ok ? read.text.split(/\n/).map((l) => l.trim()).find((l) => l.length >= 6) : null;
+    // The reading's text is what Pau Pau summarizes when they haven't read it (north star B).
+    if (read && read.ok && read.text.trim()) {
+      void fetch(`/api/papers/${paperId}/intake/brief`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reading", title: (firstLine ?? file.name).slice(0, 120), text: read.text.slice(0, 200_000) }),
+      }).catch(() => undefined);
+    }
     addReading({
       title: (firstLine && firstLine.length <= 140 ? firstLine : file.name).slice(0, 300),
       notes: `Uploaded file: ${file.name}`,
@@ -297,6 +456,7 @@ export function PauPauConfirm({
   }
 
   const lastPau = turns.reduce((last, t, i) => (t.role === "pau" ? i : last), -1);
+  const lastMaterial = turns.reduce((last, t, i) => (t.role === "pau" && t.material ? i : last), -1);
   const speak = turns.flatMap((t, i) =>
     t.role === "pau" ? [{ key: `confirm:${i}`, text: t.paras.join(" "), turn: i === lastPau }] : [],
   );
@@ -306,11 +466,17 @@ export function PauPauConfirm({
     <>
       <h1 className="sr-only">{COACH_NAME} read your assignment</h1>
       <SpeakNew scope={paperId} items={oldVoiceOff ? [] : speak} />
+      {!turns.length ? (
+        <p className="text-[16px] leading-[1.6] text-ds-muted" role="status" aria-live="polite">
+          Reading it over…
+        </p>
+      ) : null}
       {turns.map((t, i) =>
         t.role === "student" ? (
           <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
         ) : (
-          <PauPauGroup key={i} bubbles={t.paras} live={i === lastPau && i > 0}>
+          <Fragment key={i}>
+          <PauPauGroup bubbles={t.paras} live={i === lastPau && i > 0}>
             {i === lastPau ? (
               <>
                 {ask === "sources" ? (
@@ -337,17 +503,26 @@ export function PauPauConfirm({
                     />
                   </div>
                 ) : null}
+                {ask !== "topic" ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <DsButton type="button" size="sm" variant="primary" disabled={replying || confirming} onClick={() => onConfirm()}>
+                      {confirming ? "Saving…" : "Looks right, let's start"}
+                    </DsButton>
+                  </div>
+                ) : null}
                 <ReplayButton className="-ml-2" texts={lastParas} />
               </>
             ) : null}
           </PauPauGroup>
+          {i === lastMaterial && materialSlot ? <div data-confirm-material>{materialSlot}</div> : null}
+          </Fragment>
         ),
       )}
       {replying ? (
         <div className="flex items-start gap-2 sm:gap-3" role="status">
           <PauPauAvatar />
           <p className="mt-1 pt-1 text-[16px] leading-[1.6] text-ds-muted">
-            Thinking…
+            {replyStatus}
           </p>
         </div>
       ) : null}

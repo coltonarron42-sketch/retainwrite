@@ -123,7 +123,7 @@ export function CheckoutOptions({
               {CHECKOUT_PRODUCTS.single.name}
             </span>
             <span className="mt-1 block text-sm text-rw-ink/60">
-              One paper through all six stages. Audio optional later.
+              One paper, start to finish. Audio optional later.
             </span>
           </span>
           <span className="shrink-0 text-lg font-semibold text-rw-ink">

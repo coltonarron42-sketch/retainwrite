@@ -7,15 +7,29 @@
  * // SOP: coaching only, never generate submission text
  */
 import { wordCount } from "@/lib/utils";
+import { isContentQuestion } from "@/lib/coach/answer";
 
-export type StanceIntent = "content" | "request_probe" | "request_help" | "question";
+export type StanceIntent = "content" | "request_probe" | "request_help" | "question" | "content_question";
 
 const PROBE =
   /\b(ask me|quiz me|probe me|probing questions?|(some|a few|more) questions|questions? (for|to) me|interview me|walk me through|you ask|can you ask|could you ask|give me (some )?questions)\b/i;
 const HELP =
-  /^(help|help me|i need help|can you help|could you help|please help|i'?m stuck|i am stuck|stuck|i (don'?t|do not) know (what|where|how)( to (say|write|start|put))?|not sure (what|where|how) to (say|write|start)|where do i start|how do i start|what (should|do) i (write|say|put)|you (pick|choose|decide)|just tell me|give me an example|show me an example|can you give me (an )?example|i have no idea)\b/i;
+  /^(help|help me|i need help|can you help|could you help|please help|i'?m stuck|i am stuck|stuck|i (don'?t|do not) know (what|where|how)( to (say|write|start|put))?|not sure (what|where|how) to (say|write|start)|where do i start|how do i start|what (should|do) i (write|say|put)|you (pick|choose|decide)|just tell me|i have no idea|no idea|idk|i (still )?(don'?t|do not) know\b|i('?m| am) (lost|confused)|this is (hard|confusing|too hard))\b/i;
 const QUESTION_TO_COACH =
   /^(what|huh|wait|sorry|um+|hm+)?[\s,]*(what (do|did) you mean|what does that mean|what does (this|that|it) mean|i (don'?t|do not) (get|understand)( it| this| that| the question)?|can you explain|could you explain|explain (that|this|please)|what('?s| is) (a|an|the) (lead|angle|logic check|section|probe|stance|outline)|what are you asking|what am i supposed to (do|write|say)|what should i do( here| now)?|do i (have to|need to)|is that (ok|okay|right)|why\??$|what\??$|huh\??$|meaning\??)/i;
+
+/** "Can you find me research on how Nadella led change?": a lookup she answers, never a note (QA 3:51 suite: under load the
+ * model check timed out and the rule fallback saved the request as their Body note). */
+const LOOKUP_REQUEST =
+  /^(?:(?:can|could|would|will) you|please|pls)?\s*(?:please\s+)?(?:find|look up|search(?: for)?|get|pull(?: up)?|dig up|show)\s+(?:me\s+)?(?:some\s+|any\s+|a\s+few\s+)?(?:research|sources?|studies|study|articles?|evidence|info(?:rmation)?|data|stats|statistics)\b/i;
+
+/** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
+export const WRITE_REQUEST =
+  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
+
+export function isWriteRequest(text: string): boolean {
+  return WRITE_REQUEST.test(text.replace(/\s+/g, " "));
+}
 
 /** Rule fallback. Long, substantive text is content even if it mentions "questions". */
 export function rulesStanceIntent(text: string): StanceIntent {
@@ -23,7 +37,10 @@ export function rulesStanceIntent(text: string): StanceIntent {
   if (!t) return "content";
   const words = wordCount(t);
   if (words > 30) return "content";
-  if (QUESTION_TO_COACH.test(t)) return "question";
+  if (QUESTION_TO_COACH.test(t) || isWriteRequest(t)) return "question";
+  if (LOOKUP_REQUEST.test(t)) return "content_question";
+  // A content or teaching question (QA 11/23: "what are the leadership styles?"): she answers it.
+  if (isContentQuestion(t)) return "content_question";
   if (PROBE.test(t) && words <= 20) return "request_probe";
   if (HELP.test(t)) return "request_help";
   // A short question that is about the conversation, not the topic.
@@ -47,18 +64,19 @@ Return "content" when the message is the student's own idea, claim, example, not
 Return "request_probe" when they ask the coach to ask them questions or interview them.
 Return "request_help" when they ask the coach for help, an example, or to choose/decide for them, or say they are stuck.
 Return "question" when they ask the coach what something means or what to do (a question about the conversation, not the topic).
+Return "content_question" when they ask the coach for facts, explanations or examples about the topic, the course material or how a good section/line works ("what are the leadership styles?", "examples of leaders?", "show me an example outline line").
 Never write any of the paper. Answer only with JSON.`;
 
 export const STANCE_INTENT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  properties: { intent: { type: "string", enum: ["content", "request_probe", "request_help", "question"] } },
+  properties: { intent: { type: "string", enum: ["content", "request_probe", "request_help", "question", "content_question"] } },
   required: ["intent"],
 } as const;
 
 export function parseStanceIntent(raw: unknown): StanceIntent | null {
   const v = (raw as { intent?: unknown } | null)?.intent;
-  return v === "content" || v === "request_probe" || v === "request_help" || v === "question" ? v : null;
+  return v === "content" || v === "request_probe" || v === "request_help" || v === "question" || v === "content_question" ? v : null;
 }
 
 /**
@@ -109,7 +127,11 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
 }
 
 /** Pau Pau's reply to a request or question. It rides inside her current turn. */
-export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null } }): string[] {
+export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
+  if (ctx.text && isWriteRequest(ctx.text)) {
+    const part = ctx.section.title.toLowerCase();
+    return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
+  }
   const qs = probingQuestions(ctx.section);
   const list = qs.map((q, i) => `${i + 1}. ${q}`).join(" ");
   switch (intent) {
@@ -126,8 +148,10 @@ export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; secti
           : ctx.turn === "outline"
             ? "I'm asking you to put your notes for this section into short outline lines, one point per line, in your own words."
             : `I'm asking what you want your ${ctx.section.title.toLowerCase()} to say. One or two sentences in your own words is plenty.`;
-      return [`Good question. ${what} If you'd like, say "ask me questions" and I'll walk you through it.`];
+      return [`${what} If you'd like, say "ask me questions" and I'll walk you through it.`];
     }
+    case "content_question":
+      return ["I couldn't pull my answer together just now. Ask me again in a sec, or tell me what you already know about it."];
     default:
       return [];
   }

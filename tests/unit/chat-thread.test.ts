@@ -73,7 +73,7 @@ describe("read-back copy", () => {
     expect(openerIndex("paper-1")).toBe(openerIndex("paper-1"));
     const first = SUMMARY_OPENERS.map((_, i) => pauPauSummaryBubbles(sheet(), { seed: i })[0]);
     expect(new Set(first).size).toBe(SUMMARY_OPENERS.length);
-    expect(first[2]).toBe("Alright, I read it through. Homework, my favorite genre. This is for ENG 101: a 1,200–1,500 word paper in MLA 9 format.");
+    expect(first[2]).toBe("Alright, I read it through. This is for ENG 101: a 1,200–1,500 word paper in MLA 9 format.");
   });
 
   it("splits into short bubbles, one idea each", () => {
@@ -107,11 +107,12 @@ describe("step 3 leftovers", () => {
   it("too-short answers are echoed as a student bubble", () => {
     expect(intakeSrc()).toContain("error && shortEcho ? <StudentBubble");
   });
-  it("hides counts in visible copy but keeps them for screen readers", () => {
+  it("hides counts: a friendly nudge, never a word counter (QA 6:03 AM)", () => {
     const s = intakeSrc();
     expect(s).not.toMatch(/\$\{draftWords\} so far\)\.`/);
     expect(s).not.toContain("Voice sample ({voiceEval.totalWords}");
-    expect(s).toContain("{minNoteSr}");
+    expect(s).not.toContain("so far)");
+    expect(s).toContain('shortNoteNudge("stance", draftWords)');
     expect(moreWordsNote(8, 25, "Your early take")).not.toMatch(/\d/);
   });
   it("no 'Send to Pau Pau' label; Enter-to-send stays on (composer limits it to fine pointers)", () => {

@@ -4,6 +4,7 @@ import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { cn } from "@/lib/utils";
+import { tidyPunct } from "@/lib/copy/tidy";
 import { plainText } from "@/lib/voice/presence";
 import { PauFace, SpeakingWaves, useBubbleSpeaking } from "@/components/stages/stage1/pau-presence";
 
@@ -57,7 +58,7 @@ export function PauPauBubble({
           <SpeakingWaves active={speaking} />
           <div className={BUBBLE} aria-live={live ? "polite" : undefined}>
             <Tag id={id} className="font-ds-sans text-[18px] font-normal leading-[1.6] text-ds-ink">
-              {children}
+              {typeof children === "string" ? tidyPunct(children) : children}
             </Tag>
           </div>
         </div>
@@ -95,7 +96,8 @@ export function PauPauGroup({
 }) {
   const shown = bubbles
     .map((b, i) => ({ b, i }))
-    .filter(({ b }) => b !== null && b !== undefined && b !== "" && b !== false);
+    .filter(({ b }) => b !== null && b !== undefined && b !== "" && b !== false)
+    .map(({ b, i }) => ({ b: typeof b === "string" ? tidyPunct(b) : b, i }));
   const speaking = useBubbleSpeaking(plainText(shown.map(({ b }) => b)));
   return (
     <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn>
@@ -242,7 +244,10 @@ function useElapsed(startedAt: number): number {
 
 /** Pau Pau is reading: three quiet dots (still under reduced motion) plus the status line. */
 export function ReadingBubble({ status, startedAt }: { status: string; startedAt: number }) {
-  const seconds = useElapsed(startedAt);
+  // QA 3:51 (React #185): callers pass Date.now() on every render. The clock starts once, when the
+  // bubble appears; a new prop each render must never restart it (that re-render chain dropped keystrokes).
+  const [since] = useState(startedAt);
+  const seconds = useElapsed(since);
   return (
     <div className="flex items-start gap-2 sm:gap-3" role="status">
       <PauPauAvatar />

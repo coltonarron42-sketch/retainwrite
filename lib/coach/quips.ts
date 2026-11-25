@@ -8,23 +8,44 @@
 /** Stage 2 pool. Each teases the situation, never the student; no repeated pattern. */
 export const STAGE2_QUIPS = [
   "I'd write it for you, but I'm legally a cartoon.",
+] as const;
+
+/**
+ * QA 9:37 AM: stock lines that repeat paper after paper read as filler. Only the approved
+ * cartoon line is dealt (once per paper); these are retired and stripped if they ever show up.
+ */
+export const RETIRED_QUIPS = [
   "I'd hold the pencil, but no thumbs.",
   "I'm weirdly into this.",
-  "Rubrics love this stuff.",
-  "Teachers notice this stuff.",
   "Deadlines scare me, and I don't even have one.",
-  "Look at us, being organized.",
   "I've never turned in a paper, and I'm still proud.",
   "Plot twist: this part is easy.",
   "My only skill is cheering. I'm cheering.",
   "Zero printer jams so far.",
   "Honestly, I'm a little jealous.",
-  "Research, but make it quick.",
-  "Big plan energy.",
-  "Fancy, right?",
   "Easier than group projects.",
   "Sources: the real MVPs.",
+  "One sanity check, mine and yours.",
+  "Homework, my favorite genre.",
+  "No pop quiz, I promise.",
+  "This is totally doable.",
+  "Let's get into it.",
+  "Scout's honor.",
+  "Love a quick yes.",
 ] as const;
+
+/**
+ * Stock filler that says nothing about the moment (QA 8:31 AM): never dealt, and
+ * stripped if a model reply or template ever produces one.
+ */
+const esc = (q: string) => q.replace(/[.!?]+$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const STOCK_FILLER = new RegExp(
+  `\\s*(?:\\b(?:Rubrics love this stuff|Teachers notice this stuff|Look at us,? being organized|Big plan energy|Fancy,? right\\?|Research,? but make it quick)|${RETIRED_QUIPS.map(esc).join("|")})[.!?]*`,
+  "gi",
+);
+export function dropStockFiller(text: string): string {
+  return text.replace(STOCK_FILLER, "").replace(/\s{2,}/g, " ").trim();
+}
 
 export type QuipSlot = "pick_lead" | "logic_opener";
 const SLOTS: QuipSlot[] = ["pick_lead", "logic_opener"];
@@ -77,6 +98,7 @@ export function quipFor(seed: string | undefined, sectionIndex: number | undefin
 /** Known flourishes from templates and the read-back (also counted as a quip). */
 const KNOWN = [
   ...STAGE2_QUIPS,
+  ...RETIRED_QUIPS,
   "Homework, my favorite genre.",
   "No pop quiz, I promise.",
   "This is totally doable.",
@@ -99,7 +121,8 @@ export function isQuip(sentence: string): boolean {
  * Keep at most one quip in a reply (template or model text): the first one
  * stays, later quip sentences are dropped. Never empties a reply.
  */
-export function oneQuip(text: string): string {
+export function oneQuip(text0: string): string {
+  const text = dropStockFiller(text0) || text0;
   const parts = text.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g);
   if (!parts) return text;
   let seen = false;
@@ -116,8 +139,9 @@ export function oneQuip(text: string): string {
 }
 
 /** One quip across all the paragraphs of a turn. */
-export function oneQuipParas(paras: string[]): string[] {
+export function oneQuipParas(paras0: string[]): string[] {
   let seen = false;
+  const paras = paras0.map((p) => dropStockFiller(p)).filter(Boolean);
   return paras.map((p) => {
     const parts = p.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g) ?? [p];
     const kept = parts.filter((s) => {

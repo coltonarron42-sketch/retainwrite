@@ -15,11 +15,15 @@ export function revisionPrefill(ideas: string[]): string {
   return keptIdeas(ideas).at(-1) ?? ideas.map((idea) => idea.trim()).filter(Boolean).at(-1) ?? "";
 }
 
-/** The new text replaces the stored claim. The old wording is not kept beside it. */
+/**
+ * The new text replaces the claim being revised (the last kept note). The old wording of
+ * THAT claim is not kept beside it, but every earlier note (their thesis) stays (QA 8:31 AM).
+ */
 export function replaceClaim(ideas: string[], next: string): string[] {
   const text = next.trim();
-  void ideas;
-  return text ? [text] : [];
+  const kept = keptIdeas(ideas);
+  if (!text) return kept.slice(0, -1);
+  return [...kept.slice(0, -1), text];
 }
 
 export function refreshStoredLogic(

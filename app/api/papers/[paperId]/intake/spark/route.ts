@@ -12,6 +12,7 @@ import {
   validateSparkQuestions,
 } from "@/lib/stage1/spark";
 import { createClient } from "@/lib/supabase/server";
+import { refsUnreadMaterial, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,8 @@ const bodySchema = z.object({
   questionKind: z.string().max(32).optional(),
   topic: z.string().max(500).optional(),
   interests: z.array(z.string().max(200)).max(3).optional(),
+  /** QA 11:40 #4: the student hasn't read the material and hasn't had the catch-up. */
+  unread: z.boolean().optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -63,9 +66,11 @@ export async function POST(request: Request, ctx: Ctx) {
   let questions: string[] | null = null;
   const res = await grokChatJson({
     model: MODEL_FAST,
-    system: SPARK_SYSTEM,
+    system: body.unread
+      ? `${SPARK_SYSTEM}\nThe student has NOT read the assigned material yet. Never mention or assume any article, chapter, book, reading, author or a leader "from the reading". Ask only about their own thinking and experience.`
+      : SPARK_SYSTEM,
     user: sparkUserPrompt({
-      questionText: body.questionText,
+      questionText: body.unread ? scrubUnreadRefs(body.questionText) : body.questionText,
       topic: body.topic,
       interests: body.interests,
     }),
@@ -83,6 +88,10 @@ export async function POST(request: Request, ctx: Ctx) {
   if (res.ok) {
     try {
       questions = validateSparkQuestions((JSON.parse(res.text) as { questions?: unknown }).questions);
+      if (questions && body.unread) {
+        const kept = questions.filter((q) => !refsUnreadMaterial(q));
+        questions = kept.length ? kept : null;
+      }
     } catch {
       questions = null;
     }

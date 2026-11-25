@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DecisionOption } from "@/lib/stage1/paper-context";
+import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
@@ -9,6 +13,34 @@ import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/compone
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import {
+  decisionHasReason,
+  decisionQuestion,
+  isLostSaying,
+  isPreparedSaying,
+  isSkipSaying,
+  isGetToKnowSkip,
+  assignmentDecisionAsk,
+  parseStance,
+  mayNeedLookup,
+  guessPick,
+  isReadingQuestion,
+  looksLikePastedReading,
+  isVaguePick,
+  overlapsTeaching,
+  stripReadingRefusal,
+  vaguePickProbe,
+  withoutDarkWeb,
+  uploadOfferOnly,
+  STAGE_PURPOSE,
+  summaryLabel,
+  summaryParas,
+  pastedReadingParas,
+  summarySpoken,
+  type MaterialSummary,
+  type PaperContext,
+  type ReadbackPlain,
+} from "@/lib/stage1/paper-context";
 import {
   CONFIRM_CHAT_FIELD,
   isQuickConfirm,
@@ -47,7 +79,7 @@ import {
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
 import { readBackParas } from "@/lib/stage1/pau-pau";
-import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -63,6 +95,7 @@ import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
 import { parseAssignmentFallback } from "@/lib/assignment/parse-fallback";
 import { UNREADABLE_ASSIGNMENT } from "@/lib/papers/account";
 import { parseLinkField } from "@/lib/assignment/provided-sources";
+import { extractFileText } from "@/lib/assignment/client-extract";
 import {
   emptyField,
   emptyRequirements,
@@ -83,7 +116,10 @@ import { EARLY_STANCE_MIN_NOTE, earlyStanceQuestion } from "@/lib/stage1/early-s
 import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
 import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerReason, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
-import { buildStoryAngleFallback } from "@/lib/stage1/story-angles";
+import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angles";
+import { clipWords } from "@/lib/copy/clip";
+import { isContentQuestion } from "@/lib/coach/answer";
+import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
 import {
   evaluateStage1VoiceMinimum,
   readyVoiceLine,
@@ -102,6 +138,9 @@ import {
   resumeIntake,
   stanceStartBlockers,
   voiceShortNote,
+  materialGateLabel, northstarChecklist,
+  northstarGateFrom,
+  shortNoteNudge,
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { cn, wordCount } from "@/lib/utils";
@@ -120,7 +159,7 @@ import {
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
 import type { SpeakItem } from "@/lib/voice/speech";
-import { dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
+import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 
 type Screen =
   | "upload"
@@ -173,6 +212,230 @@ const CITATION_OPTIONS: Array<CitationStyle | ""> = [
   "AMA",
   "other",
 ];
+
+/** QA 11:40 #1: a typed "haven't read", "idk", "not sure", "no clue" gets the catch-up, same as the button. */
+function materialLost(text: string): boolean {
+  return isLostSaying(text) || isUnsureReadSaying(text);
+}
+
+/** QA 3:51: a message that arrives after Stage 1 wrapped up (sent while her last reply was coming). */
+export const GATE_SAID_REPLY =
+  "Got it. Stage 1 is wrapped, so I didn't change your answers. If this should replace one, tap it above. Otherwise, bring it into the stance interview.";
+
+const CAUSAL_LINK = /\b(because|so|since|led to|leads to|leading to|which meant|as a result|that's why|caused|therefore)\b/i;
+const MATERIAL_CHECK_TEXT =
+  "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
+
+/** Pau Pau's summary of the material: labeled, with its sources. Teaching content, never paper text. */
+function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: string }) {
+  const paras = summaryParas(summary);
+  return (
+    <PauPauGroup
+      bubbles={[
+        ...(lead ? [lead] : []),
+        <div key="sum" className="space-y-2" data-material-summary aria-label={summaryLabel(summary)}>
+          {paras.map((t, i) => (
+            <p key={i} className={i === 0 ? "font-semibold" : undefined}>
+              {t}
+            </p>
+          ))}
+          {summary.sources.length ? (
+            <p className="text-[13px] leading-[1.6] text-ds-muted">
+              Sources:{" "}
+              {summary.sources.map((src, i) => (
+                <span key={src.url}>
+                  {i ? " · " : ""}
+                  <a href={src.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                    {src.title || src.url}
+                  </a>
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>,
+      ]}
+    />
+  );
+}
+
+type MoreResult = {
+  id: number;
+  mode: string;
+  points?: string[];
+  groups?: { title: string; kind?: string; points: string[] }[];
+  videos?: { title: string; url: string }[];
+};
+
+/** One "Go deeper" / "Say it simpler" / video result: every reading keeps its own heading (QA 6:03 AM). */
+function moreBubbles(more: MoreResult): ReactNode[] {
+  if (more.mode === "video") {
+    return more.videos?.length
+      ? [
+          "Here's a video that explains it:",
+          <ul key="v" className="space-y-1 text-[14px]">
+            {more.videos.map((v) => (
+              <li key={v.url}>
+                <a href={v.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                  {v.title}
+                </a>
+              </li>
+            ))}
+          </ul>,
+        ]
+      : ["I couldn't find a video I'd trust for this one. Want me to go deeper or say it simpler instead?"];
+  }
+  const head = more.mode === "depth" ? "One level deeper:" : "Simpler version:";
+  const groups = (more.groups ?? []).filter((g) => g.points.length);
+  if (groups.length > 1) {
+    return [
+      head,
+      <div key="g" className="space-y-3" data-more-groups>
+        {groups.map((g) => (
+          <div key={g.title}>
+            <p className="font-semibold">{g.title}</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {g.points.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>,
+    ];
+  }
+  const pts = groups[0]?.points ?? more.points ?? [];
+  return pts.length ? [groups[0] ? `${head} ${groups[0].title}` : head, ...pts.map((p) => `• ${p}`)] : ["I couldn't pull that together just now. Try again in a sec?"];
+}
+
+/** "Find me a video", fetched ahead once per paper (QA 7:02 AM: it took ~12 s on tap). */
+const videoAhead = new Map<string, Promise<Omit<MoreResult, "id" | "mode"> | null>>();
+/** "Go deeper" / "Say it simpler" results survive the bubble moving into the history (QA 8:31 AM). */
+const moreKept = new Map<string, MoreResult[]>();
+function moreFetch(paperId: string, mode: "depth" | "simpler" | "video"): Promise<Omit<MoreResult, "id" | "mode"> | null> {
+  return fetch(`/api/papers/${paperId}/intake/brief`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "material_more", mode }),
+  })
+    .then((res) => res.json().catch(() => null) as Promise<Omit<MoreResult, "id" | "mode"> | null>)
+    .catch(() => null);
+}
+
+/** Every summary she has (each labeled by where it came from), then her honest ask with legit links. */
+function MaterialBubbles({
+  brief,
+  lead,
+  paperId,
+  darkWebOk = true,
+}: {
+  brief: {
+    summary: MaterialSummary | null;
+    summaries?: MaterialSummary[];
+    missingAsk?: string | null;
+    whereToGet?: { title: string; offers: { seller: string; url: string; price?: string | null }[] }[];
+  };
+  lead: string;
+  paperId?: string;
+  /** "I'm not going to the dark web!" at most once per paper. */
+  darkWebOk?: boolean;
+}) {
+  const list = brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : [];
+  // Results stack up (QA 6:03 AM): a new tap appends, never replaces the last one.
+  const [more, setMore] = useState<MoreResult[]>(() => (paperId ? moreKept.get(paperId) ?? [] : []));
+  const lastMore = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (paperId) moreKept.set(paperId, more);
+    // The new result is where they're looking, even when this bubble sits up in the history.
+    if (more.length) lastMore.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [more, paperId]);
+  const [moreBusy, setMoreBusy] = useState<string | null>(null);
+  const [moreAt, setMoreAt] = useState(0);
+  const hasList = list.length > 0;
+  useEffect(() => {
+    if (!paperId || !hasList || videoAhead.has(paperId)) return;
+    videoAhead.set(paperId, moreFetch(paperId, "video"));
+  }, [paperId, hasList]);
+  const ask = async (mode: "depth" | "simpler" | "video", at: number) => {
+    if (!paperId || moreBusy) return;
+    setMoreBusy(mode);
+    setMoreAt(at);
+    try {
+      const ahead = mode === "video" ? videoAhead.get(paperId) : undefined;
+      if (ahead) videoAhead.delete(paperId);
+      let d = ahead ? await ahead : null;
+      if (!d) d = await moreFetch(paperId, mode);
+      setMore((prev) => [...prev, { id: Date.now(), mode, points: d?.points, groups: d?.groups, videos: d?.videos }].slice(-6));
+    } finally {
+      setMoreBusy(null);
+    }
+  };
+  const offers = (brief.whereToGet ?? [])
+    .flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })))
+    .filter((o, i, all) => all.findIndex((x) => x.url === o.url || (x.title === o.title && x.seller === o.seller)) === i);
+  const missingAsk = brief.missingAsk
+    ? hasList
+      ? uploadOfferOnly(brief.missingAsk)
+      : darkWebOk
+        ? brief.missingAsk
+        : withoutDarkWeb(brief.missingAsk)
+    : null;
+  return (
+    <div className="space-y-4">
+      {list.map((s, i) => (
+        <SummaryBubbles key={`${s.kind}:${s.title}`} summary={s} lead={i === 0 ? lead : undefined} />
+      ))}
+      {more.map((m, i) => (
+        <div key={m.id} ref={i === more.length - 1 ? lastMore : undefined} data-more-result={m.mode}>
+          <PauPauGroup bubbles={moreBubbles(m)} />
+        </div>
+      ))}
+      {moreBusy ? (
+        <ReadingBubble
+          status={moreBusy === "video" ? "Looking for a video I'd trust…" : moreBusy === "depth" ? "Digging it up… going deeper." : "Digging it up… saying it simpler."}
+          startedAt={moreAt}
+        />
+      ) : null}
+      {list.length && paperId ? (
+        <div className="flex flex-wrap gap-2 pl-11" role="group" aria-label="More on the material">
+          {(
+            [
+              ["depth", "Go deeper"],
+              ["simpler", "Say it simpler"],
+              ["video", "Find me a video"],
+            ] as const
+          ).map(([mode, label]) => (
+            <DsButton key={mode} type="button" size="sm" variant="secondary" disabled={Boolean(moreBusy)} onClick={(e) => void ask(mode, Math.round(performance.timeOrigin + e.timeStamp))}>
+              {moreBusy === mode ? "One sec…" : label}
+            </DsButton>
+          ))}
+        </div>
+      ) : null}
+      {missingAsk ? (
+        <PauPauGroup
+          bubbles={[
+            // Colton 12:08: no summary yet, still reassure and teach first (only when this is the lost turn's lead).
+            ...(!list.length && lead.startsWith("That's okay") ? [lead] : []),
+            missingAsk,
+            ...(offers.length
+              ? [
+                  <ul key="offers" className="space-y-1 text-[14px] leading-[1.6]" aria-label="Where to get the reading" data-reading-offers>
+                    {offers.map((o) => (
+                      <li key={o.url}>
+                        <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="underline underline-offset-2">
+                          {o.title} at {o.seller}
+                        </a>
+                        {o.price ? <span className="text-ds-muted"> · {o.price} (price from search; check the page)</span> : null}
+                      </li>
+                    ))}
+                  </ul>,
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+    </div>
+  );
+}
 
 const INTEREST_Qs = [
   {
@@ -252,9 +515,36 @@ export function AssignmentIntake({
   // Continue awaits the answer save (~1s, longer on a cold start). Show that and
   // ignore repeat clicks so the button never looks dead or double-submits.
   const [submitting, setSubmitting] = useState(false);
+  const sendLock = useRef(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
   const [needFallback, setNeedFallback] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorRaw] = useState<string | null>(null);
+  // QA 1:16 (composer): a send that's turned back (an error) puts their words back in the box.
+  const rejectedRef = useRef(false);
+  const setError = useCallback((m: string | null) => {
+    if (m) rejectedRef.current = true;
+    setErrorRaw(m);
+  }, []);
+  // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
+  const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [pendingSaid, setPendingSaid] = useState<string | null>(null);
+  // QA 3:00: a message typed while Pau Pau is replying waits here (shown in the chat) and goes right after.
+  const queuedRef = useRef<string | null>(null);
+  const [queuedSaid, setQueuedSaid] = useState<string | null>(null);
+  // QA 3:51: a message queued during her last Stage 1 reply lands after the step closed (the gate has
+  // no question to take it). It still shows, in order, with an honest reply; it is never dropped.
+  // QA 5:46: the box is cleared only at the moment of Enter (the send handler takes the text and
+  // empties the box in the same tick). Anything that runs later (a reply landing, a save resolving)
+  // never wipes what they typed since; it only clears the box if it still holds exactly what was sent.
+  const dropSent = (sent?: string) => setDraftAnswer((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
+  // Moving to the next step after a reply: its saved answer / prefill goes in only if they haven't typed since.
+  const setBoxUnlessTyped = (next: string, sent?: string) =>
+    setDraftAnswer((d) => (d.trim() && d.trim() !== (sent ?? "").trim() ? d : next));
+  const dropSentStory = (sent?: string) => setOwnStory((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
+  const [gateSaid, setGateSaid] = useState<{ id: number; said: string }[]>([]);
+  const latestSendNow = useRef<((text: string, fromBox: boolean) => boolean | void) | null>(null);
+  // Colton 1:54 R1: what a lost student first said, kept while the summary offer is open.
+  const offerSaid = useRef<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
   const [shortEcho, setShortEcho] = useState<string | null>(null);
   // Bumps on every edit so read-aloud treats the re-asked question as new.
@@ -262,6 +552,89 @@ export function AssignmentIntake({
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
+  // North star (Colton t161u): the paper context — plain read-back, the material
+  // summary (Pau Pau's teaching content, never paper text), the options and their decision.
+  type BriefView = {
+    northstar: boolean;
+    readback: ReadbackPlain | null;
+    summary: MaterialSummary | null;
+    options: PaperContext["options"] | null;
+    decision: PaperContext["decision"] | null;
+    leader?: PaperContext["leader"] | null;
+    lostAtStart: boolean;
+    /** The summary was shown before the confirm: material_check is never asked (QA 7:02 AM). */
+    materialShown?: boolean;
+    hasReading: boolean;
+    missing?: string[];
+    missingAsk?: string | null;
+    whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
+    summaries?: MaterialSummary[];
+  };
+  const [brief, setBrief] = useState<BriefView | null>(null);
+  const [briefLoaded, setBriefLoaded] = useState(demoMode);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  /** The question where they said they were lost again: the key points are offered there. */
+  const [reoffer, setReoffer] = useState<string | null>(null);
+  /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
+  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
+  // The pending bubble gives way as soon as the turn is on screen (no doubled student bubble).
+  useEffect(() => {
+    setPendingSaid(null);
+  }, [answers.length, qaAsides.length]);
+  const [asideBusy, setAsideBusy] = useState<string | null>(null);
+  const [readingOpen, setReadingOpen] = useState(false);
+  const [readingText, setReadingText] = useState("");
+  const [readingBusy, setReadingBusy] = useState(false);
+  const [readingLink, setReadingLink] = useState("");
+  const [readingNote, setReadingNote] = useState<string | null>(null);
+  const briefRef = useRef<BriefView | null>(null);
+  /** How many times the early take came back short (QA 8:31 AM: the nudge changes each time). */
+  const shortTries = useRef(0);
+  briefRef.current = brief;
+  const briefCall = useCallback(
+    async (body: Record<string, unknown>): Promise<BriefView | null> => {
+      if (demoMode) return null;
+      try {
+        // A stalled call never hangs the chat (QA 9:37 AM).
+        const res = await fetchWithTimeout(`/api/papers/${paperId}/intake/brief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, 30_000);
+        if (!res) {
+          setError("That took longer than it should on my end. Send it again, or keep going.");
+          return null;
+        }
+        const data = (await res.json().catch(() => null)) as (BriefView & { ok?: boolean; error?: string }) | null;
+        if (!res.ok || !data?.ok) {
+          if (data?.error) setError(data.error);
+          return null;
+        }
+        // Two calls in flight can answer out of order: a slower, older view never drops a decision,
+        // leader, option list or summary the newer one already has (QA 11:40 #5, parallel loads).
+        if ("northstar" in data)
+          setBrief((prev) =>
+            prev
+              ? {
+                  ...data,
+                  decision: data.decision ?? prev.decision,
+                  leader: data.leader ?? prev.leader,
+                  options: data.options ?? prev.options,
+                  summary: data.summary ?? prev.summary,
+                }
+              : data,
+          );
+        return data;
+      } catch {
+        return null;
+      }
+    },
+    [demoMode, paperId],
+  );
+  useEffect(() => {
+    if (demoMode) return;
+    void briefCall({ action: "context" }).finally(() => setBriefLoaded(true));
+  }, [briefCall, demoMode]);
   /** The field-by-field editor behind Pau Pau's "Fix something". */
   const [editingDetails, setEditingDetails] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -495,37 +868,167 @@ export function AssignmentIntake({
     };
   }, [paperId, demoMode]);
 
+  // QA 11:40 #4: they've read it, or had the catch-up (the key points were shown to them).
+  const [catchUpGiven, setCatchUpGiven] = useState(false);
+  const materialAnswerNow = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
+  const caughtUp =
+    Boolean(brief?.materialShown) ||
+    (Boolean(brief?.summary) && (Boolean(brief?.lostAtStart) || materialLost(materialAnswerNow) || catchUpGiven));
+  /** QA 11:40 #2: vague rounds per pick question, the last thing said, and a pending recommendation. */
+  const vagueRounds = useRef<Record<string, number>>({});
+  const lastProbe = useRef<Record<string, string>>({});
+  const recPending = useRef<Record<string, DecisionOption | null>>({});
+  /** How many times they said no to her recommendation (QA 1:16: it only moves on after a no). */
+  const recNos = useRef<Record<string, number>>({});
+  // QA 3:51: switching between the story box and the answer box never strands what they typed mid-reply.
+  const prevScreen = useRef(screen);
+  useEffect(() => {
+    const was = prevScreen.current;
+    prevScreen.current = screen;
+    if (was === screen) return;
+    if (screen === "story" && draftAnswer.trim() && !ownStory.trim()) {
+      setOwnStory(draftAnswer);
+      setDraftAnswer("");
+    } else if (was === "story" && screen === "coaching" && ownStory.trim() && !draftAnswer.trim()) {
+      setDraftAnswer(ownStory);
+      setOwnStory("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+  const [catchUpOffer, setCatchUpOffer] = useState<string | null>(null);
+  // QA 3:06 minor: after the catch-up offer, the transcript stays in order (their lost note, the offer, their yes, the summary).
+  const [offerReply, setOfferReply] = useState<Record<string, string>>({});
+  /** Colton 12:08 INFORMED: the affirmation leads the next question's turn (until they answer it). */
+  const [informedLead, setInformedLead] = useState<string[] | null>(null);
+
+  const [needWhy, setNeedWhy] = useState(false);
   const coachingPlan = useMemo(() => {
-    if (!requirements) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
+    if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     const topic =
       requirements.topic.value ||
       requirements.promptQuestion.value ||
       "this assignment";
     const plan: { id: string; kind: IntakeAnswer["kind"]; text: string }[] = [];
-    if (!skippedInterest) {
+    const northstar = Boolean(brief?.northstar);
+    const has = (id: string) => answers.some((a) => a.questionId === id && a.answerText.trim());
+    // A prepared student who already said what they think (QA 6:03 AM): no hobby, story or APA-comfort detour.
+    const materialSaid = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
+    const stated = brief?.decision?.source === "stated";
+    const prepared = northstar && (stated || (Boolean(materialSaid) && isPreparedSaying(materialSaid) && !materialLost(materialSaid)));
+    // QA 11:40 #4: no question points at material they haven't read and haven't been caught up on.
+    const unread = northstar && !prepared && !caughtUp;
+    const clean = (t: string) => (unread ? scrubUnreadRefs(t) : t);
+    // QA 7:02 AM: "skip the get-to-know-you questions" skips all of them (never the gate steps).
+    const getToKnowOff = skippedInterest && northstar;
+    if (northstar) {
+      // Meet them where they are (Colton t161u): the material first, then a real decision.
+      // Already shown before the confirm (QA 7:02 AM): never re-ask "have you read it yet?".
+      if (!brief?.materialShown || has("material_check")) plan.push({
+          id: "material_check",
+          kind: "background",
+          // Colton 12:08: diagnose first. What's really asked, in plain words, then where they are.
+          text: answers.find((a) => a.questionId === "material_check")?.questionText || diagnoseQuestion(brief?.readback?.ask || requirements.promptQuestion.value || requirements.topic.value),
+        });
+      // Their stated stance is the decision: never re-asked, only its reason when it's missing.
+      if (!stated || has("decision_pick")) {
+        plan.push({
+          id: "decision_pick",
+          kind: "coaching",
+          text: brief?.options?.options.length
+            ? clean(decisionQuestion(brief.options, { prepared, ask: brief.readback?.ask ?? requirements?.promptQuestion.value }))
+            : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
+                .map((t) => (t ? assignmentDecisionAsk(t) : null))
+                .find(Boolean) ??
+              "Let's start small: what's your gut answer to the assignment's question right now, even a guess? One sentence and one reason is plenty.",
+        });
+      }
+      const pickSaid = answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "";
+      const shortPick = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && wordCount(pickSaid) < 15;
+      // QA 10:21 walk C: a long pick with no reason ("I read both… I want to argue transformational,
+      // using Satya Nadella") still needs its why, or the gate can never pass.
+      const noReason = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && !decisionHasReason(pickSaid);
+      if (!stated && (has("decision_why") || shortPick || noReason)) {
+        plan.push({
+          id: "decision_why",
+          kind: "coaching",
+          text: decisionHasReason(pickSaid)
+            ? "Say a bit more about why that one. What would it let you show in your paper?"
+            : "What's your main reason for that pick? One or two sentences is plenty.",
+        });
+      }
+      // Colton 12:08 (INFORMED): what they gave is locked in; no re-ask for its reason here. The
+      // early take (the next requirement) carries the why; the gate recovery still asks if it never comes.
+      // QA 3:00 BLOCKER: the gate found no reason behind a locked-in pick: Pau asks for it in the chat.
+      if (stated && !has("decision_why") && needWhy) {
+        plan.push({
+          id: "decision_why",
+          kind: "coaching",
+          text: "One thing before the stance interview: what's your main reason that's the right call for this assignment? One or two sentences is plenty.",
+        });
+      }
+      if (stated && has("decision_why")) {
+        // Once answered, the question stays as it was asked (the decision now carries the reason too).
+        const askedWhy = answers.find((a) => a.questionId === "decision_why")?.questionText;
+        if (askedWhy) plan.push({ id: "decision_why", kind: "coaching", text: askedWhy });
+        else plan.push({
+          id: "decision_why",
+          kind: "coaching",
+          text: `Got it, you're going with ${clipWords(
+            (brief?.decision?.answer ?? "")
+              // "I read both… I want to argue X": only the stance part is read back (QA 10:21 suite).
+              .replace(/^[\s\S]*?(?=\b(?:i (?:want|plan|intend) to|i'?m going (?:to|with)|i'?d (?:argue|go with|pick)|my (?:pick|stance|choice) is)\b)/i, "")
+              .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked)|i (?:want|plan|intend) to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?m going to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?d (?:argue(?: for)?|go with|pick|choose|use))\s*:?\s*/i, "")
+              .replace(/[.!?\s]+$/, ""),
+            160,
+          )}. ${decisionHasReason(brief?.decision?.answer ?? "") ? "Say a bit more about why: what would it let you show in your paper?" : "What's your main reason? One or two sentences is plenty."}`,
+        });
+      }
+      // The assignment needs one real person: a leader choice grounded in the readings.
+      const people = brief?.options?.people ?? [];
+      const leaderStated = brief?.leader?.question === "stated";
+      if (people.length >= 2 && (!leaderStated || has("leader_pick"))) {
+        plan.push({
+          id: "leader_pick",
+          kind: "coaching",
+          text: clean(`This one needs a real leader as your example. Who fits your pick best? ${people.slice(0, 3).map((p) => `${p.label} (${p.why.replace(/[.\s]+$/, "")})`).join("; ")}. Or name someone else, even a leader from your own life like a coach or a boss, and say why.`),
+        });
+      }
+    }
+    // Colton 11:41: no get-to-know-you questions on north-star papers, for any student
+    // (hobbies, story/show/sport, APA comfort, the generic "seen it in real life"). Every early
+    // question serves the assignment: read-back, catch-up, decision with its reason, early take.
+    if (!northstar && !skippedInterest && !prepared) {
       INTEREST_Qs.forEach((q) =>
         plan.push({ id: q.id, kind: "interest", text: q.text }),
       );
     }
-    plan.push({
-      id: "bg_comfort",
-      kind: "background",
-      text: citationComfortQuestion(requirements),
-    });
-    plan.push({
-      id: "coaching_take",
-      kind: "coaching",
-      text: "In your own words, what do you think this assignment wants you to figure out?",
-    });
-    plan.push({
+    if (!northstar && ((!prepared && !getToKnowOff) || has("bg_comfort")))
+      plan.push({
+        id: "bg_comfort",
+        kind: "background",
+        text: citationComfortQuestion(requirements),
+      });
+    // The plain read-back and their decision already cover this one on north-star papers.
+    if (!northstar)
+      plan.push({
+        id: "coaching_take",
+        kind: "coaching",
+        text: "In your own words, what do you think this assignment wants you to figure out?",
+      });
+    if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({
       id: "personal_1",
       kind: "personal",
-      text: isQuestionTopic(topic)
-        ? `When has the question “${asQuestion(topic)}” come up in real life — school, work, family, or something you follow? Write at least a few sentences.`
-        : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
+      // QA 11/23: never paste the whole assignment clause into the template.
+      text: brief?.options?.options.length
+        ? `When have you seen ${brief.options.options.map((o) => o.label.replace(/[.!?]+$/, "")).slice(0, 3).join(", ")} (or something like them) in real life — a coach, a boss, a teacher, a team, or something you follow? Write at least a few sentences.`
+        : isQuestionTopic(topic) || /^(which|what|how|why|whether|who)\b/i.test(topic.trim())
+          ? `When has the big question in this assignment come up in your own life — school, work, family, or something you follow? Write at least a few sentences.`
+          : topic.split(/\s+/).length > 8
+            ? `When have you seen the idea behind this assignment show up in real life — school, work, family, or something you follow? Write at least a few sentences.`
+            : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
-    if (needFallback) {
+    if (!northstar && needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
       plan.push({
         id: "fallback_voice",
         kind: "fallback_voice",
@@ -533,7 +1036,16 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
+  // Prepared or get-to-know-skipped north-star students never get the extra voice question
+  // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
+  // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
+  // (a leader named in the pick lands a moment later and leader_pick drops out), leaving
+  // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
+  const curQId = useRef<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  // North star (Colton 11:41): there is no extra voice question at all.
+  const fallbackOff = Boolean(brief?.northstar);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
@@ -613,7 +1125,7 @@ export function AssignmentIntake({
           const voice = evaluateStage1VoiceMinimum({
             answers: answers.map((a) => ({ text: a.answerText, isVoiceSample: a.isVoiceSample, kind: a.kind, pasteRatio: a.pasteRatio })),
           });
-          if (voice.needsFallback && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
+          if (voice.needsFallback && !fallbackOff && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
             setNeedFallback(true);
             setQIndex(coachingPlan.length);
             setScreen("coaching");
@@ -639,7 +1151,7 @@ export function AssignmentIntake({
       }
     }
     settleRestore();
-  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, skippedInterest, resumeReady]);
+  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, fallbackOff, skippedInterest, resumeReady]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -686,6 +1198,96 @@ export function AssignmentIntake({
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
+  // North star: clarify (read-back) + catch up (offered or declined) + decide (direction with a reason).
+  const lockedInStance =
+    brief?.northstar && !answers.some((a) => a.questionId === "decision_pick")
+      ? informedSaying(answers.find((a) => a.questionId === "material_check")?.answerText ?? "", brief.options?.options ?? [])?.stance ?? null
+      : null;
+  const northstarGate = brief?.northstar
+    ? northstarGateFrom({
+        answers,
+        // QA 3:00 BLOCKER: the informed lock-in on screen and the gate read the same decision.
+        decisionAnswer: brief.decision?.answer || lockedInStance || null,
+        needsLeader: (brief.options?.people?.length ?? 0) >= 2,
+        leaderAnswer: brief.leader?.answer ?? null,
+        materialShown: Boolean(brief.materialShown),
+      })
+    : undefined;
+
+  // QA 10:21 walk C: keep the question on screen when the plan changes under it.
+  const planKey = coachingPlan.map((x) => x.id).join(",");
+  const lastPlanKey = useRef("");
+  useEffect(() => {
+    const prev = lastPlanKey.current;
+    lastPlanKey.current = planKey;
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey) return;
+    const here = coachingPlan[qIndex];
+    const want = curQId.current;
+    if (!prev || prev === planKey || !want) {
+      if (here) curQId.current = here.id;
+      return;
+    }
+    if (here?.id === want) return;
+    // Only a question that DROPPED out of the plan moves them (a plan that grew, e.g. the
+    // north-star steps arriving ahead of the hobby questions, keeps the index as it was).
+    const at = coachingPlan.findIndex((x) => x.id === want);
+    if (at >= 0 || (here && answers.some((a) => a.questionId === want))) {
+      if (here) curQId.current = here.id;
+      else if (at >= 0) setQIndex(at);
+      return;
+    }
+    // The question it was on dropped out (already answered by an earlier message): the next open one.
+    const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
+    if (next >= 0) {
+      curQId.current = coachingPlan[next].id;
+      setQIndex(next);
+      return;
+    }
+    if (needFallback) return;
+    curQId.current = null;
+    if (storyAngle) goToStanceOnStory();
+    else finishCoaching(answers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey, qIndex, screen]);
+  // A plain empty step (index past the plan, nothing pending) never strands them either.
+  useEffect(() => {
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey || needFallback) return;
+    if (coachingPlan[qIndex]) { curQId.current = coachingPlan[qIndex].id; return; }
+    const t = setTimeout(() => {
+      const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
+      if (next >= 0) setQIndex(next);
+      else if (storyAngle) goToStanceOnStory();
+      else finishCoaching(answers);
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey, qIndex, screen, needFallback]);
+  // Server-side recovery (QA 10:21): a gate that can't pass on the decision re-asks it, with the
+  // composer, instead of a disabled Start and no way forward. `forceRecover` is set when the
+  // server's /intake/complete says the decision is missing.
+  const [forceRecover, setForceRecover] = useState<string | null>(null);
+  useEffect(() => {
+    if (screen !== "gate" || !northstarGate || !briefLoaded || startingStance) return;
+    if (northstarGate.decided && !forceRecover) return;
+    const open = (id: string) => !answers.some((a) => a.questionId === id && a.answerText.trim());
+    const ids = forceRecover ? [forceRecover, "decision_why", "decision_pick"] : ["decision_pick", "decision_why", "leader_pick"];
+    let target = coachingPlan.findIndex((x) => ids.includes(x.id) && open(x.id));
+    if (target < 0) for (const id of ids) { target = coachingPlan.findIndex((x) => x.id === id); if (target >= 0) break; }
+    setForceRecover(null);
+    // An informed lock-in has no decision questions in its plan: add the "why" so Pau asks in the chat.
+    if (target < 0 && !needWhy) {
+      setNeedWhy(true);
+      return;
+    }
+    if (target < 0) return;
+    setEditReturn({ at: "gate", draft: "" });
+    setRecovering(true);
+    curQId.current = coachingPlan[target].id;
+    setDraftAnswer("");
+    setQIndex(target);
+    setScreen("coaching");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, northstarGate?.decided, briefLoaded, forceRecover, planKey]);
 
   // Step 4: read-aloud and hesitation help (both optional, saved per user).
   useStopSpeechOnUnmount();
@@ -758,10 +1360,22 @@ export function AssignmentIntake({
         ? earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value })
         : (coachingPlan[qIndex]?.text ?? null);
   const lastPauTurn = [...confirmTurns].reverse().find((t) => t.role === "pau") as { paras: string[] } | undefined;
-  const rtView = stage1VoiceScreen({
+  // North star: the key points (and an honest ask for a missing reading) ride with the next question.
+  const curId = screen === "coaching" && qIndex >= 0 ? coachingPlan[qIndex]?.id : undefined;
+  const lostNow = Boolean(brief?.lostAtStart);
+  const spokenAll = brief ? (brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : []).map(summarySpoken).join(" ") : "";
+  const teachFirst =
+    curId && brief
+      ? reoffer === curId && spokenAll
+        ? `They said they're lost again. First share these key points again, plainly, saying where each comes from (teaching content, never their paper text): ${spokenAll}. Then ask again: `
+        : curId === "decision_pick" && lostNow && (spokenAll || brief.missingAsk)
+          ? `${spokenAll ? `First, the key points, saying where each comes from (teaching content, never their paper text): ${spokenAll}. ` : ""}${brief.missingAsk ? `Then say honestly and warmly, in your own words: ${brief.missingAsk} ` : ""}Then the question on screen: `
+          : ""
+      : "";
+  const rtView0 = stage1VoiceScreen({
     screen,
     qIndex,
-    question: rtQuestion,
+    question: rtQuestion ? `${teachFirst}${rtQuestion}` : rtQuestion,
     lastPau: lastPauTurn?.paras ?? [],
     turns: confirmTurns.length,
     angles: storyAngles.map((a) => a.question),
@@ -769,6 +1383,8 @@ export function AssignmentIntake({
     error,
     greeting: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`,
   });
+  const rtDetail = Boolean(teachFirst) || (screen === "card" && confirmTurns.length <= 1);
+  const rtView = { ...rtView0, key: `${rtView0.key}${teachFirst ? `:t${brief?.summary ? 1 : 0}${brief?.missingAsk ? 1 : 0}${reoffer ?? ""}` : ""}` };
   const rtScreenRef = useRef(rtView);
   useEffect(() => {
     rtScreenRef.current = rtView;
@@ -816,6 +1432,22 @@ export function AssignmentIntake({
         return "nothing_to_submit";
       }
       if ((screen === "coaching" || screen === "story") && isControlPhrase(text)) return "move_on_words";
+      const qNow = screen === "coaching" ? coachingPlan[qIndex] : undefined;
+      // "Have you read it?": whatever they say is their answer (lost or not), word for word.
+      if (qNow?.id === "material_check") {
+        draftRef.current = appendSpoken(draftRef.current, text);
+        setDraftAnswer(draftRef.current);
+        setError(null);
+        return "in_box";
+      }
+      const b = briefRef.current;
+      // Lost again: the key points come back; nothing goes in the box.
+      if (qNow && qNow.kind === "coaching" && b?.summary && text.length <= 160 && isLostSaying(text)) {
+        setReoffer(qNow.id);
+        return "offered_summary";
+      }
+      // Her own summary heard back (echo or parroting) is never their answer.
+      if (qNow && b && overlapsTeaching(text, { v: 1, readback: b.readback ?? undefined, summaries: b.summary ? [b.summary] : undefined })) return "echo_of_summary";
       // Requests to Pau Pau are answered by her, never saved as their answer (or voice sample).
       if ((screen === "coaching" || screen === "story") && isSaidToCoach(text)) return "said_to_coach";
       if (screen === "coaching") {
@@ -838,6 +1470,7 @@ export function AssignmentIntake({
       if (screen === "gate") {
         // The same strict yes as typing; anything else is just talk.
         const blocked = stanceStartBlockers({
+          northstar: northstarGate,
           checklistConfirmed: cardGate.ok,
           hasStory: Boolean(storyAngle),
           voiceOk: voiceEval.ok,
@@ -869,7 +1502,7 @@ export function AssignmentIntake({
     if (Date.now() < submitBusy.current) return;
     // A student turn on the read-back waits for the app's reply.
     if (screen === "card" && confirmTurns[confirmTurns.length - 1]?.role !== "pau") return;
-    rt.sayTurn(rtView.text);
+    rt.sayTurn(rtView.text, { detail: rtDetail });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtView.key, rt.on]);
 
@@ -991,10 +1624,26 @@ export function AssignmentIntake({
     // SOP: coaching only, never generate submission text
     if (combined.trim()) {
       try {
-        const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ corpusText: combined, described: !hasFiles || undefined }),
+        // Suite r25: under load a parse request could hang with no answer ("Still reading… 280s").
+        // The server gives up by ~22 s, so a request with no answer by 35 s is retried once, then
+        // the student gets the try-again message instead of an endless spinner.
+        const askParse = async (): Promise<Response> => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 35_000);
+          try {
+            return await fetch(`/api/papers/${paperId}/assignment/parse`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ corpusText: combined, described: !hasFiles || undefined }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+        const res = await askParse().catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === "AbortError") return askParse();
+          throw e;
         });
         const data = (await res.json()) as {
           requirements?: AssignmentRequirements;
@@ -1132,23 +1781,60 @@ export function AssignmentIntake({
     upsertDemoPaper(nextPaper);
     setPaper(nextPaper);
     setChecklistConfirmed(true);
+    // The confirmed read-back joins the paper context; the summary and options start loading now.
+    // Options load right away too (QA 7:02 AM walk: with the catch-up already shown, nothing else asked for them).
+    void briefCall({ action: "confirm_readback" }).then((v) => (v && !v.options ? briefCall({ action: "options" }) : null));
     setScreen("coaching");
     setQIndex(0);
-    setDraftAnswer("");
+    dropSent();
     pasteMeta.reset();
   }
 
   function skipInterest() {
     setSkippedInterest(true);
     setAnswers((prev) => answersAfterSkippingInterest(prev));
-    setDraftAnswer("");
-    const rest = coachingPlan.filter((question) => question.kind !== "interest");
+    dropSent();
+    // North star (QA 7:02 AM): every get-to-know-you question goes, the gate steps stay.
+    const getToKnow = new Set(brief?.northstar ? ["bg_comfort", "personal_1", "fallback_voice"] : []);
+    const rest = coachingPlan.filter((question) => question.kind !== "interest" && !getToKnow.has(question.id));
     const answered = new Set(answers.map((answer) => answer.questionId));
     const next = rest.findIndex((question) => !answered.has(question.id));
-    setQIndex(next === -1 ? 0 : next);
+    // Everything left was get-to-know-you (QA 7:02 AM walk): straight on, never back to question 1.
+    if (next === -1) {
+      finishCoaching(answersAfterSkippingInterest(answers));
+      return;
+    }
+    setQIndex(next);
   }
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
+    // North star: their decision (their words, with their reason) IS the direction; no second angle picker.
+    const said = (id: string) => nextAnswers.find((a) => a.questionId === id)?.answerText.trim() ?? "";
+    // Their stated stance plus its reason (and leader) when they came in prepared.
+    const why = said("decision_why");
+    const dNow = (briefRef.current ?? brief)?.decision;
+    // QA 1:16: the decision save can still be in flight here; their informed words are the direction either way.
+    const informedNow = brief?.northstar && !said("decision_pick") ? informedSaying(said("material_check"), (briefRef.current ?? brief)?.options?.options ?? []) : null;
+    const savedStated = dNow?.answer?.trim() && !said("decision_pick") ? dNow.answer.replace(/^[.\s]+/, "") : "";
+    // A parsed pick can be shorter than what they wrote; their own full words win (QA 1:16: Walton got angle cards).
+    const statedAnswer = informedNow?.stance && wordCount(informedNow.stance) > wordCount(savedStated) ? informedNow.stance : savedStated;
+    const statedDecision = statedAnswer ? (why && !statedAnswer.includes(why) ? `${statedAnswer} ${why}` : statedAnswer) : "";
+    const pickDecision = said("decision_pick") ? [said("decision_pick"), why].filter(Boolean).join(" ") : "";
+    const leaderSaid = said("leader_pick");
+    const decided = brief?.northstar
+      ? [pickDecision || statedDecision, leaderSaid && !(pickDecision || statedDecision).includes(leaderSaid) ? leaderSaid : ""].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 500)
+      : "";
+    // (The server's story-pick gate needs 15+ words of their own; shorter picks still see the angle cards.)
+    if (decided && !storyAngle && wordCount(decided) >= 15) {
+      setStoryAngle({ text: decided, source: "student" });
+      void fetch(`/api/papers/${paperId}/intake/story-pick`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: decided, source: "student" }),
+      }).catch(() => undefined);
+      afterStoryPicked();
+      return;
+    }
     const phrases = nextAnswers
       .filter((a) => a.isVoiceSample && a.answerText.trim())
       .map((a) => a.answerText.trim());
@@ -1156,15 +1842,21 @@ export function AssignmentIntake({
       requirements?.topic.value ||
       requirements?.promptQuestion.value ||
       "this assignment";
+    // North star: the cards build on their decision, never the prompt read back (QA 8:31 AM).
+    const bd = (briefRef.current ?? brief)?.decision;
+    const bl = (briefRef.current ?? brief)?.leader;
+    const decisionFor = brief?.northstar && bd
+      ? { pick: bd.pick !== "their own" ? bd.pick : styleWordFrom(bd.answer), leader: bl?.pick && bl.pick !== "their own" ? bl.pick : null }
+      : null;
     const angles =
       storyAngles.length > 0
         ? storyAngles
-        : buildStoryAngleFallback({ topic, studentPhrases: phrases });
+        : buildStoryAngleFallback({ topic, studentPhrases: phrases, decision: decisionFor });
     setStoryAngles(angles);
     void fetch(`/api/papers/${paperId}/intake/story-options`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic.slice(0, 500), studentPhrases: phrases.slice(0, 20).map((p) => p.slice(0, 400)) }),
+      body: JSON.stringify({ topic: topic.slice(0, 500), studentPhrases: phrases.slice(0, 20).map((p) => p.slice(0, 400)), decision: decisionFor }),
     })
       .then(async (res) => {
         if (!res.ok) return;
@@ -1175,7 +1867,91 @@ export function AssignmentIntake({
     setScreen("story");
   }
 
-  async function submitAnswer(opts?: { skip?: boolean; text?: string }) {
+  /** What Pau Pau taught (summary + read-back): used to keep it out of their answers. */
+  function teachCtx(): PaperContext {
+    return {
+      v: 1,
+      readback: brief?.readback ?? undefined,
+      summaries: brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : undefined,
+    };
+  }
+
+  /** Her answer to a question asked mid-interview ("what does Notes on the Quiet Kitchen say?"). Never saved. */
+  async function answerAside(qid: string, ask: string, said: string) {
+    setAsideBusy("Digging it up…");
+    let paras: string[] = [];
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "answer", message: said.slice(0, 2000), stage: 1, ask: ask.slice(0, 1000) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const d = (await res.json().catch(() => null)) as { paras?: string[] } | null;
+      paras = (d?.paras ?? []).map((p) => stripReadingRefusal(p)).filter(Boolean);
+    } catch {
+      paras = [];
+    }
+    setAsideBusy(null);
+    if (!paras.length) paras = ["I couldn't pull that together just now. Ask me again in a sec, or add the reading and I'll work from it."];
+    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: [...paras, "Back to my question whenever you're ready."] }].slice(-12));
+  }
+
+  /** A pasted reading paragraph goes in as material, never as their answer or angle. */
+  async function takePastedReading(qid: string, text: string) {
+    const works = requirements ? namedWorksFrom(requirements, rawText) : [];
+    const named = works
+      .filter((w) => text.toLowerCase().includes((w.match(/[“"]([^”"]{4,90})[”"]/)?.[1] ?? w.replace(/\s+by\s+.*$/i, "")).toLowerCase().trim()))
+      .map((w) => displayWork(w).replace(/[“”]/g, ""))[0];
+    const missing = brief?.missing ?? [];
+    const title = named ?? (missing.length === 1 ? missing[0]! : "Pasted reading");
+    setAsideBusy("Reading it now…");
+    const v = await briefCall({ action: "reading", title, text: text.slice(0, 200_000) });
+    setAsideBusy(null);
+    const s0 = v?.summaries?.find((x) => x.title === title) ?? [...(v?.summaries ?? [])].reverse().find((x) => x.kind === "reading") ?? null;
+    setQaAsides((prev) =>
+      [
+        ...prev,
+        {
+          id: Date.now(),
+          qid,
+          said: `${text.split(/\s+/).slice(0, 18).join(" ")}…`,
+          paras: pastedReadingParas({ title, summary: s0, text, tail: "Now, in your own words: what do you make of it?" }),
+        },
+      ].slice(-12),
+    );
+  }
+
+  // QA 11:40 #2: the catch-up, offered after vague picks when they skipped it.
+  async function catchUpNow(qid: string) {
+    setCatchUpOffer(null);
+    setAsideBusy("Digging it up… pulling together the key points.");
+    setSummaryBusy(true);
+    try {
+      await briefCall({ action: "lost" });
+      await briefCall({ action: "summary" });
+      setCatchUpGiven(true);
+      setReoffer(qid);
+    } finally {
+      setSummaryBusy(false);
+      setAsideBusy(null);
+    }
+  }
+
+  // QA 8:31 AM: "Digging it up…" renders in the same tick as send and stays until the answer is in.
+  async function submitAnswer(opts0?: { skip?: boolean; text?: string }) {
+    try {
+      await submitAnswerNow(opts0);
+    } finally {
+      setAsideBusy(null);
+    }
+  }
+
+  async function submitAnswerNow(opts0?: { skip?: boolean; text?: string }) {
+    let opts = opts0;
     const q = coachingPlan[qIndex];
     if (!q) {
       if (qIndex >= coachingPlan.length && coachingPlan.length > 0) {
@@ -1185,14 +1961,177 @@ export function AssignmentIntake({
       return;
     }
     setShortEcho(null);
-    const text = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
+    if (q.id !== "material_check") setInformedLead(null);
+    let typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
+    const sentBox = (opts?.text ?? draftAnswer).trim();
+    let offerAnswered = false;
+    // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
+    if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
+      setError(null);
+      skipInterest();
+      return;
+    }
+    // Colton 1:54 R1: their answer to the summary offer. Lost again or yes: the short catch-up
+    // (their first words are what's saved). No: straight on to choosing a direction.
+    if (typed && q.id === "material_check" && catchUpOffer === q.id && brief?.northstar) {
+      if (materialLost(typed) || isYesSaying(typed) || /catch me up|summar/i.test(typed)) {
+        setCatchUpOffer(null);
+        { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
+        typed = offerSaid.current ?? typed;
+        offerAnswered = true;
+      } else if (isNoSaying(typed) || /\b(skip|pick|direction|no thanks)\b/i.test(typed)) {
+        setCatchUpOffer(null);
+        { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
+        typed = "No thanks, skip the summary. Let's pick a direction.";
+        offerAnswered = true;
+      }
+    }
+    // Colton 1:54 R1: lost the first time: offer the short summary (no lecture), one tap or a yes.
+    if (
+      typed &&
+      !offerAnswered &&
+      q.id === "material_check" &&
+      brief?.northstar &&
+      catchUpOffer !== q.id &&
+      !(brief?.lostAtStart && brief?.summary) &&
+      materialLost(typed) &&
+      !/catch me up|summar/i.test(typed)
+    ) {
+      offerSaid.current = typed;
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: typed, paras: [lostOffer(brief?.readback?.ask ?? requirements?.promptQuestion.value)] }].slice(-12));
+      setCatchUpOffer(q.id);
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
+    // QA 11:40 #1: a bare "sure" / "ok" to "Have you read it?" is ambiguous: offer the catch-up as a one-tap yes.
+    if (typed && !offerAnswered && q.id === "material_check" && isAmbiguousReply(typed)) {
+      setQaAsides((prev) => [
+        ...prev,
+        { id: Date.now(), qid: q.id, said: typed, paras: ["Just to check: want me to catch you up on the key points first? Tap “Yes, catch me up” and I'll pull them together. If you've already read it, tap “I've read it”."] },
+      ].slice(-12));
+      setCatchUpOffer(q.id);
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
+    // A typed "skip" / "n/a" is a skip, never an answer; the gate steps still need their words.
+    if (typed && isSkipSaying(typed)) {
+      if (["material_check", "decision_pick", "decision_why", "stance_early"].includes(q.id)) {
+        setError("This one counts toward finishing Stage 1, so I need a few words of your own here, even rough ones.");
+        return;
+      }
+      opts = { skip: true };
+    }
+    let text = opts?.skip ? "" : typed;
+    // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
+    // The status shows even before the brief has loaded (QA 9:37 AM: "Digging it up…" at 4-5 s).
+    const lookup = Boolean(text && (brief?.northstar ?? true) && mayNeedLookup(text));
+    if (q?.id === "material_check" && text && materialLost(text)) setAsideBusy("Digging it up… pulling together the key points.");
+    else if (lookup) setAsideBusy("Digging it up…");
     if (!opts?.skip && !text && q.kind !== "background") {
       setError("Tell me a little, even a sentence, or tap skip.");
       return;
     }
+    // North star: these two need the student's own input (nothing advances without it).
+    if ((q.id === "material_check" || q.id === "decision_pick") && (opts?.skip || !text)) {
+      setError(q.id === "decision_pick" ? "Tell me which one you'd pick and why, even one sentence." : "Tell me a little, even a few words.");
+      return;
+    }
+    // A pasted reading paragraph is material, never their answer, and wins over any pick or question parsing (QA 8:31 AM).
+    if (!opts?.skip && text && brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
+      dropSent(sentBox);
+      setError(null);
+      pasteMeta.reset();
+      await takePastedReading(q.id, text);
+      return;
+    }
+    // A question about a reading or the topic gets an answer and is never saved (QA 6:03 AM).
+    if (
+      !opts?.skip &&
+      text &&
+      brief?.northstar &&
+      q.id !== "stance_early" &&
+      !(q.id === "material_check" && materialLost(text)) &&
+      (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))
+    ) {
+      dropSent(sentBox);
+      setError(null);
+      await answerAside(q.id, q.text, text);
+      return;
+    }
+    // QA 11:40 #2/#3: a vague or confused pick. Round 1 names the options; from round 2 (or right away
+    // when confused) she teaches the differences, recommends a starting point and asks yes or no plus why.
+    // A yes to her recommendation is their pick; the same question is never sent twice in a row.
+    let tookRec = false;
+    if (q.id === "decision_pick" || q.id === "leader_pick") {
+      const rec = recPending.current[q.id];
+      if (rec && text && isYesSaying(text)) {
+        const rest = text.replace(/^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|sounds good|let'?s do (?:it|that)|that works)[\s,.!-]*/i, "").trim();
+        text = `I'd pick ${rec.label}${rest ? `. ${rest}` : ""}`;
+        recPending.current[q.id] = null;
+        tookRec = true;
+      }
+    }
+    const confused = !tookRec && (q.id === "decision_pick" || q.id === "leader_pick") && Boolean(text) && isConfusedSaying(text) && !decisionHasReason(text);
+    const vagueNo = !tookRec && Boolean(recPending.current[q.id]) && Boolean(text) && isNoSaying(text) && wordCount(text) < 6;
+    if (
+      !tookRec &&
+      (q.id === "decision_pick" || q.id === "leader_pick") &&
+      text &&
+      (confused || vagueNo || (isVaguePick(text) && !decisionHasReason(text)))
+    ) {
+      const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
+      const lean = confused || vagueNo ? null : guessPick(text, opts2);
+      const round = (vagueRounds.current[q.id] = (vagueRounds.current[q.id] ?? 0) + 1);
+      if (vagueNo) recNos.current[q.id] = (recNos.current[q.id] ?? 0) + 1;
+      const unreadNow = Boolean(brief?.northstar) && !caughtUp && !isPreparedSaying(materialAnswerNow);
+      const esc = lean && round <= 1
+        ? { paras: [vaguePickProbe(text, opts2)], recommend: null, offerCatchUp: false }
+        : pickEscalation({
+            options: opts2,
+            round: confused ? Math.max(2, round) : vagueNo ? Math.max(3, round) : round,
+            confused,
+            last: lastProbe.current[q.id] ?? null,
+            unread: unreadNow,
+            catchUpSkipped: unreadNow && !brief?.missing?.length,
+            kind: q.id === "leader_pick" ? "leader" : "style",
+            people: brief?.options?.people ?? [],
+            recIndex: recNos.current[q.id] ?? 0,
+            concept: brief?.options?.concept ?? null,
+          });
+      lastProbe.current[q.id] = esc.paras.join("\n");
+      recPending.current[q.id] = esc.recommend;
+      setCatchUpOffer(esc.offerCatchUp ? q.id : null);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: esc.paras }].slice(-12));
+      setBoxUnlessTyped(lean && round <= 1 ? `I'd pick ${lean.label} because ` : "", sentBox);
+      setError(null);
+      return;
+    }
+    if (q.id === "decision_pick" && !tookRec && wordCount(text) < 6) {
+      setError("Tell me which one you'd pick and why, even one sentence.");
+      return;
+    }
+    if (q.id === "decision_why" && (opts?.skip || !text)) {
+      setError("Tell me your main reason, even one sentence.");
+      return;
+    }
+    // Pau Pau's summary is teaching content, never their answer.
+    if (!opts?.skip && text && brief && overlapsTeaching(text, teachCtx())) {
+      setError("That's my summary talking. Tell me in your own words, even roughly.");
+      return;
+    }
+    // Lost again later on: the key points come back, nothing is saved.
+    if (!opts?.skip && text && q.kind === "coaching" && text.length <= 160 && brief?.summary && isLostSaying(text)) {
+      setReoffer(q.id);
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
+    if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25 && earlyTakeFull(text)) text = earlyTakeFull(text)!;
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
+      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
       return;
     }
 
@@ -1260,9 +2199,93 @@ export function AssignmentIntake({
         });
     }
     setAnswers(nextAnswers);
-    setDraftAnswer("");
+    dropSent(sentBox);
     setError(null);
+    setReoffer(null);
     pasteMeta.reset();
+    // QA 7:02 AM: a stance said anywhere ("I want to argue transformational, using Satya Nadella")
+    // is saved, and every question it already answers is skipped.
+    // Latest brief (not this render's copy): a decision saved a moment ago must not be lost.
+    const bNow = briefRef.current ?? brief;
+    const people = bNow?.options?.people ?? [];
+    const said = text && q.id !== "stance_early" && q.id !== "decision_why" ? parseStance(text, bNow?.options?.options ?? [], people) : null;
+    // QA 1:16 walk C: a full pick with a named leader gets the same informed treatment here
+    // (affirm by name, locked in word for word, the checklist), never angle cards.
+    if (q.id === "decision_pick" && text && said?.leader && !tookRec) {
+      setInformedLead(
+        informedAffirm(text, {
+          leader: said.leader,
+          mustInclude: bNow?.readback?.mustInclude ?? [],
+          needsPerson: true,
+        }),
+      );
+    }
+    if (q.id === "decision_pick" && text) {
+      void briefCall({ action: "decision", question: q.text, answer: text }).then(() =>
+        said?.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: said.leader }) : null,
+      );
+    } else if (said && !bNow?.decision && q.id !== "material_check" && q.id !== "leader_pick") {
+      void briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: said.stance, source: "stated" }).then(() =>
+        said.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: said.stance, slot: "leader", named: said.leader }) : null,
+      );
+    }
+    if (q.id === "leader_pick" && text) void briefCall({ action: "decision", question: q.text, answer: text, slot: "leader" });
+    if (q.id === "decision_why" && text) {
+      const base = (bNow?.decision?.answer || answers.find((a) => a.questionId === "decision_pick")?.answerText || "").replace(/[.!?\s]+$/, "");
+      void briefCall({ action: "decision", question: bNow?.decision?.question ?? q.text, answer: (base ? `${base}. ${text}` : text).slice(0, 2000), source: bNow?.decision?.source ?? "asked" });
+    }
+    if (q.id === "material_check" && text) {
+      // They haven't read it / don't know where to start: the key points first (waits briefly, then shows when ready).
+      const lost = materialLost(text);
+      // Their stance is saved right away (QA 7:02 AM walk): no decision question flashes while options load.
+      // Colton 12:08 INFORMED: a stance, or ideas with a leader/example, is locked in (the fallback keeps their words word for word).
+      const informed = !lost && !bNow?.decision ? informedSaying(text, bNow?.options?.options ?? []) : null;
+      const early = !lost && !bNow?.decision ? parseStance(text, bNow?.options?.options ?? [], people) ?? (informed ? { stance: informed.stance, leader: informed.leader } : null) : null;
+      if (early) {
+        setInformedLead(
+          informedAffirm(text, {
+            leader: early.leader,
+            mustInclude: bNow?.readback?.mustInclude ?? [],
+            needsPerson: people.length > 0 || /\b(?:real|one)\s+(?:leader|person)\b/i.test(bNow?.readback?.ask ?? ""),
+          }),
+        );
+      }
+      const savedEarly = early
+        ? briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: early.stance, source: "stated" }).then(() =>
+            early.leader && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: early.stance, slot: "leader", named: early.leader }) : null,
+          )
+        : null;
+      // QA 11:40 #5 (lag): the stance save and the options load run side by side, not one after the other.
+      const optionsEarly = !lost && !briefRef.current?.options ? briefCall({ action: "options" }) : null;
+      if (savedEarly) await Promise.race([savedEarly, new Promise((r) => setTimeout(r, 4_000))]);
+      const work = (async () => {
+        if (lost) {
+          setSummaryBusy(true);
+          await briefCall({ action: "lost" });
+          const v = await briefCall({ action: "summary" });
+          setSummaryBusy(false);
+          if (!v?.options) await briefCall({ action: "options" });
+        } else if (optionsEarly) {
+          await optionsEarly;
+        } else if (!briefRef.current?.options) {
+          await briefCall({ action: "options" });
+        }
+        // A prepared student's stated stance ("transformational, Satya Nadella") is the decision: never re-asked.
+        if (!lost) {
+          const o = briefRef.current?.options;
+          const parsed = parseStance(text, o?.options ?? [], o?.people ?? []);
+          if (parsed && !briefRef.current?.decision) {
+            await briefCall({ action: "decision", question: o?.question ?? "Your pick", answer: parsed.stance, source: "stated" });
+            if (parsed.leader) await briefCall({ action: "decision", question: "stated", answer: parsed.stance, slot: "leader", named: parsed.leader });
+          }
+        }
+      })();
+      // QA 11:40 #5 (lag): an INFORMED answer is already locked in, so the next step never waits on the
+      // options lookup (it finishes in the background); everyone else waits up to 12 s for real options.
+      // A lost student sees the reassurance and the next step fast; the summary lands under it when ready (QA 1:16: 18 s).
+      if (!early?.leader) await Promise.race([work, new Promise((r) => setTimeout(r, lost ? 6_000 : 12_000))]);
+      else void work;
+    }
 
     void fetch(`/api/papers/${paperId}/intake/next-question`, {
       method: "POST",
@@ -1320,9 +2343,7 @@ export function AssignmentIntake({
 
     if (qIndex + 1 < coachingPlan.length) {
       const nextQuestion = coachingPlan[qIndex + 1];
-      setDraftAnswer(
-        nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "",
-      );
+      setBoxUnlessTyped(nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "", sentBox);
       setQIndex(qIndex + 1);
       return;
     }
@@ -1342,6 +2363,7 @@ export function AssignmentIntake({
     const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
     if (
       evalResult.needsFallback &&
+      !fallbackOff &&
       !nextAnswers.some((a) => a.kind === "fallback_voice") &&
       !needFallback
     ) {
@@ -1374,7 +2396,8 @@ export function AssignmentIntake({
   }
 
   function goToStanceOnStory() {
-    setDraftAnswer(savedAnswerText("stance_early"));
+    // QA 5:46: this runs after her reply lands; words typed since Enter stay in the box.
+    setBoxUnlessTyped(savedAnswerText("stance_early"));
     setError(null);
     pasteMeta.reset();
     setScreen("coaching");
@@ -1405,10 +2428,20 @@ export function AssignmentIntake({
     const text = (spoken ?? ownStory).trim();
     if (wordCount(text) < 15) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 15, "Your own angle"));
+      setError(moreWordsNote(wordCount(text), 15, "Your own angle", text, shortTries.current++));
       return;
     }
     if (pickingStory) return;
+    // A pasted reading paragraph is material, never the angle (QA 6:03 AM).
+    if (brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
+      dropSentStory(text);
+      pasteMeta.reset();
+      setError("That looks like part of the reading, so I saved it as material instead of your angle. Tell me your angle in your own words.");
+      const works = requirements ? namedWorksFrom(requirements, rawText) : [];
+      const missing = brief?.missing ?? [];
+      void briefCall({ action: "reading", title: missing.length === 1 ? missing[0]! : works.length === 1 ? displayWork(works[0]!).replace(/[“”]/g, "") : "Pasted reading", text: text.slice(0, 200_000) });
+      return;
+    }
     setPickingStory("own");
     setStoryAngle({ text, source: "student" });
     setAnswers((prev) => [
@@ -1428,17 +2461,36 @@ export function AssignmentIntake({
       body: JSON.stringify({ text, source: "student" }),
     }).catch(() => undefined);
     pasteMeta.reset();
-    setOwnStory("");
+    dropSentStory(text);
     setPickingStory(null);
     afterStoryPicked();
   }
 
+  /**
+   * QA 3:51 nit: a real reason (15+ words with a causal link: because, so, led to…) is an early take.
+   * Joined with the pick they already gave in their own words, it meets the 25-word server gate
+   * without asking for "a couple more sentences". Null when it isn't one.
+   */
+  function earlyTakeFull(text: string): string | null {
+    const t = text.trim();
+    if (wordCount(t) >= 25) return t;
+    if (wordCount(t) < 15 || !CAUSAL_LINK.test(t)) return null;
+    const base = (lockedInStance || briefRef.current?.decision?.answer || brief?.decision?.answer || "").trim();
+    if (!base || t.includes(base.slice(0, 30)) || base.includes(t.slice(0, 30))) return null;
+    const both = `${base}\n${t}`;
+    return wordCount(both) >= 25 ? both : null;
+  }
+
   async function submitStanceAnswer(spoken?: string) {
+    // QA 3:00: what they already sent (turned back as short) stays part of the take; new lines add to it.
+    const prevShort = error && shortEcho ? shortEcho : "";
     setShortEcho(null);
-    const text = (spoken ?? draftAnswer).trim();
+    const fresh = (spoken ?? draftAnswer).trim();
+    const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
+    const text = earlyTakeFull(joined) ?? joined;
     if (wordCount(text) < 25) {
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take"));
+      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
       return;
     }
     if (!demoMode) {
@@ -1479,7 +2531,16 @@ export function AssignmentIntake({
       },
     ];
     setAnswers(nextAnswers);
-    setDraftAnswer("");
+    // QA 3:00 BLOCKER (one source of truth): an informed lock-in's reason is their early take.
+    // The saved decision (what the gate and the server read) gets it, so the gate turns ✓.
+    {
+      const d = (briefRef.current ?? brief)?.decision;
+      const base = d?.answer || lockedInStance || "";
+      if (brief?.northstar && base && (!d?.answer || (!decisionHasReason(base) && !base.includes(text.slice(0, 40))))) {
+        void briefCall({ action: "decision", question: d?.question ?? brief.options?.question ?? "Your pick", answer: `${base.replace(/[.!?\s]+$/, "")}. ${text}`.slice(0, 2000), source: d?.source ?? "stated" });
+      }
+    }
+    dropSent(fresh);
     pasteMeta.reset();
     setError(null);
     setEditReturn(null);
@@ -1521,6 +2582,7 @@ export function AssignmentIntake({
     const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
     if (
       evalResult.needsFallback &&
+      !fallbackOff &&
       !nextAnswers.some((a) => a.kind === "fallback_voice") &&
       !needFallback
     ) {
@@ -1566,6 +2628,7 @@ export function AssignmentIntake({
   function returnFromEdit(nextAnswers: IntakeAnswer[]) {
     const back = editReturn;
     setEditReturn(null);
+    setRecovering(false);
     setError(null);
     pasteMeta.reset();
     if (!back) return;
@@ -1614,21 +2677,38 @@ export function AssignmentIntake({
     setStartingStance(true);
 
     try {
-      const res = await fetch(`/api/papers/${paperId}/intake/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requirements,
-          answers,
-          leads,
-          useInterestProfile: !skippedInterest,
-          storyAngle: storyAngle ?? undefined,
-        }),
-      });
+      const post = () =>
+        fetch(`/api/papers/${paperId}/intake/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requirements,
+            answers,
+            leads,
+            useInterestProfile: !skippedInterest,
+            storyAngle: storyAngle ?? undefined,
+          }),
+        });
+      let res = await post();
+      // QA 10:21 suite: a confirmed read-back the server lost (a write race) is re-saved and
+      // the start retried once, never a dead "Finish the Stage 1 steps first".
+      if (res.status === 400 && cardGate.ok) {
+        const peek = (await res.clone().json().catch(() => ({}))) as { reasons?: string[] };
+        if (peek.reasons?.includes("readback")) {
+          await briefCall({ action: "confirm_readback" });
+          res = await post();
+        }
+      }
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string; reasons?: string[] };
-        setError(data.reasons?.[0] ?? data.error ?? "Could not finish Stage 1.");
+        const data = (await res.json().catch(() => ({}))) as { error?: string; reasons?: string[]; reask?: string };
         setStartingStance(false);
+        // The server says the decision is missing: re-ask it right here (never a dead end).
+        if (data.reasons?.includes("decision")) {
+          setError(null);
+          setForceRecover(data.reask ?? "decision_why");
+          return;
+        }
+        setError(data.error ?? "Could not finish Stage 1.");
         return;
       }
     } catch {
@@ -1831,6 +2911,8 @@ export function AssignmentIntake({
               requirements={requirements}
               onChange={setRequirements}
               onConfirm={() => void confirmCard()}
+              onBrief={(view) => setBrief(view as unknown as BriefView)}
+              materialSlot={brief && (brief.summary || brief.summaries?.length) ? <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="" /> : null}
               onStartOver={() => {
                 setConfirmTurns([]);
                 setScreen("upload");
@@ -1840,7 +2922,7 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
-              welcome={<WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
+              welcome={confirmTurns.length > 0 ? null : <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
               sendRef={confirmSendRef}
               oldVoiceOff={rtMode}
               realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
@@ -2378,10 +3460,24 @@ export function AssignmentIntake({
 
   if ((screen === "coaching" || screen === "story" || screen === "gate") && requirements) {
     const stanceMode = screen === "coaching" && qIndex < 0;
-    const stanceText = earlyStanceQuestion({
+    const introBubbles = brief?.northstar ? [STAGE_PURPOSE[1], ...INTRO_BUBBLES] : INTRO_BUBBLES;
+    const stanceBase = earlyStanceQuestion({
       topic: requirements.topic.value,
       promptQuestion: requirements.promptQuestion.value,
     });
+    // Colton 12:08 (INFORMED): straight to the next thing the assignment needs, never a re-ask.
+    const stanceText =
+      brief?.northstar && brief.decision?.source === "stated"
+        ? informedNext(
+            [brief.decision.answer, answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" "),
+            brief.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : brief.leader?.answer && brief.leader.question === "stated" ? null : null,
+            answers.some((a) => a.questionId === "story_own"),
+          )
+        : stanceBase;
+    const informedStance = [brief?.decision?.answer ?? "", answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" ").trim();
+    const informedLeader =
+      (brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null) ?? informedSaying(informedStance)?.leader ?? null;
+    const informedStory = Boolean(brief?.northstar && (brief?.decision?.source === "stated" || informedLead));
     const q =
       screen !== "coaching"
         ? null
@@ -2409,6 +3505,7 @@ export function AssignmentIntake({
     // check mark and the "short side" note follow.
     const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
     const blockers = stanceStartBlockers({
+          northstar: northstarGate,
       checklistConfirmed: cardGate.ok,
       hasStory: Boolean(storyAngle),
       voiceOk: voiceEval.ok,
@@ -2416,24 +3513,262 @@ export function AssignmentIntake({
       stanceOk,
     });
     const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
-    const minNote =
-      stanceMode && draftWords > 0 && draftWords < 25
-        ? "A couple more sentences and your early take is ready."
-        : screen === "story" && draftWords > 0 && draftWords < 15
-          ? "A little more and your own angle is ready."
-          : null;
-    // Exact counts stay available to screen readers only.
-    const minNoteSr = minNote
-      ? ` (about ${stanceMode ? 25 : 15} words needed; ${draftWords} so far)`
-      : null;
+    // The gate checklist (north star: confirmed, material, decision with reason, early take).
+    const gateChecks = northstarGate ? (
+                  <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]" data-gate-checklist>
+                    {northstarChecklist({
+                      confirmed: cardGate.ok,
+                      catchUpDone: northstarGate.catchUpDone,
+                      decided: northstarGate.decided,
+                      stanceOk,
+                      materialLabel: materialGateLabel({
+                        catchUpDone: northstarGate.catchUpDone,
+                        materialShown: Boolean(brief?.materialShown),
+                        kinds: (brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : []).map((x) => x.kind),
+                        materialAnswer: answers.filter((a) => a.questionId === "material_check").at(-1)?.answerText ?? null,
+                      }),
+                    }).map((item) => (
+                      <li key={item.label}>
+                        {item.done ? "✓" : "○"} {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
+                  <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
+                  <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
+                  <li>
+                    {voiceWordsMet
+                      ? "✓ Voice sample: plenty to match your voice"
+                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
+                    <span className="sr-only">
+                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
+                    </span>
+                  </li>
+                  <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
+                </ul>
+                );
+    // A friendly nudge while the note is short, never a bare word counter (QA 6:03 AM).
+    // QA 3:00: the typing hint never stands in for Pau Pau's reply: hidden while she is replying,
+    // while a message is pending or queued, and whenever her reply is on screen.
+    const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);
+    const minNote = hintQuiet ? null : stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
     const isVoiceQuestion = Boolean(q && q.kind !== "background");
+    // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
+    const readingTools = q ? (readingOpen ? (
+                    <div className="space-y-2">
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-files">
+                        Take photos of the pages (or upload a PDF or Word file):
+                      </label>
+                      <input
+                        id="reading-files"
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.doc,.docx,.txt,.rtf,.odt"
+                        disabled={readingBusy}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? []).slice(0, 12);
+                          e.target.value = "";
+                          if (!files.length) return;
+                          setReadingBusy(true);
+                          setReadingNote("Reading your pages…");
+                          void (async () => {
+                            const texts: string[] = [];
+                            for (const f of files) {
+                              const r = await extractFileText(paperId, f).catch(() => null);
+                              if (r && r.ok && r.text.trim()) texts.push(r.text.trim());
+                            }
+                            const text = texts.join("\n\n");
+                            const v = text ? await briefCall({ action: "reading", title: files.length === 1 ? files[0]!.name : `${files.length} photos of your reading`, text: text.slice(0, 200_000) }) : null;
+                            setReadingBusy(false);
+                            setReadingNote(v ? null : "I couldn't read text from those. Try clearer photos, or paste the text.");
+                            if (v) {
+                              setReadingOpen(false);
+                              setReoffer(q.id);
+                            }
+                          })();
+                        }}
+                        className="block text-[14px]"
+                      />
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-link">
+                        Or send me a link to it:
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="reading-link"
+                          type="url"
+                          inputMode="url"
+                          placeholder="https://…"
+                          value={readingLink}
+                          onChange={(e) => setReadingLink(e.target.value)}
+                          className="ds-focus min-h-[40px] flex-1 rounded-[8px] border border-ds-border bg-ds-page px-3 text-[15px]"
+                        />
+                        <DsButton
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={readingBusy || !/^https?:\/\/\S+\.\S+/.test(readingLink.trim())}
+                          onClick={() => {
+                            setReadingBusy(true);
+                            setReadingNote("Opening your link…");
+                            void briefCall({ action: "reading_link", url: readingLink.trim() }).then((v) => {
+                              setReadingBusy(false);
+                              setReadingNote(null);
+                              if (v) {
+                                setReadingLink("");
+                                setReadingOpen(false);
+                                setReoffer(q.id);
+                              }
+                            });
+                          }}
+                        >
+                          Use this link
+                        </DsButton>
+                      </div>
+                      {readingNote ? (
+                        <p className="text-[13px] text-ds-muted" role="status">
+                          {readingNote}
+                        </p>
+                      ) : null}
+                      <label className="block text-[13px] text-ds-muted" htmlFor="reading-paste">
+                        Paste the reading (or the part you were assigned). I&apos;ll use it for the key points.
+                      </label>
+                      <textarea
+                        id="reading-paste"
+                        className="ds-focus min-h-[120px] w-full rounded-[8px] border border-ds-border bg-ds-page p-3 text-[15px]"
+                        value={readingText}
+                        onChange={(e) => setReadingText(e.target.value)}
+                      />
+                      <DsButton
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        disabled={readingBusy || readingText.trim().length < 200}
+                        onClick={() => {
+                          setReadingBusy(true);
+                          void briefCall({ action: "reading", title: "Pasted reading", text: readingText.trim() }).then((v) => {
+                            setReadingBusy(false);
+                            if (v) {
+                              setReadingOpen(false);
+                              setReadingText("");
+                              setReoffer(q.id);
+                            }
+                          });
+                        }}
+                      >
+                        {readingBusy ? "Reading it…" : "Use this reading"}
+                      </DsButton>
+                    </div>
+                  ) : null) : null;
+    const statusFor = (said: string) =>
+      q?.id === "material_check" && materialLost(said)
+        ? "Digging it up… pulling together the key points."
+        : q?.id === "material_check" || ((brief?.northstar ?? true) && mayNeedLookup(said)) || wordCount(said) >= 25
+          ? "Digging it up…"
+          : "Thinking…";
     const send = (text?: string) => {
-      if (submitting) return;
-      setSubmitting(true);
-      void (stanceMode ? submitStanceAnswer() : submitAnswer(text ? { text } : undefined)).finally(() =>
-        setSubmitting(false),
-      );
+      const typedNow = (text ?? draftAnswer).trim();
+      // QA 1:16 (composer): a second, different message sent right after the first joins it, so
+      // both are kept and Pau Pau replies once. Identical repeats (double Enter) add nothing.
+      if (coalesce.current) {
+        if (typedNow && !coalesce.current.text.split("\n").includes(typedNow)) coalesce.current.text += `\n${typedNow}`;
+        if (!text) setDraftAnswer("");
+        setPendingSaid(coalesce.current.text);
+        return;
+      }
+      // QA 9:37 AM: one send at a time, even for two taps in the same tick.
+      // QA 3:00: typed while a reply is in flight: queued (on screen), never dropped.
+      if (submitting || sendLock.current) {
+        if (typedNow && !text) {
+          const prev = queuedRef.current;
+          queuedRef.current = prev ? (prev.split("\n").includes(typedNow) ? prev : `${prev}\n${typedNow}`) : typedNow;
+          setQueuedSaid(queuedRef.current);
+          setDraftAnswer("");
+        }
+        return;
+      }
+      if (typedNow && !text) {
+        sendLock.current = true;
+        if (!text) setDraftAnswer("");
+        setPendingSaid(typedNow);
+        setAsideBusy(statusFor(typedNow));
+        const entry = { text: typedNow, timer: setTimeout(() => {
+          const merged = coalesce.current?.text ?? typedNow;
+          coalesce.current = null;
+          sendLock.current = false;
+          // QA 5:46: between steps (the last question answered, the early take not up yet) the
+          // render that took this Enter has nothing to send it to, so go through the latest
+          // screen and retry until something takes it; never dropped silently.
+          const fireNow = (n: number) => {
+            const went = latestSendNow.current?.(merged, true);
+            if (went === false && n < 80) {
+              setTimeout(() => fireNow(n + 1), 75);
+              return;
+            }
+            if (went === false) {
+              setPendingSaid(null);
+              setAsideBusy(null);
+              setDraftAnswer((d) => (d.trim() ? `${merged}\n${d}` : merged));
+            }
+          };
+          fireNow(0);
+        }, 450) };
+        coalesce.current = entry;
+        return;
+      }
+      sendNow(text, false);
     };
+    const sendNow = (text: string | undefined, fromBox: boolean): boolean => {
+      if (submitting || sendLock.current) return false;
+      sendLock.current = true;
+      rejectedRef.current = false;
+      setSubmitting(true);
+      // QA 10:21: a status in the same tick as send on every path (taps, "I've read it", long
+      // multi-part messages), not only the ones that look like a lookup.
+      const said = (text ?? draftAnswer).trim();
+      if (said) setAsideBusy(statusFor(said));
+      void (stanceMode ? submitStanceAnswer(text) : submitAnswer(text ? { text } : undefined)).finally(() => {
+        sendLock.current = false;
+        setSubmitting(false);
+        setAsideBusy(null);
+        setPendingSaid(null);
+        const queuedNext = queuedRef.current;
+        if (queuedNext) {
+          // The queued message goes right after the reply. If the first was turned back (too short),
+          // both go together as one answer, so neither is lost.
+          queuedRef.current = null;
+          const merged = fromBox && rejectedRef.current && text ? `${text}\n${queuedNext}` : queuedNext;
+          // QA 3:51: the screen may not have re-rendered yet (a heavy render can take longer than a
+          // beat), so a send that is still "busy" is retried, never silently dropped. It stays on
+          // screen as queued until it actually goes.
+          const fire = (n: number) => {
+            const went = latestSendNow.current?.(merged, true);
+            if (went === false && n < 80) {
+              setTimeout(() => fire(n + 1), 75);
+              return;
+            }
+            // Still nowhere to send it after ~6 s: back in the box, never lost.
+            if (went === false) setDraftAnswer((d) => (d.trim() ? `${merged}\n${d}` : merged));
+            setQueuedSaid(null);
+          };
+          setTimeout(() => fire(0), 60);
+          return;
+        }
+        // Turned back: their words go back in the box, never lost.
+        // QA 3:06: a short early take stays in the chat (and counts toward the next send), not back in the box.
+        if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
+      });
+      return true;
+    };
+    // A message queued during her reply goes to whatever she's asking now (the story question too).
+    latestSendNow.current =
+      screen === "story"
+        ? (t: string) => void submitOwnStory(t)
+        : screen === "gate"
+          ? (t: string) => setGateSaid((prev) => [...prev, { id: Date.now(), said: t }].slice(-6))
+          : // QA 3:51: between steps (the last question answered, the early take not up yet) there is
+            // nothing to take it, so wait for the next step instead of losing it.
+            (t: string, fromBox: boolean) => (!stanceMode && !coachingPlan[qIndex] ? false : sendNow(t, fromBox));
     const sparkHere = q && sparks[q.id] ? { qid: q.id, ...sparks[q.id]! } : null;
     const sparkFor = (qid: string) =>
       sparks[qid] ? (
@@ -2451,6 +3786,8 @@ export function AssignmentIntake({
             questionId: q.id,
             questionText: q.text.slice(0, 600),
             questionKind: q.kind,
+            // QA 11:40 #4: no spark question about material they haven't read.
+            unread: (Boolean(brief?.northstar) && !caughtUp && !isPreparedSaying(materialAnswerNow)) || undefined,
             topic: (requirements.promptQuestion.value || requirements.topic.value || "").slice(0, 500) || undefined,
             interests: ["interest_1", "interest_2"]
               .map((id) => answerFor(id).slice(0, 200))
@@ -2519,7 +3856,7 @@ export function AssignmentIntake({
     ) : null;
     const leadsBubbles = leadsShown ? [LEADS_INTRO, leadsList] : [];
     const threadSpeak: SpeakItem[] = [
-      ...INTRO_BUBBLES.map((text, i) => ({ key: `intro:${i}`, text })),
+      ...introBubbles.map((text, i) => ({ key: `intro:${i}`, text })),
       ...coachingPlan.slice(0, reach).map((item) => ({ key: `q:${item.id}`, text: item.text })),
       ...(storyAngle || screen === "story"
         ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
@@ -2535,9 +3872,10 @@ export function AssignmentIntake({
       ...(sparkHere?.status === "declined" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_DECLINED }] : []),
       ...(sparkHere?.status === "off" ? [{ key: `spark-reply:${sparkHere.qid}`, text: SPARK_OFF }] : []),
       ...(sparkHere?.questions ?? []).map((text, i) => ({ key: `spark:${sparkHere!.qid}:${i}`, text })),
-      ...(error && /^(Give me a little more|Tell me a little)/.test(error) ? [{ key: `err:${error}`, text: error }] : []),
+      ...(error && (MORE_WORDS_NOTE.test(error) || /^Tell me a little/.test(error)) ? [{ key: `err:${error}`, text: error }] : []),
     ].filter((i, idx, all) => i.text && all.findIndex((j) => j.key === i.key) === idx);
 
+    const lastMaterialTurn = confirmTurns.reduce((last, t, i) => (t.role === "pau" && (t as { material?: boolean }).material ? i : last), -1);
     return (
       <div className="mx-auto max-w-[680px]">
         <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
@@ -2551,7 +3889,15 @@ export function AssignmentIntake({
               t.role === "student" ? (
                 <StudentBubble key={`ct${i}`} message={{ text: t.text, files: [], at: 0 }} />
               ) : (
-                <PauPauGroup key={`ct${i}`} bubbles={t.paras} />
+                <Fragment key={`ct${i}`}>
+                  <PauPauGroup bubbles={t.paras} />
+                  {/* QA 10:21 walk A: the key points shown before the confirm stay on the page after it. */}
+                  {i === lastMaterialTurn && brief && (brief.summary || brief.summaries?.length) ? (
+                    <div data-confirm-material>
+                      <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="" />
+                    </div>
+                  ) : null}
+                </Fragment>
               ),
             )
           ) : (
@@ -2566,21 +3912,44 @@ export function AssignmentIntake({
             return (
               <div key={item.id} className="space-y-4">
                 {/* The first question comes in the same reply as the intro. */}
-                <PauPauGroup bubbles={i === 0 ? [...INTRO_BUBBLES, item.text] : [item.text]}>
+                <PauPauGroup bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}>
                   {isCurrent ? null : sparkFor(item.id)}
                 </PauPauGroup>
+                {said && offerReply[item.id]
+                  ? qaAsides
+                      .filter((x) => x.qid === item.id)
+                      .map((x) => (
+                        <div key={x.id} className="space-y-4" data-past-aside>
+                          <StudentBubble message={{ text: x.said, files: [], at: 0 }} />
+                          <PauPauGroup bubbles={x.paras} />
+                        </div>
+                      ))
+                  : null}
                 <EchoBubble
-                  text={said || "Skipped"}
+                  text={(said && offerReply[item.id]) || said || "Skipped"}
                   muted={!said}
                   editing={isCurrent}
                   onEdit={() => editAnswer(i)}
                   editLabel={said ? `Edit your answer to: ${item.text}` : `Answer this one now: ${item.text}`}
                 />
+                {item.id === "material_check" && brief && (brief.lostAtStart || materialLost(said)) ? (
+                  <MaterialBubbles brief={brief} paperId={paperId} lead={lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask, hasSummary: Boolean(brief.summary || brief.summaries?.length) })} />
+                ) : null}
+                {item.id === "material_check" && summaryBusy && !asideBusy ? (
+                  <>
+                    {/* The reassurance and the core idea show right away (QA 1:16); the summary follows when it's ready. */}
+                    {brief && !(brief.summary || brief.missingAsk) ? (
+                      <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
+                    ) : null}
+                    <ReadingBubble status="Digging it up… pulling together the key points." startedAt={Date.now()} />
+                  </>
+                ) : null}
               </div>
             );
           })}
 
-          {storyAngle && screen !== "story" ? (
+          {/* North star: their decision above IS the direction (QA 7:02 AM: never a second "Which direction…?"). */}
+          {storyAngle && screen !== "story" && !(brief?.northstar && brief.decision) ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
               {storyAngle.source === "student" ? (
@@ -2611,25 +3980,141 @@ export function AssignmentIntake({
             </div>
           ) : null}
 
+          {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
+            <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
+          ) : null}
+          {/* Questions and pastes she answered in place for this question (never saved as answers). */}
+          {q
+            ? qaAsides
+                .filter((a) => a.qid === q.id)
+                .map((a) => (
+                  <div key={a.id} className="space-y-4" data-interview-aside>
+                    <StudentBubble message={{ text: a.said, files: [], at: 0 }} />
+                    <PauPauGroup bubbles={a.paras} />
+                  </div>
+                ))
+            : null}
+          {pendingSaid ? (
+            <div data-pending-said>
+              <StudentBubble message={{ text: pendingSaid, files: [], at: 0 }} />
+            </div>
+          ) : null}
+          {/* QA 1:16 (lag): a lost student is reassured and taught the core idea right away, while the summary loads. */}
+          {asideBusy?.startsWith("Digging it up… pulling") && !pendingSaid && brief && !(brief.summary || brief.missingAsk) ? (
+            <PauPauGroup bubbles={[lostLead({ concept: brief.options?.concept, ask: brief.readback?.ask }).replace(/ Here's a summary[^]*$/, " Give me a moment to pull together the key ideas from your professor's sources.")]} />
+          ) : null}
+          {asideBusy ? <ReadingBubble status={asideBusy} startedAt={Date.now()} /> : null}
+          {queuedSaid ? (
+            <div data-queued-said>
+              <StudentBubble message={{ text: queuedSaid, files: [], at: 0 }} />
+              <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau Pau replies.</p>
+            </div>
+          ) : null}
           {/* Pau Pau's current turn. */}
           {q ? (
             <PauPauGroup
               bubbles={[
-                ...(!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES : []),
-                editing ? "Sure, change anything and send it again." : null,
+                ...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : []),
+                editing
+                  ? recovering
+                    ? "One thing before the stance interview: I still need the reason behind your pick. One or two sentences is plenty."
+                    : "Sure, change anything and send it again."
+                  : null,
                 ...leadsBubbles,
+                ...(informedLead && !editing && q.id !== "material_check" ? informedLead : []),
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
               ].filter((b) => Boolean(b))}
               headingIndex={
-                (!editing && q.id === coachingPlan[0]?.id ? INTRO_BUBBLES.length : 0) +
+                (!editing && q.id === coachingPlan[0]?.id ? introBubbles.length : 0) +
                 (editing ? 1 : 0) +
                 leadsBubbles.length +
+                (informedLead && !editing && q.id !== "material_check" ? informedLead.length : 0) +
                 (stanceMode && !editing ? 1 : 0)
               }
               headingId="coach-question"
             >
-              {q.kind === "background" ? (
+              {q.id === "material_check" ? (
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Quick answers">
+                    {catchUpOffer === q.id ? (
+                      <>
+                        <DsButton type="button" size="sm" disabled={submitting} data-catchup-yes onClick={() => send("Yes, catch me up on the key points")}>
+                          Yes, catch me up
+                        </DsButton>
+                        <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-no onClick={() => send("No thanks, let's pick a direction")}>
+                          No thanks, let&apos;s pick
+                        </DsButton>
+                      </>
+                    ) : null}
+                    {["I haven't read it yet", "I've read it"].map((choice) => (
+                      <DsButton key={choice} type="button" size="sm" variant="secondary" disabled={submitting} onClick={() => send(choice)}>
+                        {choice}
+                      </DsButton>
+                    ))}
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => setReadingOpen((v) => !v)}>
+                      Add a reading
+                    </DsButton>
+                  </div>
+                  {readingTools}
+                </div>
+              ) : q.id === "decision_pick" && brief?.options?.options.length ? (
+                <div className="space-y-2 pt-1">
+                {catchUpOffer === q.id ? (
+                  <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-offer onClick={() => void catchUpNow(q.id)}>
+                    Catch me up on the reading first
+                  </DsButton>
+                ) : null}
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Options">
+                  {brief.options.options.slice(0, 3).map((o) => (
+                    <DsButton
+                      key={o.label}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setDraftAnswer((d) => (d.trim() ? d : `I'd pick ${o.label} because `))}
+                    >
+                      {o.label}
+                    </DsButton>
+                  ))}
+                  {brief.missing?.length ? (
+                    <DsButton type="button" size="sm" variant="secondary" onClick={() => setReadingOpen((v) => !v)}>
+                      Add a reading
+                    </DsButton>
+                  ) : null}
+                </div>
+                {readingTools}
+                </div>
+              ) : q.id === "leader_pick" && brief?.options?.people?.length ? (
+                <div className="space-y-1 pt-1">
+                  {/* QA 7:02 AM: the prefill is the start of THEIR sentence; say so, and put the cursor at its end. */}
+                  <p className={dsCaption} data-leader-hint>
+                    Tap one, then finish the sentence with your reason.
+                  </p>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Leaders">
+                    {brief.options.people.map((o) => (
+                      <DsButton
+                        key={o.label}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setDraftAnswer((d) => (d.trim() ? d : `I'd go with ${o.label} because `));
+                          setTimeout(() => {
+                            const all = document.querySelectorAll<HTMLTextAreaElement>("textarea");
+                            const ta = all[all.length - 1];
+                            if (!ta) return;
+                            ta.focus();
+                            ta.setSelectionRange(ta.value.length, ta.value.length);
+                          }, 0);
+                        }}
+                      >
+                        {o.label}
+                      </DsButton>
+                    ))}
+                  </div>
+                </div>
+              ) : q.kind === "background" ? (
                 <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
                   {["Not comfortable yet", "Somewhat comfortable", "Comfortable"].map((choice) => (
                     <DsButton
@@ -2683,7 +4168,15 @@ export function AssignmentIntake({
             />
           ) : null}
 
-          {screen === "story" ? (
+          {screen === "story" && informedStory ? (
+            // QA 1:16: an informed student never gets generic angle cards: the affirmation, the
+            // checklist, then ONE concrete question about their own example (answered below).
+            <PauPauGroup
+              bubbles={[...(informedLead ?? []), informedStoryAsk(informedLeader)]}
+              headingIndex={(informedLead ?? []).length}
+              headingId="story-ask"
+            />
+          ) : screen === "story" ? (
             <PauPauGroup
               bubbles={[
                 "Here are a few directions your paper could take, built from what you told me.",
@@ -2726,19 +4219,7 @@ export function AssignmentIntake({
                 metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords)
                   ? readyVoiceLine(voiceEval.totalWords)
                   : null,
-                <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
-                  <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
-                  <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
-                  <li>
-                    {voiceWordsMet
-                      ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
-                    <span className="sr-only">
-                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
-                    </span>
-                  </li>
-                  <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
-                </ul>,
+                gateChecks,
                 voiceShortNote({ voiceOk: voiceWordsMet }) || null,
               ].filter((b) => b !== null)}
               headingIndex={leadsBubbles.length}
@@ -2769,8 +4250,19 @@ export function AssignmentIntake({
               </div>
             </PauPauGroup>
           ) : null}
+          {screen === "gate"
+            ? gateSaid.map((g) => (
+                <div key={g.id} className="space-y-4" data-gate-said>
+                  <StudentBubble message={{ text: g.said, files: [], at: 0 }} />
+                  <PauPauGroup bubbles={[GATE_SAID_REPLY]} />
+                </div>
+              ))
+            : null}
 
-          <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
+          {/* QA 1:16: on a reload, no "Welcome back…" appended after the conversation already on screen. */}
+          {answers.length === 0 ? (
+            <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
+          ) : null}
           {rt.on ? <LiveTurns rows={rt.live} /> : null}
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (
@@ -2782,52 +4274,41 @@ export function AssignmentIntake({
 
         {screen === "gate" ? null : (
           <ComposerDock>
-            {screen === "story" ? (
-              <ChatComposer
-                paperId={paperId}
-                labelledBy="story-ask"
-                value={ownStory}
-                onChange={(next) => {
+            {/* QA 5:46: ONE composer for every Stage 1 step (story box included), so the textarea is never
+                remounted mid-session and nothing typed right after an Enter is lost. */}
+            <ChatComposer
+              paperId={paperId}
+              labelledBy={screen === "story" ? "story-ask" : "coach-question"}
+              value={screen === "story" ? ownStory : draftAnswer}
+              onChange={(next) => {
+                if (screen === "story") {
                   pasteMeta.onChange(ownStory, next);
                   setOwnStory(next);
-                }}
-                onPaste={pasteMeta.onPaste}
-                inputProps={{ onDrop: pasteMeta.onDrop, onBeforeInput: pasteMeta.onBeforeInput }}
-                minRows={1}
-                sending={pickingStory === "own"}
-                sendLabel="Send"
-                placeholder="Or write your own angle as a question"
-                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
-                onSend={() => void submitOwnStory()}
-              />
-            ) : (
-              <ChatComposer
-                paperId={paperId}
-                labelledBy="coach-question"
-                value={draftAnswer}
-                onChange={(next) => {
+                } else {
                   pasteMeta.onChange(draftAnswer, next);
                   setDraftAnswer(next);
-                }}
-                onPaste={pasteMeta.onPaste}
-                inputProps={{
-                  onDrop: pasteMeta.onDrop,
-                  onBeforeInput: pasteMeta.onBeforeInput,
-                  readOnly: restoringDraft && !draftAnswer,
-                  "aria-busy": restoringDraft || undefined,
-                }}
-                minRows={1}
-                sending={submitting}
-                sendLabel="Send"
-                placeholder={
-                  restoringDraft && !draftAnswer
+                }
+              }}
+              onPaste={pasteMeta.onPaste}
+              inputProps={{
+                onDrop: pasteMeta.onDrop,
+                onBeforeInput: pasteMeta.onBeforeInput,
+                "aria-busy": (screen !== "story" && restoringDraft) || undefined,
+              }}
+              minRows={1}
+              sending={screen === "story" ? pickingStory === "own" : submitting}
+              onQueue={screen === "story" ? undefined : () => send()}
+              sendLabel="Send"
+              placeholder={
+                screen === "story"
+                  ? "Or write your own angle as a question"
+                  : restoringDraft && !draftAnswer
                     ? "Restoring your draft…"
                     : PLACEHOLDERS[q?.id ?? ""] ?? "Tell me in your own words"
-                }
-                onSend={() => send()}
-                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
-              />
-            )}
+              }
+              onSend={screen === "story" ? () => void submitOwnStory() : () => send()}
+              realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
+            />
             {minNote ? (
               // Floats above the box (QA 4:42 #1): typing never changes the dock's height.
               <p
@@ -2836,7 +4317,6 @@ export function AssignmentIntake({
                 data-min-note
               >
                 {minNote}
-                <span className="sr-only">{minNoteSr}</span>
               </p>
             ) : null}
             {/* Fixed height whatever the screen shows here (Skip, Saving…, the voice meter). */}

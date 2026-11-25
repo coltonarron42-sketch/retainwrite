@@ -11,7 +11,12 @@ const CLAUSE_START = /^(how|why|what|whether|when|where|which|who|whose|to what 
 const LOWER_MID = /^(whether|how|why|what|when|where|which|who|whose|to what extent|if|the|a|an)\b/i;
 
 export function cleanTopic(text: string | null | undefined): string {
-  return (text ?? "").replace(/\s+/g, " ").trim().replace(/[\s.!,;:]+$/, "");
+  let t = (text ?? "").replace(/\s+/g, " ").trim();
+  // QA 6:03 AM: "arguing which leadership style…, using one real leader as your example"
+  // is an instruction, not a topic: "which leadership style…" ("writing about arguing which…").
+  const bare = t.replace(/^(?:arguing|argue|explaining|explain|analy[sz]ing|discussing|describing|exploring|examining|evaluating|writing about|reflecting on)\s+(?=(?:which|what|how|why|whether|who|when|where|if|to what extent)\b)/i, "");
+  if (bare !== t) t = bare.replace(/,\s*(?:using|with|citing|drawing on|based on|and use|supported by)\b.*$/i, "");
+  return t.replace(/[\s.!,;:]+$/, "");
 }
 
 /** "Should high schools…", "How has social media changed…?" */

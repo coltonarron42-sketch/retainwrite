@@ -7,8 +7,7 @@ import Link from "next/link";
  * - Subhead: section 1 product goal (line 7) + section 3 "we never write for you" promise (line 19).
  * - Proof points: section 2 non-negotiables (lines 10–14).
  * - CTA: "Start free paper", lines 19 and 115; journey line 34.
- * - Stages: section 3, lines 23–28, softened where a feature isn't fully built yet
- *   (no export, citation-audit, or reference-builder promises until they ship).
+ * - Hero, "we got you" lines, Guru line: Colton, Nov 24 12:18 AM (no public stage count).
  * - Pricing blurb + link: retainwrite-cursor-build-prompt.md line 501 (locked homepage blurb).
  */
 
@@ -19,30 +18,24 @@ const PROOF_POINTS = [
   "Progress saves as you go. Leave and resume anytime.",
 ];
 
-const STAGES = [
+/** Colton, Nov 24 12:18 AM: lead with the promise and meeting students where they are. */
+const WE_GOT_YOU = [
+  "Haven't opened the book and need to write a paper? We got you.",
+  "Read the chapters, took notes, have a core idea and just want structure? We got you.",
+];
+
+const RESULTS = [
   {
-    name: "Intake",
-    copy: "Upload your assignment as photos, a PDF, or text. We pull out the prompt, format, rubric, and sections. You confirm them.",
+    name: "A paper you own",
+    copy: "Every sentence is yours, in your voice. You can stand behind it, explain it, and defend it.",
   },
   {
-    name: "Stance and research",
-    copy: "Go section by section. Share what you already know. Get research leads to explore, then confirm your ideas.",
+    name: "The learning, too",
+    copy: "You work through the ideas instead of just submitting them, so you actually understand it and you're not lost when the test comes.",
   },
   {
-    name: "Outline",
-    copy: "Build a sentence-level outline from your own confirmed ideas. The coach supplies structure only.",
-  },
-  {
-    name: "Sources",
-    copy: "Review your research leads and pick the ones you want to use.",
-  },
-  {
-    name: "Drafting",
-    copy: "Write every sentence yourself, working from your outline. The coach guides; you write.",
-  },
-  {
-    name: "Revise",
-    copy: "Polish flow and voice, then get your paper ready to hand in.",
+    name: "A way of working you keep",
+    copy: "Read the ask, get the gist, pick a direction, build it out. You'll start your next paper faster.",
   },
 ];
 
@@ -68,15 +61,27 @@ export function HomeEditorial({ startHref }: { startHref: string }) {
     <div className="px-6 py-12 md:px-16">
       {/* One frame: the promise and one primary action. */}
       <section className="mx-auto max-w-[680px] pt-8 md:pt-16" aria-labelledby="home-title">
+        <p className="text-[13px] font-semibold uppercase leading-[1.6] tracking-[0.08em] text-ds-muted">
+          Your writing Guru
+        </p>
         <h1
           id="home-title"
-          className="font-display text-[32px] font-semibold leading-[1.2] text-ds-ink"
+          className="mt-2 font-display text-[32px] font-semibold leading-[1.2] text-ds-ink"
         >
-          Your paper, your words, every step
+          We meet you where you are
         </h1>
-        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
-          We coach you through a structured process so you learn and retain the material.
-          We never write the paper for you.
+        <ul className="mt-6 space-y-3">
+          {WE_GOT_YOU.map((line) => (
+            <li key={line} className="flex gap-4 text-[18px] leading-[1.5] text-ds-ink">
+              <CheckIcon />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-6 text-[16px] leading-[1.6] text-ds-muted">
+          Get the paper done, save time, and actually learn the material so you&apos;re not lost
+          when the test comes. How long it takes depends on how prepared you are. Underneath is a
+          simple, repeatable way of working you can use on your next paper too.
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <Link href={startHref} className="ds-btn-primary">
@@ -86,6 +91,46 @@ export function HomeEditorial({ startHref }: { startHref: string }) {
             See pricing
           </Link>
         </div>
+      </section>
+
+      <section className="mx-auto mt-16 max-w-[680px]" aria-labelledby="why-title">
+        <h2 id="why-title" className="font-display text-[24px] font-semibold leading-[1.2] text-ds-ink">
+          Why RetainWrite exists
+        </h2>
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
+          Most writing help either leaves you alone with a blank page or does the work for you, and
+          neither one teaches you anything. RetainWrite is the coach in between: it figures out what
+          you already know, fills the gaps, and keeps you writing. You finish with a paper that&apos;s
+          really yours, and you actually understand what you wrote. We never write the paper for you.
+        </p>
+      </section>
+
+      <section className="mx-auto mt-16 max-w-[1100px]" aria-labelledby="results-title">
+        <h2
+          id="results-title"
+          className="mx-auto max-w-[680px] font-display text-[24px] font-semibold leading-[1.2] text-ds-ink md:max-w-none"
+        >
+          What you walk away with
+        </h2>
+        <ul className="mt-8 grid gap-4 sm:grid-cols-3">
+          {RESULTS.map((r) => (
+            <li key={r.name} className="rounded-[12px] border border-ds-border bg-ds-surface p-8 shadow-ds-card">
+              <h3 className="font-display text-[20px] font-semibold leading-[1.2] text-ds-ink">{r.name}</h3>
+              <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">{r.copy}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mx-auto mt-16 max-w-[680px]" aria-labelledby="how-title">
+        <h2 id="how-title" className="font-display text-[24px] font-semibold leading-[1.2] text-ds-ink">
+          How it works
+        </h2>
+        <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
+          Your coach, Pau Pau, reads the assignment with you, catches you up on the material, and
+          helps you pick a direction. Then you build the paper sentence by sentence while Pau Pau
+          asks the questions. You drive.
+        </p>
         <ul className="mt-8 rounded-[12px] border border-ds-border bg-ds-surface p-8 shadow-ds-card">
           {PROOF_POINTS.map((point, index) => (
             <li
@@ -97,31 +142,6 @@ export function HomeEditorial({ startHref }: { startHref: string }) {
             </li>
           ))}
         </ul>
-      </section>
-
-      <section className="mx-auto mt-16 max-w-[1100px]" aria-labelledby="stages-title">
-        <h2
-          id="stages-title"
-          className="mx-auto max-w-[680px] font-display text-[24px] font-semibold leading-[1.2] text-ds-ink md:max-w-none"
-        >
-          The six-stage coaching path
-        </h2>
-        <ol className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {STAGES.map((stage, index) => (
-            <li
-              key={stage.name}
-              className="rounded-[12px] border border-ds-border bg-ds-surface p-8 shadow-ds-card"
-            >
-              <p className="text-[13px] font-semibold uppercase leading-[1.6] tracking-[0.08em] text-ds-muted">
-                Stage {index + 1}
-              </p>
-              <h3 className="mt-2 font-display text-[20px] font-semibold leading-[1.2] text-ds-ink">
-                {stage.name}
-              </h3>
-              <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">{stage.copy}</p>
-            </li>
-          ))}
-        </ol>
       </section>
 
       <section className="mx-auto mt-16 max-w-[680px]" aria-label="Pricing">

@@ -43,7 +43,7 @@ export const metadata: Metadata = {
     template: "%s · RetainWrite",
   },
   description:
-    "A student paper-writing coach. Six gated stages. You write every sentence.",
+    "A writing coach that meets you where you are. Haven't opened the book, or already have your idea? We got you. You write every sentence.",
   metadataBase: new URL(SITE_URL),
 };
 

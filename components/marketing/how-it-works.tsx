@@ -1,12 +1,11 @@
 import Link from "next/link";
 
+// Colton, Nov 24 12:18 AM: no public stage count; the method is the light "how".
 const STAGES = [
-  { n: "01", title: "Intake", copy: "Capture the assignment and your natural voice." },
-  { n: "02", title: "Stance", copy: "Face counterarguments in your own words." },
-  { n: "03", title: "Outline", copy: "Build structure with claims and evidence notes." },
-  { n: "04", title: "Sources", copy: "Turn readings into study beats you can reuse." },
-  { n: "05", title: "Drafting", copy: "Write section by section — you type every sentence." },
-  { n: "06", title: "Revise", copy: "Checklist coaching that keeps your voice intact." },
+  { n: "", title: "Get on the same page", copy: "Pau Pau reads the assignment with you and checks what it's really asking." },
+  { n: "", title: "Catch up on the material", copy: "Haven't read it? Get the gist in plain words. Already read it? Skip ahead." },
+  { n: "", title: "Pick your direction", copy: "Choose your angle and say why, in your own words." },
+  { n: "", title: "Build it sentence by sentence", copy: "You write every sentence; the coach asks the questions." },
 ];
 
 export function HowItWorks() {
@@ -14,11 +13,10 @@ export function HowItWorks() {
     <section className="border-t border-rw-ink/10 bg-rw-paper px-5 py-20 md:px-8 md:py-28">
       <div className="mx-auto max-w-6xl">
         <h2 className="font-display text-3xl text-rw-ink md:text-4xl">
-          Six gated stages. One job each.
+          How it works
         </h2>
         <p className="mt-3 max-w-2xl text-rw-ink/65">
-          You cannot skip ahead. Thin answers get a probe. The coach asks;
-          you write.
+          Sentence by sentence, student-driven. The coach asks; you write.
         </p>
         <ol className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {STAGES.map((stage) => (

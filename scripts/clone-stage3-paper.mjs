@@ -64,7 +64,7 @@ try {
   const style = must(await db.from("style_profiles").select("*").eq("paper_id", from), "style");
   for (const s of style) must(await db.from("style_profiles").insert({ ...s, paper_id: pid, user_id: uid, created_at: now }), "style profile");
   const saves = must(await db.from("paper_autosaves").select("field_key, draft_text, submitted").eq("paper_id", from), "autosaves");
-  const keep = saves.filter((s) => /^(intake:|stage1:|stance:|loop_session)/.test(s.field_key));
+  const keep = saves.filter((s) => /^(intake:|stage1:|stance:|loop_session|paper_context$)/.test(s.field_key));
   const ls = keep.find((s) => s.field_key.startsWith("loop_session"));
   if (ls && /outline/i.test(ls.draft_text ?? "") && /"outlineDone"\s*:\s*true/.test(ls.draft_text ?? "")) fail("Source already has outline progress; use a paper fresh into Stage 3.");
   if (keep.length) must(await db.from("paper_autosaves").insert(keep.map((s) => ({ ...s, paper_id: pid, user_id: uid, updated_at: now }))), "autosaves");

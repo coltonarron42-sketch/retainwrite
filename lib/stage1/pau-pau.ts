@@ -14,6 +14,9 @@ import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
 import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
+import { displayWork, namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
+import type { ReadbackPlain } from "@/lib/stage1/paper-context";
+
 export const COACH_NAME = "Pau Pau";
 /** For speech synthesis, which otherwise says "paw paw". */
 export const COACH_NAME_SPOKEN = "Pow pow";
@@ -110,6 +113,9 @@ export function structurePhrases(req: AssignmentRequirements): string[] {
   return out.slice(0, 5);
 }
 
+const COMMON_START =
+  /^(?:A|An|The|One|Two|Three|Four|Five|At|Your|Clear|Specific|Use|Using|Discussion|Discuss|Analysis|Analyze|Examples?|Evidence|Citations?|References?|Personal|Original|In-text|Thesis|Introduction|Conclusion|Proper|Correct|Reflection|Explanation|Explain|Description|Describe|Comparison|Compare|Application|Apply|Strong|Relevant|Credible|Scholarly|Peer-reviewed|Sources?|How|What|Why|Whether|Identification|Identify|Connection|Connect|Connections|Organization|Grammar|Writing|Support|Supporting|Argument|Depth|Insight|Critical|Each|Both|Every|Real|Concrete|Well|Accurate|At least|Quality|Mechanics|Style|Structure|Formatting|Use of)\b(?!\s+[A-Z][a-z])/;
+
 /** Key formatting worth saying out loud: spacing, font, margins (not the citation page). */
 function formattingPhrase(req: AssignmentRequirements): string | null {
   const keep: string[] = [];
@@ -150,23 +156,37 @@ function rubricPhrase(req: AssignmentRequirements): string | null {
  * Pediatrics' “School Start Times for Adolescents” (2014)`.
  */
 export function namedSource(req: AssignmentRequirements): string | null {
+  const all = namedSources(req);
+  return all.length ? joinList(all.slice(0, 3)) : null;
+}
+
+/** Every named required source, each shortened (QA 11/23: the second one, Goleman's article, was dropped). */
+export function namedSources(req: AssignmentRequirements): string[] {
   const sources = req.requiredSources.value;
-  if (!sources) return null;
+  if (!sources) return [];
   const fromNotes = sources.notes?.replace(/^\s*must (include|use|cite):?\s*/i, "").trim();
   const fromTypes = sources.types?.match(/(?:including|one must be|must include)\s+(?:the\s+)?(.+)$/i)?.[1]?.trim();
   const raw = fromNotes || fromTypes;
+  if (!raw) return [];
+  return raw
+    .split(/;\s*/)
+    .map((part) => shortSource(part))
+    .filter((x): x is string => Boolean(x));
+}
+
+function shortSource(raw: string): string | null {
+  raw = raw.replace(/\s+/g, " ").trim();
   if (!raw) return null;
-  const title = raw.match(/[“"]([^”"]{4,90})[”"]/)?.[1]?.replace(/[.,]+$/, "");
+  const title = (raw.match(/[“"]([^”"]{4,90})[”"]/) ?? raw.match(/(?:^|\s)['‘]([^'’]{4,90})['’](?=\s|$|[,.;)])/))?.[1]?.replace(/[.,]+$/, "");
   const year = raw.match(/\b(19|20)\d{2}\b/)?.[0];
   const author = raw.split(/[.(“"]/)[0]?.trim().replace(/,$/, "");
-  if (title && author && author.length <= 60) {
+  if (title && author && author.length <= 60 && !author.includes(title) && !/['‘]/.test(author)) {
     const owner = `${/^the\b/i.test(author) ? "" : "the "}${author}${/s$/.test(author) ? "'" : "'s"}`;
     const lead = /^[A-Z][a-z]+,\s+[A-Z]/.test(author) ? `${author}'s` : owner; // "Smith, J." stays as is
     return `${lead} “${title}”${year ? ` (${year})` : ""}`;
   }
-  const short = raw.split(/;\s*/)[0].replace(/\s+/g, " ").trim();
-  if (short.length <= 90) return /^(the|a|an)\b/i.test(short) || /^[A-Z]/.test(short) ? short : `the ${short}`;
-  return short.slice(0, 80).replace(/\s+\S*$/, "") + "…";
+  if (raw.length <= 110) return /^(the|a|an)\b/i.test(raw) || /^[A-Z]/.test(raw) ? raw : `the ${raw}`;
+  return raw.slice(0, 100).replace(/\s+\S*$/, "") + "…";
 }
 
 function sourcesPhrase(req: AssignmentRequirements): string | null {
@@ -250,12 +270,12 @@ export function trustedView(req: AssignmentRequirements): { view: AssignmentRequ
  * [lead-in, verb phrase before "<course>: <length>"].
  */
 export const SUMMARY_OPENERS: ReadonlyArray<string> = [
-  "Okay, I've read it. Let's get into it.",
+  "Okay, I've read it.",
   "Got it.",
-  "Alright, I read it through. Homework, my favorite genre.",
+  "Alright, I read it through.",
   "Okay, I've gone through it.",
   "Okay, here's what I'm seeing.",
-  "Okay, I've read it through. No pop quiz, I promise.",
+  "Okay, I've read it through.",
   "Alright, here's the gist.",
   "Great, I've got it.",
 ];
@@ -336,7 +356,7 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
     if (first === lead) first = "Okay, I read through it.";
     close = "I couldn't make out every detail on the sheet, so I'll check a couple of things with you.";
   } else {
-    close = opts.pendingAsk ? "That covers most of it." : "This is totally doable. You ready to get rolling?";
+    close = opts.pendingAsk ? "That covers most of it." : "You ready to get rolling?";
   }
   const tidy = (t: string) => t.replace(/\s+/g, " ").replace(/\.\./g, ".").trim();
   if (opts.bare) return [opener, needs.join(" "), graded.join(" "), whenWhat.join(" ")].map(tidy).filter(Boolean);
@@ -352,10 +372,47 @@ export const RECONFIRM_ASK = "Look right now? If so, we're ready to roll.";
  * The read-back as ONE reply (PLAN.md 9): a few paragraphs in a single message,
  * ending with the one thing Pau Pau needs, or the invitation to confirm.
  */
-export function readBackParas(full: AssignmentRequirements, opts: { pendingAsk?: PauPauAsk | null; seed?: string | number } = {}): string[] {
+export function readBackParas(
+  full: AssignmentRequirements,
+  opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null; sheetText?: string } = {},
+): string[] {
+  const works = namedWorksFrom(full, opts.sheetText ?? "");
+  const raw = readBackParasRaw(full, opts);
+  // Colton 1:54 R2: the material is asked for by name, right away.
+  const paras = opts.pendingAsk === "sources" && works.length ? raw.map((x) => x.replace(PAU_PAU_ASK_TEXT.sources, sourcesAskText(works))) : raw;
+  if (opts.pendingAsk === "sources" && works.length) return paras;
+  // QA 6:03 AM: the read-back lists every required reading or handout.
+  const line = readingsLine(works, paras.join(" "));
+  if (!line) return paras;
+  return [...paras.slice(0, -1), line, paras.at(-1)!];
+}
+
+function readBackParasRaw(
+  full: AssignmentRequirements,
+  opts: { pendingAsk?: PauPauAsk | null; seed?: string | number; plain?: ReadbackPlain | null } = {},
+): string[] {
   const items = pauPauSummaryBubbles(full, opts);
   const close = items.pop() ?? "";
   const body = items;
+  // North star (Colton t161u): what's asked, what a strong answer needs and how it's graded, in plain words.
+  if (opts.plain?.ask) {
+    const p = opts.plain;
+    const tidy = (x: string) => x.replace(/\s+/g, " ").replace(/[.;,\s]+$/, "").trim();
+    // QA 3:06 minor: only a plain sentence-start word is lowercased; names keep their casing (Northouse, Daniel Goleman).
+    const lower = (x: string) => (COMMON_START.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+    const list = (xs: string[]) => joinList(xs.map(tidy).map(lower).filter(Boolean));
+    const facts = body[0] ?? "";
+    const plainParas = [
+      facts,
+      `In plain words, here's what it's asking: ${p.ask.replace(/\s+/g, " ").trim()}`,
+      [p.mustInclude.length ? `A strong answer needs ${list(p.mustInclude)}.` : body[1] ?? "", p.graded.length ? `It's graded on ${list(p.graded)}.` : ""]
+        .filter(Boolean)
+        .join(" "),
+    ].filter(Boolean);
+    const due = body.slice(1).join(" ").match(/It's due [^.]+\./)?.[0];
+    const askLine = opts.pendingAsk ? PAU_PAU_ASK_TEXT[opts.pendingAsk] : CONFIRM_INVITE;
+    return [...plainParas, `${due ? `${due} ` : ""}${close} ${askLine}`.replace(/\s+/g, " ").trim()];
+  }
   const paras = body.length > 2 ? [body.slice(0, 2).join(" "), body.slice(2).join(" ")] : body.length ? [body.join(" ")] : [];
   const ask = opts.pendingAsk ? PAU_PAU_ASK_TEXT[opts.pendingAsk] : CONFIRM_INVITE;
   paras.push(`${close} ${ask}`.trim());
@@ -384,11 +441,14 @@ export function sourcesMissing(req: AssignmentRequirements): boolean {
 }
 
 /** The single most important missing thing, or null. Topic cannot be skipped. */
-export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>): PauPauAsk | null {
+export function pauPauNextAsk(full: AssignmentRequirements, dismissed: ReadonlySet<PauPauAsk>, sheetText = ""): PauPauAsk | null {
   const req = trustedView(full).view;
   const topic = cleanTopic(req.topic.value) || cleanTopic(req.promptQuestion.value);
   if (!topic || isPlaceholderTopic(topic)) return "topic";
-  if (!dismissed.has("sources") && sourcesMissing(req)) return "sources";
+  // Colton 1:54 R2: a named chapter or reading they haven't given us is asked for right away.
+  // A title read off the sheet isn't the material itself; a link or something they added is.
+  const haveMaterial = [...(req.providedReadings.value ?? []), ...(req.providedSources?.value ?? [])].some((r) => Boolean((r as { url?: string }).url) || (r as { origin?: string }).origin === "manual");
+  if (!dismissed.has("sources") && (sourcesMissing(req) || (!haveMaterial && namedWorksFrom(req, sheetText).length > 0))) return "sources";
   if (!dismissed.has("length") && !req.length.value) return "length";
   return null;
 }
@@ -397,7 +457,7 @@ export const PAU_PAU_ASK_TEXT: Record<PauPauAsk, string> = {
   topic:
     "Hmm, I couldn't find the actual prompt or topic on the sheet. Can you paste the prompt, or tell me what the paper is about in a few words?",
   sources:
-    "Do you have any of the sources — a URL or PDF? The assignment calls for referencing them and I'd be a lot more helpful with that.",
+    "Do you have any of the sources: photos, a PDF, the relevant pages, or a link? Best summaries come from the exact material your professor is using.",
   length: "One thing I couldn't spot: how long does it need to be? Words or pages is fine.",
 };
 
@@ -410,4 +470,24 @@ export function lengthFromAnswer(text: string): { wordsMin?: number; wordsMax?: 
   const [a, b = nums[0]] = nums;
   if (/page/i.test(raw) || (a <= 30 && !/word/i.test(raw))) return { pagesMin: a, pagesMax: b, raw };
   return { wordsMin: a, wordsMax: b, raw };
+}
+
+/** Colton 1:54 R2: the marker every material request ends with (so it's asked once). */
+export const SOURCES_MARKER = "Best summaries come from the exact material your professor is using.";
+
+/** True when Pau Pau already made this ask in what she said. */
+export function askWasMade(said: string, key: PauPauAsk): boolean {
+  return key === "sources" ? said.includes(SOURCES_MARKER) : said.includes(PAU_PAU_ASK_TEXT[key]);
+}
+
+/**
+ * Colton 1:54 R2: a named chapter, book or reading is asked for right away, by name:
+ * "It mentions Northouse Ch. 4. Can you upload photos, a PDF, or the relevant pages? Best summaries come from…"
+ */
+export function sourcesAskText(works: string[]): string {
+  if (!works.length) return PAU_PAU_ASK_TEXT.sources;
+  // "Memory Under Pressure by L" (an initial only) reads as “Memory Under Pressure”.
+  const names = works.slice(0, 3).map((w) => displayWork(w.replace(/\s+by\s+[A-Z]\.?$/, "")));
+  const list = names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+  return `It mentions ${list}. Can you upload photos, a PDF, or the relevant pages? ${SOURCES_MARKER}`;
 }

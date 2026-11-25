@@ -1,3 +1,4 @@
+import { dropHedges } from "@/lib/copy/tidy";
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { firstSentenceOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
@@ -28,7 +29,7 @@ export const logicCheckSchema = z.object({
     "contradicts_assignment",
   ]),
   confidence: z.number().min(0).max(1),
-  reason: z.string().max(240),
+  reason: z.string().max(600),
   citedTerm: z
     .object({
       rubricRef: z.string(),
@@ -216,8 +217,64 @@ export function assignmentAlertQuote(input: {
   return quoteOnWordBoundary(sentence, 140);
 }
 
+const NEG_WORD = /\b(bad|worse|worst|wrong|fail(?:s|ed|ing)?|weak|ineffective|hurts?|harmful|poor(?:ly)?|mistake|doesn'?t work|didn'?t work|not work|backfire[sd]?|outdated|useless|overrated|falls? short|less effective|isn'?t (?:really )?(?:the )?(?:best|right|effective|good)|not (?:really )?(?:the )?(?:best|right|effective)|doesn'?t (?:help|matter))\b/i;
+const NAME_STOP = new Set(["I", "The", "This", "That", "My", "So", "And", "But", "If", "When", "It", "In", "On", "For", "A", "An", "Also", "Then", "Because", "Yes", "No", "Overall", "Chapter"]);
+const PHRASE_STOP = new Set(["is", "are", "was", "were", "be", "the", "a", "an", "and", "or", "but", "so", "for", "to", "of", "in", "on", "it", "that", "this", "i", "my", "way", "much", "probably", "really", "very", "did", "do", "does", "with", "than", "more", "most", "because", "think", "would", "pick"]);
+
+function clauses(text: string): string[] {
+  return text.replace(/\s+/g, " ").split(/[.;!?]|,\s*(?:so|and|but)\b|\b(?:so|but|while|whereas)\b/i).map((c) => c.trim()).filter(Boolean);
+}
+
+/** Two-word phrases ("team management") and names ("Barra") in a clause. */
+function claimTerms(clause: string): string[] {
+  const out: string[] = [];
+  for (const m of clause.matchAll(/\b([A-Z][a-z'’]{2,})\b/g)) if (!NAME_STOP.has(m[1]!)) out.push(m[1]!.toLowerCase());
+  const words = clause.toLowerCase().replace(/[^a-z'\s-]/g, " ").split(/\s+/).filter(Boolean);
+  for (let i = 0; i + 1 < words.length; i++) {
+    const a = words[i]!, b = words[i + 1]!;
+    if (a.length > 3 && b.length > 3 && !PHRASE_STOP.has(a) && !PHRASE_STOP.has(b) && !NEG_WORD.test(a) && !NEG_WORD.test(b)) out.push(`${a} ${b}`);
+  }
+  return out;
+}
+
+/**
+ * QA 7:11 AM: a note that turns against the student's own thesis ("team management is bad
+ * for change … so Barra probably did it wrong" after a thesis backing team management and
+ * Barra). Returns what it contradicts, or null.
+ */
+export function contradictsThesis(notes: string, thesis: string): { term: string; noteQuote: string; thesisQuote: string } | null {
+  if (!notes.trim() || !thesis.trim()) return null;
+  const backed = new Map<string, string>();
+  for (const c of clauses(thesis)) {
+    if (NEG_WORD.test(c)) continue;
+    for (const t of claimTerms(c)) if (!backed.has(t)) backed.set(t, c);
+  }
+  for (const c of clauses(notes)) {
+    if (!NEG_WORD.test(c)) continue;
+    for (const t of claimTerms(c)) {
+      const from = backed.get(t);
+      if (from) return { term: t, noteQuote: c, thesisQuote: from };
+    }
+  }
+  // A distinctive word their thesis backs ("I'd pick transformational because…") turned against
+  // in a note ("Transformational leadership is bad for change") counts too (QA 11:40 suite).
+  const GENERIC = /^(leadership|leaders?|management|change|changes|important|different|something|everyone|because|probably|actually|really|through|company|students?|people|better|thinking)$/;
+  const thesisClauses = clauses(thesis).filter((c) => !NEG_WORD.test(c));
+  for (const c of clauses(notes)) {
+    if (!NEG_WORD.test(c)) continue;
+    const words = (c.toLowerCase().match(/[a-z]{8,}/g) ?? []).filter((w) => !GENERIC.test(w) && !NEG_WORD.test(w));
+    for (const w of words) {
+      const from = thesisClauses.find((tc) => new RegExp(`\\b${w}\\b`, "i").test(tc));
+      if (from) return { term: w, noteQuote: c, thesisQuote: from };
+    }
+  }
+  return null;
+}
+
 export function logicCheckFromNotes(input: {
   notes: string;
+  /** The student's own thesis (their Stage 1 decision, their thesis/intro notes): a note may not turn against it. */
+  thesis?: string | null;
   assignmentText: string;
   rubricRef: string;
   mode: "lesson" | "memory";
@@ -236,7 +293,10 @@ export function logicCheckFromNotes(input: {
   // named as off-prompt before any critique of how it reasons.
   const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
   const onPrompt = typeof input.onPrompt === "boolean" ? input.onPrompt : notesOnPrompt(notes, promptText, input.assignmentText);
-  if (promptText && notes.trim() && !onPrompt) {
+  // QA 11:40 suite: a note that turns against their own thesis is on their topic by definition, so the
+  // specific contradiction wins over a (model) off-prompt verdict.
+  const againstFirst = input.thesis ? contradictsThesis(notes, input.thesis) : null;
+  if (promptText && notes.trim() && !onPrompt && !againstFirst) {
     const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
     return {
       tier: "strong",
@@ -247,6 +307,24 @@ export function logicCheckFromNotes(input: {
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
       alternativeAngles: [{ question: tidyQuotePunct(`How does this connect to “${asked}”?`).slice(0, 160), rubricRef: "prompt" }],
+      reframeAvailable: true,
+    };
+  }
+  // A note that turns against their own thesis is named, with continue-anyway (QA 7:11 AM).
+  const against = input.thesis ? contradictsThesis(notes, input.thesis) : null;
+  if (against) {
+    // QA 9:37 AM: whole sentences, never cut mid-word ("arg.", "for…").
+    const said = wholeQuote(against.noteQuote);
+    const thesisSaid = wholeQuote(against.thesisQuote);
+    return {
+      tier: "moderate",
+      basis: "defies_logic",
+      confidence: 0.8,
+      reason: `This says “${said}”, but your thesis says “${thesisSaid}”. Which one does your paper argue?`,
+      citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
+      studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(against.noteQuote, 160) },
+      logicFailure: "The note contradicts the thesis.",
+      alternativeAngles: [{ question: `Which side of ${against.term} does your paper argue, and does this section back it?`.slice(0, 160), rubricRef: input.rubricRef }],
       reframeAvailable: true,
     };
   }
@@ -478,3 +556,9 @@ export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolea
   for (const w of stems(sheet, SHEET_GENERIC)) if (hit(w)) return true;
   return false;
 }
+
+/** A whole sentence to quote back: hedges dropped, end punctuation trimmed, never clipped mid-word. */
+export function wholeQuote(sentence: string): string {
+  return dropHedges(sentence).replace(/\s+/g, " ").replace(/[\s.,;:!?…]+$/, "").trim();
+}
+
