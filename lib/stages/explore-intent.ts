@@ -128,40 +128,192 @@ function isTopicalPhrase(phrase: string): boolean {
 }
 
 /**
- * Substance to note on the section: their words minus the "talk through"
- * wrapper. A bare request to talk is not a note.
+ * Closing / confirm phrases ("yeah that's what I want for now", "ok lock it")
+ * must never be saved as notes or claims.
  */
-export function exploreNote(text: string): string | null {
-  let t = (text ?? "").replace(/\s+/g, " ").trim();
-  if (!t) return null;
+export function isClosingPhrase(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || isExploreHold(t)) return false;
+  if (isExploreDone(t)) return true;
+  return /^(yeah|yes|yep|yup|sure|ok(?:ay)?)[,.\s]*(that'?s (what I want|it|enough|fine|my (call|angle|idea))( for now)?)?[.!\s]*$/i.test(t);
+}
+
+/** Leftover cue scraps like "Costco comparison a bit? I." are not notes. */
+export function isNoteFragment(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (isClosingPhrase(t)) return true;
+  if (/[—–,:;]$/.test(t)) return true;
+  if (/\b(I|I'?m|I'?d|I'?ve|the|a|an|to|and|or|but|if|my)$/i.test(t.replace(/[.?!…]+$/, ""))) return true;
+  if (wordCount(t) < 5) return true;
+  if (/^(the |a |an )?(counter-?argument idea|costco comparison|walton angle)\s*(a bit|a little)?\??$/i.test(t)) return true;
+  return false;
+}
+
+function splitSentences(text: string): string[] {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return [];
+  return (t.match(/[^.!?…]+(?:[.!?…]+|$)/g) ?? [t]).map((s) => s.trim()).filter(Boolean);
+}
+
+function stripExploreWrapper(raw: string): string {
+  let t = raw.replace(/\s+/g, " ").trim();
   t = t
-    .replace(/^(?:(?:ok(?:ay)?|so|um+|uh+|well|hey)[,.!\s]+)*/i, "")
+    .replace(/^(?:(?:ok(?:ay)?|so|um+|uh+|well|hey|hmm+|ooh+|honestly)[,.!\s:]*)+/i, "")
     .replace(/^(?:can I |could I |I want to |I'?d like to |let me |let's )?(?:talk(?: it| this| that)? through|hear me out|think (?:this |it )?out loud)\s*(?:the |this |that |my )?/i, "")
-    .replace(/^(?:I'?m not ready to lock(?: that)? in|hear me out)\b[,.\s—–…]*/i, "")
+    .replace(/^(?:I'?m not ready to lock(?: that)? in|hear me out)\b[,.\s—–:…]*/i, "")
     .replace(/\b(?:a bit |a little )?(?:before I (?:commit|lock(?: it)?(?: in)?|decide)|I'?m not ready to lock(?: that)? in|haven'?t decided if it belongs)\b/gi, "")
     .replace(/^[,.\s—–…-]+/, "")
     .replace(/[,.\s—–…-]+$/, "")
     .trim();
-  if (wordCount(t) < 5) return null;
-  if (isExploreIntent(t) && wordCount(t) < 12) return null;
-  return t.charAt(0).toUpperCase() + t.slice(1);
+  return t;
 }
 
-/** Acknowledge, reflect in 1–2 sentences, keep the floor open. At most one light question. */
+/**
+ * Substance to note on the section: their words minus the "talk through"
+ * wrapper. A bare request, confirm phrase, or leftover fragment is not a note.
+ */
+export function exploreNote(text: string): string | null {
+  const raw = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!raw || isClosingPhrase(raw)) return null;
+  const kept: string[] = [];
+  for (const sentence of splitSentences(raw)) {
+    if (isClosingPhrase(sentence)) continue;
+    const t = stripExploreWrapper(sentence);
+    if (!t) continue;
+    if (isClosingPhrase(t) || isNoteFragment(t)) continue;
+    if (isExploreIntent(t) && wordCount(t) < 12) continue;
+    kept.push(t.charAt(0).toUpperCase() + t.slice(1));
+  }
+  if (!kept.length) return null;
+  return kept.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function finishSentence(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return t;
+  const capped = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(capped) ? capped : `${capped}.`;
+}
+
+function lowerFirst(text: string): string {
+  const t = text.trim();
+  return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+}
+
+/** Deterministic paraphrase in Pau's words. Never a verbatim quote, never mid-sentence. */
+export function fallbackParaphrase(note: string): string {
+  let t = note.replace(/\s+/g, " ").trim();
+  t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "You're still weighing whether ");
+  t = t.replace(/^I'?m not sure(?: yet)?\s+/i, "You're still unsure ");
+  t = t.replace(/^I don't know if\s+/i, "You're not sure if ");
+  t = t.replace(/^I think\s+/i, "You're thinking ");
+  t = t.replace(/^I wonder(?: if)?\s+/i, "You're wondering whether ");
+  t = t.replace(/^maybe\s+/i, "You're considering that ");
+  if (!/^you're /i.test(t)) t = `You're sitting with the idea that ${lowerFirst(t)}`;
+  t = t.replace(/\bthe intro\b/gi, "the introduction");
+  t = t.replace(/\bhint that\.$/i, "hint at that.");
+  return finishSentence(t);
+}
+
+function specificFollowUp(note: string): string {
+  if (/less press/i.test(note)) return "Want to unpack why they get less press, or keep going?";
+  if (/not sure|unsure|weighing|hint/i.test(note)) return "What would that hint sound like, in one line?";
+  if (/costco/i.test(note)) return "What about Costco feels like it might belong?";
+  return "Want to sit with that a bit more, or add another piece?";
+}
+
+/**
+ * Acknowledge, then summarize in Pau's own words. Never quote raw student text,
+ * never truncate mid-sentence. At most one light, specific follow-up.
+ */
 export function exploreReply(text: string, sectionTitle: string): string {
   const part = (sectionTitle || "this section").toLowerCase();
   const topic = exploreTopic(text);
   const note = exploreNote(text);
-  const reflected = note ? quoteOnWordBoundary(note, 110) : "";
   const ack = topic
     ? `Got it — you want to talk through ${topic} before anything gets locked in your ${part}.`
     : "Got it, let's talk it through before anything gets locked.";
-  const hold = reflected
-    ? ` I'm hearing “${reflected}.” I'll note it for this section.`
-    : ` I'll note it for this section and keep this open.`;
-  const floor = ` I'm here if you want to keep going, or tell me when that's what you want for now.`;
-  const ask = !reflected && !topic ? ` What's the one piece of this you want me to hold onto?` : "";
-  return `${ack}${hold}${floor}${ask}`.replace(/\s+/g, " ").trim();
+  if (note) {
+    const follow = specificFollowUp(note);
+    return `${ack} ${fallbackParaphrase(note)} ${follow}`.replace(/\s+/g, " ").trim();
+  }
+  return `${ack} I'll note it for this section and keep this open. I'm here if you want to keep going, or tell me when that's what you want for now.`.replace(/\s+/g, " ").trim();
+}
+
+const GENERIC_HOLD_Q = /what'?s the one piece of this you want me to hold onto/i;
+
+/** Accept a model listen reply, or fall back if it quotes, truncates, or is empty. */
+export function parseListenModelReply(raw: string, fallback: string): string {
+  let text = (raw ?? "").trim();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { reply?: unknown; text?: unknown };
+    const picked = parsed.reply ?? parsed.text;
+    if (typeof picked === "string" && picked.trim()) text = picked.trim();
+  } catch {
+    /* plain text is fine */
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  if (text.length < 12) return fallback;
+  if (/I'?m hearing\s*[“"']/.test(text) || /“[^”]{0,200}$/.test(text)) return fallback;
+  if (GENERIC_HOLD_Q.test(text)) text = text.replace(GENERIC_HOLD_Q, "").replace(/\s+/g, " ").trim();
+  const sentences = text.match(/[^.!?]+[.!?]+/g);
+  if (sentences?.length) text = sentences.slice(0, 3).join(" ").trim();
+  else text = finishSentence(text);
+  return text || fallback;
+}
+
+function tidyClaimBit(note: string): string {
+  let t = note.replace(/\s+/g, " ").trim();
+  t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "");
+  t = t.replace(/^maybe\s+/i, "");
+  t = t.replace(/\bthe intro should hint that\b/i, "the introduction could hint that");
+  t = t.replace(/\bthe intro\b/gi, "the introduction");
+  t = finishSentence(t);
+  return t;
+}
+
+/**
+ * Synthesize the locked note / pressure-tested claim from listening turns.
+ * Confirm phrases and fragments are ignored.
+ */
+export function listeningClaim(notes: string[], sectionTitle = ""): string | null {
+  void sectionTitle;
+  const bits: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of notes) {
+    if (!raw || isClosingPhrase(raw)) continue;
+    const note = exploreNote(raw) ?? (isNoteFragment(raw) || isExploreIntent(raw) ? null : raw.replace(/\s+/g, " ").trim());
+    if (!note || isClosingPhrase(note) || isNoteFragment(note)) continue;
+    const bit = tidyClaimBit(note);
+    const key = bit.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    bits.push(bit);
+  }
+  if (!bits.length) return null;
+  if (bits.length === 1) return bits[0]!;
+  const first = bits[0]!.replace(/[.]+$/, "");
+  const rest = bits.slice(1).map((b) => lowerFirst(b.replace(/[.]+$/, "")));
+  return finishSentence(`${first}; ${rest.join("; ")}`);
+}
+
+export function parseListenModelClaim(raw: string, fallback: string | null): string | null {
+  let text = (raw ?? "").trim();
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { claim?: unknown; summary?: unknown; text?: unknown };
+      const picked = parsed.claim ?? parsed.summary ?? parsed.text;
+      if (typeof picked === "string" && picked.trim()) text = picked.trim();
+    } catch {
+      /* plain text is fine */
+    }
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  if (!text || isClosingPhrase(text) || isNoteFragment(text) || text.length < 12) return fallback;
+  if (/I'?m hearing\s*[“"']/.test(text)) return fallback;
+  return finishSentence(text);
 }
 
 /** First-tap recap before "Keep my angle" actually advances. */
@@ -185,7 +337,10 @@ export function pressureTestLine(input: {
   reason?: string | null;
   counterpoint?: string | null;
 }): string {
-  const claim = quoteOnWordBoundary((input.claim ?? "").replace(/\s+/g, " ").trim(), 120);
+  const rawClaim = (input.claim ?? "").replace(/\s+/g, " ").trim();
+  const claim = rawClaim && !isClosingPhrase(rawClaim) && !isNoteFragment(rawClaim)
+    ? quoteOnWordBoundary(rawClaim, 120)
+    : "";
   const reason = (input.reason ?? "").replace(/\s+/g, " ").trim();
   const specificReason = reason && !GENERIC_PRESSURE.test(reason) ? (/[.!?]$/.test(reason) ? reason : `${reason}.`) : "";
   const counter = asCounterpoint(input.counterpoint);

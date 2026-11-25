@@ -154,7 +154,7 @@ function exampleLeadBatchRaw(input: {
   const ref = input.rubricRef;
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
-    const ideaForCards = idea && !isQuotedStudentQuestion(idea) && !isQuotedStudentQuestion(noteFocus(idea)) ? idea : "";
+    const ideaForCards = idea && !isUnquotableLeadIdea(idea) && !isUnquotableLeadIdea(noteFocus(idea)) ? idea : "";
     return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null });
   }
   const candidates: LeadCandidate[] = [
@@ -218,6 +218,17 @@ export function isQuotedStudentQuestion(text: string): boolean {
   return /^(can|could|would|should|may|will|do|does|did|is|are|was|were)\s+(i|we|you|it|this|that)\b/i.test(t);
 }
 
+/** Fragments and interjections ("Ooh, honestly both!") are not claims to quote on a card. */
+export function isUnquotableLeadIdea(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (isQuotedStudentQuestion(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (/^(ooh|hmm+|huh|wow|lol)[,.!]*/i.test(t)) return true;
+  if (/^(honestly|ok|okay|yeah|yes)\b/i.test(t) && words.length <= 4 && !/\b(because|so|should|need|think|believe)\b/i.test(t)) return true;
+  return false;
+}
+
 /** The student's note as a short focus: “Social Security made the federal government…”. */
 export function noteFocus(idea: string, words = 24): string {
   const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
@@ -251,7 +262,7 @@ function sectionLeadBatch(ctx: {
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
   const rawFocus = idea ? noteFocus(idea) : "";
-  const focus = rawFocus && !isQuotedStudentQuestion(rawFocus) && !isQuotedStudentQuestion(idea) ? rawFocus : "";
+  const focus = rawFocus && !isUnquotableLeadIdea(rawFocus) && !isUnquotableLeadIdea(idea) ? rawFocus : "";
   // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
   // added inside the marks) and is never last in a question, so a template '?'
   // can't turn it into one (QA 2:31 #3a). One framing rule for every section:

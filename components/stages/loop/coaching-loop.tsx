@@ -109,7 +109,8 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
-import { exploreNote, exploreTopic, type ListeningState } from "@/lib/stages/explore-intent";
+import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, type ListeningState } from "@/lib/stages/explore-intent";
+import { fetchListenClaim } from "@/lib/stages/listen-client";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -951,20 +952,27 @@ export function CoachingLoop({
   }
 
   /** Exploring an option: acknowledge, note it, keep the floor open, don't lock or open a menu. */
-  function onListen(more: LoopLine[], opts?: { text?: string; done?: boolean; lock?: boolean }) {
+  async function onListen(more: LoopLine[], opts?: { text?: string; done?: boolean; lock?: boolean }) {
     const base = sessionRef.current ?? session;
     if (!base || !section) return;
     const live = base.sections.find((item) => item.key === section.key) ?? section;
-    const note = opts?.text ? exploreNote(opts.text) : null;
+    const incoming = opts?.text && !isClosingPhrase(opts.text) ? exploreNote(opts.text) : null;
     const topic = exploreTopic(opts?.text ?? "") ?? live.listening?.topic ?? "this idea";
     const already = new Set((live.listening?.notes ?? []).map((n) => n.replace(/\s+/g, " ").toLowerCase()));
-    const notes = note && !already.has(note.replace(/\s+/g, " ").toLowerCase()) ? [...(live.listening?.notes ?? []), note] : (live.listening?.notes ?? []);
+    const notes =
+      incoming && !already.has(incoming.replace(/\s+/g, " ").toLowerCase())
+        ? [...(live.listening?.notes ?? []), incoming]
+        : (live.listening?.notes ?? []);
     if (opts?.done) {
       const patch: Partial<RuntimeSection> = { listening: null, pendingKeep: false };
-      if (note) patch.ideas = [note];
-      // Done talking: go to the confirm, never a fresh lead menu.
+      const prior = keptIdeas(live.ideas).filter((n) => !isClosingPhrase(n));
+      const claim =
+        (await fetchListenClaim(paperId, notes, section.title)) ?? listeningClaim([...notes, ...prior], section.title);
+      if (claim && !isClosingPhrase(claim)) patch.ideas = [claim];
+      else if (prior.length) patch.ideas = prior;
+      // Done talking: go to the confirm, never a fresh lead menu, never save the confirm phrase.
       if (
-        (note || keptIdeas(live.ideas).length > 0) &&
+        ((patch.ideas && patch.ideas.length > 0) || prior.length > 0) &&
         (live.loopStep === "probe" || live.loopStep === "teach" || live.loopStep === "search")
       ) {
         patch.loopStep = "summarize";
@@ -978,7 +986,7 @@ export function CoachingLoop({
     }
     updateSection(
       section.key,
-      { listening: { topic, notes }, ...(note ? { ideas: [note] } : {}) },
+      { listening: { topic, notes } },
       { transcript: withLines(more), events: [...base.events, "stance_listening"] },
     );
     paste.reset();
@@ -1247,6 +1255,13 @@ export function CoachingLoop({
       return;
     }
     if (choice === "continued") {
+      const base = sessionRef.current ?? session;
+      const live = (base?.sections.find((item) => item.key === section.key) ?? section);
+      if (!live.pendingKeep) {
+        updateSection(section.key, { pendingKeep: true }, { transcript: withLines(more) });
+        return;
+      }
+      updateSection(section.key, { pendingKeep: false, listening: null });
       void continueAfterLogic("continued", more);
       return;
     }

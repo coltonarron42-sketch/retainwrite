@@ -33,7 +33,8 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { exploreReply, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, oneOptionLeadBatch, pressureTestLine, asCounterpoint } from "@/lib/stages/explore-intent";
+import { isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, oneOptionLeadBatch, pressureTestLine, asCounterpoint } from "@/lib/stages/explore-intent";
+import { fetchListenReply } from "@/lib/stages/listen-client";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
@@ -488,7 +489,7 @@ export function StanceChat(props: Props) {
       const done = isExploreDone(text, lastPau);
       const lock = done && isExploreLock(text);
       clearSent();
-      const reply = done ? null : exploreReply(text, section.title);
+      const reply = done ? null : await fetchListenReply(props.paperId, text, section.title);
       const lines = fromVoice ? [you(text)] : [you(text), ...(reply ? [pau(reply)] : [])];
       await h.listen(lines, { text, done, lock });
       return done ? "saved" : "listening";
@@ -891,10 +892,16 @@ export function StanceChat(props: Props) {
             <>
               {section.mode !== "memory" ? (
                 <dl className="space-y-1 text-[16px] leading-[1.6]">
-                  <div>
-                    <dt className="inline font-semibold">Lead: </dt>
-                    <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
-                  </div>
+                  {(() => {
+                    const lead = section.chosenLead?.trim() ?? "";
+                    const real = Boolean(lead) && !/^(your lead|your angle|your (source|example)|n\/?a|tbd|placeholder)$/i.test(lead);
+                    return real ? (
+                      <div>
+                        <dt className="inline font-semibold">Lead: </dt>
+                        <dd className="inline">{lead}</dd>
+                      </div>
+                    ) : null;
+                  })()}
                   {(() => {
                     // QA 1:11 AM minor: "Something else" is a button, never an angle.
                     const angle = [section.teachAspect, section.concept].find((item) => item && item !== SOMETHING_ELSE && !/^(the )?(assigned )?concept$|^something else$/i.test(item)) ?? null;

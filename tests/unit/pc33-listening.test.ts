@@ -8,14 +8,18 @@ import {
   exploreNote,
   exploreReply,
   exploreTopic,
+  isClosingPhrase,
   isExploreDone,
   isExploreIntent,
   isExploreLock,
   isGenericPressureReason,
   keepAngleSummary,
+  listeningClaim,
   oneOptionLeadBatch,
+  parseListenModelReply,
   pressureTestLine,
 } from "@/lib/stages/explore-intent";
+import { isUnquotableLeadIdea } from "@/lib/coaching/exampleLeads";
 import { stanceTurnFor } from "@/lib/stages/stance-turn";
 import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { keptIdeas } from "@/lib/coaching/thin";
@@ -275,5 +279,91 @@ describe("PC-33: explore cues beat the wandering lead path", () => {
       section: { key: "intro", title: "Introduction" },
     });
     expect(claim.candidates[0]!.name).toMatch(/^You wrote “Sam Walton put associates first\.?”/);
+  });
+});
+
+describe("PC-33: confirm phrases never become notes or claims", () => {
+  const hint = "Hmm, can I talk through the counterargument idea? I'm not sure yet if the intro should hint that transformational leaders get more credit.";
+  const press = "hear me out: maybe servant leaders just get less press";
+
+  it("treats confirm and closing phrases as closing, never as notes", () => {
+    expect(isClosingPhrase(QA.done)).toBe(true);
+    expect(isClosingPhrase("that's it for now")).toBe(true);
+    expect(isClosingPhrase("ok lock it")).toBe(true);
+    expect(isClosingPhrase(QA.hearMeOut)).toBe(false);
+    expect(isClosingPhrase(press)).toBe(false);
+    expect(exploreNote(QA.done)).toBeNull();
+    expect(exploreNote("yeah that's what I want for now")).toBeNull();
+    expect(keptIdeas([QA.done, "ok lock it in"])).toEqual([]);
+  });
+
+  it("synthesizes the locked claim from listening turns, ignoring the confirm phrase", () => {
+    const claim = listeningClaim([hint, press, QA.done], "Introduction");
+    expect(claim).toBeTruthy();
+    expect(claim!).toMatch(/transformational leaders get more credit/i);
+    expect(claim!).toMatch(/servant leaders.*less press/i);
+    expect(claim!).not.toMatch(/yeah that's what I want for now/i);
+    expect(isClosingPhrase(claim!)).toBe(false);
+    expect(listeningClaim([QA.done], "Introduction")).toBeNull();
+    expect(pressureTestLine({ claim: QA.done, reason: "This doesn't answer the question your prompt asks." })).not.toMatch(/yeah that's what I want for now/i);
+  });
+});
+
+describe("PC-33: acknowledgements paraphrase, they never quote raw fragments", () => {
+  const hint = "Hmm, can I talk through the counterargument idea? I'm not sure yet if the intro should hint that.";
+  const press = "hear me out: maybe servant leaders just get less press";
+
+  it("does not quote or truncate the student's raw text", () => {
+    for (const cue of [hint, press, QA.costco, "Can I talk through the Costco comparison a bit? I haven't decided if it belongs"]) {
+      const reply = exploreReply(cue, "Introduction");
+      expect(reply, cue).not.toMatch(/I'?m hearing\s*[“"']/i);
+      expect(reply, cue).not.toContain("Costco comparison a bit? I.");
+      expect(reply, cue).not.toMatch(/talk through I(?:'m| am)?\b/i);
+      expect(reply, cue).not.toMatch(/[“"]Hmm, can I talk through/i);
+      const last = reply.trim().slice(-1);
+      expect([".", "?", "!"].includes(last), reply).toBe(true);
+    }
+  });
+
+  it("engages a specific point instead of the generic hold question", () => {
+    const reply = exploreReply(press, "Introduction");
+    expect(reply).toMatch(/less press/i);
+    expect(reply).not.toMatch(/what'?s the one piece of this you want me to hold onto/i);
+    expect((reply.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
+    const hintReply = exploreReply(hint, "Introduction");
+    expect(hintReply).toMatch(/hint/i);
+    expect(hintReply).not.toMatch(/I'?m hearing/i);
+    expect(hintReply).not.toMatch(/what'?s the one piece of this you want me to hold onto/i);
+  });
+
+  it("rejects a model reply that quotes or truncates, and accepts a clean paraphrase", () => {
+    const fallback = exploreReply(press, "Introduction");
+    expect(parseListenModelReply('{"reply":"I\'m hearing “Costco comparison a bit? I.”"}', fallback)).toBe(fallback);
+    expect(parseListenModelReply("You're considering that servant leaders just get less press. Want to unpack why?", fallback)).toMatch(/servant leaders just get less press/i);
+  });
+});
+
+describe("PC-33: lead cards and confirm chrome stay real", () => {
+  it("does not quote a student fragment like 'Ooh, honestly both!' on a lead card", () => {
+    expect(isUnquotableLeadIdea("Ooh, honestly both!")).toBe(true);
+    const b = exampleLeadBatch({
+      concept: "servant leadership",
+      assignmentText: "Prompt: Which leadership style is most effective?",
+      studentIdea: "Ooh, honestly both!",
+      rubricRef: "prompt",
+      section: { key: "body", title: "Body" },
+    });
+    for (const c of [...b.candidates, b.wildcard].filter(Boolean)) {
+      expect(c!.name).not.toContain("Ooh, honestly both");
+      expect(c!.name).not.toContain("You wrote");
+    }
+  });
+
+  it("the confirm turn never renders a 'Lead: your lead' placeholder", () => {
+    const src = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    expect(src).not.toMatch(/chosenLead \?\? ["']your lead["']/);
+    expect(src).toMatch(/your lead\|your angle/);
+    expect(readFileSync("components/stages/loop/coaching-loop.tsx", "utf8")).toContain("listeningClaim");
+    expect(src).toContain("fetchListenReply");
   });
 });
