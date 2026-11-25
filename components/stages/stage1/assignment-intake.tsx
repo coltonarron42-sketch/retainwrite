@@ -217,8 +217,13 @@ const CITATION_OPTIONS: Array<CitationStyle | ""> = [
 
 /** QA 11:40 #1: a typed "haven't read", "idk", "not sure", "no clue" gets the catch-up, same as the button. */
 function materialLost(text: string): boolean {
+  // QA 11:08: the saved decline ("…Let's pick a direction.") is never "lost", so no summary follows it.
+  if (/^\s*No thanks, skip the summary/i.test(text)) return false;
   return isLostSaying(text) || isUnsureReadSaying(text);
 }
+
+/** QA 11:08: a second filler on the same question: no second ask (the question is still right there). */
+const FILLER_AGAIN = "No rush. Whenever you're ready.";
 
 /** Stage 1 questions that need their own words (no Skip). */
 const STAGE1_REQUIRED_QS = ["material_check", "decision_pick", "decision_why", "stance_early"];
@@ -571,6 +576,8 @@ export function AssignmentIntake({
   // summary (Pau's teaching content, never paper text), the options and their decision.
   type BriefView = {
     northstar: boolean;
+    /** False until the read-back decides whether this paper runs the north-star plan. */
+    northstarSet?: boolean;
     readback: ReadbackPlain | null;
     summary: MaterialSummary | null;
     options: PaperContext["options"] | null;
@@ -653,6 +660,23 @@ export function AssignmentIntake({
     if (demoMode) return;
     void briefCall({ action: "context" }).finally(() => setBriefLoaded(true));
   }, [briefCall, demoMode]);
+  // Until the read-back has decided north star (see the plan), check again; never wait forever.
+  const [northstarWaitOver, setNorthstarWaitOver] = useState(false);
+  const northstarPending = !demoMode && briefLoaded && Boolean(requirements) && brief?.northstarSet === false && !northstarWaitOver;
+  useEffect(() => {
+    if (!northstarPending) return;
+    let n = 0;
+    void briefCall({ action: "context" });
+    const t = window.setInterval(() => {
+      n += 1;
+      if (n > 25) {
+        setNorthstarWaitOver(true);
+        return;
+      }
+      void briefCall({ action: "context" });
+    }, 800);
+    return () => window.clearInterval(t);
+  }, [northstarPending, briefCall]);
   /** The field-by-field editor behind Pau's "Fix something". */
   const [editingDetails, setEditingDetails] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -922,6 +946,11 @@ export function AssignmentIntake({
   const [needWhy, setNeedWhy] = useState(false);
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
+    // QA 11:08 (root cause of the hobbies line): a new paper's first brief comes before the read-back
+    // sets "north star", so the plan briefly read as an old paper and its first question was the
+    // optional hobbies one: drawn for a moment, recorded in Past chat and spoken. Wait for the answer.
+    if (brief && brief.northstarSet === false && !answers.length && !northstarWaitOver)
+      return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     const topic =
       requirements.topic.value ||
       requirements.promptQuestion.value ||
@@ -965,7 +994,8 @@ export function AssignmentIntake({
       // QA 10:21 walk C: a long pick with no reason ("I read both… I want to argue transformational,
       // using Satya Nadella") still needs its why, or the gate can never pass.
       const noReason = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && !decisionHasReason(pickSaid);
-      if (!stated && (has("decision_why") || shortPick || noReason)) {
+      // QA 11:08 (Walton): a pick that already carries a real reason is never asked "say a bit more about why".
+      if (!stated && (has("decision_why") || ((shortPick || noReason) && !isSolidReason(pickSaid)))) {
         plan.push({
           id: "decision_why",
           kind: "coaching",
@@ -1054,7 +1084,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
+  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.northstarSet, northstarWaitOver, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
   // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
@@ -1242,7 +1272,8 @@ export function AssignmentIntake({
           direction={brief?.decision?.answer ?? null}
           onClose={() => setPanel(null)}
           waiting={
-            checklistConfirmed
+            // QA 11:08 minor: "Building" the moment they confirm, not after the confirm round trip.
+            checklistConfirmed || confirming
               ? "Building your skeleton…"
               : rawText.trim() || sentMessage
                 ? "Reading your assignment. Your skeleton starts building the moment you confirm the details."
@@ -2062,12 +2093,15 @@ export function AssignmentIntake({
     // Colton 1:54 R1: their answer to the summary offer. Lost again or yes: the short catch-up
     // (their first words are what's saved). No: straight on to choosing a direction.
     if (typed && q.id === "material_check" && catchUpOffer === q.id && brief?.northstar) {
-      if (materialLost(typed) || isYesSaying(typed) || /catch me up|summar/i.test(typed)) {
+      // QA 11:08 must-fix: the decline is read first. "No thanks, let's pick a direction" also reads as
+      // unsure ("pick a direction"), which sent the full summary, a material request and the style question.
+      const declined = !/catch me up|^\s*(yes|yeah|sure|ok(ay)?)\b/i.test(typed) && (isNoSaying(typed) || /\b(no thanks|skip|pick a direction|let'?s pick)\b/i.test(typed));
+      if (!declined && (materialLost(typed) || isYesSaying(typed) || /catch me up|summar/i.test(typed))) {
         setCatchUpOffer(null);
         { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
         typed = offerSaid.current ?? typed;
         offerAnswered = true;
-      } else if (isNoSaying(typed) || /\b(skip|pick|direction|no thanks)\b/i.test(typed)) {
+      } else if (declined) {
         setCatchUpOffer(null);
         { const reply = typed; const qid = q.id; setOfferReply((p) => ({ ...p, [qid]: reply })); }
         typed = "No thanks, skip the summary. Let's pick a direction.";
@@ -2114,7 +2148,9 @@ export function AssignmentIntake({
     let text = opts?.skip ? "" : typed;
     // QA 1:11 AM #4: a non-answer ("first quick message") is never their answer or reason: a gentle re-ask.
     if (text && q.id !== "stance_early" && !recPending.current[q.id] && isFillerSaying(text)) {
-      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [fillerNudge(q.id)], filler: true }].slice(-12));
+      // QA 11:08: one gentle re-ask at most; after that a filler gets a quiet "no rush", never another question.
+      const qid = q.id;
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [prev.some((x) => x.qid === qid && x.filler) ? FILLER_AGAIN : fillerNudge(qid)], filler: true }].slice(-12));
       dropSent(sentBox);
       setError(null);
       return;

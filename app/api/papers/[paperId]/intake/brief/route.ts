@@ -211,7 +211,7 @@ function shortPlain(p: string, n: number): string {
 
 function publicView(ctx: PaperContext) {
   const s = bestSummary(ctx);
-  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx) ?? chapterAsk(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
+  return { policy: materialPolicy(), northstar: Boolean(ctx.northstar), northstarSet: ctx.northstar !== undefined, readback: ctx.readback ?? null, summary: s, options: ctx.options ?? null, decision: ctx.decision ?? null, leader: ctx.leader ?? null, lostAtStart: Boolean(ctx.lostAtStart), materialShown: Boolean(ctx.materialShownAt), hasReading: Boolean(ctx.readings?.length), missing: ctx.missing ?? [], missingAsk: missingAskFor(ctx) ?? chapterAsk(ctx), whereToGet: (ctx.whereToGet ?? []).filter((w, i, all) => ctx.missing?.includes(w.title) && all.findIndex((x) => x.title === w.title) === i).map((w) => ({ ...w, offers: w.offers.filter((o, i, all) => all.findIndex((x) => x.url === o.url) === i) })), summaries: currentSummaries(ctx) };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
