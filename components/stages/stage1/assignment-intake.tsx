@@ -4798,7 +4798,7 @@ export function AssignmentIntake({
                 ))}
                 {snap ? (
                   <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
-                    Want to change something?{" "}
+                    To change something,{" "}
                     <button type="button" className="font-semibold text-ds-ink underline underline-offset-4" data-show-answers onClick={focus.unfocus}>
                       Show my answers
                     </button>{" "}
@@ -4806,7 +4806,7 @@ export function AssignmentIntake({
                   </p>
                 ) : (
                   <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
-                    Want to change something? Tap any of your answers above.
+                    To change something, tap any of your answers above.
                   </p>
                 )}
                 {rtMode ? (
