@@ -77,10 +77,22 @@ const TEMPLATE_RES = WELCOME_BACK_TEMPLATES.map(
   (t) => new RegExp(`^${esc(t).replace(/\\\{(done|Done|next|Next)\\\}/g, ".{1,120}?")}$`),
 );
 
+/**
+ * PC-30 QA #4: on a finished stage (read-only look back) she never says "rolling into" a section
+ * or that work is up next there: the stage is done and saved, the live work is elsewhere.
+ */
+export function reviewWelcomeLine(stage: number, label: string | null | undefined, paperStage: number): string {
+  const name = (label ?? "").trim();
+  const which = name ? `Stage ${stage}, ${name},` : `Stage ${stage}`;
+  const live = paperStage > stage ? ` Your work picks up in Stage ${paperStage}.` : "";
+  return `Welcome back. ${which} is done, so this is a read-only look back at what you saved.${live}`;
+}
+const REVIEW_RE = /^Welcome back\. Stage \d+(, [^,]{1,40},)? is done, so this is a read-only look back at what you saved\.( Your work picks up in Stage \d+\.)?$/;
+
 /** True for a filled welcome-back line (voice: the restore hold lets only this through). */
 export function isWelcomeLine(text: string): boolean {
   const t = text.trim();
-  return TEMPLATE_RES.some((re) => re.test(t));
+  return TEMPLATE_RES.some((re) => re.test(t)) || REVIEW_RE.test(t);
 }
 
 /** Short labels for the fill: "the Introduction" style, never a sentence. */

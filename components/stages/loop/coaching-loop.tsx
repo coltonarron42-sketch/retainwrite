@@ -96,6 +96,8 @@ import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-ch
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
 import type { SkeletonWords } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
+import { skeletonWordsFromSession } from "@/lib/skeleton/sections";
+import { revealSection, usePublishSkeleton, useSectionRequests } from "@/lib/skeleton/live";
 import {
   afterMirror,
   afterProbe,
@@ -110,7 +112,7 @@ import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/ef
 import { sourcesLine } from "@/lib/coach/sources-line";
 import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { oneQuip } from "@/lib/coach/quips";
-import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { pickPhrase, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
 import { assignmentQuestion } from "@/lib/copy/sentences";
@@ -319,11 +321,7 @@ export function CoachingLoop({
   const introReady = !persist || pctxSettled;
   // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
   const skelSections = session?.sections ?? [];
-  const skelWords: SkeletonWords = {};
-  for (const item of skelSections) {
-    const g = item.kind === "intro" ? "intro" : item.kind === "conclusion" ? "conclusion" : "body";
-    skelWords[g] = { locked: item.status === "confirmed" || (session?.outlineDone ?? []).includes(item.key), notes: keptIdeas(item.ideas) };
-  }
+  const skelWords: SkeletonWords = skeletonWordsFromSession(skelSections, session?.outlineDone ?? [], keptIdeas);
   const skeletonView = useSkeleton(paperId, {
     enabled: stage >= 2 && stage <= 3,
     fallbackText: session?.assignmentText ?? "",
@@ -334,6 +332,13 @@ export function CoachingLoop({
         : null,
   });
   const skeleton = { view: skeletonView, words: skelWords, direction: pctx?.decision?.answer ?? null };
+  // PC-30: The Skeleton (one per page, outside the chat) shows exactly this.
+  usePublishSkeleton(
+    paperId,
+    sessionLoaded
+      ? { view: skeletonView, words: skelWords, direction: skeleton.direction, sessionKeys: skelSections.map((item) => item.key), waiting: skeletonView ? null : "Building your skeleton…" }
+      : null,
+  );
   // QA 1:11 AM #6/#8: Past chat reaches back to Stage 1 (and Stage 2 from Stage 3).
   const stage1Past = useStage1Past(paperId, persist);
   const stage2Past = withEarlier(stage1Past, pastLines(session?.transcript ?? [], session?.sections ?? []), "Stage 2 · Stance");
@@ -386,6 +391,26 @@ export function CoachingLoop({
   useEffect(() => {
     stageProgressRef.current = stageProgress;
   }, [stageProgress]);
+  // PC-30: a section picked in The Skeleton. From another page it arrives as ?section=key (read
+  // once, then dropped from the URL); on this page as a request. Stage 2 opens that section (the
+  // same as the section buttons); both stages then scroll to it and put the cursor in the box.
+  const skeletonAsk = useRef<string | null>(typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("section"));
+  useEffect(() => {
+    if (!sessionLoaded || !skeletonAsk.current) return;
+    const key = skeletonAsk.current;
+    skeletonAsk.current = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("section");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    revealSection(stage, key);
+  }, [sessionLoaded, stage]);
+  useSectionRequests(stage, (req) => {
+    if (!session || stage !== 2) return;
+    const index = session.sections.findIndex((item) => item.key === req.section);
+    if (index < 0 || index === active) return;
+    setActive(index);
+    commit({ ...session, activeIndex: index });
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -448,10 +473,13 @@ export function CoachingLoop({
       // switching sections restores each one.
       unsentDrafts.current = {};
       for (const d of drafts) if (/^stance:.+:draft$/.test(d.fieldKey)) unsentDrafts.current[d.fieldKey] = { text: d.text, updatedAt: d.updatedAt ?? null };
+      // PC-30: The Skeleton sent them here for one section (?section=key): that one opens.
+      const asked = skeletonAsk.current;
+      if (asked && stage === 2 && base.sections.some((item) => item.key === asked)) sectionKey = asked;
       let index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
       // The resume pointer belongs to another stage (e.g. Stage 3 after a trip
       // there): open the section the student left an unsent note in.
-      if (stage === 2 && resume?.stage !== 2) {
+      if (stage === 2 && resume?.stage !== 2 && !(asked && sectionKey === asked)) {
         const waiting = unsentSection(base.sections.map((item) => item.key), (key) => unsentFor(key));
         if (waiting >= 0) index = waiting;
       }
@@ -1483,7 +1511,7 @@ export function CoachingLoop({
         <OutlineChat
           skeleton={skeleton}
           earlier={stage2Past}
-          pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
+          pick={pctx?.decision ? pickPhrase(pctx.decision, pctx.options?.options ?? []) : null}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}

@@ -51,8 +51,9 @@ import {
 } from "@/lib/stage1/confirm-reply";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, STAGE1_PAST_KEY, parsePastLines, type PastLine } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, STAGE1_PAST_KEY, parsePastLines, type PastLine } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
+import { openSkeleton, usePublishSkeleton } from "@/lib/skeleton/live";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
@@ -1310,25 +1311,23 @@ export function AssignmentIntake({
   }
   const snap = focus.focused ? focusSnap.current : null;
   const skeletonView = useSkeleton(paperId, { enabled: checklistConfirmed, fallbackText: rawText, refreshKey: `${brief?.decision?.answer ?? ""}|${brief?.leader?.answer ?? ""}` });
+  // PC-30: The Skeleton (full screen, opened from the right-edge tab) shows this. Stage 1 has no
+  // finished sections yet, so it's the paper's shape, titles only.
+  usePublishSkeleton(paperId, {
+    view: skeletonView,
+    words: {},
+    direction: brief?.decision?.answer ?? null,
+    // Round 4: "Building" the moment they confirm; before that, what's happening (never a template).
+    waiting:
+      checklistConfirmed || confirming
+        ? "Building your skeleton…"
+        : rawText.trim() || sentMessage
+          ? "Reading your assignment. Your skeleton starts building the moment you confirm the details."
+          : "Share your assignment and I'll sketch your skeleton right away.",
+  });
   const focusTools = (
     <>
-      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={Boolean(sentMessage) || confirmTurns.length > 0 || answers.length > 0} />
-      {panel === "skeleton" ? (
-        <SkeletonPanel
-          view={skeletonView}
-          words={{}}
-          direction={brief?.decision?.answer ?? null}
-          onClose={() => setPanel(null)}
-          waiting={
-            // QA 11:08 minor: "Building" the moment they confirm, not after the confirm round trip.
-            checklistConfirmed || confirming
-              ? "Building your skeleton…"
-              : rawText.trim() || sentMessage
-                ? "Reading your assignment. Your skeleton starts building the moment you confirm the details."
-                : "Share your assignment and I'll sketch your skeleton right away."
-          }
-        />
-      ) : null}
+      <FocusBar onPast={() => setPanel("past")} hasPast={Boolean(sentMessage) || confirmTurns.length > 0 || answers.length > 0} />
       {panel === "past" ? <PastChatPanel lines={stage1PastLines()} onClose={() => setPanel(null)} /> : null}
     </>
   );
@@ -3436,7 +3435,7 @@ export function AssignmentIntake({
               onTurns={setConfirmTurns}
               sheetText={rawText}
               hideBefore={snap?.confirm ?? 0}
-              opener={<FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />}
+              opener={<FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={openSkeleton} />}
               sendRef={confirmSendRef}
               oldVoiceOff={rtMode}
               realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
@@ -4552,7 +4551,7 @@ export function AssignmentIntake({
         {focusTools}
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau" role="log">
           {/* PC-28: on a return, the one opener first; earlier turns stay in "Past chat". */}
-          <FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
+          <FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={openSkeleton} />
           {/* The start of the chat, rebuilt from what's saved. */}
           {snap ? null : <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />}
           {sentMessage && !snap ? <StudentBubble message={sentMessage} /> : null}
