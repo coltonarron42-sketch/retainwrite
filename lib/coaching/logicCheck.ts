@@ -1,6 +1,6 @@
 import { dropHedges } from "@/lib/copy/tidy";
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
-import { firstSentenceOf } from "@/lib/copy/sentences";
+import { balanceQuotes, questionOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
@@ -72,7 +72,7 @@ export function quoteOnWordBoundary(text: string, max = 160): string {
   if (clean.length <= max) return clean;
   const cut = clean.slice(0, max);
   const boundary = cut.lastIndexOf(" ");
-  return (boundary > 24 ? cut.slice(0, boundary) : cut).trim();
+  return balanceQuotes((boundary > 24 ? cut.slice(0, boundary) : cut).trim());
 }
 
 export function suggestsCounterargument(result: LogicCheckResult): boolean {
@@ -213,7 +213,7 @@ export function assignmentAlertQuote(input: {
     .map((value) => value?.replace(/\s+/g, " ").trim() ?? "")
     .find((value) => value && !formatLine.test(value));
   const source = preferred || input.raw?.replace(/\s+/g, " ").trim() || "this assignment";
-  const sentence = firstSentenceOf(source) || source;
+  const sentence = questionOf(source) || source;
   return quoteOnWordBoundary(sentence, 140);
 }
 
@@ -297,7 +297,7 @@ export function logicCheckFromNotes(input: {
   // specific contradiction wins over a (model) off-prompt verdict.
   const againstFirst = input.thesis ? contradictsThesis(notes, input.thesis) : null;
   if (promptText && notes.trim() && !onPrompt && !againstFirst) {
-    const asked = quoteOnWordBoundary(firstSentenceOf(promptText) || promptText, 140);
+    const asked = quoteOnWordBoundary(questionOf(promptText) || promptText, 140);
     return {
       tier: "strong",
       basis: "contradicts_assignment",

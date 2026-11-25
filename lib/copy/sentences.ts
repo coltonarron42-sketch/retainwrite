@@ -31,3 +31,91 @@ export function splitSentences(text: string | null | undefined): string[] {
 export function firstSentenceOf(text: string | null | undefined): string {
   return splitSentences(text)[0] ?? "";
 }
+
+const ASK_VERB =
+  /\b(?:argu(?:e|es|ing)|explain(?:s|ing)?|analy[sz](?:e|es|ing)|discuss(?:es|ing)?|evaluat(?:e|es|ing)|decid(?:e|es|ing)|assess(?:es|ing)?|determin(?:e|es|ing)|compar(?:e|es|ing)|consider(?:s|ing)?|examin(?:e|es|ing)|address(?:es|ing)?|answer(?:s|ing)?|(?:words?|essay|paper|response)\s+on)\s+(?=(?:which|whether|how|why|what|if|to what extent|the extent)\b)/i;
+const SOURCE_LEAD = /^(?:using|use|drawing on|draw on|based on|according to|with reference to|referring to|refer to|cite|citing|after reading|read)\b/i;
+const FORMAT_LINE = /\b(?:apa|mla|chicago|double[- ]spaced|single[- ]spaced|font|margins?|due|submit|turn in|references? page|works cited|\d[\d,]*\s*(?:-|–|to)?\s*[\d,]*\s*(?:words?|pages?))\b/i;
+const TRAILING_HOW = /,\s*(?:using|drawing on|with|citing|based on|in about|in no more than|in \d)\b.*$/i;
+
+/** Quoted titles ('What Makes a Leader?') never end a sentence: mask them while splitting. */
+function maskQuotes(text: string): { masked: string; spans: string[] } {
+  const spans: string[] = [];
+  const keep = (m: string) => {
+    spans.push(m);
+    return `\u0000${spans.length - 1}\u0000`;
+  };
+  const masked = text
+    .replace(/“[^”]{1,160}”/g, keep)
+    .replace(/‘[^’]{1,160}’/g, keep)
+    .replace(/"[^"]{1,160}"/g, keep)
+    .replace(/(^|[\s(])'[^']{2,160}'(?=[\s,.;:)!?]|$)/g, (m, lead: string) => lead + keep(m.slice(lead.length)));
+  return { masked, spans };
+}
+const unmask = (s: string, spans: string[]) => s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => spans[Number(i)] ?? "");
+
+/** Quote marks that open must close; otherwise drop them (never a half-quoted fragment). */
+export function balanceQuotes(text: string): string {
+  let t = text;
+  const open = (t.match(/“/g) ?? []).length, close = (t.match(/”/g) ?? []).length;
+  if (open !== close) t = t.replace(/[“”]/g, "");
+  if ((t.match(/"/g) ?? []).length % 2) t = t.replace(/"/g, "");
+  const sOpen = (t.match(/(^|[\s(])'/g) ?? []).length, sClose = (t.match(/'(?=[\s,.;:)!?]|$)/g) ?? []).length;
+  if (sOpen !== sClose) t = t.replace(/(^|[\s(])'/g, "$1").replace(/(\w)'(?=[\s,.;:)!?]|$)(?!s\b)/g, "$1");
+  return t.trim();
+}
+
+/**
+ * QA 1:11 AM (PC-28 #2): the assignment's real question, never its sources or format line.
+ * "Using Chapter 4 … and the HBR article 'What Makes a Leader?', write 1,200 words arguing
+ * which leadership style is most effective for leading a team through change, using one real
+ * leader" → "which leadership style is most effective for leading a team through change".
+ */
+export function questionOf(text: string | null | undefined): string {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const { masked, spans } = maskQuotes(t);
+  const sentences = splitSentences(masked);
+  for (const s of sentences) {
+    const m = s.match(ASK_VERB);
+    if (m) {
+      const clause = s.slice(m.index! + m[0].length).replace(TRAILING_HOW, "").replace(/[\s.;:!,]+$/, "");
+      const out = balanceQuotes(unmask(clause, spans));
+      if (out.split(" ").length >= 3) return out;
+    }
+  }
+  for (const s of sentences) {
+    if (/\?\s*$/.test(s) && !FORMAT_LINE.test(s) && !SOURCE_LEAD.test(s)) return balanceQuotes(unmask(s, spans));
+  }
+  for (const s of sentences) {
+    if (SOURCE_LEAD.test(s) || FORMAT_LINE.test(s) || s.split(" ").length < 4) continue;
+    return balanceQuotes(unmask(s, spans));
+  }
+  return balanceQuotes(unmask(sentences[0] ?? t, spans));
+}
+
+
+/**
+ * QA 1:11 AM #5: one question per turn. While the return's opener ("keep going, or check the
+ * progress?") is up, the turn below drops its own closing question; it comes back once they answer.
+ */
+export function withoutClosingQuestion(paras: string[]): string[] {
+  const out = [...paras];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const p = out[i]!.trim();
+    if (!p) continue;
+    if (!/\?["”’)]?$/.test(p)) return paras;
+    const parts = p.split(/(?<=[.!?…]["”’)]?)\s+(?=["“‘(]?[A-Z0-9])/);
+    while (parts.length && /\?["”’)]?$/.test(parts.at(-1)!.trim())) parts.pop();
+    const rest = parts.join(" ").trim();
+    if (rest) out[i] = rest;
+    else out.splice(i, 1);
+    return out.length ? out : paras;
+  }
+  return paras;
+}
+
+/** How many questions a line asks ("A? Or B?" counts as two). */
+export function questionCount(text: string): number {
+  return (text.match(/\?(?=["”’)]?(?:\s|$))/g) ?? []).length;
+}
