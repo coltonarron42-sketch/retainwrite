@@ -3,6 +3,7 @@
  * (publisher, author, university, open access) and never uses pirated copies.
  */
 import { sourceHost } from "@/lib/coach/sources-line";
+import { sourceTier } from "@/lib/coach/source-quality";
 
 /** File-sharing and document-dump hosts: never cited, never used. */
 export const BLOCKED_SOURCE_HOSTS = [
@@ -13,7 +14,8 @@ export const BLOCKED_SOURCE_HOSTS = [
 export function isBlockedSource(url: string): boolean {
   const host = sourceHost(url).toLowerCase();
   if (!host) return true;
-  return BLOCKED_SOURCE_HOSTS.some((b) => host.includes(b.replace(/\s+/g, "")));
+  // QA 3:46: the maintained list lives in source-quality.config.ts (tier 0 = never used).
+  return BLOCKED_SOURCE_HOSTS.some((b) => host.includes(b.replace(/\s+/g, ""))) || sourceTier(url) === 0;
 }
 
 /** Drops blocked sources and any bullet that cites a blocked host by name. */
