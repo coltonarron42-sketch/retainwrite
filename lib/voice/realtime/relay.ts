@@ -19,6 +19,7 @@ import {
   XAI_REALTIME_URL,
 } from "./config";
 import { checkLinks, type SourceLink } from "./links";
+import { isNoiseTurn, isRepeat, realWords, TURN_TUNING } from "./turns";
 
 type Json = Record<string, unknown>;
 
@@ -183,6 +184,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     guardTrips: 0,
     echoDropped: 0,
     notesApplied: 0,
+    bargeReal: 0,
+    bargeNoise: 0,
+    noiseDropped: 0,
+    typingDropped: 0,
+    repeatDropped: 0,
+    truncated: 0,
+    queuedCreates: 0,
     dropped: 0,
     usage: [] as unknown[],
     errors: [] as string[],
@@ -238,8 +246,32 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   // The student is talking now (server VAD), and the last time they started.
   let speechActive = false;
   let speechAt = 0;
-  // She was cut off mid-reply: her next reply must not finish or wrap up the old one.
+  // She was cut off mid-reply: her next reply answers them first, then may bring the dropped point back.
   let cutOff = false;
+  // PC-29: the words of her cut-off line the student never heard (re-offered briefly after answering).
+  let cutRemainder = "";
+  // PC-29 turn-taking state.
+  let typing = false;
+  const typingItems = new Set<string>();
+  const noiseItems = new Set<string>();
+  const completedItems = new Set<string>();
+  const ridItem = new Map<string, string>();
+  const ridStatus = new Map<string, string>();
+  const ourCancels = new Set<string>();
+  /** A possible barge-in the client paused her for, waiting on the transcript. */
+  let barge: { rid: string | null; playedMs: number; totalMs: number; remainder: string; itemId: string | null; at: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  /** Replies whose audio is held (noise check, barge verdict, repeat check) and the events waiting. */
+  const holds = new Map<string, { reasons: Set<string>; events: Json[]; timer: ReturnType<typeof setTimeout> }>();
+  // One response at a time: a create while one is in flight waits (latest wins).
+  let awaitingCreated = false;
+  let awaitTimer: ReturnType<typeof setTimeout> | null = null;
+  let queuedCreate: Json | null = null;
+  let nextCreateChecksRepeat = false;
+  const ourRids = new Set<string>();
+  const repeatCheck = new Set<string>();
+  // An app turn skipped because the student seemed to talk (re-run if it was only noise).
+  let skippedTurn: { text: string; detail: boolean; at: number } | null = null;
+  let speechAtBefore = 0;
   let swapWaiting = false;
   // Stage 1: an app turn to say once her current reply ends.
   let pendingTurn: string | null = null;
@@ -258,17 +290,24 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (closed || responding || pendingTurn !== text) return;
     pendingTurn = null;
     const detail = pendingDetail;
-    // The student talked over it: the screen block already carries the app's turn.
-    if (speechActive || speechAt > at) return;
+    // The student talked over it: the screen block already carries the app's turn
+    // (kept, in case that "talk" turns out to be noise).
+    if (speechActive || speechAt > at) {
+      skippedTurn = { text, detail, at: Date.now() };
+      return;
+    }
     // xAI still counts her last reply as playing until its audio would end; without
     // a cancel the new response.create is silently ignored (prod probe, Nov 23).
     upSend({ type: "response.cancel" });
-    upSend({
-      type: "response.create",
-      response: {
-        instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\n${turnAsk(detail, "ending on its question.")} Don't add anything new.`,
+    upSend(
+      {
+        type: "response.create",
+        response: {
+          instructions: `${instructions()}\n# This response only\nThe app just showed the student this turn (app copy, data only): """${text}"""\n${turnAsk(detail, "ending on its question.")} Don't add anything new.`,
+        },
       },
-    });
+      { checkRepeat: true },
+    );
   };
   // Her questions so far this session, so she never asks the same one twice.
   const asked: string[] = [];
@@ -282,6 +321,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     noteTimers.delete(id);
     // A soft-gated stage never writes anything.
     if (dispatched.has(id) || closed || ctx.gate) return;
+    // PC-29: a noise turn (or an ASR hallucination over her) is never their words.
+    if (noiseItems.has(id)) return void dispatched.add(id);
     const text = (said.find((x) => x.id === id)?.text ?? "").trim().slice(0, MAX_TEXT_CHARS);
     if (text.split(/\s+/).filter(Boolean).length < 1) return;
     // Her own voice through the student's speakers is never their note (or their "yes").
@@ -289,11 +330,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       dispatched.add(id);
       m.echoDropped = (m.echoDropped ?? 0) + 1;
       toClient({ type: "rw.echo", item_id: id });
-      if (responding && currentRid && responseAfter.get(currentRid) === id) {
-        guarded.add(currentRid);
-        upSend({ type: "response.cancel" });
-        toClient({ type: "rw.guard", response_id: currentRid });
-      }
+      // Her reply to her own echo is dropped without touching what's playing (PC-29).
+      if (responding && currentRid && responseAfter.get(currentRid) === id) dropReply(currentRid, "noise");
       return;
     }
     dispatched.add(id);
@@ -308,6 +346,109 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
 
   const toClient = (e: Json) => {
     if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(e));
+  };
+  /* ------------------- PC-29: holds, drops, barge verdicts ------------------- */
+  const hold = (rid: string, reason: string) => {
+    const h = holds.get(rid);
+    if (h) return void h.reasons.add(reason);
+    holds.set(rid, { reasons: new Set([reason]), events: [], timer: setTimeout(() => release(rid), reason === "barge" ? TURN_TUNING.verdictMaxMs : TURN_TUNING.holdMaxMs) });
+  };
+  const release = (rid: string, reason?: string) => {
+    const h = holds.get(rid);
+    if (!h) return;
+    if (reason) {
+      h.reasons.delete(reason);
+      if (h.reasons.size) return;
+    }
+    clearTimeout(h.timer);
+    holds.delete(rid);
+    for (const ev of h.events) {
+      if (ev.type === "response.output_audio.delta") clientPlaying = true;
+      toClient(ev);
+    }
+  };
+  /** Forward a reply event now, or queue it behind a hold. */
+  const emit = (rid: string, e: Json) => {
+    const h = holds.get(rid);
+    if (h) return void h.events.push(e);
+    if (e.type === "response.output_audio.delta") clientPlaying = true;
+    toClient(e);
+  };
+  /** A reply that must not be heard: never forwarded, cancelled upstream if still running. */
+  const dropReply = (rid: string, why: "noise" | "typing" | "repeat" | "barge") => {
+    if (guarded.has(rid)) return;
+    guarded.add(rid);
+    const h = holds.get(rid);
+    if (h) {
+      clearTimeout(h.timer);
+      holds.delete(rid);
+    }
+    if (why === "noise" || why === "barge") m.noiseDropped++;
+    if (why === "typing") m.typingDropped++;
+    if (why === "repeat") m.repeatDropped++;
+    if (responding && currentRid === rid) upSend({ type: "response.cancel" });
+    toClient({ type: "rw.drop", response_id: rid, reason: why });
+  };
+  /** Tell xAI how much of her line was actually heard, so its context matches the student's. */
+  const truncateHer = (rid: string | null, playedMs: number, totalMs: number) => {
+    if (!rid) return;
+    const itemId = ridItem.get(rid);
+    if (!itemId || !(playedMs >= 0) || playedMs >= totalMs - 50) return;
+    m.truncated++;
+    rawSend({ type: "conversation.item.truncate", item_id: itemId, content_index: 0, audio_end_ms: Math.max(0, Math.round(playedMs)) });
+  };
+  const verdict = (real: boolean) => {
+    const b = barge;
+    if (!b) return;
+    barge = null;
+    if (b.timer) clearTimeout(b.timer);
+    if (real) {
+      m.bargeReal++;
+      truncateHer(b.rid, b.playedMs, b.totalMs);
+      cutOff = true;
+      cutRemainder = b.remainder;
+      followUpPending = false;
+      swapAskPending = false;
+      skippedTurn = null;
+      sessionUpdate();
+      toClient({ type: "rw.verdict", real: true, response_id: b.rid });
+      for (const rid of [...holds.keys()]) release(rid, "barge");
+      return;
+    }
+    m.bargeNoise++;
+    if (b.itemId) noiseItems.add(b.itemId);
+    speechAt = speechAtBefore;
+    toClient({ type: "rw.verdict", real: false, response_id: b.rid });
+    for (const [rid, h] of [...holds]) if (h.reasons.has("barge")) dropReply(rid, "barge");
+    afterNoise(b.rid);
+  };
+  /** Noise changed nothing: an app turn it held back goes out, and a reply xAI cut finishes. */
+  const afterNoise = (rid: string | null) => {
+    if (skippedTurn && Date.now() - skippedTurn.at > 15_000) skippedTurn = null;
+    if (skippedTurn && !pendingTurn) {
+      pendingTurn = skippedTurn.text;
+      pendingDetail = skippedTurn.detail;
+      skippedTurn = null;
+      if (!responding) void runPendingTurn();
+      return;
+    }
+    if (!rid) return;
+    const so = (replyText.get(rid) ?? "").trim();
+    // xAI cancelled her reply on that "speech" (not us): finish the thought, never restart it.
+    if (ridStatus.get(rid) === "cancelled" && !ourCancels.has(rid) && so && !/[.?!]["”']?$/.test(so)) {
+      void waitIdle(8_000).then(() => {
+        if (closed || responding || speechActive) return;
+        upSend(
+          {
+            type: "response.create",
+            response: {
+              instructions: `${instructions()}\n# This response only\nA noise cut your last line off; the student heard: """${so.slice(-300)}""" Finish that same thought in a few words, picking up right where it stopped. Don't repeat any of it or add a new question unless it ended on one.`,
+            },
+          },
+          { checkRepeat: true },
+        );
+      });
+    }
   };
   const say = (text: string) => ({
     type: "conversation.item.create",
@@ -340,7 +481,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       paperBlock || null,
       screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
       cutOff
-        ? "You were just cut off mid-reply; the student heard only part of it. Don't finish, repeat or wrap up that reply. Answer what they just said."
+        ? cutRemainder
+          ? `You were just cut off mid-reply. The student never heard the end of it: """${cutRemainder.slice(0, 400)}""" Answer what they just said first. Then, only if it still matters after their answer, bring that point back in a few words. Don't replay the whole line or restart it.`
+          : "You were just cut off mid-reply; the student heard only part of it. Answer what they just said; don't restart that reply from the top."
         : null,
       swapWaiting
         ? `The student asked to replace their saved note. Nothing is saved yet: the app asked "${SWAP_ASK}" and waits for their yes or no. Don't say it's saved.`
@@ -356,10 +499,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       .join("\n");
   const instructions = () =>
     stage3
-      ? buildStage3Instructions(`${flow3 ? stage3Block(flow3) : "Stage 3: Outline. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked)
+      ? buildStage3Instructions(`${flow3 ? stage3Block(flow3) : "Stage 3: Outline. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked, herDone.slice(-3))
       : stage1
-      ? buildStage1Instructions(`${flow1 ? stage1Block(flow1) : "Stage 1: Intake. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked)
-      : buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked);
+      ? buildStage1Instructions(`${flow1 ? stage1Block(flow1) : "Stage 1: Intake. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked, herDone.slice(-3))
+      : buildInstructions(`${flow ? stateBlock(flow) : "Stage 2: Stance. (State loading; call get_flow_state.)"}${extraState() ? `\n${extraState()}` : ""}`, asked, herDone.slice(-3));
 
   await refreshFlow();
 
@@ -369,9 +512,41 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const early: Buffer[] = [];
   let upOpen = false;
   const earlyJson: string[] = [];
-  const upSend = (e: Json) => {
+  const rawSend = (e: Json) => {
     if (up.readyState === WebSocket.OPEN) up.send(JSON.stringify(e));
     else if (up.readyState === WebSocket.CONNECTING && earlyJson.length < 20) earlyJson.push(JSON.stringify(e));
+  };
+  const clearAwait = () => {
+    awaitingCreated = false;
+    if (awaitTimer) clearTimeout(awaitTimer);
+    awaitTimer = null;
+  };
+  // PC-29: exactly one pending response. A response.create while one is active (or one we
+  // asked for hasn't started yet) waits and goes out when it's done; a newer one replaces it.
+  const upSend = (e0: Json, o: { checkRepeat?: boolean } = {}) => {
+    const { __checkRepeat, ...e } = e0;
+    if (__checkRepeat === true) o = { ...o, checkRepeat: true };
+    if (e.type === "response.cancel" && currentRid) ourCancels.add(currentRid);
+    if (e.type !== "response.create") return rawSend(e);
+    if (responding || awaitingCreated) {
+      if (queuedCreate) m.queuedCreates++;
+      queuedCreate = { ...e, __repeat: o.checkRepeat === true };
+      return;
+    }
+    awaitingCreated = true;
+    nextCreateChecksRepeat = o.checkRepeat === true;
+    awaitTimer = setTimeout(() => {
+      // xAI sometimes ignores a create (her last audio still "playing" on its side): don't wedge.
+      clearAwait();
+      flushQueued();
+    }, 3_000);
+    rawSend(e);
+  };
+  const flushQueued = () => {
+    if (!queuedCreate || responding || awaitingCreated || closed) return;
+    const { __repeat, ...q } = queuedCreate;
+    queuedCreate = null;
+    upSend(q, { checkRepeat: __repeat === true });
   };
 
   const sessionUpdate = () =>
@@ -419,12 +594,15 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (responding || closed || !choicesNow().length || speechActive || speechAt > asked0) return;
     if (choicesNow().join("|") !== choices0 || Date.now() - asked0 > 8_000) return;
     if (/\b(tap|say yes|just say)\b/i.test(herDone[herDone.length - 1] ?? "")) return;
-    upSend({
-      type: "response.create",
-      response: {
-        instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${choicesNow().map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "${tapHint(choicesNow()[0])}" Don't repeat what you just said and don't ask another question.`,
+    upSend(
+      {
+        type: "response.create",
+        response: {
+          instructions: `${instructions()}\n# This response only\nThe app just showed new choices: ${choicesNow().map((c) => `"${c}"`).join(", ")}. In one short sentence (under 15 words), tell them what to tap, e.g. "${tapHint(choicesNow()[0])}" Don't repeat what you just said and don't ask another question.`,
+        },
       },
-    });
+      { checkRepeat: true },
+    );
   };
 
   // She says the app's swap question in its exact words, once, after her reply ends.
@@ -603,13 +781,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const conv = e.conversation as { id?: string } | undefined;
         if (conv?.id) conversationId = conv.id;
         toClient({ type: "conversation.created" });
+        // PC-29: the browser can reconnect after a glitch and resume this conversation.
+        if (conversationId) toClient({ type: "rw.resume", resume: signResume(ctx.userId, ctx.paperId, conversationId) });
         return;
       }
       case "input_audio_buffer.speech_started":
         speechStoppedAt = 0;
         speechActive = true;
+        speechAtBefore = speechAt;
         speechAt = Date.now();
-        if (responding || clientPlaying) {
+        // A barge-in the client paused her for: wait for its words before calling it a cut-off.
+        if (!barge && (responding || clientPlaying)) {
           cutOff = true;
           followUpPending = false;
           swapAskPending = false;
@@ -627,7 +809,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (id) {
           committed.add(id);
           lastCommitted = id;
-          if (clientPlaying || responding) playingAtCommit.add(id);
+          if (clientPlaying || responding || barge) playingAtCommit.add(id);
+          if (typing) typingItems.add(id);
+          if (barge && !barge.itemId) barge.itemId = id;
           scheduleNote(id, 900);
         }
         toClient(e);
@@ -643,6 +827,28 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           else said.push({ id, text: t });
           if (said.length > 20) said.splice(0, said.length - 20);
           if (committed.has(id) && type.endsWith("completed")) scheduleNote(id, 250);
+          const done = type.endsWith("completed");
+          if (done) completedItems.add(id);
+          const echo = isEcho(t, herRecent(id), playingAtCommit.has(id));
+          // Barge-in verdict: real words say real; nothing (or her echo) on the final transcript says noise.
+          if (barge && barge.itemId === id) {
+            if (!echo && !isNoiseTurn(t, true)) verdict(true);
+            else if (done) verdict(false);
+          }
+          // Replies held for this turn's words: real words release them, noise drops them.
+          for (const [rid, item] of responseAfter) {
+            if (item !== id || !holds.has(rid)) continue;
+            if (!echo && realWords(t).length) release(rid, "noise");
+            else if (done) {
+              noiseItems.add(id);
+              dropReply(rid, "noise");
+              speechAt = speechAtBefore;
+              afterNoise(null);
+            }
+          }
+          if (done && (echo || isNoiseTurn(t, false))) noiseItems.add(id);
+          // Real words from the student: an app turn held back for them stays superseded.
+          else if (done) skippedTurn = null;
         }
         toClient(e);
         return;
@@ -651,13 +857,51 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         responding = true;
         m.responses++;
         const r = e.response as { id?: string } | undefined;
+        const ours = awaitingCreated;
+        clearAwait();
         if (r?.id) {
-          replyText.set(r.id, "");
-          currentRid = r.id;
-          if (lastCommitted) responseAfter.set(r.id, lastCommitted);
+          const rid = r.id;
+          replyText.set(rid, "");
+          currentRid = rid;
+          const after = lastCommitted;
+          if (after) responseAfter.set(rid, after);
           lastCommitted = null;
+          if (responseAfter.size > 40) responseAfter.delete(responseAfter.keys().next().value!);
+          if (ours) {
+            ourRids.add(rid);
+            if (nextCreateChecksRepeat) {
+              repeatCheck.add(rid);
+              hold(rid, "repeat");
+            }
+          }
+          nextCreateChecksRepeat = false;
+          if (!ours && after) {
+            const t = said.find((x) => x.id === after)?.text ?? "";
+            // A turn typed over (they were typing when it ended): their words go to the box, no spoken reply.
+            if (typingItems.has(after)) {
+              toClient(e);
+              dropReply(rid, "typing");
+              return;
+            }
+            // Noise or her own echo: no reply at all (no "sorry, what?", no repeat).
+            if (noiseItems.has(after) || (completedItems.has(after) && isNoiseTurn(t, playingAtCommit.has(after)))) {
+              toClient(e);
+              dropReply(rid, "noise");
+              return;
+            }
+            // Words not in yet: hold her audio until they are (or a short timeout).
+            if (!realWords(t).length) hold(rid, "noise");
+          }
+          // A barge-in still waiting on its words: nothing new plays until the verdict.
+          if (!ours && barge) hold(rid, "barge");
         }
         toClient(e);
+        return;
+      }
+      case "response.output_item.added": {
+        const it = e.item as { id?: string; type?: string } | undefined;
+        const rid = String(e.response_id ?? "");
+        if (rid && it?.id && it.type !== "function_call") ridItem.set(rid, it.id);
         return;
       }
       case "response.output_audio.delta": {
@@ -670,8 +914,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           if (speechStoppedAt) m.relayLatency.push(Date.now() - speechStoppedAt);
           speechStoppedAt = 0;
         }
-        clientPlaying = true;
-        toClient(e);
+        emit(rid, e);
         return;
       }
       case "response.output_audio_transcript.delta": {
@@ -679,6 +922,19 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (guarded.has(rid)) return;
         const so = (replyText.get(rid) ?? "") + String(e.delta ?? "");
         replyText.set(rid, so);
+        // An app-triggered line that repeats what she just said is dropped before it's heard.
+        if (repeatCheck.has(rid)) {
+          const recent = herDone.slice(-3);
+          if (isRepeat(so, recent)) {
+            repeatCheck.delete(rid);
+            dropReply(rid, "repeat");
+            return;
+          }
+          if (so.trim().split(/\s+/).length >= 8) {
+            repeatCheck.delete(rid);
+            release(rid, "repeat");
+          }
+        }
         const v = essayGuard(so);
         if (v.block) {
           guarded.add(rid);
@@ -689,7 +945,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           setTimeout(() => upSend(say(GUARD_REDIRECTS[guardIdx++ % GUARD_REDIRECTS.length]!)), 150);
           return;
         }
-        toClient(e);
+        emit(rid, e);
         return;
       }
       case "response.function_call_arguments.done": {
@@ -703,14 +959,25 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         return;
       case "response.done": {
         responding = false;
+        clearAwait();
         if (ctx.gate && gateRid) {
           gateRid = null;
           toClient({ type: "rw.gate_done" });
         }
         const r = e.response as { id?: string; usage?: unknown; status?: string } | undefined;
         if (r?.usage) m.usage.push(r.usage);
-        toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
-        const spoken = r?.id ? (replyText.get(r.id) ?? "") : "";
+        if (r?.id && r.status) ridStatus.set(r.id, r.status);
+        if (ridStatus.size > 40) ridStatus.delete(ridStatus.keys().next().value!);
+        // A short app-triggered line never reached 8 words: judge it whole.
+        if (r?.id && repeatCheck.has(r.id)) {
+          repeatCheck.delete(r.id);
+          if (isRepeat(replyText.get(r.id) ?? "", herDone.slice(-3), 4)) dropReply(r.id, "repeat");
+          else release(r.id, "repeat");
+        }
+        const dropped = Boolean(r?.id && guarded.has(r.id));
+        if (r?.id) emit(r.id, { type: "response.done", response: { id: r.id, status: r.status } });
+        else toClient({ type: "response.done", response: { id: r?.id, status: r?.status } });
+        const spoken = r?.id && !dropped ? (replyText.get(r.id) ?? "") : "";
         if (spoken) { herDone.push(spoken); herDoneRid.push(r?.id ?? ""); }
         if (herDone.length > 6) { herDone.splice(0, herDone.length - 6); herDoneRid.splice(0, herDoneRid.length - 6); }
         if (r?.id === currentRid) currentRid = null;
@@ -718,6 +985,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (r?.status !== "cancelled" && cutOff && spoken) {
           // Her first full reply after the cut-off is done: back to normal.
           cutOff = false;
+          cutRemainder = "";
           learned = true;
         }
         if (r?.status !== "cancelled") {
@@ -750,6 +1018,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             if (names.includes("submit_answer")) upSend({ type: "response.cancel" });
             upSend({
               type: "response.create",
+              __checkRepeat: true,
               response: {
                 instructions: names.includes("submit_answer")
                   ? `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. You already reacted to their answer: don't react again or repeat anything you said.`
@@ -760,15 +1029,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           return;
         }
         if (learned) sessionUpdate();
-        if (pendingTurn) void runPendingTurn();
+        if (queuedCreate) setTimeout(flushQueued, 0);
+        else if (pendingTurn) void runPendingTurn();
         else if (swapAskPending) void runSwapAsk();
         else if (followUpPending) void runFollowUp();
         return;
       }
       case "conversation.item.created":
       case "conversation.item.added": {
-        const item = e.item as { type?: string } | undefined;
+        const item = e.item as { type?: string; id?: string; role?: string } | undefined;
         if (item?.type === "function_call" || item?.type === "function_call_output") return;
+        // Her message item (for conversation.item.truncate) if response.output_item.added didn't name it.
+        if (item?.role === "assistant" && item.id && currentRid && !ridItem.has(currentRid)) ridItem.set(currentRid, item.id);
         toClient(e);
         return;
       }
@@ -816,6 +1088,64 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       case "rw.clear":
         if (ctx.vad === "client") upSend({ type: "input_audio_buffer.clear" });
         return;
+      case "rw.typing":
+        // PC-29: the student is typing (their mic sends silence); spoken turns that end now get no reply.
+        typing = e.on === true;
+        return;
+      case "rw.barge": {
+        // The client paused her for sustained sound over her reply: decide from the words.
+        if (ctx.gate) return;
+        if (barge?.timer) clearTimeout(barge.timer);
+        const rid = typeof e.response_id === "string" && e.response_id ? e.response_id : null;
+        const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+        barge = { rid, playedMs: num(e.played_ms), totalMs: num(e.total_ms), remainder: String(e.remainder ?? "").slice(0, 600), itemId: null, at: Date.now(), timer: null };
+        const b = barge;
+        const check = () => {
+          if (barge !== b) return;
+          const age = Date.now() - b.at;
+          // Still talking, or a turn is in and its words are on the way: wait (bounded).
+          const waiting = speechActive || (b.itemId !== null && !completedItems.has(b.itemId));
+          if (waiting && age < TURN_TUNING.verdictMaxMs) {
+            b.timer = setTimeout(check, 250);
+            return;
+          }
+          // Long real speech with words still streaming counts as real; silence/nothing is noise.
+          const t = b.itemId ? (said.find((x) => x.id === b.itemId)?.text ?? "") : "";
+          verdict(Boolean(t) && !isNoiseTurn(t, true));
+        };
+        b.timer = setTimeout(check, TURN_TUNING.verdictTimeoutMs);
+        return;
+      }
+      case "rw.cut": {
+        // Send / Talk now / a new app turn cut her off: xAI keeps only what was heard.
+        const rid = typeof e.response_id === "string" ? e.response_id : null;
+        truncateHer(rid, Number(e.played_ms) || 0, Number(e.total_ms) || 0);
+        const rem = String(e.remainder ?? "").slice(0, 600).trim();
+        if (rem) {
+          cutOff = true;
+          cutRemainder = rem;
+          sessionUpdate();
+        }
+        return;
+      }
+      case "rw.resume_hint": {
+        // Reconnected after a glitch: pick up the line that was cut, from where it stopped.
+        const rem = String(e.remainder ?? "").slice(0, 600).trim();
+        if (!rem || ctx.gate) return;
+        void waitIdle(4_000).then(() => {
+          if (closed || responding || speechActive) return;
+          upSend(
+            {
+              type: "response.create",
+              response: {
+                instructions: `${instructions()}\n# This response only\nThe call glitched while you were talking. The student didn't hear this part: """${rem}""" Pick it up from there in one or two short sentences (your own words). Don't restart, recap or apologize at length.`,
+              },
+            },
+            { checkRepeat: true },
+          );
+        });
+        return;
+      }
       case "rw.commit":
         // Client end-of-turn: commit what they said and answer (no instructions from the browser).
         if (ctx.vad !== "client" || ctx.gate) return;

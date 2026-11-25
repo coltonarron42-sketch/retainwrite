@@ -88,6 +88,8 @@ export function useRealtimeCall(opts: {
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<LiveTurn[]>([]);
+  // PC-29: the mic pauses while they type (one input channel at a time).
+  const [typing, setTyping] = useState(false);
   const rt = useRef<RealtimeVoice | null>(null);
   const optsRef = useRef(opts);
   useEffect(() => {
@@ -147,6 +149,8 @@ export function useRealtimeCall(opts: {
         },
         echo: (itemId) => setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x))),
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
+        pauDropped: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
+        typing: setTyping,
         saveNote: async (_id, text, itemId, kind) => {
           const r = await optsRef.current.saveNote(text, kind);
           // Saved words already show in the chat history as their message.
@@ -205,6 +209,7 @@ export function useRealtimeCall(opts: {
     phase,
     on: phase !== "off" && phase !== "error",
     muted,
+    typing,
     error,
     live,
     start,
@@ -261,7 +266,7 @@ function Waves({ call }: { call: RealtimeCall }) {
 /** Composer row controls: start/end the call (waveform), Mute, and the status line. */
 export function RealtimeControls({ call }: { call: RealtimeCall }) {
   return (
-    <div className="flex min-w-0 items-center gap-1" data-rt-controls data-rt-phase={call.phase}>
+    <div className="flex min-w-0 items-center gap-1" data-rt-controls data-rt-phase={call.phase} data-rt-typing={call.on && call.typing ? "" : undefined}>
       <button
         type="button"
         data-rt-call
@@ -291,7 +296,7 @@ export function RealtimeControls({ call }: { call: RealtimeCall }) {
         </button>
       ) : null}
       <span className="min-w-0 truncate px-1 text-[13px] leading-[1.4] text-ds-muted" role="status" data-rt-status>
-        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.error && !call.on ? call.error : STATUS[call.phase]}
+        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.on && call.typing ? "Typing — mic paused" : call.error && !call.on ? call.error : STATUS[call.phase]}
       </span>
     </div>
   );
