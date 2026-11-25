@@ -7,7 +7,7 @@ describe("F: Pau introduces leads in her own voice, then links", () => {
     const lead = createLead({ name: "A practitioner voice", whyAssignment: "x", searchTerms: leadSearchTerms("Should high schools start later?") });
     const links = leadLinks(lead);
     expect(links.map((l) => l.kind)).toEqual(["articles", "news", "videos"]);
-    expect(links[0]!.href).toBe("https://scholar.google.com/scholar?q=Should%20high%20schools%20start%20later");
+    expect(links[0]!.href).toBe("https://scholar.google.com/scholar?q=high%20schools%20start%20later");
     expect(links[2]!.href).toContain("youtube.com/results?search_query=");
   });
   it("interest-steered leads search the interest with the topic; older leads fall back to the topic", () => {
