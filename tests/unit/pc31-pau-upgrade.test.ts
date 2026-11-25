@@ -161,3 +161,11 @@ describe("PC-31 research plumbing", () => {
     expect(verifySpoken("p1", `${t} Say something else.`, sig)).toBe(false);
   });
 });
+
+describe("PC-31 sources line", () => {
+  it("names sites, not raw links, when the citation has no title", async () => {
+    const { sourcesLine } = await import("@/lib/coach/sources-line");
+    expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: strategypunk.com · blanchard.com");
+    expect(sourcesLine([{ title: "Servant leadership examples", url: "https://oakcover.com/a" }])).toBe("Sources: Servant leadership examples (oakcover.com)");
+  });
+});
