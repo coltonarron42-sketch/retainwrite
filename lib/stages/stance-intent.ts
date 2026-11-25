@@ -18,6 +18,11 @@ const HELP =
 const QUESTION_TO_COACH =
   /^(what|huh|wait|sorry|um+|hm+)?[\s,]*(what (do|did) you mean|what does that mean|what does (this|that|it) mean|i (don'?t|do not) (get|understand)( it| this| that| the question)?|can you explain|could you explain|explain (that|this|please)|what('?s| is) (a|an|the) (lead|angle|logic check|section|probe|stance|outline)|what are you asking|what am i supposed to (do|write|say)|what should i do( here| now)?|do i (have to|need to)|is that (ok|okay|right)|why\??$|what\??$|huh\??$|meaning\??)/i;
 
+/** "Can you find me research on how Nadella led change?": a lookup she answers, never a note (QA 3:51 suite: under load the
+ * model check timed out and the rule fallback saved the request as their Body note). */
+const LOOKUP_REQUEST =
+  /^(?:(?:can|could|would|will) you|please|pls)?\s*(?:please\s+)?(?:find|look up|search(?: for)?|get|pull(?: up)?|dig up|show)\s+(?:me\s+)?(?:some\s+|any\s+|a\s+few\s+)?(?:research|sources?|studies|study|articles?|evidence|info(?:rmation)?|data|stats|statistics)\b/i;
+
 /** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
 export const WRITE_REQUEST =
   /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
@@ -33,6 +38,7 @@ export function rulesStanceIntent(text: string): StanceIntent {
   const words = wordCount(t);
   if (words > 30) return "content";
   if (QUESTION_TO_COACH.test(t) || isWriteRequest(t)) return "question";
+  if (LOOKUP_REQUEST.test(t)) return "content_question";
   // A content or teaching question (QA 11/23: "what are the leadership styles?"): she answers it.
   if (isContentQuestion(t)) return "content_question";
   if (PROBE.test(t) && words <= 20) return "request_probe";

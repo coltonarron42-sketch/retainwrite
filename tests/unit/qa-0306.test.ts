@@ -161,3 +161,13 @@ describe("QA 3:51: a queued message between steps waits for the next step", () =
     expect(src).toContain("if (went === false) setDraftAnswer(");
   });
 });
+
+describe("QA 3:51 suite: a research request is never saved as a note, even when the model check times out", () => {
+  it("rules catch lookup requests", async () => {
+    const { rulesStanceIntent } = await import("@/lib/stages/stance-intent");
+    expect(rulesStanceIntent("can you find me research on how Satya Nadella led change at Microsoft?")).toBe("content_question");
+    expect(rulesStanceIntent("Could you look up some studies on stress and memory?")).toBe("content_question");
+    expect(rulesStanceIntent("find sources about servant leadership")).toBe("content_question");
+    expect(rulesStanceIntent("Nadella got Microsoft to change its culture toward learning.")).toBe("content");
+  });
+});
