@@ -95,7 +95,9 @@ describe("3: the hesitation offer folds into the current reply", () => {
     const src = read("components/stages/stage1/assignment-intake.tsx");
     const turn = src.slice(src.indexOf("{/* Pau's current turn. */}"));
     const group = turn.slice(0, turn.indexOf("</PauPauGroup>"));
-    expect(group).toContain("<SparkExchange\n                  inline");
+    expect(group).toContain("{askKids(q)}");
+    const kids = src.slice(src.indexOf("const askKids = "), src.indexOf("const introAbove = Boolean("));
+    expect(kids).toContain("<SparkExchange\n                  inline");
     expect(src).toContain('<SparkExchange inline turn={sparks[qid]!} active={false}');
     expect(src).not.toMatch(/\{isCurrent \? null : sparkFor\(item\.id\)\}\n\s*<EchoBubble/);
     const hes = read("components/stages/stage1/hesitation.tsx");

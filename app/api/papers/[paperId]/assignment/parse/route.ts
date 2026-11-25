@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { kickShape } from "@/lib/server/skeleton/ghost";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { mergeCorpus, type CorpusSegment } from "@/lib/assignment/corpus";
 import { DESCRIBED_MIN_WORDS, parseAssignmentCorpus } from "@/lib/assignment/parse";
@@ -138,6 +139,9 @@ export async function POST(request: Request, ctx: Ctx) {
         });
       }
 
+      // Round 4 #1: the real skeleton starts while they read the checklist, so it's in by confirm.
+      const userId = user.id;
+      after(() => kickShape(paperId, userId, parsed.rawText, parsed.requirements));
       return NextResponse.json({
         parseStatus: "ready",
         requirements: parsed.requirements,

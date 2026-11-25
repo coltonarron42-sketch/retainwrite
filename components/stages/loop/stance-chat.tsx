@@ -639,11 +639,12 @@ export function StanceChat(props: Props) {
           </nav>
     </div>
   );
+  // QA 11:51: her opener is what they decided in Stage 1 ("Earlier you picked…"), then the assignment.
   const introBubbles: ReactNode[] = [
+    ...(intro.earlier ? [intro.earlier] : []),
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
     ...(intro.purpose ? [intro.purpose] : []),
-    ...(intro.earlier ? [intro.earlier] : []),
     introControls,
   ];
 
