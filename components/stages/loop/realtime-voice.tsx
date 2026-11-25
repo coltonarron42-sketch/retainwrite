@@ -246,8 +246,10 @@ export function useRealtimeCall(opts: {
     start,
     stop,
     toggleMute,
-    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string }) => {
+    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string; say?: string }) => {
       notePrompt(opts?.spoken);
+      // PC-29d: a spoken side answer or nudge is already on screen as a bubble: no second live row.
+      if (opts?.say) notePrompt(opts.say);
       return rt.current?.sayTurn(text, opts);
     },
     setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => {

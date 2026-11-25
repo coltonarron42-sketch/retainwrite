@@ -253,6 +253,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let startLine = "";
   let lastPrompt = { text: "", at: 0 };
   let pendingSpoken: string | null = null;
+  // PC-29d: words to say that aren't the prompt (a side answer, a nudge), queued like a prompt.
+  let pendingSay: string | null = null;
+  // When her audio last went to the browser (a "responding" flag with no audio for a while is stale).
+  let lastAudioAt = 0;
+  let sayKick: ReturnType<typeof setInterval> | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
   let ownSection = "";
@@ -335,10 +340,23 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     const detail = pendingDetail;
     const spoken = pendingSpoken;
     pendingSpoken = null;
+    const sayExtra = pendingSay;
+    pendingSay = null;
     // The student talked over it: the screen block already carries the app's turn
     // (kept, in case that "talk" turns out to be noise).
     if (speechActive || speechAt > at) {
       skippedTurn = { text, detail, at: Date.now(), spoken };
+      return;
+    }
+    if (verbatim && sayExtra) {
+      // A side answer or nudge: said even if the prompt moved on meanwhile (it answers them).
+      sayLine(sayExtra);
+      // A new prompt that arrived meanwhile and was never said follows it (after this line ends).
+      if (spoken && spoken === screen.spoken && spoken !== lastPrompt.text) {
+        pendingTurn = spoken;
+        pendingSpoken = spoken;
+        pendingDetail = false;
+      }
       return;
     }
     if (verbatim && spoken !== null) {
@@ -1105,6 +1123,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const rid = String(e.response_id ?? "");
         if (guarded.has(rid)) return;
         const d = String(e.delta ?? "");
+        lastAudioAt = Date.now();
         m.audioOutBytes += Math.floor((d.length * 3) / 4);
         if (!firstDeltaSeen.has(rid)) {
           firstDeltaSeen.add(rid);
@@ -1140,7 +1159,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             release(rid, "repeat");
           }
         }
-        const v = essayGuard(so);
+        // PC-29d QA: the app's own lines (force_message: prompts, side answers, nudges) are app copy,
+        // already composed under the coaching rules. The essay guard is a net for HER words only: on a
+        // two-paragraph side answer its word cap tripped and swapped the answer for a refusal.
+        const v = forcedRids.has(rid) ? ({ block: false } as const) : essayGuard(so);
         if (v.block) {
           guarded.add(rid);
           m.guardTrips++;
@@ -1452,6 +1474,44 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const detail = e.detail === true;
         const text = String(e.text ?? "").slice(0, detail ? 1600 : 800);
         const spoken = verbatim && typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : null;
+        // PC-29d: `say` = words that aren't the prompt (a side answer, a nudge). The prompt stays
+        // what's on screen (the question gate keeps using it); only `say` is spoken, never the prompt again.
+        const sayExtra = verbatim && typeof e.say === "string" ? e.say.slice(0, 1600).trim() : "";
+        if (sayExtra) {
+          if (spoken) screen = { ...screen, spoken };
+          if (startOpen) startOpen = false;
+          console.log(JSON.stringify({ evt: "pau_realtime_say", sid, wait: responding || speechActive, responding, speechActive, chars: sayExtra.length }));
+          if (responding || speechActive) {
+            pendingTurn = text || sayExtra;
+            pendingDetail = false;
+            pendingSpoken = spoken;
+            pendingSay = sayExtra;
+            // Never wedged: once she's done (or "responding" has sent no audio for a while), it plays.
+            const mine = sayExtra;
+            const at = Date.now();
+            if (sayKick) clearInterval(sayKick);
+            sayKick = setInterval(() => {
+              const age = Date.now() - at;
+              if (pendingSay !== mine || closed || age > 20_000) {
+                if (sayKick) clearInterval(sayKick);
+                sayKick = null;
+                return;
+              }
+              if (speechActive) return;
+              if (responding && !(age >= 6_000 && Date.now() - lastAudioAt > 3_000)) return;
+              if (responding) {
+                console.log(JSON.stringify({ evt: "pau_realtime_stale_responding", sid }));
+                responding = false;
+              }
+              if (sayKick) clearInterval(sayKick);
+              sayKick = null;
+              void runPendingTurn();
+            }, 1_000);
+            return;
+          }
+          sayLine(sayExtra);
+          return;
+        }
         if (verbatim && spoken !== null) {
           // PC-29 QA round 2: the on-screen prompt, word for word; nothing to say means silence.
           if (!spoken) return;
