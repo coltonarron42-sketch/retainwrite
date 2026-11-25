@@ -149,14 +149,18 @@ export function materialGateLabel(input: { catchUpDone: boolean; materialShown: 
 }
 
 /** The Stage 1 gate checklist on north-star papers. */
-export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean; materialLabel?: string }): { label: string; done: boolean }[] {
+export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean; materialLabel?: string; style?: string | null; leader?: string | null }): { label: string; done: boolean }[] {
+  // QA round 5 (4): the gate says what they decided ("Your style: servant, with Walton"), not only that they did.
+  const what = input.decided && (input.style || input.leader)
+    ? `: ${[input.style ? `your style: ${input.style.toLowerCase()}` : null, input.leader ? `your leader: ${input.leader}` : null].filter(Boolean).join(", ")}`
+    : "";
   return [
     { label: "Assignment confirmed", done: input.confirmed },
     {
       label: input.materialLabel ?? (input.catchUpDone ? "Material: caught up" : "Material: waiting on the readings"),
       done: input.catchUpDone && !/waiting|haven't said/.test(input.materialLabel ?? ""),
     },
-    { label: "Decision made, with your reason", done: input.decided },
+    { label: `Decision made, with your reason${what}`, done: input.decided },
     { label: "Early take: a few sentences in your own words", done: input.stanceOk },
   ];
 }
