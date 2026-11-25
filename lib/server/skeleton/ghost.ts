@@ -8,7 +8,9 @@ import { MODEL_FAST, MODEL_STRONG } from "@/lib/config";
 import { assertNoHiddenDraftLeak } from "@/lib/drafting/leak";
 import { loadHiddenDraftMaterial } from "@/lib/server/hiddenDraft/store";
 import {
+  factsKeyOf,
   inputHash,
+  keepShownTitles,
   OUTLINE_SYSTEM,
   outlineFromModel,
   projectSkeleton,
@@ -143,7 +145,11 @@ export async function ensureOutline(input: {
   later?: (task: () => Promise<void>) => void;
   /** False while the shape itself is still the rules stand-in (its model titles would be thrown away). */
   refine?: boolean;
+  /** QA 3:26 AM #3: the titles on screen now (kept unless the locked choices change). */
+  shown?: ShapeOutline | null;
 }): Promise<ShapeOutline | null> {
+  const fk = factsKeyOf(input.facts);
+  const keep = (o: ShapeOutline, prev: ShapeOutline | null | undefined = input.shown) => keepShownTitles(prev, o, fk);
   const studentCorpus = [...input.choices, ...input.bodyNotes].join("\n");
   if (!input.facts.leader && !input.facts.styles.length && !input.bodyNotes.length) return input.existing?.outline ?? null;
   const hash = `${inputHash(input.shape.blocks.map((b) => b.key).join(","))}:${inputHash(JSON.stringify(input.facts) + studentCorpus)}`;
@@ -171,11 +177,13 @@ export async function ensureOutline(input: {
     );
     const model = raw ? outlineFromModel(raw, input.shape, input.bodyNotes.length, input.facts) : null;
     if (!model) return null;
-    const safe = await guard(model);
+    // The rules titles may already be on screen by now: read what's stored, keep what was shown.
+    const now = input.later ? ((await readGhost(input.paperId).catch(() => null))?.outline ?? input.shown) : input.shown;
+    const safe = keep(await guard(model), now);
     await writeGhost(input.paperId, input.userId, "outline", safe, safe.source === "model" ? hash : pending).catch(() => undefined);
     return safe;
   };
-  const rules = await guard(ruleOutline(input.shape, input.facts));
+  const rules = keep(await guard(ruleOutline(input.shape, input.facts)));
   if (!hasGrokKey()) {
     await writeGhost(input.paperId, input.userId, "outline", rules, hash).catch(() => undefined);
     return rules;
@@ -184,7 +192,7 @@ export async function ensureOutline(input: {
     // Rules titles right away (kept as "pending"), the model's titles land for the next view.
     if (!(input.existing?.outline && input.existing.outlineHash === pending)) await writeGhost(input.paperId, input.userId, "outline", rules, pending).catch(() => undefined);
     if (input.refine !== false) once(`outline:${input.paperId}:${hash}`, input.later, refine);
-    return input.existing?.outlineHash === pending && input.existing.outline ? input.existing.outline : rules;
+    return input.existing?.outlineHash === pending && input.existing.outline ? keep(input.existing.outline) : rules;
   }
   const model = await refine().catch(() => null);
   if (model) return model;

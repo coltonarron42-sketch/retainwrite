@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { inputHash, projectSkeleton, ruleShape, type SkeletonView } from "@/lib/skeleton/shape";
 
 /**
@@ -41,7 +41,7 @@ export function useSkeleton(
       .then((data) => {
         if (!live) return;
         if (data?.view) setView(data.view);
-        else if (data?.reason === "demo" || !data) {
+        else {
           const text = fallbackRef.current.trim();
           if (text) setView(projectSkeleton(ruleShape({ text }), null));
         }
@@ -55,5 +55,10 @@ export function useSkeleton(
     };
   }, [paperId, opts.enabled, opts.refreshKey, outlineKey]);
 
-  return view;
+  // QA 3:26 AM #3: the rules shape from the assignment shows at once, never a "shows up once" note.
+  const rules = useMemo(() => {
+    const text = opts.fallbackText.trim();
+    return opts.enabled && text ? projectSkeleton(ruleShape({ text }), null) : null;
+  }, [opts.enabled, opts.fallbackText]);
+  return view ?? rules;
 }

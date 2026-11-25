@@ -1,6 +1,6 @@
 import { dropHedges } from "@/lib/copy/tidy";
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
-import { balanceQuotes, questionOf } from "@/lib/copy/sentences";
+import { assignmentQuestion, balanceQuotes, questionOf } from "@/lib/copy/sentences";
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
@@ -212,8 +212,10 @@ export function assignmentAlertQuote(input: {
   const preferred = [input.confirmedPrompt, input.confirmedTopic]
     .map((value) => value?.replace(/\s+/g, " ").trim() ?? "")
     .find((value) => value && !formatLine.test(value));
-  const source = preferred || input.raw?.replace(/\s+/g, " ").trim() || "this assignment";
-  const sentence = questionOf(source) || source;
+  const sentence =
+    assignmentQuestion({ prompt: preferred, raw: input.raw, topic: input.confirmedTopic }) ||
+    assignmentQuestion({ prompt: input.confirmedTopic, raw: input.raw }) ||
+    "this assignment";
   return quoteOnWordBoundary(sentence, 140);
 }
 
@@ -291,13 +293,17 @@ export function logicCheckFromNotes(input: {
   const notes = input.notes;
   // Relevance first (QA 10:38 #4): a claim that doesn't touch the prompt is
   // named as off-prompt before any critique of how it reasons.
-  const promptText = input.confirmedPrompt?.trim() || input.confirmedTopic?.trim() || "";
+  // QA 3:26 AM #1: test and quote the real question (a stored sources line is never the prompt).
+  const promptText =
+    input.confirmedPrompt?.trim() || input.confirmedTopic?.trim()
+      ? assignmentQuestion({ prompt: input.confirmedPrompt, raw: input.assignmentText, topic: input.confirmedTopic })
+      : "";
   const onPrompt = typeof input.onPrompt === "boolean" ? input.onPrompt : notesOnPrompt(notes, promptText, input.assignmentText);
   // QA 11:40 suite: a note that turns against their own thesis is on their topic by definition, so the
   // specific contradiction wins over a (model) off-prompt verdict.
   const againstFirst = input.thesis ? contradictsThesis(notes, input.thesis) : null;
   if (promptText && notes.trim() && !onPrompt && !againstFirst) {
-    const asked = quoteOnWordBoundary(questionOf(promptText) || promptText, 140);
+    const asked = quoteOnWordBoundary(promptText, 140);
     return {
       tier: "strong",
       basis: "contradicts_assignment",
