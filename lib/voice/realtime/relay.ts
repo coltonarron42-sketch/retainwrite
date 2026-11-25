@@ -828,12 +828,18 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           if (said.length > 20) said.splice(0, said.length - 20);
           if (committed.has(id) && type.endsWith("completed")) scheduleNote(id, 250);
           const done = type.endsWith("completed");
+          // xAI streams "completed" per segment while they're still talking: only a committed
+          // item's completed transcript is final.
+          const final = done && committed.has(id);
+          // A barge-in's words can stream before the turn is committed: adopt the first new item
+          // heard after the pause.
+          if (barge && !barge.itemId && speechAt >= barge.at && !completedItems.has(id) && !committed.has(id)) barge.itemId = id;
           if (done) completedItems.add(id);
-          const echo = isEcho(t, herRecent(id), playingAtCommit.has(id));
+          const echo = isEcho(t, herRecent(id), playingAtCommit.has(id) || barge?.itemId === id);
           // Barge-in verdict: real words say real; nothing (or her echo) on the final transcript says noise.
           if (barge && barge.itemId === id) {
             if (!echo && !isNoiseTurn(t, true)) verdict(true);
-            else if (done) verdict(false);
+            else if (final) verdict(false);
           }
           // Replies held for this turn's words: real words release them, noise drops them.
           for (const [rid, item] of responseAfter) {
@@ -846,9 +852,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               afterNoise(null);
             }
           }
-          if (done && (echo || isNoiseTurn(t, false))) noiseItems.add(id);
+          if (final && (echo || isNoiseTurn(t, false))) noiseItems.add(id);
           // Real words from the student: an app turn held back for them stays superseded.
-          else if (done) skippedTurn = null;
+          else if (done && realWords(t).length) skippedTurn = null;
         }
         toClient(e);
         return;
@@ -1107,7 +1113,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           if (speechAt < b.at && !b.itemId) return verdict(false);
           // Still talking, or a turn is in and its words are on the way: wait (bounded).
           // (Server VAD lags: speech can start, stop and still be waiting on its commit/transcript.)
-          const waiting = speechActive || (b.itemId !== null ? !completedItems.has(b.itemId) : speechAt >= b.at);
+          const waiting = speechActive || (b.itemId !== null ? !(committed.has(b.itemId) && completedItems.has(b.itemId)) : speechAt >= b.at);
           if (waiting && age < TURN_TUNING.verdictMaxMs) {
             b.timer = setTimeout(check, 250);
             return;
