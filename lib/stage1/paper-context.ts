@@ -1,10 +1,10 @@
 /**
- * Paper-level context (Colton t161u, the north star): what Pau Pau knows about this
+ * Paper-level context (Colton t161u, the north star): what Pau knows about this
  * paper across Stages 1-3, so she meets the student where they are and never
  * re-asks what she already knows.
  *
  * Stored condensed in paper_autosaves under PAPER_CONTEXT_FIELD (JSON). Summaries
- * and the read-back are Pau Pau's teaching content: never paper text, never put in
+ * and the read-back are Pau's teaching content: never paper text, never put in
  * an answer box. The student's own words (decision, early take, angle) are kept
  * verbatim.
  * // SOP: coaching only, never generate submission text
@@ -54,7 +54,7 @@ export type PaperContext = {
   /** Where each named reading is legitimately available (outbound links only; no in-app purchase). */
   whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
   summaries?: MaterialSummary[];
-  /** The decision question and its 2-3 options (Pau Pau's), and the student's pick + reasoning (verbatim). */
+  /** The decision question and its 2-3 options (Pau's), and the student's pick + reasoning (verbatim). */
   options?: {
     question: string;
     options: DecisionOption[];
@@ -70,7 +70,7 @@ export type PaperContext = {
   leader?: { question: string; pick: string; answer: string; at: number };
   /** The student said they hadn't read / were lost (so later stages can re-offer the summary). */
   lostAtStart?: boolean;
-  /** When Pau Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
+  /** When Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
   materialShownAt?: number;
 };
 
@@ -145,7 +145,7 @@ export function summaryLabel(s: MaterialSummary): string {
   return "General background (not from your readings)";
 }
 
-/** The summary as Pau Pau's chat bubbles: a labeled lead-in, then the points. Teaching content only. */
+/** The summary as Pau's chat bubbles: a labeled lead-in, then the points. Teaching content only. */
 export function summaryParas(s: MaterialSummary): string[] {
   const lead =
     s.kind === "reading"
@@ -197,7 +197,7 @@ export function isPreparedSaying(text: string): boolean {
 
 const tok = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? [];
 
-/** Their answer is mostly Pau Pau's summary or read-back (pasted or echoed back): not their words. */
+/** Their answer is mostly Pau's summary or read-back (pasted or echoed back): not their words. */
 export function overlapsTeaching(answer: string, ctx: PaperContext): boolean {
   const w = tok(answer);
   if (w.length < 8) return false;

@@ -141,7 +141,7 @@ type Props = {
   asideChips?: string[];
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
-  /** Pau Pau is checking (relevance) before she answers. */
+  /** Pau is checking (relevance) before she answers. */
   busy?: boolean;
   idea: string;
   onIdea: (value: string) => void;
@@ -193,7 +193,7 @@ export function isOffPrompt(r: { basis?: string; reason?: string } | null | unde
   return Boolean(r && (r.basis === "off_prompt" || /^This doesn't answer the question your prompt asks/.test(r.reason ?? "")));
 }
 
-/** Pau Pau's words for the current turn: what's spoken and what the turn says. */
+/** Pau's words for the current turn: what's spoken and what the turn says. */
 export function stanceTurnParas(
   kind: StanceTurnKind,
   ctx: {
@@ -306,10 +306,10 @@ function Choices({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Stage 2 (Stance) as one Pau Pau conversation (PLAN.md 9): one reply per
+ * Stage 2 (Stance) as one Pau conversation (PLAN.md 9): one reply per
  * turn, one question at a time, the same composer and voice call as Stage 1.
  * The teach card, mirror, probe, lead pick, confirm and logic check are each
- * one Pau Pau turn. Gates are decided by the caller (coaching-loop) exactly as before.
+ * one Pau turn. Gates are decided by the caller (coaching-loop) exactly as before.
  */
 export function StanceChat(props: Props) {
   const {
@@ -486,7 +486,7 @@ export function StanceChat(props: Props) {
     if (choiceTurn && yes) {
       // handled below
     } else {
-      // Content, or something said TO Pau Pau? Requests are never saved as notes.
+      // Content, or something said TO Pau? Requests are never saved as notes.
       const intent = await props.classify(text, ask);
       if (intent !== "content") {
         // On a Grok Voice call she answers it out loud; it is still never saved as a note.
@@ -575,10 +575,10 @@ export function StanceChat(props: Props) {
             ? "Or name your own source or example"
             : kind === "teach_card"
               ? "Or tell me in your own words"
-              : "Reply to Pau Pau, or tap a choice";
+              : "Reply to Pau, or tap a choice";
 
   // The opener: question, "one section at a time", edit link, prompt type and
-  // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
+  // section chips. It is the top of Pau's FIRST reply, never its own bubble.
   const introControls = (
     <div key="intro-controls" className="space-y-3">
           {intro.material?.length ? (
@@ -642,7 +642,7 @@ export function StanceChat(props: Props) {
     introControls,
   ];
 
-  // History as replies: consecutive Pau Pau lines in one section are one reply;
+  // History as replies: consecutive Pau lines in one section are one reply;
   // a tapped choice is a "Picked" chip; only typed words are student bubbles.
   type Group = { k: string; who: LoopLine["who"]; texts: string[]; start: number };
   const allGroups: Group[] = [];
@@ -651,7 +651,7 @@ export function StanceChat(props: Props) {
     if (last && line.who === "pau" && last.who === "pau" && last.k === line.k) last.texts.push(line.text);
     else allGroups.push({ k: line.k, who: line.who, texts: [line.text], start: i });
   });
-  // Pau Pau lines at the very end belong to the current reply.
+  // Pau lines at the very end belong to the current reply.
   const trailing = allGroups.length && allGroups[allGroups.length - 1]!.who === "pau" && allGroups[allGroups.length - 1]!.k === section.key ? allGroups.pop()!.texts : [];
   const introInCurrent = allGroups.length === 0 && !focus.focused;
   // PC-28 one idea at a time: only this section's turns, and on a return only what's said since.
@@ -699,12 +699,12 @@ export function StanceChat(props: Props) {
         <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
       ) : null}
       {panel === "past" ? <PastChatPanel lines={pastLines(transcript, sections)} onClose={() => setPanel(null)} /> : null}
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
         {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
         <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
         {history}
 
-        {/* Pau Pau's current turn: ONE reply. */}
+        {/* Pau's current turn: ONE reply. */}
         <PauPauGroup
           showName={introInCurrent}
           bubbles={currentBubbles}
@@ -1014,7 +1014,7 @@ export function StanceChat(props: Props) {
 }
 
 /**
- * Pau Pau's rotating stock lines (QA 4:42 #2): every line she says once per
+ * Pau's rotating stock lines (QA 4:42 #2): every line she says once per
  * section (the probe ask, the leads intro, the confirm, the logic-check opener,
  * the pass line, the "your call" line) comes from a per-paper pool. Section i
  * gets pool[(offset + i) % n], so no stock line repeats verbatim inside one

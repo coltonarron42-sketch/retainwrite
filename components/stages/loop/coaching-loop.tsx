@@ -165,7 +165,7 @@ type Session = {
   outlineDone?: string[];
   outlineTranscript?: LoopLine[];
   /**
-   * Pau Pau's answer to a request or question ("ask me questions", "what do
+   * Pau's answer to a request or question ("ask me questions", "what do
    * you mean?"). It shows inside her current turn while nothing new has been
    * said (transcript length === at), so it never becomes its own bubble.
    */
@@ -549,7 +549,7 @@ export function CoachingLoop({
     if (!sessionLoaded) {
       return (
         <p className="text-sm text-rw-ink/70" role="status">
-          Pau Pau is pulling up your confirmed assignment…
+          Pau is pulling up your confirmed assignment…
         </p>
       );
     }
@@ -737,7 +737,7 @@ export function CoachingLoop({
   const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
 
   /**
-   * Content, or a request/question to Pau Pau? Model first, rules if it fails.
+   * Content, or a request/question to Pau? Model first, rules if it fails.
    * Same words + same ask reuse the check already started while typing (QA 8:08 PM).
    */
   function classifyIntent(text: string, ask: string): Promise<StanceIntent> {

@@ -387,12 +387,12 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           input: {
             format: { type: "audio/pcm", rate: REALTIME_RATE },
             transport: "binary",
-            transcription: { model: "grok-transcribe", keyterms: ["Pau Pau", "RetainWrite"] },
+            transcription: { model: "grok-transcribe", keyterms: ["Pau", "RetainWrite"] },
           },
           output: { format: { type: "audio/pcm", rate: REALTIME_RATE }, speed: 1.05 },
         },
         resumption: { enabled: true },
-        replace: { "Pau Pau": "Pow pow" },
+        replace: { "Pau": "Pow" },
       },
     });
 
