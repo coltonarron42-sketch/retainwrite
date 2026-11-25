@@ -96,7 +96,7 @@ import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-ch
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
 import type { SkeletonWords } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
-import { skeletonWordsFromSession } from "@/lib/skeleton/sections";
+import { skeletonWordsFromSession, withoutSectionQuery } from "@/lib/skeleton/sections";
 import { revealSection, usePublishSkeleton, useSectionRequests } from "@/lib/skeleton/live";
 import {
   afterMirror,
@@ -109,7 +109,7 @@ import {
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
-import { pickPhrase, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
 import { assignmentQuestion } from "@/lib/copy/sentences";
@@ -392,13 +392,22 @@ export function CoachingLoop({
   // once, then dropped from the URL); on this page as a request. Stage 2 opens that section (the
   // same as the section buttons); both stages then scroll to it and put the cursor in the box.
   const skeletonAsk = useRef<string | null>(typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("section"));
+  // Clear ?section as soon as it appears (including a Stage 2 → 3 jump that doesn't remount).
+  // The key stays in the ref until the session is ready to open that section.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = new URLSearchParams(window.location.search).get("section");
+    if (!key) return;
+    if (!skeletonAsk.current) skeletonAsk.current = key;
+    window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+  }, [stage]);
   useEffect(() => {
     if (!sessionLoaded || !skeletonAsk.current) return;
     const key = skeletonAsk.current;
     skeletonAsk.current = null;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("section");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("section")) {
+      window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+    }
     revealSection(stage, key);
   }, [sessionLoaded, stage]);
   useSectionRequests(stage, (req) => {
@@ -1502,6 +1511,7 @@ export function CoachingLoop({
           skeleton={skeleton}
           earlier={stage2Past}
           pick={pctx?.decision ? pickPhrase(pctx.decision, pctx.options?.options ?? []) : null}
+          leader={pickedLeader(pctx ? { leader: pctx.leader ?? undefined, decision: pctx.decision ?? undefined, options: pctx.options ?? undefined } : null)}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}
