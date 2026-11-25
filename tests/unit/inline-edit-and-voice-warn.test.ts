@@ -39,7 +39,7 @@ describe("stage 1 follow-ups", () => {
   it("keeps line breaks in Other instructions, hides the short note at 200 words, and saves drafts only on real edits", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).toContain('key === "otherInstructions" ? (');
-    expect(intake).toContain("voiceShortNote({ voiceOk: voiceWordsMet })");
+    expect(intake).toContain("voiceShortNote({ voiceOk: voiceWordsMet || longEnough(allStudentWords) })");
     const save = readFileSync("lib/papers/use-draft-save.ts", "utf8");
     expect(save).toContain("if (baseline.current.text === input.text) return;");
   });
