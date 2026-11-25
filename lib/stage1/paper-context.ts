@@ -1,3 +1,4 @@
+import type { StartingPoint } from "@/lib/stage1/starting-point";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * Paper-level context (Colton t161u, the north star): what Pau knows about this
@@ -73,6 +74,12 @@ export type PaperContext = {
   lostAtStart?: boolean;
   /** When Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
   materialShownAt?: number;
+  /**
+   * PC-32 (Colton t221u): where the student is after Stage 1 (has ideas / has read the material /
+   * no clue), with their idea in their own words. Stage 2 meets them there. (The ghost script is
+   * never stored here: it lives encrypted in its own server-only row.)
+   */
+  startingPoint?: StartingPoint;
 };
 
 export const READING_MAX_CHARS = 12_000;
@@ -375,6 +382,16 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
   if (ctx.missing?.length)
     lines.push(`Readings you DON'T have the actual text of yet: ${ctx.missing.join("; ")}. Anything you say about them is your own general knowledge (say so) or nothing; never quotes or page details. They can send photos, a paste, a PDF or a link.`)
   if (ctx.lostAtStart) lines.push("At the start they said they hadn't read the material or didn't know where to start: offer the key points again if they seem lost.");
+  if (ctx.startingPoint) {
+    const sp = ctx.startingPoint;
+    lines.push(
+      sp.kind === "has_ideas"
+        ? `Where they start (Stage 1): they already have an idea, in their words: "${clip(sp.ideas ?? "", 240)}"${sp.followUp ? ` Why it interests them: "${clip(sp.followUp, 160)}"` : ""}. Build on it; never replace it.`
+        : sp.kind === "read_material"
+          ? "Where they start (Stage 1): they've read the material but have no direction yet. Start from what stood out to them."
+          : "Where they start (Stage 1): no ideas yet and that's fine. Start from zero, one small question at a time.",
+    );
+  }
   if (ctx.decision) lines.push(`Their decision (their words): picked "${clip(ctx.decision.pick, 80)}". "${clip(ctx.decision.answer, 260)}"`);
   if (extra.earlyTake) lines.push(`Their early take (their words): "${clip(extra.earlyTake, 260)}"`);
   if (extra.ownAngle) lines.push(`Their story angle: "${clip(extra.ownAngle, 160)}"`);
@@ -389,7 +406,7 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
 /* ------------------------- stage and section purpose ------------------------- */
 
 export const STAGE_PURPOSE: Record<1 | 2 | 3, string> = {
-  1: "Stage 1 is about getting clear on what the assignment really asks, catching up on the material, and making your first real choices. No writing yet.",
+  1: "Stage 1 is quick: we get the assignment in, make sure it's clear what it's really asking, and see if you already have an idea. No writing yet.",
   2: "Stance is where you decide what you actually think, section by section, in your own words. Your notes here become your outline.",
   3: "Outline turns your Stance notes into a short plan: one line per point, so every paragraph has a job before you draft.",
 };
