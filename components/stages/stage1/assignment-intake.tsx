@@ -967,6 +967,8 @@ export function AssignmentIntake({
   const [needWhy, setNeedWhy] = useState(false);
   /** An informed answer's stated decision is on its way to the server (see the plan). */
   const [decisionSaving, setDecisionSaving] = useState(false);
+  // QA 11:26: the angle came from their decision (north star); the old "Which direction…?" turn never shows, even while the decision save lands.
+  const [storyFromDecision, setStoryFromDecision] = useState(false);
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     // QA 11:08 (root cause of the hobbies line): a new paper's first brief comes before the read-back
@@ -2009,6 +2011,7 @@ export function AssignmentIntake({
     // (The server's story-pick gate needs 15+ words of their own; shorter picks still see the angle cards.)
     if (decided && !storyAngle && wordCount(decided) >= 15) {
       setStoryAngle({ text: decided, source: "student" });
+      setStoryFromDecision(true);
       void fetch(`/api/papers/${paperId}/intake/story-pick`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2616,6 +2619,7 @@ export function AssignmentIntake({
     setPickingStory(angle.id);
     const picked = { text: angle.question, source: "ai" as const };
     setStoryAngle(picked);
+    setStoryFromDecision(false);
     await fetch(`/api/papers/${paperId}/intake/story-pick`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2656,6 +2660,7 @@ export function AssignmentIntake({
     }
     setPickingStory("own");
     setStoryAngle({ text, source: "student" });
+    setStoryFromDecision(false);
     setAnswers((prev) => [
       ...prev.filter((a) => a.questionId !== "story_own"),
       {
@@ -4209,7 +4214,7 @@ export function AssignmentIntake({
           })}
 
           {/* North star: their decision above IS the direction (QA 7:02 AM: never a second "Which direction…?"). */}
-          {storyAngle && screen !== "story" && !(brief?.northstar && brief.decision) && !snap?.story ? (
+          {storyAngle && screen !== "story" && !storyFromDecision && !(brief?.northstar && brief.decision) && !snap?.story ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
               {storyAngle.source === "student" ? (

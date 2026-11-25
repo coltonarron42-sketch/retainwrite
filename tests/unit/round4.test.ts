@@ -179,3 +179,35 @@ describe("QA 11:21: in-between plan items are never rendered or spoken", () => {
     expect(src).toMatch(/setDecisionSaving\(true\)[\s\S]{0,400}setDecisionSaving\(false\)/);
   });
 });
+
+describe("QA 11:26: an in-between Pau bubble is never a Past chat line", () => {
+  it("drops a Pau bubble that vanishes within the flash window and never comes back", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [ans, flash, next] = [{}, {}, {}] as unknown as Element[];
+    const attached = new Set<Element>([ans!, flash!]);
+    foldLines(recs, [{ el: ans!, who: "you", text: "I'd pick Servant because Walton put associates first" }, { el: flash!, who: "pau", text: "Which direction do you want to take your paper?" }], (x) => attached.has(x), 10_000);
+    attached.delete(flash!);
+    attached.add(next!);
+    foldLines(recs, [{ el: ans!, who: "you", text: "I'd pick Servant because Walton put associates first" }, { el: next!, who: "pau", text: "Next up: the stance interview." }], (x) => attached.has(x), 11_000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual(["I'd pick Servant because Walton put associates first", "Next up: the stance interview."]);
+  });
+  it("keeps a Pau turn that stayed on screen, and one that remounts", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [q, q2, n] = [{}, {}, {}] as unknown as Element[];
+    const attached = new Set<Element>([q!]);
+    foldLines(recs, [{ el: q!, who: "pau", text: "Where are you with it?" }], (x) => attached.has(x), 0);
+    attached.delete(q!);
+    attached.add(q2!);
+    foldLines(recs, [{ el: q2!, who: "pau", text: "Where are you with it?" }], (x) => attached.has(x), 500);
+    attached.delete(q2!);
+    attached.add(n!);
+    foldLines(recs, [{ el: n!, who: "pau", text: "Next one?" }], (x) => attached.has(x), 9_000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual(["Where are you with it?", "Next one?"]);
+  });
+  it("hides the old 'Which direction…?' turn when the angle came from their decision", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toMatch(/setStoryAngle\(\{ text: decided, source: "student" \}\);\s*setStoryFromDecision\(true\)/);
+    expect(src).toContain("{storyAngle && screen !== \"story\" && !storyFromDecision &&");
+  });
+});

@@ -27,7 +27,7 @@ export function chatLineText(el: Element): string {
 }
 
 /** skip: this line is the bubble's text after its first `skip` paragraphs (a bubble that kept its opening and moved on to a new ask). */
-type Rec = { who: PastLine["who"]; text: string; el: Element | null; at?: number; gone?: number; quiet?: boolean; skip?: number };
+type Rec = { who: PastLine["who"]; text: string; el: Element | null; at?: number; gone?: number; quiet?: boolean; skip?: number; born?: number; flash?: boolean };
 
 const paras = (t: string) => t.split("\n").map((x) => x.trim()).filter(Boolean);
 /** Checklist ticks don't make a paragraph a different one. */
@@ -56,6 +56,8 @@ export function relate(old: string, next: string): { grow: boolean; k: number; s
 const SETTLE_MS = 1200;
 /** A bubble swapped for an identical one this quickly is a re-render, not a new turn. */
 const REMOUNT_MS = 2000;
+/** QA 11:21/11:26: a Pau bubble gone again this fast, never coming back, was an in-between render (a plan that re-shaped while data loaded), not a turn. */
+const FLASH_MS = 2500;
 
 /** Still the same turn: it typed in further, or it opens the same way (a checklist ticking, a chip filling in). */
 export function sameTurn(a: string, b: string): boolean {
@@ -79,7 +81,14 @@ export function foldLines(
   restoring = false,
 ): boolean {
   let changed = false;
-  for (const r of recs) if (r.el && !isAttached(r.el) && r.gone === undefined) r.gone = now;
+  for (const r of recs) {
+    if (!r.el || isAttached(r.el) || r.gone !== undefined) continue;
+    r.gone = now;
+    if (r.who === "pau" && !r.quiet && r.born !== undefined && now - r.born < FLASH_MS) {
+      r.flash = true;
+      changed = true;
+    }
+  }
   // Pass 1: bubbles already recorded. They update in place, or let go of their line when reused for a new turn.
   const fresh: typeof onScreen = [];
   for (const s of onScreen) {
@@ -102,7 +111,7 @@ export function foldLines(
       const prev = recs.slice(0, k).reverse().find((r) => !r.quiet);
       if (!mine.quiet && prev && prev.who === mine.who && prev.text === mine.text && (!prev.el || !isAttached(prev.el))) {
         prev.el = mine.el;
-        prev.gone = undefined;
+        prev.gone = undefined; prev.flash = undefined;
         recs.splice(k, 1);
       }
       continue;
@@ -111,7 +120,7 @@ export function foldLines(
     mine.gone = now;
     if (!mine.quiet && rel.k > 0) {
       // Kept its opening (the checklist), moved on to a new ask: only the new ask is a new line.
-      recs.push({ who: s.who, text: paras(view).slice(rel.k).join("\n"), el: s.el, at: now, skip: (mine.skip ?? 0) + rel.k });
+      recs.push({ who: s.who, text: paras(view).slice(rel.k).join("\n"), el: s.el, at: now, born: now, skip: (mine.skip ?? 0) + rel.k });
       changed = true;
       continue;
     }
@@ -142,9 +151,9 @@ export function foldLines(
         if (dup) {
           dup.el = s.el;
           dup.skip = k;
-          dup.gone = undefined;
+          dup.gone = undefined; dup.flash = undefined;
         } else {
-          recs.push({ who: s.who, text: rest, el: s.el, at: now, skip: k, quiet: restoring || undefined });
+          recs.push({ who: s.who, text: rest, el: s.el, at: now, born: now, skip: k, quiet: restoring || undefined });
           if (!restoring) changed = true;
         }
         continue;
@@ -159,10 +168,10 @@ export function foldLines(
         if (!again.quiet) changed = true;
       }
       again.el = s.el;
-      again.gone = undefined;
+      again.gone = undefined; again.flash = undefined;
       continue;
     }
-    recs.push({ who: s.who, text: s.text, el: s.el, at: now, quiet: restoring || undefined });
+    recs.push({ who: s.who, text: s.text, el: s.el, at: now, born: now, quiet: restoring || undefined });
     if (!restoring) changed = true;
   }
   return changed;
@@ -170,7 +179,7 @@ export function foldLines(
 
 /** What Past chat shows: every line that was a real turn on screen. */
 export function linesOf(recs: Rec[]): PastLine[] {
-  return recs.filter((r) => !r.quiet).map(({ who, text }) => ({ who, text }));
+  return recs.filter((r) => !r.quiet && !r.flash).map(({ who, text }) => ({ who, text }));
 }
 
 /** Saved lines first; a bubble already on screen that matches one maps onto it; the rest is re-rendered history (quiet). */
