@@ -105,6 +105,70 @@ export function appendLines(prev: LoopLine[] | undefined, lines: LoopLine[]): Lo
   return [...(prev ?? []), ...lines.filter((l) => l.text.trim())].slice(-80);
 }
 
+/** Dedupe notes by normalized text, first spelling kept. */
+function uniqueNotes(notes: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of notes) {
+    const t = raw.trim();
+    if (!t) continue;
+    const k = t.replace(/\s+/g, " ").toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * A later lock-in or logic tap can close over a stale session (the second Body
+ * note already saved, but the click still sees the first). Never drop a note
+ * that was already kept, unless this is an explicit replace ("change it to").
+ */
+export function mergeSectionIdeas(current: string[] | undefined, incoming: string[] | undefined, replacing = false): string[] {
+  if (replacing) return uniqueNotes(incoming ?? []);
+  return uniqueNotes([...(current ?? []), ...(incoming ?? [])]);
+}
+
+export function mergeTranscript(current: LoopLine[] | undefined, incoming: LoopLine[] | undefined): LoopLine[] {
+  const prev = current ?? [];
+  const keyOf = (l: LoopLine) => `${l.k}\0${l.who}\0${l.text}`;
+  const seen = new Set(prev.map(keyOf));
+  const added: LoopLine[] = [];
+  for (const l of incoming ?? []) {
+    if (!l.text.trim()) continue;
+    const k = keyOf(l);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    added.push(l);
+  }
+  return [...prev, ...added].slice(-80);
+}
+
+/** Apply a section patch on the latest session, so a stale click can't drop a just-saved note. */
+export function applySectionPatch<T extends { sections: { key: string; ideas: string[] }[]; transcript?: LoopLine[] }>(
+  latest: T,
+  key: string,
+  patch: Partial<T["sections"][number]>,
+  extra?: Partial<T>,
+  replacingIdeas = false,
+): T {
+  return {
+    ...latest,
+    ...extra,
+    transcript: extra && "transcript" in extra ? mergeTranscript(latest.transcript, extra.transcript) : latest.transcript,
+    sections: latest.sections.map((item) =>
+      item.key === key
+        ? {
+            ...item,
+            ...patch,
+            ideas: patch.ideas ? mergeSectionIdeas(item.ideas, patch.ideas, replacingIdeas) : item.ideas,
+          }
+        : item,
+    ) as T["sections"],
+  };
+}
+
 /** Typed replies on a choice turn: a plain yes picks the main choice. */
 const SPOKEN_YES_WORDS = new Set(
   "yes yeah yep yup ya sure ok okay alright lock it in looks sounds good great perfect lets let's go ahead do please that that's thats is right correct ready one i'm im happy with".split(" "),

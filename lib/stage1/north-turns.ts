@@ -65,11 +65,18 @@ export function withoutFiller(text: string): string {
  * QA 2:12 PM #1: messages sent back to back are one turn. The real answer is what Pau answers;
  * a trailing (or leading) filler ("ok", "hmm") never turns it into a non-answer.
  */
+const HUM = /^(?:h+m+|u+h+|u+m+|e+r+m*|mm+|wait|hold on|one sec(?:ond)?|sec|brb)[.!?,\s]*$/i;
+const SIGN_OFF = /^(?:ok(?:ay)?|k+|kk|alright|all right|cool|got it|that'?s it|done)[.!\s]*$/i;
+/** QA round 6: a message that is only filler or a sign-off ("ok", "hmm", "one sec"): nothing to answer on its own. */
+export function isFillerOnly(text: string): boolean {
+  const parts = String(text ?? "").split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((p) => withoutFiller(p) === "" || HUM.test(p) || SIGN_OFF.test(p));
+}
+
 export function keepSubstance(parts: string[]): string {
   const all = parts.map((p) => p.trim()).filter(Boolean);
-  const real = all.filter((p) => withoutFiller(p) !== "" && !/^(?:h+m+|u+h+|u+m+|e+r+m*|mm+)[.!?,\s]*$/i.test(p));
+  const real = all.filter((p) => withoutFiller(p) !== "" && !HUM.test(p));
   // A bare "ok" after the answer is a sign-off, not a reply to the offer (a leading "ok" may be one, so it stays).
-  const SIGN_OFF = /^(?:ok(?:ay)?|k+|kk|alright|all right|cool|got it|that'?s it|done)[.!\s]*$/i;
   while (real.length > 1 && SIGN_OFF.test(real[real.length - 1]!)) real.pop();
   return (real.length ? real : all).join("\n");
 }
@@ -185,9 +192,17 @@ export function pickEscalation(input: {
   // QA 11:08: short: the options and one ask. Example leaders only when they're confused and
   // being taught (Colton 12:08), never on a plain "make this easier".
   // QA round 5 minor: a second "make it easier" in a row is short (no second copy of the same list).
+  // QA round 6 minor: after the short version, change approach instead of asking the same thing again:
+  // first an easy yes (Pau picks one for them to try), then a different way in (someone they've seen lead),
+  // then the easy yes in other words. "ok" or "yes" takes the pick.
+  const pencil = [`No problem, I'll pick one for you so we can keep moving: ${rec.label}. You can switch any time. Just say ok, or name a different one.`];
+  const pencil2 = [`Let's go with ${rec.label} for now. Say ok and I'll take it from there, or tell me another one.`];
+  const otherWay = [`Let's come at it from a different side. Forget the labels for a second: think of someone who led a team you were on, at work, in sports, anywhere. What's one thing they did?`];
   if (step >= 1 && !input.confused) {
     const short = [`No rush. Simplest way in: start with ${rec.label}${rec.why ? `, since it ${plain(rec.why).replace(/^lets you\s+/i, "lets you ")}` : ""}.`, ask];
-    return { paras: short.join("\n") === input.last ? [`Okay, keep it simple.`, ask] : short, recommend: rec, offerCatchUp };
+    const pick = step === 1 ? short : step === 2 ? pencil : step === 3 ? otherWay : pencil2;
+    const paras = pick.join("\n") === input.last ? (pick === pencil ? pencil2 : pencil) : pick;
+    return { paras, recommend: rec, offerCatchUp };
   }
   let paras = [intro, ...lines, ...(exLine && step <= 1 && input.confused ? [exLine] : []), `${recLine} ${ask}`];
   if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...lines, `${recLine} ${ask}`];
@@ -216,6 +231,27 @@ export function namedPerson(text: string): string | null {
 
 const IDEA_CUE =
   /\b(?:i want|i'?d like|i think|i'?m thinking|i was thinking|my idea|i plan|i'?m planning|i'?m going|i have (?:an idea|a few ideas|some ideas)|i'?d (?:use|argue|pick|go with|write)|i'?ll (?:use|argue|write)|i (?:could|would) (?:use|argue|write)|argue|my example|using)\b/i;
+const GATE_STYLE = /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral|laissez-faire|affiliative|pacesetting)$/i;
+/**
+ * QA prod smoke (5d7aca1): every style they chose, from everything they said about their pick, in
+ * order ("servant and transformational"), never only the first. A style they argue against
+ * ("not transformational", "rather than servant") isn't one they chose.
+ */
+export function chosenStyles(texts: (string | null | undefined)[]): string[] {
+  const out: string[] = [];
+  for (const t of texts) {
+    const text = String(t ?? "");
+    if (!text.trim()) continue;
+    for (const x of stylesIn(text)) {
+      if (!GATE_STYLE.test(x) || out.includes(x)) continue;
+      const against = new RegExp(`\\b(?:not|isn'?t|aren'?t|wasn'?t|instead of|rather than|than|over|against)\\s+(?:\\w+\\s+){0,2}${x}\\b`, "i");
+      if (against.test(text)) continue;
+      out.push(x);
+    }
+  }
+  return out;
+}
+
 /**
  * INFORMED (Colton 12:08): they already have ideas (a leader, a style, an example, a flow).
  * Their words are kept word for word; the leader is pulled out when there is one.
