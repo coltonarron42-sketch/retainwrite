@@ -158,28 +158,36 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     if (!paras.length) {
       if (path !== "chat") path += "→chat";
-      const res = await grokChatJson({
-        model: MODEL_FAST,
-        system: coachAnswerSystem(mode),
-        user: userJson,
-        reasoningEffort: effort,
-        jsonSchema: {
-          name: "coach_answer",
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: { paras: { type: "array", items: { type: "string" } } },
-            required: ["paras"],
+      const chatOnce = async (eff: typeof effort, timeoutMs: number) => {
+        const res = await grokChatJson({
+          model: MODEL_FAST,
+          system: coachAnswerSystem(mode),
+          user: userJson,
+          reasoningEffort: eff,
+          jsonSchema: {
+            name: "coach_answer",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: { paras: { type: "array", items: { type: "string" } } },
+              required: ["paras"],
+            },
           },
-        },
-        timeoutMs: effort === "high" ? 20_000 : effort === "low" ? 15_000 : 7_000,
-      });
-      if (res.ok) {
+          timeoutMs,
+        });
+        if (!res.ok) return [];
         try {
-          paras = cleanPauParas((JSON.parse(res.text) as { paras?: unknown }).paras);
+          return cleanPauParas((JSON.parse(res.text) as { paras?: unknown }).paras);
         } catch {
-          paras = [];
+          return [];
         }
+      };
+      // Probing turns (low): ~8-10 s usually, but some ran past 15 s on the preview. Give low 11 s, then
+      // one quick pass at none (7 s) instead of the canned fallback.
+      paras = await chatOnce(effort, effort === "high" ? 20_000 : effort === "low" ? 11_000 : 7_000);
+      if (!paras.length && effort === "low") {
+        path += "→none";
+        paras = await chatOnce("none", 7_000);
       }
     }
 

@@ -32,6 +32,8 @@ export function cleanPauParas(raw: unknown): string[] {
         p
           .replace(/^\s*(?:[-*–]|\d{1,2}[.)])\s+/, "• ")
           .replace(/[*#_`]+/g, "")
+          // "sagepub. com" → "sagepub.com" (a site name the model spaced out to avoid a link).
+          .replace(/\b([a-z0-9-]{2,})\. (com|org|edu|net|gov|io|co|uk|ca|au)\b/g, "$1.$2")
           .replace(/\s+/g, " ")
           .trim(),
       ),
