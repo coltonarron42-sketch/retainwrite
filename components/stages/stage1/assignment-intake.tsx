@@ -3598,6 +3598,7 @@ export function AssignmentIntake({
                         kinds: (brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : []).map((x) => x.kind),
                         materialAnswer: answers.filter((a) => a.questionId === "material_check").at(-1)?.answerText ?? null,
                         shownInChat: caughtUp,
+                        lostAtStart: Boolean(brief?.lostAtStart),
                       }),
                     }).map((item) => (
                       <li key={item.label}>
