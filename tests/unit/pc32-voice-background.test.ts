@@ -73,7 +73,8 @@ describe("Stage 1 has no voice step, gate, progress item or copy", () => {
   });
   it("Pau's intro and the Grok Voice Stage 1 role are assignment, summary and direction only", () => {
     expect(INTRO_BUBBLES.join(" ")).not.toMatch(/how you write|voice/i);
-    expect(STAGE1_RULES).toMatch(/only job is three things: get the assignment in, make sure they understand it/);
+    expect(STAGE1_RULES).toMatch(/it's short and sweet: get the assignment in/);
+    expect(STAGE1_RULES).toMatch(/this is never an interview/);
     expect(STAGE1_RULES).not.toMatch(/voice sample|what they're into|their background/);
     expect(STAGE1_RULES).toMatch(/never ask for a writing sample/);
     // Coaching-only rules stay.
