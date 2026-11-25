@@ -558,6 +558,8 @@ export function AssignmentIntake({
   const partsOf = (t: string) => saidParts.current.get(t) ?? [t];
   // QA round 6: the last real answer sent (its words and when), so a filler right behind it folds into it.
   const lastReal = useRef<{ key: string; at: number } | null>(null);
+  // When Pau's reply to it landed: an "ok" a beat later can't be an answer to a question they haven't read yet.
+  const lastReplyAt = useRef(0);
   const [, setFoldTick] = useState(0);
   const saidBubbles = (t: string) =>
     partsOf(t).map((p, i) => <StudentBubble key={`said:${i}`} message={{ text: p, files: [], at: 0 }} />);
@@ -4395,7 +4397,7 @@ export function AssignmentIntake({
       }
       // QA round 6: "ok" within ~1 s of a real answer, or while Pau's reply to it is pending, is part of
       // that answer: it shows as its own bubble under it, and Pau replies once (never to the "ok").
-      if (typedNow && !text && isFillerOnly(typedNow) && lastReal.current && !queuedRef.current && (submitting || sendLock.current || Date.now() - lastReal.current.at < 1000)) {
+      if (typedNow && !text && isFillerOnly(typedNow) && lastReal.current && !queuedRef.current && (submitting || sendLock.current || Date.now() - lastReal.current.at < 1500 || (lastReplyAt.current >= lastReal.current.at && Date.now() - lastReplyAt.current < 1000))) {
         const key = lastReal.current.key;
         if (!partsOf(key).includes(typedNow)) saidParts.current.set(key, [...partsOf(key), typedNow]);
         setFoldTick((n) => n + 1);
@@ -4461,6 +4463,7 @@ export function AssignmentIntake({
       const said = (text ?? draftAnswer).trim();
       if (said) setAsideBusy(statusFor(said));
       void (stanceMode ? submitStanceAnswer(text) : submitAnswer(text ? { text } : undefined)).finally(() => {
+        lastReplyAt.current = Date.now();
         sendLock.current = false;
         setSubmitting(false);
         setAsideBusy(null);

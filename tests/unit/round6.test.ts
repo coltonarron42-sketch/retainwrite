@@ -17,7 +17,7 @@ describe("SHOULD-FIX: 'ok' right behind a real answer is part of it", () => {
     expect(keepSubstance(["My high school soccer coach, Mr. Alvarez", "ok"])).toBe("My high school soccer coach, Mr. Alvarez");
   });
   it("within ~1 s of the real answer, or while its reply is pending, the filler folds in (its own bubble, no second reply)", () => {
-    expect(intake).toContain("isFillerOnly(typedNow) && lastReal.current && !queuedRef.current && (submitting || sendLock.current || Date.now() - lastReal.current.at < 1000)");
+    expect(intake).toContain("isFillerOnly(typedNow) && lastReal.current && !queuedRef.current && (submitting || sendLock.current || Date.now() - lastReal.current.at < 1500 || (lastReplyAt.current >= lastReal.current.at && Date.now() - lastReplyAt.current < 1000))");
     expect(intake).toContain("saidParts.current.set(key, [...partsOf(key), typedNow]);");
     expect(intake).toContain("lastReal.current = isFillerOnly(merged) ? null : { key: merged, at: enteredAt };");
   });
