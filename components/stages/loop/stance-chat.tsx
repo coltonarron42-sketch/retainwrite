@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
+import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, SkeletonPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
 import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
@@ -155,6 +156,8 @@ type Props = {
   handlers: StanceHandlers;
   /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
   skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
+  /** QA 1:11 AM #6: earlier stages for Past chat (Stage 1 here). */
+  earlier?: PastLine[];
 };
 
 /** PC-28: the earlier conversation for the read-only "Past chat" (section headings once). */
@@ -339,6 +342,7 @@ export function StanceChat(props: Props) {
   // PC-28: a return with history opens a clean chat: one welcome line, then the exact turn they were on.
   const focus = useFocusReturn(paperId, true, transcript.some((l) => l.who !== "pau"), focusFill(sections, active));
   const welcomeLine = focus.line;
+  const [openerOpen, setOpenerOpen] = useState(false);
   const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
   // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
   const rtMode = useRealtimeEnabled(paperId);
@@ -658,7 +662,8 @@ export function StanceChat(props: Props) {
   // Locked sections and earlier turns live in the skeleton and "Past chat", never above the prompt.
   const focusFrom = focus.focused ? mountAt : 0;
   const groups = allGroups.filter((g) => g.k === section.key && g.start >= focusFrom);
-  const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
+  const turnText = openerOpen ? withoutClosingQuestion([...trailing, ...asideParas, ...paras]) : [...trailing, ...asideParas, ...paras];
+  const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...turnText];
   // eslint-disable-next-line react-hooks/refs -- latest screen text for her tools
   screenRef.current = [...trailing, ...asideParas, ...paras].join(" ");
   const speak: SpeakItem[] = rtMode ? [] : [
@@ -692,16 +697,16 @@ export function StanceChat(props: Props) {
       <FocusBar
         onSkeleton={() => setPanel("skeleton")}
         onPast={() => setPanel("past")}
-        hasPast={transcript.length > 0}
+        hasPast={transcript.length > 0 || Boolean(props.earlier?.length)}
         menu={introInCurrent || showIntro ? undefined : introControls}
       />
       {panel === "skeleton" ? (
         <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
       ) : null}
-      {panel === "past" ? <PastChatPanel lines={pastLines(transcript, sections)} onClose={() => setPanel(null)} /> : null}
+      {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 2 · Stance")} onClose={() => setPanel(null)} /> : null}
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
         {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
-        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} onOpen={setOpenerOpen} />
         {history}
 
         {/* Pau's current turn: ONE reply. */}
@@ -852,7 +857,8 @@ export function StanceChat(props: Props) {
                     <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
                   </div>
                   {(() => {
-                    const angle = [section.teachAspect, section.concept].find((item) => item && !/^(the )?(assigned )?concept$/i.test(item)) ?? null;
+                    // QA 1:11 AM minor: "Something else" is a button, never an angle.
+                    const angle = [section.teachAspect, section.concept].find((item) => item && item !== SOMETHING_ELSE && !/^(the )?(assigned )?concept$|^something else$/i.test(item)) ?? null;
                     return angle ? (
                       <div>
                         <dt className="inline font-semibold">Angle: </dt>
@@ -1026,24 +1032,24 @@ export const STOCK_POOLS = {
   /** Probe ask (lesson path). The first section always gets the canonical line. */
   lesson_probe: [
     LESSON_PROBE_OPENER,
-    "Know where this part's headed? Or want me to ask a few questions and get the research going?",
-    "Got a direction for this one? Or should I start asking questions until one shows up?",
-    "Any thoughts on this part yet? Or should I start poking with questions?",
-    "Got a plan here? Or want me to grill you a little first? Nicely.",
-    "Already know what goes here? Or want a few questions to point you at some research?",
+    "Know where this part's headed, or want me to ask a few questions and get the research going?",
+    "Got a direction for this one, or should I start asking questions until one shows up?",
+    "Any thoughts on this part yet, or should I start poking with questions?",
+    "Got a plan here, or want me to grill you a little first? Nicely.",
+    "Already know what goes here, or want a few questions to point you at some research?",
     "Got a hunch for this part? Trust it, or let me ask a few questions first.",
-    "Know what you want to say here? Or want me to ask until something clicks?",
+    "Know what you want to say here, or want me to ask until something clicks?",
   ],
   /** Probe ask (memory path). */
   memory_probe: [
     MEMORY_PROBE_OPENER,
-    "Any moment from your life that fits here? Or want a few questions to shake one loose?",
-    "Got a memory for this one? Or should I play detective with a few questions?",
-    "Is there a moment that fits here already? Or want help digging one up?",
-    "Thinking of a moment for this part? Or want a few questions to jog it?",
-    "Something from your own life fit here? Or want me to ask around first?",
-    "Got a story for this section? Or want some questions to help you find one?",
-    "Any moment come to mind for this part? Or should I nudge you with a few questions?",
+    "Any moment from your life that fits here, or want a few questions to shake one loose?",
+    "Got a memory for this one, or should I play detective with a few questions?",
+    "Is there a moment that fits here already, or want help digging one up?",
+    "Thinking of a moment for this part, or want a few questions to jog it?",
+    "Something from your own life fit here, or want me to ask around first?",
+    "Got a story for this section, or want some questions to help you find one?",
+    "Any moment come to mind for this part, or should I nudge you with a few questions?",
   ],
   /** Leads intro; {x} is the section title, {q} the optional quip. */
   pick_lead: [
@@ -1053,7 +1059,7 @@ export const STOCK_POOLS = {
     "Your note gave me some places to dig for your {x}.{q} Take one, or pitch your own.",
     "A few paths for your {x}, built from what you wrote.{q} Choose one, or name a different one.",
     "Okay, leads for your {x} that actually fit your note.{q} Pick one to chase, or tell me yours.",
-    "Your note points a few ways for your {x}.{q} Want one of these? Or name your own.",
+    "Your note points a few ways for your {x}.{q} Want one of these, or name your own?",
     "Some starting points for your {x}, pulled from your note.{q} Take one, or tell me what you'd rather check.",
   ],
   /** Confirm after a lesson-path pick. */

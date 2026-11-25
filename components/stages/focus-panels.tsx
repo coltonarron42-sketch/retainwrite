@@ -56,6 +56,48 @@ export function coachNameNow(text: string): string {
   return text.replace(/\bPau Pau\b/g, "Pau").replace(/\bPAU PAU\b/g, "PAU");
 }
 
+/**
+ * QA 1:11 AM #6: Past chat carries Stage 1 too (her questions and their answers, in order).
+ * Read once from the saved intake answers; nothing in demo mode.
+ */
+export function useStage1Past(paperId: string | null | undefined, enabled = true): PastLine[] {
+  const [lines, setLines] = useState<PastLine[]>([]);
+  useEffect(() => {
+    if (!paperId || !enabled) return;
+    let cancelled = false;
+    fetch(`/api/papers/${paperId}/intake/answers`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { answers: [] }))
+      .then((data: { answers?: Stage1Answer[] }) => {
+        if (cancelled) return;
+        setLines(stage1PastLines(data.answers ?? []));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [paperId, enabled]);
+  return lines;
+}
+
+type Stage1Answer = { questionText?: string | null; answerText?: string | null; question_text?: string | null; answer_text?: string | null };
+export function stage1PastLines(answers: Stage1Answer[]): PastLine[] {
+  const out: PastLine[] = [];
+  for (const a of answers) {
+    const q = (a.questionText ?? a.question_text ?? "").trim();
+    const t = (a.answerText ?? a.answer_text ?? "").trim();
+    if (!t) continue;
+    if (q) out.push({ who: "pau", text: q, heading: out.length ? null : "Stage 1 · Getting started" });
+    out.push({ who: "you", text: t, heading: out.length ? null : "Stage 1 · Getting started" });
+  }
+  return out;
+}
+
+/** Earlier stages first, each with its own heading (never merged into the current stage's first section). */
+export function withEarlier(earlier: PastLine[], current: PastLine[], currentHeading: string): PastLine[] {
+  if (!earlier.length) return current;
+  return [...earlier, ...current.map((l, i) => (i === 0 ? { ...l, heading: l.heading ? `${currentHeading} · ${l.heading}` : currentHeading } : l))];
+}
+
 /** The full earlier conversation, read-only. */
 export function PastChatPanel({ lines, onClose }: { lines: PastLine[]; onClose: () => void }) {
   return (
@@ -73,7 +115,7 @@ export function PastChatPanel({ lines, onClose }: { lines: PastLine[]; onClose: 
                 }
               >
                 <span className="sr-only">{l.who === "pau" ? "Pau: " : "You: "}</span>
-                {l.who === "pick" ? `Picked: ${l.text}` : l.who === "pau" ? coachNameNow(l.text) : l.text}
+                {l.who === "pick" ? `Picked: ${l.text.replace(/^\s*picked:\s*/i, "")}` : l.who === "pau" ? coachNameNow(l.text) : l.text}
               </p>
             </li>
           ))}

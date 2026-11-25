@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, EchoBubble, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, type SkeletonWords } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, SkeletonPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
 import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
@@ -58,6 +59,8 @@ type Props = {
   pick?: string | null;
   /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
   skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
+  /** QA 1:11 AM #8: Stage 1 and Stage 2 for Past chat, so it's there on the first Stage 3 view. */
+  earlier?: PastLine[];
 };
 
 export const OUTLINE_INTRO =
@@ -157,6 +160,7 @@ export function OutlineChat(props: Props) {
 
   // PC-28: a return with history opens a clean chat: one welcome line, then the exact section they were on.
   const lastDone = [...sections].reverse().find((x) => done.includes(x.key));
+  const [openerOpen, setOpenerOpen] = useState(false);
   const focus = useFocusReturn(paperId, true, transcript.some((l) => l.who !== "pau") || done.length > 0, {
     done: lastDone ? `outlining ${sectionLabel(lastDone.title)}` : null,
     next: current ? sectionLabel(current.title) : "moving on to sources",
@@ -182,7 +186,8 @@ export function OutlineChat(props: Props) {
   const shown = transcript.slice(0, tail);
   // After an answer she doesn't re-ask the whole opener.
   const ask = asideHere ? [OUTLINE_FOLLOW_UP] : paras;
-  const turnParas = [...trailing, ...asideParas, ...ask];
+  const turnParasAll = [...trailing, ...asideParas, ...ask];
+  const turnParas = openerOpen ? withoutClosingQuestion(turnParasAll) : turnParasAll;
 
   /** A tap keeps the Stance notes (a "Picked" chip); typed words are checked first. */
   async function submit(value: string, tapped: boolean) {
@@ -325,11 +330,11 @@ export function OutlineChat(props: Props) {
       <SpeakNew scope={`${paperId}:stage3`} items={speak} />
       <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       {/* QA 7:11 AM: the mapped outline, visible and editable: each section, its purpose, their points in their words. */}
-      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={transcript.length > 0} />
+      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={transcript.length > 0 || Boolean(props.earlier?.length)} />
       {panel === "skeleton" ? (
         <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
       ) : null}
-      {panel === "past" ? <PastChatPanel lines={pastLines(transcript, sections)} onClose={() => setPanel(null)} /> : null}
+      {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 3 · Outline")} onClose={() => setPanel(null)} /> : null}
       {/* PC-28: the outline so far stays one tap away (collapsed), never stacked above the prompt. */}
       <details className="mt-4 rounded-md border border-ds-border p-4" aria-label="Your outline" data-outline-map>
         <summary className={`ds-focus cursor-pointer ${dsEyebrow}`}>Your outline so far ({done.length} of {sections.length})</summary>
@@ -370,7 +375,7 @@ export function OutlineChat(props: Props) {
         </ol>
       </details>
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
-        <FocusOpener line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} onOpen={setOpenerOpen} />
         {shown.map((line, i) => {
           // PC-28 one section at a time: only this section's turns, and on a return only what's said since.
           if (!current || line.k !== current.key || i < focusFrom) return null;

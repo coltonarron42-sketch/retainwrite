@@ -45,6 +45,7 @@ import {
   finalizeLogicCheck,
   LOGIC_STRONG_HEADLINE,
   logicCheckFromNotes,
+  notesOnPrompt,
   type FinalizedLogic,
 } from "@/lib/coaching/logicCheck";
 import { highlightReelFor, seedLeadFromHighlight } from "@/lib/coaching/highlightReel";
@@ -107,6 +108,8 @@ import {
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
 import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
+import { pastLines } from "@/components/stages/loop/stance-chat";
 
 /** Key points from the material, labeled by where they came from (shown under a disclosure). */
 function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
@@ -317,6 +320,9 @@ export function CoachingLoop({
         : null,
   });
   const skeleton = { view: skeletonView, words: skelWords, direction: pctx?.decision?.answer ?? null };
+  // QA 1:11 AM #6/#8: Past chat reaches back to Stage 1 (and Stage 2 from Stage 3).
+  const stage1Past = useStage1Past(paperId, persist);
+  const stage2Past = withEarlier(stage1Past, pastLines(session?.transcript ?? [], session?.sections ?? []), "Stage 2 · Stance");
   const [idea, setIdea] = useState("");
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
@@ -1323,6 +1329,7 @@ export function CoachingLoop({
       {stage === 2 && section ? (
         <StanceChat
           skeleton={skeleton}
+          earlier={stage1Past}
           paperId={paperId}
           intro={{
             ...stage2IntroText(pctx?.readback, {
@@ -1337,7 +1344,7 @@ export function CoachingLoop({
                       : assignmentPurposeLine(subject),
             }),
             purpose: STAGE_PURPOSE[2],
-            earlier: stage2Earlier(pctx?.decision, pctx?.leader),
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []),
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
@@ -1447,6 +1454,7 @@ export function CoachingLoop({
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
           skeleton={skeleton}
+          earlier={stage2Past}
           pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
           paperId={paperId}
           persist={persist}
@@ -1460,6 +1468,13 @@ export function CoachingLoop({
           flags={Object.fromEntries(
             session.sections
               .filter((item) => item.continued && item.logic && item.logic.result.tier !== "pass")
+              // QA 1:11 AM #2: an off-prompt flag from the old question extraction (sources line read as the
+              // question) doesn't carry into Stage 3 when the notes do answer the real question.
+              .filter(
+                (item) =>
+                  !(item.logic!.result.citedTerm?.rubricRef === "prompt" || /doesn't answer the question your prompt asks/i.test(item.logic!.result.reason ?? "")) ||
+                  !notesOnPrompt(keptIdeas(item.ideas).join(" "), confirmedPrompt?.trim() || confirmedTopic?.trim() || "", session.assignmentText ?? ""),
+              )
               .map((item) => [item.key, item.logic!.result.reason || LOGIC_STRONG_HEADLINE]),
           )}
           saving={outlineSaving || moving}
