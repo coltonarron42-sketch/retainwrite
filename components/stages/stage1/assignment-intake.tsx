@@ -12,7 +12,7 @@ import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
 import { RealtimeControls, useRealtimeCall, useRealtimeFlag } from "@/components/stages/loop/realtime-voice";
 import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
-import { appendSpoken, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
+import { appendSpoken, asideSpoken, AsideVoice, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
 import {
   decisionHasReason,
   decisionQuestion,
@@ -1643,6 +1643,7 @@ export function AssignmentIntake({
   // the pacer decides what the relay may treat as on screen and when the call says it. It is the
   // ONLY source of Stage 1 prompts: one settled line, never a branch the plan is about to drop.
   const pacer = useRef(new Stage1VoicePacer());
+  const paceSpoken = useRef("");
   const paceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenSent = useRef<string | null>(null);
   const paceRef = useRef<() => void>(() => undefined);
@@ -1660,7 +1661,10 @@ export function AssignmentIntake({
       const hold = view.key.startsWith("card:") && confirmTurnsRef.current[confirmTurnsRef.current.length - 1]?.role !== "pau";
       // Steer (QA round 4): a plan item that never renders (the hobby prompt) is never spoken.
       const hidden = !questionsRendered(voiceLineRef.current, document.querySelector("main")?.textContent ?? document.body.textContent ?? "");
-      const pace = pacer.current.step({ key: view.key, line: voiceLineRef.current, now: Date.now(), busy: briefPending.current > 0, hold, hidden });
+      // PC-29d: a nudge on a prompt already said is said alone, never the whole prompt again.
+      const note = (error ?? "").trim();
+      const pace = pacer.current.step({ key: view.key, line: voiceLineRef.current, now: Date.now(), busy: briefPending.current > 0, hold, hidden, note, base: withoutNote(voiceLineRef.current, note) });
+      paceSpoken.current = pace.spoken;
       const sig = JSON.stringify([view.text, view.choices, pace.spoken]);
       if (sig !== screenSent.current) {
         screenSent.current = sig;
@@ -1668,7 +1672,8 @@ export function AssignmentIntake({
       }
       if (pace.say) {
         rt.clearLive();
-        rt.sayTurn(view.text, { detail: rtDetailRef.current, spoken: pace.say });
+        // A nudge alone: the prompt on screen stays the full line; only the nudge is said.
+        rt.sayTurn(view.text, pace.say === pace.spoken ? { detail: rtDetailRef.current, spoken: pace.say } : { spoken: pace.spoken, say: pace.say });
       }
       if (pace.wakeIn !== null) paceTimer.current = setTimeout(() => paceRef.current(), pace.wakeIn);
     };
@@ -1677,6 +1682,15 @@ export function AssignmentIntake({
   useEffect(() => () => {
     if (paceTimer.current) clearTimeout(paceTimer.current);
   }, []);
+  // PC-29d: a side answer (an aside bubble) is spoken too, then a short way back to the prompt.
+  const asideVoice = useRef(new AsideVoice());
+  const lastAside = qaAsides.length ? qaAsides[qaAsides.length - 1]! : null;
+  useEffect(() => {
+    if (!asideVoice.current.step(lastAside?.id ?? null, rtOn) || !lastAside) return;
+    const say = asideSpoken(lastAside.paras);
+    if (say) rt.sayTurn(rtScreenRef.current.text, { spoken: paceSpoken.current, say });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAside?.id, rtOn]);
   // PC-29: the assignment is pasted or typed, never spoken: focusing the box pauses the mic.
   const typedPrompt = rt.on && screen === "upload";
   useEffect(() => {

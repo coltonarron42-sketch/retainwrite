@@ -1,5 +1,6 @@
 "use client";
 
+import { friendlyStatus } from "@/lib/stage1/reading-status";
 import { namedWorksFrom } from "@/lib/stage1/readings";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
@@ -529,7 +530,7 @@ export function PauPauConfirm({
         <div className="flex items-start gap-2 sm:gap-3" role="status">
           <PauPauAvatar />
           <p className="mt-1 pt-1 text-[16px] leading-[1.6] text-ds-muted">
-            {replyStatus}
+            {friendlyStatus(replyStatus)}
           </p>
         </div>
       ) : null}

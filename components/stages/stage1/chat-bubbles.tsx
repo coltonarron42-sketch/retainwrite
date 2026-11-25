@@ -3,6 +3,7 @@
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
+import { friendlyStatus, isAssignmentRead } from "@/lib/stage1/reading-status";
 import { cn } from "@/lib/utils";
 import { tidyPunct } from "@/lib/copy/tidy";
 import { plainText } from "@/lib/voice/presence";
@@ -262,12 +263,15 @@ export function ReadingBubble({ status, startedAt }: { status: string; startedAt
               />
             ))}
           </span>
-          <span>{status}</span>
+          <span>{friendlyStatus(status)}</span>
         </p>
-        <p className="mt-1 text-[13px] leading-[1.6] text-ds-muted">
-          <span aria-hidden={seconds % 5 !== 0 || undefined}>{seconds > 0 ? `Still reading… ${seconds}s. ` : ""}</span>
-          {COACH_NAME} is only reading what the assignment says. Questions come after.
-        </p>
+        {/* PC-29d: the reading footer only while the assignment itself is read, never after a chat send. */}
+        {isAssignmentRead(status) ? (
+          <p className="mt-1 text-[13px] leading-[1.6] text-ds-muted">
+            <span aria-hidden={seconds % 5 !== 0 || undefined}>{seconds > 0 ? `Still reading… ${seconds}s. ` : ""}</span>
+            {COACH_NAME} is only reading what the assignment says. Questions come after.
+          </p>
+        ) : null}
       </div>
     </div>
   );
