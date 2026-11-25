@@ -269,7 +269,16 @@ export function hidePromptEcho(rows: LiveTurn[], id: string, prompts: string[]):
   const a = norm(row.text);
   if (!a) return rows;
   const ps = prompts.map(norm).filter((p) => p.length >= 12);
-  const hide = ps.some((p) => p.startsWith(a) || a.endsWith(p));
+  // Her transcript of a prompt drifts a little from the copy ("1,200-1,500" → "1200 to 1500"):
+  // a row of 5+ words that is almost all the prompt's own words counts too.
+  const words = (t: string) => t.toLowerCase().replace(/[^a-z' ]+/g, " ").split(/\s+/).filter((w) => w.length > 1);
+  const rw = words(row.text);
+  const close = (p: string) => {
+    if (rw.length < 5) return false;
+    const pw = new Set(words(p));
+    return rw.filter((w) => pw.has(w)).length / rw.length >= 0.85;
+  };
+  const hide = ps.some((p) => p.startsWith(a) || a.endsWith(p)) || prompts.some(close);
   if (hide && !row.saved) return rows.map((x) => (x === row ? { ...x, saved: true, echo: true } : x));
   // Only a row this hid comes back (it turned out to be her own words, not the prompt).
   if (!hide && row.echo) return rows.map((x) => (x === row ? { ...x, saved: false, echo: false } : x));
