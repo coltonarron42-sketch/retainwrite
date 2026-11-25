@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { SkeletonDock } from "@/components/skeleton/skeleton-dock";
 import { needsTitlePage } from "@/lib/skeleton/sections";
+import { StageViewContext } from "@/lib/stages/stage-view-context";
 
 type Props = {
   paperId: string;
@@ -128,6 +129,7 @@ export function StageShell({
         onClickCapture={review ? (e) => { if (!(e.target as HTMLElement).closest("a")) { e.preventDefault(); e.stopPropagation(); } } : undefined}
         onKeyDownCapture={review ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); } } : undefined}
       >
+        <StageViewContext.Provider value={{ review, stage, paperStage: here }}>
         {stage === 1 ? (
           // Stage 1 is on the PLAN.md 8 Editorial-Warm system; later stages are not yet.
           <div className="font-ds-sans text-ds-ink">
@@ -183,6 +185,7 @@ export function StageShell({
             }}
           />
         )}
+        </StageViewContext.Provider>
       </fieldset>
       {dock}
     </div>

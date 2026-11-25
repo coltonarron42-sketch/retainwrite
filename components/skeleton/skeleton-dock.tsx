@@ -5,6 +5,7 @@
 // the student's own saved words; the rest are just their titles. Hover (desktop) or press-and-hold
 // (touch) lifts a section; click / release opens it where it's worked on now.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { SkeletonView } from "@/lib/skeleton/shape";
 import { HOLD_MS, IDLE, pressReduce, type PressEvent, type PressState } from "@/lib/skeleton/long-press";
@@ -198,10 +199,13 @@ export function SkeletonOverlay({
   useScrollLock();
 
   useEffect(() => {
+    // QA #2: the page behind is out of reach (screen readers, Tab, clicks) while this is open.
+    const undo = inertBehind(dialogRef.current);
     closeRef.current?.focus({ preventScroll: true });
     const raf = requestAnimationFrame(() => setShown(true));
     const back = returnFocus;
     return () => {
+      undo();
       cancelAnimationFrame(raf);
       // Focus goes back where it was (the tab) when it closes.
       const el = back();
@@ -244,7 +248,7 @@ export function SkeletonOverlay({
     }
   };
 
-  return (
+  return createPortal(
     <div
       ref={dialogRef}
       role="dialog"
@@ -300,8 +304,32 @@ export function SkeletonOverlay({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
+}
+
+/**
+ * Makes everything in <body> except the dialog inert (and hidden from screen readers), and
+ * returns how to undo it. Elements that were already inert stay that way. Vercel's preview
+ * toolbar is left alone (it's not part of the app).
+ */
+export function inertBehind(dialog: HTMLElement | null): () => void {
+  if (!dialog || typeof document === "undefined") return () => {};
+  const changed: HTMLElement[] = [];
+  for (const el of Array.from(document.body.children)) {
+    if (!(el instanceof HTMLElement) || el === dialog || el.contains(dialog)) continue;
+    if (el.inert || /^(script|style|vercel-live-feedback)$/i.test(el.tagName)) continue;
+    el.inert = true;
+    el.setAttribute("data-skeleton-inert", "");
+    changed.push(el);
+  }
+  return () => {
+    for (const el of changed) {
+      el.inert = false;
+      el.removeAttribute("data-skeleton-inert");
+    }
+  };
 }
 
 function SectionList({ sections, interactive, onOpen }: { sections: PaperSection[]; interactive: (s: PaperSection) => boolean; onOpen: (s: PaperSection) => void }) {
@@ -379,6 +407,13 @@ function SectionList({ sections, interactive, onOpen }: { sections: PaperSection
                 onPointerCancel={() => dispatch({ type: "cancel" })}
                 onPointerLeave={(e) => {
                   if (touchy(e)) dispatch({ type: "cancel" });
+                }}
+                onKeyDown={(e) => {
+                  // QA #6: Space opens a focused section exactly like Enter (once, on key down).
+                  if (e.key === " " || e.key === "Enter") {
+                    e.preventDefault();
+                    if (!e.repeat) onOpen(s);
+                  }
                 }}
                 onContextMenu={(e) => e.preventDefault()}
               >

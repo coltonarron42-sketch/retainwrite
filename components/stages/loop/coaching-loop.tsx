@@ -109,7 +109,7 @@ import {
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
-import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { pickPhrase, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
 import { assignmentQuestion } from "@/lib/copy/sentences";
@@ -1486,7 +1486,7 @@ export function CoachingLoop({
         <OutlineChat
           skeleton={skeleton}
           earlier={stage2Past}
-          pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
+          pick={pctx?.decision ? pickPhrase(pctx.decision, pctx.options?.options ?? []) : null}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}

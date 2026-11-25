@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
-import { freshWelcomeIndex, welcomeBackLine, type WelcomeFill } from "@/lib/coach/welcome-back";
+import { freshWelcomeIndex, reviewWelcomeLine, welcomeBackLine, type WelcomeFill } from "@/lib/coach/welcome-back";
+import { STAGE_LABELS } from "@/lib/config";
+import { useStageView } from "@/lib/stages/stage-view-context";
 import { DsButton } from "@/components/ui/ds-button";
 import { useChatPrefs } from "@/lib/voice/prefs";
 import { markHeard, speak } from "@/lib/voice/speech";
@@ -84,8 +86,11 @@ export type FocusState = {
 export function useFocusReturn(paperId: string, ready: boolean, hasHistory: boolean, fill: WelcomeFill): FocusState {
   const decided = useRef(false);
   const fillRef = useRef(fill);
+  const view = useStageView();
+  const viewRef = useRef(view);
   useEffect(() => {
     fillRef.current = fill;
+    viewRef.current = view;
   });
   const [state, setState] = useState<{ focused: boolean; line: string | null; index: number }>({ focused: false, line: null, index: 0 });
   useEffect(() => {
@@ -107,7 +112,10 @@ export function useFocusReturn(paperId: string, ready: boolean, hasHistory: bool
         window.localStorage.setItem(WELCOME_LAST_KEY, String(pick.index));
       } catch {}
     }
-    setState({ focused: true, line: returning ? pick.line : null, index: pick.index });
+    // PC-30 QA #4: a finished stage is a look back: no "rolling into" a section there.
+    const v = viewRef.current;
+    const line = v.review ? reviewWelcomeLine(v.stage, STAGE_LABELS[v.stage - 1], v.paperStage) : pick.line;
+    setState({ focused: true, line: returning ? line : null, index: pick.index });
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [ready, hasHistory, paperId]);
   return { ...state, unfocus: () => setState((s) => ({ ...s, focused: false })) };
@@ -135,6 +143,7 @@ export function FocusOpener({
   onOpen?: (open: boolean) => void;
 }) {
   const [atSignal, setAtSignal] = useState<string | number | null>(null);
+  const { review } = useStageView();
   // The opener asks nothing now (QA 3:26 AM #2), so the turn below never holds its question.
   const open = false;
   useEffect(() => {
@@ -160,11 +169,15 @@ export function FocusOpener({
     <div data-welcome-back data-focus-opener>
       <PauPauGroup bubbles={[line]}>
         {/* QA 3:26 AM #2: no question here, so one chip: the left-off prompt below is the question. */}
-        <div className="flex flex-wrap gap-2 pt-1">
-          <DsButton type="button" size="sm" variant="secondary" data-focus-progress onClick={onProgress}>
-            See skeleton
-          </DsButton>
-        </div>
+        {/* PC-30 QA #1: not on a read-only stage (it would be a dead, greyed-out button there); the
+            right-edge tab opens The Skeleton on every page. */}
+        {review ? null : (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <DsButton type="button" size="sm" variant="secondary" data-focus-progress onClick={onProgress}>
+              See skeleton
+            </DsButton>
+          </div>
+        )}
       </PauPauGroup>
     </div>
   );
