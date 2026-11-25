@@ -223,7 +223,7 @@ export function clarifyingAsk(pendingAsk: PauPauAsk | null): string {
   if (pendingAsk === "topic") {
     return "No worries. What's the paper about, in a few words? If you haven't picked a topic yet, just say so.";
   }
-  return "No worries. Does anything in there look off, like the length, due date or sources? Or tell me \u201clooks good\u201d and we'll start.";
+  return "No worries. Does anything in there look off, like the length, due date or sources? If it all looks right, tell me \u201clooks good\u201d and we'll start.";
 }
 
 /**

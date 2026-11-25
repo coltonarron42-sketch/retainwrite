@@ -56,22 +56,69 @@ export function coachNameNow(text: string): string {
   return text.replace(/\bPau Pau\b/g, "Pau").replace(/\bPAU PAU\b/g, "PAU");
 }
 
+/** QA 3:26 AM #5: Stage 1 saves what was actually on screen under this key (never a stage1:* answer key). */
+export const STAGE1_PAST_KEY = "past_chat:stage1";
+
+export function parsePastLines(text: string | null | undefined): PastLine[] {
+  if (!text) return [];
+  try {
+    const raw = JSON.parse(text) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((l): l is PastLine => Boolean(l) && typeof (l as PastLine).text === "string" && ["pau", "you", "pick"].includes(String((l as PastLine).who)))
+      .map((l) => ({ who: l.who, text: l.text, heading: l.heading ?? null }));
+  } catch {
+    return [];
+  }
+}
+
 /**
- * QA 1:11 AM #6: Past chat carries Stage 1 too (her questions and their answers, in order).
- * Read once from the saved intake answers; nothing in demo mode.
+ * Saved lines first, then any live line not saved yet, slotted in after the live line
+ * before it, so a reload (which forgets the in-page asides) never drops what was said.
+ */
+export function mergePast(saved: PastLine[], live: PastLine[]): PastLine[] {
+  const key = (l: PastLine) => `${l.who}|${l.text.trim()}`;
+  const out = saved.map((l) => ({ ...l }));
+  let at = -1;
+  for (const l of live) {
+    const found = out.findIndex((x, i) => i > at && key(x) === key(l));
+    if (found >= 0) {
+      at = found;
+      continue;
+    }
+    const any = out.findIndex((x) => key(x) === key(l));
+    if (any >= 0) continue;
+    out.splice(at + 1, 0, { ...l });
+    at += 1;
+  }
+  return out;
+}
+
+/**
+ * QA 1:11 AM #6 / 3:26 AM #5: Past chat carries Stage 1 too, rebuilt from the turns Stage 1
+ * saved (her actual replies, asides, catch-up and re-asks). Older papers fall back to the
+ * saved answers, without inventing a question she never asked. Nothing in demo mode.
  */
 export function useStage1Past(paperId: string | null | undefined, enabled = true): PastLine[] {
   const [lines, setLines] = useState<PastLine[]>([]);
   useEffect(() => {
     if (!paperId || !enabled) return;
     let cancelled = false;
-    fetch(`/api/papers/${paperId}/intake/answers`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { answers: [] }))
-      .then((data: { answers?: Stage1Answer[] }) => {
-        if (cancelled) return;
-        setLines(stage1PastLines(data.answers ?? []));
-      })
-      .catch(() => undefined);
+    void (async () => {
+      try {
+        const saved = await fetch(`/api/papers/${paperId}/autosave`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+        const row = (saved?.drafts as { fieldKey?: string; text?: string }[] | undefined)?.find((d) => d.fieldKey === STAGE1_PAST_KEY);
+        const past = parsePastLines(row?.text);
+        if (past.length) {
+          if (!cancelled) setLines(withHeading(past));
+          return;
+        }
+        const data = await fetch(`/api/papers/${paperId}/intake/answers`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { answers: [] }));
+        if (!cancelled) setLines(stage1PastLines((data as { answers?: Stage1Answer[] }).answers ?? []));
+      } catch {
+        /* Past chat just shows less */
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -79,11 +126,17 @@ export function useStage1Past(paperId: string | null | undefined, enabled = true
   return lines;
 }
 
-type Stage1Answer = { questionText?: string | null; answerText?: string | null; question_text?: string | null; answer_text?: string | null };
+function withHeading(lines: PastLine[]): PastLine[] {
+  return lines.map((l, i) => ({ ...l, heading: i === 0 ? "Stage 1 · Getting started" : null }));
+}
+
+type Stage1Answer = { questionId?: string | null; question_id?: string | null; questionText?: string | null; answerText?: string | null; question_text?: string | null; answer_text?: string | null };
 export function stage1PastLines(answers: Stage1Answer[]): PastLine[] {
   const out: PastLine[] = [];
   for (const a of answers) {
-    const q = (a.questionText ?? a.question_text ?? "").trim();
+    const id = a.questionId ?? a.question_id ?? "";
+    // The early take's stored label was never asked word for word: show their words only.
+    const q = id === "stance_early" ? "" : (a.questionText ?? a.question_text ?? "").trim();
     const t = (a.answerText ?? a.answer_text ?? "").trim();
     if (!t) continue;
     if (q) out.push({ who: "pau", text: q, heading: out.length ? null : "Stage 1 · Getting started" });
@@ -186,7 +239,7 @@ export function SkeletonPanel({
       ) : null}
       {!view ? (
         <p className="text-[15px] leading-[1.6] text-ds-muted" role="status">
-          {waiting ?? "Your skeleton shows up once I've read your assignment."}
+          {waiting ?? "Share your assignment and I'll sketch your skeleton right away."}
         </p>
       ) : (
         <ol className="space-y-2">

@@ -110,6 +110,7 @@ import { oneQuip } from "@/lib/coach/quips";
 import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
+import { assignmentQuestion } from "@/lib/copy/sentences";
 
 /** Key points from the material, labeled by where they came from (shown under a disclosure). */
 function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
@@ -495,7 +496,9 @@ export function CoachingLoop({
   // for ALL sections in one call as soon as Stage 2 loads and cached per paper
   // (QA 3:35 C), so the leads show their final terms with no visible swap. The
   // keyword builder fills in only if the model can't answer in time.
-  const termTopic = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+  // QA 3:26 AM #1: the assignment's real question for every prompt check (never a stored sources line).
+  const realQuestion = assignmentQuestion({ prompt: confirmedPrompt, raw: session?.assignmentText ?? "", topic: confirmedTopic });
+  const termTopic = realQuestion || confirmedTopic?.trim() || "";
   const termSections = useMemo(
     () => (session?.sections ?? []).map((s) => ({ key: s.key, title: s.title, needs: s.needs })),
     [session?.sections],
@@ -573,7 +576,7 @@ export function CoachingLoop({
   const lesson = session.extraction.lesson;
   const subject = coachingSubject({
     confirmedTopic,
-    confirmedPrompt,
+    confirmedPrompt: realQuestion || confirmedPrompt,
     concept: lesson.concepts[0]?.term,
     assignmentText: session.assignmentText,
   });
@@ -1020,7 +1023,7 @@ export function CoachingLoop({
 
   /** The model's relevance verdict for a note (null: it didn't answer, rules decide). */
   function fetchRelevance(notes: string, title: string): Promise<boolean | null> {
-    const prompt = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+    const prompt = realQuestion;
     if (!prompt || !notes.trim()) return Promise.resolve(null);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
@@ -1053,7 +1056,7 @@ export function CoachingLoop({
       assignmentText: session?.assignmentText ?? "",
       rubricRef: target.rubricRef,
       mode: target.mode,
-      confirmedPrompt,
+      confirmedPrompt: realQuestion || confirmedPrompt,
       confirmedTopic,
       onPrompt,
     });
@@ -1473,7 +1476,7 @@ export function CoachingLoop({
               .filter(
                 (item) =>
                   !(item.logic!.result.citedTerm?.rubricRef === "prompt" || /doesn't answer the question your prompt asks/i.test(item.logic!.result.reason ?? "")) ||
-                  !notesOnPrompt(keptIdeas(item.ideas).join(" "), confirmedPrompt?.trim() || confirmedTopic?.trim() || "", session.assignmentText ?? ""),
+                  !notesOnPrompt(keptIdeas(item.ideas).join(" "), realQuestion, session.assignmentText ?? ""),
               )
               .map((item) => [item.key, item.logic!.result.reason || LOGIC_STRONG_HEADLINE]),
           )}

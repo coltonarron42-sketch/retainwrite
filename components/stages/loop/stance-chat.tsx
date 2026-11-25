@@ -1032,24 +1032,24 @@ export const STOCK_POOLS = {
   /** Probe ask (lesson path). The first section always gets the canonical line. */
   lesson_probe: [
     LESSON_PROBE_OPENER,
-    "Know where this part's headed, or want me to ask a few questions and get the research going?",
-    "Got a direction for this one, or should I start asking questions until one shows up?",
-    "Any thoughts on this part yet, or should I start poking with questions?",
-    "Got a plan here, or want me to grill you a little first? Nicely.",
-    "Already know what goes here, or want a few questions to point you at some research?",
-    "Got a hunch for this part? Trust it, or let me ask a few questions first.",
-    "Know what you want to say here, or want me to ask until something clicks?",
+    "Where's this part headed for you? If you'd like questions first, just say so.",
+    "What direction feels right for this one? If you're stuck, I'll start asking questions.",
+    "What are you thinking for this part? I can ask a few questions if you'd like.",
+    "What's your plan here? If you want, I'll grill you a little first. Nicely.",
+    "What do you think goes here? I can point you at research with a few questions too.",
+    "What's your hunch for this part? Trust it. I can ask a few questions too.",
+    "What do you want to say here? If nothing clicks yet, I'll ask a few questions.",
   ],
   /** Probe ask (memory path). */
   memory_probe: [
     MEMORY_PROBE_OPENER,
-    "Any moment from your life that fits here, or want a few questions to shake one loose?",
-    "Got a memory for this one, or should I play detective with a few questions?",
-    "Is there a moment that fits here already, or want help digging one up?",
-    "Thinking of a moment for this part, or want a few questions to jog it?",
-    "Something from your own life fit here, or want me to ask around first?",
-    "Got a story for this section, or want some questions to help you find one?",
-    "Any moment come to mind for this part, or should I nudge you with a few questions?",
+    "What moment from your life fits here? I can ask a few questions to shake one loose.",
+    "What memory fits this one? If none comes, I'll play detective with a few questions.",
+    "Which moment fits here? I'm happy to help dig one up.",
+    "What moment are you thinking of for this part? A few questions can jog it, too.",
+    "What from your own life fits here? I can ask around first if you'd like.",
+    "What story goes in this section? I can ask questions to help you find one.",
+    "What moment comes to mind for this part? I can nudge you with a few questions.",
   ],
   /** Leads intro; {x} is the section title, {q} the optional quip. */
   pick_lead: [
@@ -1059,7 +1059,7 @@ export const STOCK_POOLS = {
     "Your note gave me some places to dig for your {x}.{q} Take one, or pitch your own.",
     "A few paths for your {x}, built from what you wrote.{q} Choose one, or name a different one.",
     "Okay, leads for your {x} that actually fit your note.{q} Pick one to chase, or tell me yours.",
-    "Your note points a few ways for your {x}.{q} Want one of these, or name your own?",
+    "Your note points a few ways for your {x}.{q} Take one of these, or name your own.",
     "Some starting points for your {x}, pulled from your note.{q} Take one, or tell me what you'd rather check.",
   ],
   /** Confirm after a lesson-path pick. */
@@ -1067,7 +1067,7 @@ export const STOCK_POOLS = {
     // QA 7:11 AM: no hollow praise on a pick (it fired on a question-only lead).
     "Ready to roll with it?",
     "Want to lock this one in?",
-    "Lock it in, or keep working on it?",
+    "Lock it in?",
     "Ready to run with it?",
     "Going with it?",
     "Want to go with it?",
