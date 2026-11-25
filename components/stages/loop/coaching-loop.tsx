@@ -102,6 +102,7 @@ import {
   afterMirror,
   afterProbe,
   appendLines,
+  applySectionPatch,
   nextOutlineIndex,
   outlineSectionsForContinue,
   stanceTurnFor,
@@ -282,6 +283,10 @@ export function CoachingLoop({
 }: Props) {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
+  // Keep the latest session synchronously, so a lock-in click right after a
+  // second Body note is saved doesn't close over the first-note snapshot.
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
   // False until the saved session (or the Stage 1 assignment) has been read.
   // Before that, show a loading line, not the paste box: the confirmed
   // assignment is on its way and must not be asked for again.
@@ -622,6 +627,7 @@ export function CoachingLoop({
   const skipped = session.sections.filter((item) => item.status === "skipped");
 
   function commit(next: Session) {
+    sessionRef.current = next;
     writeScoped(storageName(paperId), JSON.stringify(next));
     setSession(next);
   }
@@ -641,20 +647,17 @@ export function CoachingLoop({
     );
   }
 
-  function updateSection(key: string, patch: Partial<RuntimeSection>, extra?: Partial<Session>) {
-    if (!session) return;
-    const next: Session = {
-      ...session,
-      ...extra,
-      sections: session.sections.map((item) => (item.key === key ? { ...item, ...patch } : item)),
-    };
+  function updateSection(key: string, patch: Partial<RuntimeSection>, extra?: Partial<Session>, replacingIdeas = false) {
+    const base = sessionRef.current ?? session;
+    if (!base) return;
+    const next = applySectionPatch(base, key, patch, extra, replacingIdeas);
     commit(next);
     syncSession(next, key);
   }
 
   function log(event: string) {
     const raw = readScoped(storageName(paperId), storageKey(paperId));
-    const current = raw ? (JSON.parse(raw) as Session) : session;
+    const current = raw ? (JSON.parse(raw) as Session) : sessionRef.current ?? session;
     if (!current) return;
     commit({ ...current, events: [...current.events, event] });
   }
@@ -688,9 +691,10 @@ export function CoachingLoop({
   }
 
   async function continueAfterLogic(choice: "pass" | "keep" | "continued", more: LoopLine[] = []) {
-    if (!session || !section) return;
-    let transcript = appendLines(session.transcript, more);
-    const sections = session.sections.map((item, index) =>
+    const base = sessionRef.current ?? session;
+    if (!base || !section) return;
+    let transcript = appendLines(base.transcript, more);
+    const sections = base.sections.map((item, index) =>
       index === active
         ? {
             ...item,
@@ -712,22 +716,22 @@ export function CoachingLoop({
         ? `Okay, we'll keep going. I flagged your ${section.title.toLowerCase()} so you can come back to it before you draft.`
         : null;
     if (ack) transcript = appendLines(transcript, [{ k: sections[nextIndex]!.key, who: "pau", text: ack }]);
-    const aside = ack ? null : session.aside ?? null;
+    const aside = ack ? null : base.aside ?? null;
     commit({
-      ...session,
+      ...base,
       sections,
       transcript,
       aside,
       activeIndex: nextIndex,
       events: [
-        ...session.events,
+        ...base.events,
         choice === "continued" ? "logic_strong_continued" : "section_confirmed",
       ],
     });
     if (target.kind === "section") setActive(nextIndex);
     if (persist) {
       // Save on every confirm so a reload resumes at the next section.
-      const savedSession = { ...session, sections, transcript, aside, activeIndex: nextIndex };
+      const savedSession = { ...base, sections, transcript, aside, activeIndex: nextIndex };
       await syncChain.current;
       await persistField(paperId, {
         fieldKey: "loop_session",
@@ -781,7 +785,7 @@ export function CoachingLoop({
 
   // ── Stage 2 turns (PLAN.md 9). Same transitions as the old panels; each
   // also records the exchange so the chat rebuilds after a reload.
-  const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
+  const withLines = (more: LoopLine[]) => appendLines(sessionRef.current?.transcript ?? session?.transcript, more);
 
   /**
    * Content, or a request/question to Pau? Model first, rules if it fails.
@@ -964,9 +968,9 @@ export function CoachingLoop({
       {
         transcript,
         safetyNote: safety.show ? safety.note : "",
-        events: [...session.events, safety.show ? safety.event : "mirror_answered"],
+        events: [...(sessionRef.current ?? session).events, safety.show ? safety.event : "mirror_answered"],
         answers: [
-          ...session.answers,
+          ...(sessionRef.current ?? session).answers,
           {
             kind: "mirror",
             text: note,
@@ -997,7 +1001,8 @@ export function CoachingLoop({
     // A new reply over the confirm is added to their note, never swapped in silently (QA 8:31 AM).
     if (opts?.append) replacingClaim.current = false;
     const teach: Partial<RuntimeSection> = opts?.fromTeach ? { teachStatus: "explored", teachAspect: SOMETHING_ELSE } : {};
-    const probed = afterProbe(section, note, replacingClaim.current);
+    const live = (sessionRef.current ?? session)?.sections.find((item) => item.key === section.key) ?? section;
+    const probed = afterProbe(live, note, replacingClaim.current);
     // An added reply over the confirm goes back to the confirm with both notes, not to new directions.
     const step = opts?.append ? { ...probed, loopStep: "summarize" as const } : probed;
     replacingClaim.current = false;
@@ -1024,14 +1029,14 @@ export function CoachingLoop({
       {
         ...teach,
         ideas: step.ideas,
-        chosenLead: seeded?.name ?? section.chosenLead,
+        chosenLead: seeded?.name ?? live.chosenLead,
         loopStep: step.loopStep,
         ...(opts?.replace ? { logic: null, logicRevealed: false } : {}),
       },
       {
         transcript,
         answers: [
-          ...session.answers,
+          ...(sessionRef.current ?? session).answers,
           {
             kind: "probe",
             text: note,
@@ -1041,6 +1046,7 @@ export function CoachingLoop({
           },
         ],
       },
+      Boolean(opts?.replace),
     );
     paste.reset();
     clearSent(note);
@@ -1108,13 +1114,15 @@ export function CoachingLoop({
   }
 
   function onConfirm(more: LoopLine[]) {
-    if (!session || !section) return;
+    const base = sessionRef.current ?? session;
+    if (!base || !section) return;
     // Every kept note stays at lock-in; an added reply never silently replaces the thesis (QA 8:31 AM).
-    const kept = keptIdeas(section.ideas);
+    const current = base.sections.find((item) => item.key === section.key) ?? section;
+    const kept = keptIdeas(current.ideas);
     const notes = kept.join(" ");
     // Relevance first, on every section: ask the model now, use it at "Yes, check it".
     relevance.current = { key: `${section.key}:${notes}`, verdict: fetchRelevance(notes, section.title) };
-    const logic = checkNotes(section, notes, null);
+    const logic = checkNotes(current, notes, null);
     updateSection(
       section.key,
       {
