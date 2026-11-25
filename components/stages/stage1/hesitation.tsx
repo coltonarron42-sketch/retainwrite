@@ -18,23 +18,28 @@ export function useHesitation({
   enabled,
   onHesitate,
   idleMs = HESITATION_IDLE_MS,
+  resetKey,
 }: {
   questionKey: string | null;
   text: string;
   enabled: boolean;
   onHesitate: (questionKey: string, reason: "idle" | "delete") => void;
   idleMs?: number;
+  /** QA round 6: changes when they send: the box emptying on a send is not "deleted most of it". */
+  resetKey?: string;
 }) {
   const maxLen = useRef(0);
   const keyRef = useRef<string | null>(null);
+  const resetRef = useRef(resetKey);
   const cb = useRef(onHesitate);
   useEffect(() => {
     cb.current = onHesitate;
   });
 
   useEffect(() => {
-    if (keyRef.current !== questionKey) {
+    if (keyRef.current !== questionKey || resetRef.current !== resetKey) {
       keyRef.current = questionKey;
+      resetRef.current = resetKey;
       maxLen.current = text.trim().length;
     }
     if (!enabled || !questionKey) return;
@@ -49,7 +54,7 @@ export function useHesitation({
       heavy ? HESITATION_DELETE_SETTLE_MS : idleMs,
     );
     return () => window.clearTimeout(t);
-  }, [questionKey, text, enabled, idleMs]);
+  }, [questionKey, text, enabled, idleMs, resetKey]);
 }
 
 export type SparkTurn = {
@@ -105,8 +110,11 @@ export function SparkExchange({
       SPARK_OFF
     ) : turn.status === "shown" && turn.questions?.length ? (
       <ul key="qs" className="list-disc space-y-2 pl-5" aria-label="Questions to think about">
+        {/* QA round 6: each question is its own line in Past chat (one ask per line), true to the list on screen. */}
         {turn.questions.map((q) => (
-          <li key={q}>{q}</li>
+          <li key={q} data-chat-part>
+            {q}
+          </li>
         ))}
       </ul>
     ) : null;

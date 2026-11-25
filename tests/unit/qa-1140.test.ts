@@ -48,8 +48,11 @@ describe("QA 11:40 preview retest", () => {
         expect(e.recommend).not.toBeNull();
         // Round 2 teaches the list; a later "make it easier" is short (QA round 5: no near-identical lists).
         if (round === 2) expect(txt).toMatch(/A lot of students in your spot start with .+ because/);
-        else expect(txt).toMatch(/Simplest way in: start with|keep it simple/);
-        expect(txt).toMatch(/yes or no/i);
+        else if (round === 3) expect(txt).toMatch(/Simplest way in: start with/);
+        // QA round 6: then a change of approach, never the same ask a third time.
+        else if (round === 4) expect(txt).toMatch(/I'll pick one for you so we can keep moving/);
+        else expect(txt).toMatch(/different side/);
+        if (round <= 3) expect(txt).toMatch(/yes or no/i);
         expect(e.paras.filter((p) => p.startsWith("•")).length).toBeLessThanOrEqual(3);
       }
     }
