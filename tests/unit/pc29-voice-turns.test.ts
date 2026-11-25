@@ -211,7 +211,9 @@ describe("relay turn-taking (scripted xAI events)", () => {
     front.close();
   });
 
-  async function session() {
+  // Stage 1: her lines in these sessions ask the on-screen questions (anything else is cut, PC-29 QA r2).
+  const SCREEN_SPOKEN = "So the prompt wants one clear claim about school start times and two reasons. What's your first reason? What's one example from the reading that shows it?";
+  async function session(spoken: string = SCREEN_SPOKEN) {
     process.env.RW_REALTIME_TEST_URL = `ws://127.0.0.1:${(xai.address() as { port: number }).port}/?model=x`;
     const got: Ev[] = [];
     const c = new WebSocket(`ws://127.0.0.1:${(front.address() as { port: number }).port}`);
@@ -224,6 +226,10 @@ describe("relay turn-taking (scripted xAI events)", () => {
     await wait(200);
     const up = (e: Ev) => upSock!.send(JSON.stringify(e));
     const send = (e: Ev) => c.send(JSON.stringify(e));
+    if (spoken) {
+      send({ type: "rw.screen", text: "Question on screen", choices: [], spoken });
+      await wait(30);
+    }
     // Her reply r1 with a known assistant item id, fully streamed.
     const herLine = (rid: string, text: string, item = `m_${rid}`) => {
       up({ type: "response.created", response: { id: rid } });
@@ -268,6 +274,7 @@ describe("relay turn-taking (scripted xAI events)", () => {
     up({ type: "input_audio_buffer.committed", item_id: "w1" });
     up({ type: "response.created", response: { id: "rW" } });
     up({ type: "response.output_audio.delta", response_id: "rW", delta: "AAAA" });
+    up({ type: "response.output_audio_transcript.delta", response_id: "rW", delta: "Nice, that tracks. " });
     up({ type: "conversation.item.input_audio_transcription.updated", item_id: "w1", transcript: "I think the reading says" });
     await wait(100);
     expect(got.some((e) => e.type === "response.output_audio.delta" && e.response_id === "rW")).toBe(true);
@@ -363,6 +370,7 @@ describe("relay turn-taking (scripted xAI events)", () => {
     // Her answer to them plays normally.
     up({ type: "response.created", response: { id: "r3" } });
     up({ type: "response.output_audio.delta", response_id: "r3", delta: "AAAA" });
+    up({ type: "response.output_audio_transcript.delta", response_id: "r3", delta: "Good catch, a reason is why your claim holds. " });
     await wait(80);
     expect(got.some((e) => e.type === "response.output_audio.delta" && e.response_id === "r3")).toBe(true);
     c.close();
@@ -419,15 +427,13 @@ describe("relay turn-taking (scripted xAI events)", () => {
     up({ type: "response.done", response: { id: "rR", status: "completed" } });
     await wait(50);
     send({ type: "rw.idle" });
-    // ...but a follow-up nudge (repeat-checked) saying it again is dropped.
+    // ...and a follow-up nudge is the app's own tap line, word for word (Stage 1: no model wording to repeat).
+    const creates = upstream.filter((e) => e.type === "response.create").length;
     send({ type: "rw.screen", text: "Question on screen: one example?", choices: ["Yes"], followUp: true });
     await wait(150);
-    up({ type: "response.created", response: { id: "rF" } });
-    up({ type: "response.output_audio.delta", response_id: "rF", delta: "AAAA" });
-    up({ type: "response.output_audio_transcript.delta", response_id: "rF", delta: "Nice, that's a real reason. What's one example from the reading that shows it?" });
-    await wait(100);
-    expect(got.some((e) => e.type === "rw.drop" && e.response_id === "rF" && e.reason === "repeat")).toBe(true);
-    expect(got.some((e) => e.type === "response.output_audio.delta" && e.response_id === "rF")).toBe(false);
+    const forced = upstream.filter((e) => (e.item as { type?: string } | undefined)?.type === "force_message");
+    expect((forced.at(-1)!.item as { content: { text: string }[] }).content[0]!.text).toBe("Tap Yes when you're happy, or just say yes.");
+    expect(upstream.filter((e) => e.type === "response.create").length).toBe(creates);
     c.close();
   });
 

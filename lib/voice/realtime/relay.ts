@@ -19,7 +19,7 @@ import {
   XAI_REALTIME_URL,
 } from "./config";
 import { checkLinks, type SourceLink } from "./links";
-import { isNoiseTurn, isRepeat, realWords, TURN_TUNING } from "./turns";
+import { completeSentences, isNoiseTurn, isRepeat, questionAllowed, realWords, TURN_TUNING } from "./turns";
 
 type Json = Record<string, unknown>;
 
@@ -189,6 +189,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     noiseDropped: 0,
     typingDropped: 0,
     repeatDropped: 0,
+    verbatimLines: 0,
+    questionsCut: 0,
     truncated: 0,
     queuedCreates: 0,
     dropped: 0,
@@ -226,7 +228,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     ...herDone.slice(-3).filter((_, i, a) => !forItem || responseAfter.get(herDoneRid.slice(-a.length)[i] ?? "") !== forItem),
     currentRid && (!forItem || responseAfter.get(currentRid) !== forItem) ? (replyText.get(currentRid) ?? "") : "",
   ];
-  const applyWaiters = new Map<string, (v: { ok: boolean; result?: string; screen?: string }) => void>();
+  const applyWaiters = new Map<string, (v: { ok: boolean; result?: string; screen?: string; spoken?: string }) => void>();
   const idleWaiters: (() => void)[] = [];
   let closed = false;
   let welcomeSent = false;
@@ -235,7 +237,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let rotateTimer: ReturnType<typeof setTimeout> | null = null;
   let guardIdx = 0;
   // What the app shows right now (app copy: data only) and the choices waiting for a tap.
-  let screen: { text: string; choices: string[] } = { text: "", choices: [] };
+  let screen: { text: string; choices: string[]; spoken: string } = { text: "", choices: [], spoken: "" };
+  // PC-29 QA round 2 (Stage 1): on-screen prompts are said word for word (force_message), and
+  // her own replies may never ask a question that isn't the on-screen one.
+  const verbatim = stage1;
+  let lastLine: { text: string; at: number } | null = null;
+  // force_message lines sent and not yet seen as a response (timestamps; stale ones expire).
+  const forcedQ: number[] = [];
+  const forcedRids = new Set<string>();
+  const screenWaiters: (() => void)[] = [];
+  let lastSubmit: { moved: boolean; spoken: string } | null = null;
+  let pendingSpoken: string | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
   let ownSection = "";
@@ -270,7 +282,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   const ourRids = new Set<string>();
   const repeatCheck = new Set<string>();
   // An app turn skipped because the student seemed to talk (re-run if it was only noise).
-  let skippedTurn: { text: string; detail: boolean; at: number } | null = null;
+  let skippedTurn: { text: string; detail: boolean; at: number; spoken: string | null } | null = null;
   let speechAtBefore = 0;
   let swapWaiting = false;
   // Stage 1: an app turn to say once her current reply ends.
@@ -278,6 +290,29 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let pendingDetail = false;
   // The paper context (north star D): read-back, material key points, decision, early take, locked points.
   let paperBlock = "";
+  /** Say the app's line exactly (no model wording). One line, once: the same line within 10 s is skipped. */
+  const sayLine = (text: string, o: { cancel?: boolean } = {}) => {
+    const t = text.replace(/\s+/g, " ").trim().slice(0, 1600);
+    if (!t || closed) return false;
+    if (lastLine && lastLine.text === t && Date.now() - lastLine.at < 10_000) return false;
+    lastLine = { text: t, at: Date.now() };
+    m.verbatimLines++;
+    // xAI still counts her last reply as playing until its audio would end: cancel first.
+    if (o.cancel !== false) upSend({ type: "response.cancel" });
+    forcedQ.push(Date.now());
+    upSend(say(t));
+    return true;
+  };
+  /** Wait (bounded) for the browser's first on-screen prompt (rw.screen follows rw.start). */
+  const waitScreen = (maxMs: number) =>
+    new Promise<void>((resolve) => {
+      if (screen.spoken) return resolve();
+      const t = setTimeout(resolve, maxMs);
+      screenWaiters.push(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
   const turnAsk = (detail: boolean, tail: string) =>
     detail
       ? "Say it in your own words: up to six short sentences (about 90 words), covering each key point plainly (it's teaching content, never their paper text), then end on its question."
@@ -290,10 +325,16 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (closed || responding || pendingTurn !== text) return;
     pendingTurn = null;
     const detail = pendingDetail;
+    const spoken = pendingSpoken;
+    pendingSpoken = null;
     // The student talked over it: the screen block already carries the app's turn
     // (kept, in case that "talk" turns out to be noise).
     if (speechActive || speechAt > at) {
-      skippedTurn = { text, detail, at: Date.now() };
+      skippedTurn = { text, detail, at: Date.now(), spoken };
+      return;
+    }
+    if (verbatim && spoken !== null) {
+      sayLine(spoken);
       return;
     }
     // xAI still counts her last reply as playing until its audio would end; without
@@ -389,6 +430,76 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (responding && currentRid === rid) upSend({ type: "response.cancel" });
     toClient({ type: "rw.drop", response_id: rid, reason: why });
   };
+  /* ---------- PC-29 QA round 2: her own replies never ask a question that isn't on screen ---------- */
+  // Stage 1 model replies stream sentence by sentence: audio is released only up to the end of
+  // the last finished sentence that isn't a stray question (speech rate is ~even, so ms ~ chars);
+  // an off-screen question is cut before it's heard, along with the rest of that reply.
+  type QGate = { q: { ev: Json; ms: number }[]; audioMs: number; relMs: number; text: string; safe: number; shown: number; cutAt: number | null };
+  const qgates = new Map<string, QGate>();
+  // Observed speaking rate (ms of audio per transcript character), learned from finished replies.
+  let msPerChar = 62;
+  const b64Ms = (b64: string) => {
+    const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+    return ((Math.floor((b64.length * 3) / 4) - pad) / 2 / REALTIME_RATE) * 1000;
+  };
+  const qPump = (rid: string, g: QGate, target: number, slice = false) => {
+    while (g.q.length && g.relMs < target) {
+      const head = g.q[0]!;
+      if (g.relMs + head.ms <= target + 0.5) {
+        g.q.shift();
+        g.relMs += head.ms;
+        emit(rid, head.ev);
+        continue;
+      }
+      if (!slice) break;
+      const buf = Buffer.from(String(head.ev.delta ?? ""), "base64");
+      const bytes = Math.max(0, Math.floor(((target - g.relMs) / 1000) * REALTIME_RATE) * 2);
+      if (bytes > 0) emit(rid, { ...head.ev, delta: buf.subarray(0, bytes).toString("base64") });
+      g.q.shift();
+      g.relMs = target;
+      break;
+    }
+  };
+  const qShow = (rid: string, g: QGate, upto: number) => {
+    if (upto <= g.shown) return;
+    emit(rid, { type: "response.output_audio_transcript.delta", response_id: rid, delta: g.text.slice(g.shown, upto) });
+    g.shown = upto;
+  };
+  const qCut = (rid: string, g: QGate, at: number, question: string) => {
+    g.cutAt = at;
+    m.questionsCut++;
+    const target = Math.min(g.audioMs, at * msPerChar);
+    qShow(rid, g, at);
+    qPump(rid, g, target, true);
+    g.q = [];
+    replyText.set(rid, g.text.slice(0, at).trim());
+    // Not cancelled upstream: a submit_answer in the same reply still runs. The rest is never
+    // forwarded, and at response.done xAI's copy is truncated to what was heard.
+    console.log(JSON.stringify({ evt: "pau_realtime_question_cut", sid, words: question.split(/\s+/).length }));
+  };
+  const qScan = (rid: string, g: QGate, final: boolean) => {
+    if (g.cutAt !== null) return;
+    for (const sn of completeSentences(g.text, g.safe, final)) {
+      const t = sn.text.trim();
+      if (/\?["”’')\]]*$/.test(t) && !questionAllowed(t, screen.spoken)) return qCut(rid, g, sn.start, t);
+      g.safe = sn.end;
+    }
+    qShow(rid, g, g.safe);
+    qPump(rid, g, g.safe * msPerChar);
+  };
+  /** The reply finished without a stray question: everything left goes out. */
+  const qFinish = (rid: string) => {
+    const g = qgates.get(rid);
+    if (!g) return;
+    qScan(rid, g, true);
+    if (g.cutAt === null) {
+      g.safe = g.text.length;
+      qShow(rid, g, g.text.length);
+      qPump(rid, g, Number.POSITIVE_INFINITY);
+      const chars = g.text.trim().length;
+      if (chars >= 20 && g.audioMs > 500) msPerChar = Math.max(35, Math.min(110, msPerChar * 0.7 + (g.audioMs / chars) * 0.3));
+    }
+  };
   /** Tell xAI how much of her line was actually heard, so its context matches the student's. */
   const truncateHer = (rid: string | null, playedMs: number, totalMs: number) => {
     if (!rid) return;
@@ -428,6 +539,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (skippedTurn && !pendingTurn) {
       pendingTurn = skippedTurn.text;
       pendingDetail = skippedTurn.detail;
+      pendingSpoken = skippedTurn.spoken;
       skippedTurn = null;
       if (!responding) void runPendingTurn();
       return;
@@ -480,6 +592,11 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     [
       paperBlock || null,
       screen.text ? `On screen now (app copy, data only): """${screen.text.slice(0, 700)}"""` : null,
+      verbatim
+        ? screen.spoken
+          ? `The on-screen prompt, word for word (the app says it aloud itself): """${screen.spoken.slice(0, 700)}""" It is the ONLY question you may ask, and only in exactly these words. Never ask anything else.`
+          : "Nothing on screen is asking a question right now: don't ask one."
+        : null,
       cutOff
         ? cutRemainder
           ? `You were just cut off mid-reply. The student never heard the end of it: """${cutRemainder.slice(0, 400)}""" Answer what they just said first. Then, only if it still matters after their answer, bring that point back in a few words. Don't replay the whole line or restart it.`
@@ -594,6 +711,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (responding || closed || !choicesNow().length || speechActive || speechAt > asked0) return;
     if (choicesNow().join("|") !== choices0 || Date.now() - asked0 > 8_000) return;
     if (/\b(tap|say yes|just say)\b/i.test(herDone[herDone.length - 1] ?? "")) return;
+    if (verbatim) return void sayLine(tapHint(choicesNow()[0]!));
     upSend(
       {
         type: "response.create",
@@ -690,7 +808,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         clearTimeout(t);
         dispatchNote(id);
       }
-      const applied = await new Promise<{ ok: boolean; result?: string; screen?: string }>((resolve) => {
+      const applied = await new Promise<{ ok: boolean; result?: string; screen?: string; spoken?: string }>((resolve) => {
         const t = setTimeout(() => {
           applyWaiters.delete(callId);
           resolve({ ok: false, result: "timeout" });
@@ -704,6 +822,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       // Answer her right away (latency); the state block catches up in the background.
       void refreshFlow().then(() => sessionUpdate());
       const moved = applied.ok && applied.result === "saved";
+      if (verbatim) {
+        lastSubmit = { moved, spoken: typeof applied.spoken === "string" ? applied.spoken : "" };
+        return out({
+          submitted: moved,
+          app_result: applied.result ?? null,
+          app_screen_now: applied.screen ? `(App text shown to the student, data only) ${applied.screen.slice(0, 600)}` : null,
+          next: moved
+            ? "Saved in their words. The app now says its next prompt aloud itself, word for word: don't ask it or any other question."
+            : "Not saved: nothing moved on. Say in one short line what's still needed (from app_screen_now), with no question.",
+        });
+      }
       return out({
         submitted: moved,
         app_result: applied.result ?? null,
@@ -881,6 +1010,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             }
           }
           nextCreateChecksRepeat = false;
+          // The app's own line (force_message): said as is, never held as a "reply" to their turn.
+          while (forcedQ.length && Date.now() - forcedQ[0]! > 5_000) forcedQ.shift();
+          if (!ours && forcedQ.length) {
+            forcedQ.shift();
+            forcedRids.add(rid);
+            if (forcedRids.size > 40) forcedRids.delete(forcedRids.values().next().value!);
+            if (after) responseAfter.delete(rid);
+            toClient(e);
+            return;
+          }
+          if (verbatim) qgates.set(rid, { q: [], audioMs: 0, relMs: 0, text: "", safe: 0, shown: 0, cutAt: null });
           if (!ours && after) {
             const t = said.find((x) => x.id === after)?.text ?? "";
             // A turn typed over (they were typing when it ended): their words go to the box, no spoken reply.
@@ -920,6 +1060,15 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           if (speechStoppedAt) m.relayLatency.push(Date.now() - speechStoppedAt);
           speechStoppedAt = 0;
         }
+        const g = qgates.get(rid);
+        if (g) {
+          if (g.cutAt !== null) return;
+          const ms = b64Ms(d);
+          g.audioMs += ms;
+          g.q.push({ ev: e, ms });
+          qPump(rid, g, g.safe * msPerChar);
+          return;
+        }
         emit(rid, e);
         return;
       }
@@ -951,6 +1100,30 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           setTimeout(() => upSend(say(GUARD_REDIRECTS[guardIdx++ % GUARD_REDIRECTS.length]!)), 150);
           return;
         }
+        const g = qgates.get(rid);
+        if (g) {
+          if (g.cutAt !== null) return;
+          g.text = so;
+          qScan(rid, g, false);
+          if (g.cutAt !== null) replyText.set(rid, g.text.slice(0, g.cutAt).trim());
+          return;
+        }
+        emit(rid, e);
+        return;
+      }
+      case "response.output_audio_transcript.done": {
+        const rid = String(e.response_id ?? "");
+        if (guarded.has(rid)) return;
+        const g = qgates.get(rid);
+        if (g) {
+          if (g.cutAt === null && typeof e.transcript === "string" && e.transcript.length >= g.text.length) {
+            g.text = e.transcript;
+            replyText.set(rid, g.text);
+          }
+          qFinish(rid);
+          emit(rid, { ...e, transcript: g.cutAt !== null ? g.text.slice(0, g.cutAt).trim() : g.text });
+          return;
+        }
         emit(rid, e);
         return;
       }
@@ -979,6 +1152,13 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           repeatCheck.delete(r.id);
           if (isRepeat(replyText.get(r.id) ?? "", herDone.slice(-3), 4)) dropReply(r.id, "repeat");
           else release(r.id, "repeat");
+        }
+        if (r?.id && qgates.has(r.id)) {
+          qFinish(r.id);
+          const g = qgates.get(r.id)!;
+          qgates.delete(r.id);
+          // Her stray question never happened as far as xAI knows: keep only what was heard.
+          if (g.cutAt !== null) truncateHer(r.id, g.relMs, Number.POSITIVE_INFINITY);
         }
         const dropped = Boolean(r?.id && guarded.has(r.id));
         if (r?.id) emit(r.id, { type: "response.done", response: { id: r.id, status: r.status } });
@@ -1020,6 +1200,15 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               return;
             }
             await waitIdle(4_000);
+            // Stage 1: the app's next prompt, word for word (never her own version of it).
+            if (verbatim && names.includes("submit_answer") && lastSubmit) {
+              const ls = lastSubmit;
+              lastSubmit = null;
+              if (ls.moved) {
+                if (!speechActive && ls.spoken) sayLine(ls.spoken);
+                return;
+              }
+            }
             // Her short reaction may still count as playing on xAI's side: cancel so this isn't ignored.
             if (names.includes("submit_answer")) upSend({ type: "response.cancel" });
             upSend({
@@ -1027,7 +1216,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               __checkRepeat: true,
               response: {
                 instructions: names.includes("submit_answer")
-                  ? `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. You already reacted to their answer: don't react again or repeat anything you said.`
+                  ? verbatim
+                    ? `${instructions()}\n# This response only\nThe app didn't move on. In one short sentence, say what's still needed (from the submit_answer result). No question. You already reacted: don't react again.`
+                    : `${instructions()}\n# This response only\nFollow the submit_answer result: if it moved on, ask the ONE thing the screen asks now in your own words; if not, say in one short line what's still needed and ask for it. One or two short sentences. You already reacted to their answer: don't react again or repeat anything you said.`
                   : `${instructions()}\n# This response only\nContinue from what you just said in one or two short sentences. Don't repeat yourself or re-ask a question.`,
               },
             });
@@ -1181,11 +1372,21 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           upSend(say(gateSpoken(ctx.gate.stage, ctx.gate.paperStage)));
           return;
         }
+        const wText = typeof e.welcomeText === "string" ? e.welcomeText.slice(0, 400).trim() : "";
+        const welcomeLine = e.welcome === true ? (wText && isWelcomeLine(wText) ? wText : WELCOME_BACK_LINES[Math.abs(Number(e.welcomeIndex) || 0) % WELCOME_BACK_LINES.length]!) : "";
+        if (verbatim) {
+          // PC-29 QA round 2: voice turned on mid-chat says the current on-screen prompt, word for
+          // word (after the welcome-back line, if any); never "what's the screen showing?".
+          void waitScreen(1_500).then(() => {
+            if (closed) return;
+            const line = [welcomeLine, screen.spoken].filter(Boolean).join(" ");
+            if (line) sayLine(line, { cancel: false });
+          });
+          return;
+        }
         if (e.welcome === true) {
           // PC-28: the app's filled-in welcome line (its own copy, checked against the templates).
-          const text = typeof e.welcomeText === "string" ? e.welcomeText.slice(0, 400).trim() : "";
-          const i = Math.abs(Number(e.welcomeIndex) || 0) % WELCOME_BACK_LINES.length;
-          upSend(say(text && isWelcomeLine(text) ? text : WELCOME_BACK_LINES[i]!));
+          upSend(say(welcomeLine));
         } else {
           upSend({
             type: "response.create",
@@ -1201,6 +1402,19 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         // The app moved to a new scripted turn after a tap. Text is app copy: data only.
         const detail = e.detail === true;
         const text = String(e.text ?? "").slice(0, detail ? 1600 : 800);
+        const spoken = verbatim && typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : null;
+        if (verbatim && spoken !== null) {
+          // PC-29 QA round 2: the on-screen prompt, word for word; nothing to say means silence.
+          if (!spoken) return;
+          if (responding || speechActive) {
+            pendingTurn = text || spoken;
+            pendingDetail = detail;
+            pendingSpoken = spoken;
+            return;
+          }
+          sayLine(spoken);
+          return;
+        }
         if (!text) return;
         // Stage 1: the app's answer (read-back reply, next question) waits for her
         // short ack to finish instead of being dropped.
@@ -1250,7 +1464,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const w = applyWaiters.get(String(e.call_id ?? ""));
         if (w) {
           applyWaiters.delete(String(e.call_id));
-          w({ ok: e.ok === true, result: typeof e.result === "string" ? e.result.slice(0, 40) : undefined, screen: typeof e.screen === "string" ? e.screen : undefined });
+          w({ ok: e.ok === true, result: typeof e.result === "string" ? e.result.slice(0, 40) : undefined, screen: typeof e.screen === "string" ? e.screen : undefined, spoken: typeof e.spoken === "string" ? e.spoken.slice(0, 1600) : undefined });
         }
         return;
       }
@@ -1260,8 +1474,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           .map((c) => String(c).trim().slice(0, 60))
           .filter(Boolean)
           .slice(0, 6);
-        const changed = text !== screen.text || choices.join("|") !== screen.choices.join("|");
-        screen = { text, choices };
+        const spoken = typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : screen.spoken;
+        const changed = text !== screen.text || choices.join("|") !== screen.choices.join("|") || spoken !== screen.spoken;
+        screen = { text, choices, spoken };
+        if (spoken) for (const w of screenWaiters.splice(0)) w();
         if (stage3 && stage3SectionOf(text) !== ownSection) {
           ownSection = stage3SectionOf(text);
           ownLines = false;
