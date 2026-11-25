@@ -11,7 +11,7 @@ import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, type CoachAnswerMode } from "@/l
 export const runtime = "nodejs";
 
 /**
- * Stages 1-3 typed: Pau Pau ANSWERS content and teaching questions ("what are
+ * Stages 1-3 typed: Pau ANSWERS content and teaching questions ("what are
  * the leadership styles?", "examples of leaders?", "show me an example outline
  * line"), turns "idk" into key points or named options, and pushes a vague note
  * toward specifics (QA 11/23 BUS 210 audit). Never their sentences.
