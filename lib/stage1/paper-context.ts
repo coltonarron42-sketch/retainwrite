@@ -733,6 +733,21 @@ export function pickedStyles(decision: { pick?: string | null; answer?: string |
   return out.slice(0, 4);
 }
 
+/**
+ * PC-30 QA #5: what they picked, as a phrase: every style they chose, joined naturally
+ * ("servant and transformational leadership"), never just the first. One pick: as before.
+ */
+export function pickPhrase(decision: { pick?: string | null; answer?: string | null } | null | undefined, options: DecisionOption[] = []): string | null {
+  if (!decision) return null;
+  const styles = pickedStyles(decision, options);
+  if (styles.length >= 2) {
+    const isStyle = (s: string) => STYLE_WORDS.includes(s.toLowerCase());
+    const words = styles.map((s) => (isStyle(s) ? s.toLowerCase() : s));
+    return styles.every(isStyle) ? `${andList(words)} leadership` : andList(words);
+  }
+  return decisionLabel(decision);
+}
+
 /** Their leader or example person, from the leader pick or named in the decision. */
 export function pickedLeader(ctx: Pick<PaperContext, "leader" | "decision" | "options"> | null | undefined): string | null {
   if (!ctx) return null;

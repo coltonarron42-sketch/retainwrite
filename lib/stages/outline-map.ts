@@ -92,8 +92,9 @@ export function outlineGap(title: string, points: string[], thesis?: string | nu
       : `Your body says “${lead}” — what reason or example backs it up? Add it as its own line.`;
   // Their example is there: does it say which part of their pick it shows?
   const names = exampleNames(joined);
-  const styleWord = style ? style.toLowerCase().split(/[\s:]+/)[0]! : "";
-  if (style && names.length && styleWord && !joined.toLowerCase().includes(styleWord))
+  // Any of the styles they picked counts ("servant and transformational leadership").
+  const styleWords = style ? (style.toLowerCase().split(/[\s:,]+/).filter((w) => w && !["and", "or", "leadership", "the", "a"].includes(w))) : [];
+  if (style && names.length && styleWords.length && !styleWords.some((w) => joined.toLowerCase().includes(w)))
     return `Your body has ${names[0]}. Add a line that ties it to ${style}: which part of ${style} does it show?`;
   return null;
 }
