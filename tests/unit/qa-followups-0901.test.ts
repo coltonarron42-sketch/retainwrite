@@ -41,7 +41,7 @@ describe("1: an unclear reply gets a real clarifying question and never advances
     expect(out.intent).toBe("ambiguous");
     expect(out.reply).toBe(clarifyingAsk(null));
   });
-  it("the clarifying ask fits what Pau Pau is waiting on", () => {
+  it("the clarifying ask fits what Pau is waiting on", () => {
     expect(clarifyingAsk("sources")).toMatch(/source/);
     expect(clarifyingAsk("length")).toMatch(/words or pages/);
   });
@@ -93,7 +93,7 @@ describe("2: a correction overwrites the old value everywhere", () => {
 describe("3: the hesitation offer folds into the current reply", () => {
   it("renders inline inside the question's bubble, never as its own bubble", () => {
     const src = read("components/stages/stage1/assignment-intake.tsx");
-    const turn = src.slice(src.indexOf("{/* Pau Pau's current turn. */}"));
+    const turn = src.slice(src.indexOf("{/* Pau's current turn. */}"));
     const group = turn.slice(0, turn.indexOf("</PauPauGroup>"));
     expect(group).toContain("<SparkExchange\n                  inline");
     expect(src).toContain('<SparkExchange inline turn={sparks[qid]!} active={false}');
@@ -148,7 +148,7 @@ describe("5: a reload never re-reads old bubbles", () => {
   });
 });
 
-describe("1b: the clarifying ask matches what Pau Pau last asked", () => {
+describe("1b: the clarifying ask matches what Pau last asked", () => {
   it("only treats sources/length as pending when her last reply ended with that ask", () => {
     const src = read("components/stages/stage1/pau-pau-confirm.tsx");
     expect(src).toContain('askWasMade(lastPau.paras.at(-1) ?? "", ask)');

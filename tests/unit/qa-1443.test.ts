@@ -9,7 +9,7 @@ import { callStatusText } from "@/lib/voice/call";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
-describe("2:43 #1 the locked Pau Pau character", () => {
+describe("2:43 #1 the locked Pau character", () => {
   it("blob head on cream, pink cat-eye glasses, dark eyes inside the frames, tiny smile", async () => {
     const { PauFace, PAU_COLORS } = await import("@/components/stages/stage1/pau-presence");
     const html = renderToStaticMarkup(createElement(PauFace, { alive: true }));
@@ -34,7 +34,7 @@ describe("2:43 #1 the locked Pau Pau character", () => {
 
 describe("2:43 #2 cleaner chat: no bubble boxes", () => {
   const src = read("components/stages/stage1/chat-bubbles.tsx");
-  it("Pau Pau's turns are plain text (no border, shadow or card)", () => {
+  it("Pau's turns are plain text (no border, shadow or card)", () => {
     const bubble = src.match(/const BUBBLE = "([^"]*)"/)?.[1] ?? "";
     expect(bubble).not.toMatch(/border|shadow|bg-|rounded/);
   });
@@ -49,7 +49,7 @@ describe("2:43 #2 cleaner chat: no bubble boxes", () => {
 });
 
 describe("2:43 #4 personality", () => {
-  it("every Pau Pau-voiced prompt carries the personality and the coaching-only rule", () => {
+  it("every Pau-voiced prompt carries the personality and the coaching-only rule", () => {
     for (const sys of [CONFIRM_REPLY_SYSTEM, SPARK_SYSTEM]) {
       expect(sys).toContain(PAU_PERSONALITY);
       expect(sys).toMatch(/never write any part of (the student's|their) paper/i);

@@ -121,7 +121,7 @@ export function northstarGateFrom(input: {
 
 /**
  * QA 9:37 AM: the gate names where the material came from (never "caught up on the
- * readings" when Pau Pau never had them): caught up (and from what), declined, or waiting.
+ * readings" when Pau never had them): caught up (and from what), declined, or waiting.
  */
 export function materialGateLabel(input: { catchUpDone: boolean; materialShown: boolean; kinds: string[]; materialAnswer?: string | null }): string {
   const said = (input.materialAnswer ?? "").toLowerCase();
