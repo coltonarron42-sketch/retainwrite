@@ -10,12 +10,25 @@ const session = (over: Partial<Record<"intro" | "body" | "conclusion", { status?
 describe("PC-30 Skeleton sections: order and count", () => {
   it("is Introduction, Body Paragraph 1..N, Conclusion, with N from the paper's length", () => {
     const short = paperSections({ view: viewFor(800), words: {} });
-    expect(short.map((s) => s.title)).toEqual(["Introduction", "Body Paragraph 1", "Body Paragraph 2", "Conclusion"]);
+    expect(short.map((s) => s.kicker)).toEqual(["Introduction", "Body Paragraph 1", "Body Paragraph 2", "Conclusion"]);
     const long = paperSections({ view: viewFor(2000), words: {} });
     expect(long.filter((s) => s.group === "body")).toHaveLength(7);
-    expect(long[0]!.title).toBe("Introduction");
-    expect(long.at(-1)!.title).toBe("Conclusion");
-    expect(long.filter((s) => s.group === "body").map((s) => s.title)).toEqual([1, 2, 3, 4, 5, 6, 7].map((n) => `Body Paragraph ${n}`));
+    expect(long[0]!.kicker).toBe("Introduction");
+    expect(long.at(-1)!.kicker).toBe("Conclusion");
+    expect(long.filter((s) => s.group === "body").map((s) => s.kicker)).toEqual([1, 2, 3, 4, 5, 6, 7].map((n) => `Body Paragraph ${n}`));
+  });
+  it("round 3: titles come from #64's shaped skeleton, not generic labels", () => {
+    // Rules stand-in shape: the per-paragraph focus becomes the title.
+    const rules = paperSections({ view: viewFor(1300), words: {} });
+    expect(rules.map((s) => s.title)).toEqual(["Hook, context and your thesis", "Leadership example 1", "Leadership example 2", "Leadership example 3", "Tie it to the theory", "Bring it home and recap"]);
+    // Model shape (ghost #1) focus, then ghost #2's short title wins when it's in.
+    const v = viewFor(800);
+    v.blocks[1]!.sub = "servant leadership in daily decisions";
+    v.blocks[2]!.title = "Walton and the store visits";
+    const rows = paperSections({ view: v, words: {} });
+    expect(rows[1]).toMatchObject({ kicker: "Body Paragraph 1", title: "Servant leadership in daily decisions" });
+    expect(rows[2]).toMatchObject({ kicker: "Body Paragraph 2", title: "Walton and the store visits" });
+    expect(rows.filter((r) => r.group === "body").every((r) => !/^Body Paragraph \d+$/.test(r.title))).toBe(true);
   });
   it("puts a title page first only when the assignment asks for one", () => {
     expect(paperSections({ view: viewFor(800), words: {}, titlePage: true })[0]).toMatchObject({ id: "title", title: "Title Page", completed: false, sectionKey: null });
@@ -48,14 +61,14 @@ describe("PC-30 Skeleton sections: status and content", () => {
     expect(body.map((b) => b.preview)).toEqual([["first point"], ["second point", "third point"]]);
     expect(body.every((b) => b.completed && b.sectionKey === "body")).toBe(true);
   });
-  it("uses ghost #2's idea refs when there are some, and never shows ghost text", () => {
+  it("uses ghost #2's idea refs when there are some; its title is a heading only, never card words", () => {
     const v = viewFor(800);
     v.blocks[1]!.ideaRefs = [1];
     v.blocks[1]!.title = "Sam Walton, servant leadership";
     const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["a", "b"] } }));
     const rows = paperSections({ view: v, words });
-    expect(rows[1]).toMatchObject({ title: "Body Paragraph 1", preview: ["b"] });
-    expect(JSON.stringify(rows)).not.toContain("Sam Walton, servant");
+    expect(rows[1]).toMatchObject({ kicker: "Body Paragraph 1", title: "Sam Walton, servant leadership", preview: ["b"] });
+    expect(JSON.stringify(rows.map((r) => r.preview))).not.toContain("Sam Walton, servant");
   });
   it("blank notes are dropped", () => {
     const words = skeletonWordsFromSession(session({ intro: { status: "confirmed", ideas: ["  ", ""] } }));

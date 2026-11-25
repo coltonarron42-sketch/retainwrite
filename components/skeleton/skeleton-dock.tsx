@@ -365,7 +365,13 @@ function SectionList({ sections, interactive, onOpen }: { sections: PaperSection
         const lifted = press.phase === "lifted" && press.id === s.id;
         const content = (
           <>
-            <span className="block text-center font-display text-[15px] font-medium tracking-[0.02em] text-[#a3a4a9] md:text-[16px]">
+            {s.kicker ? (
+              <span className="mb-1 block text-center text-[11px] font-medium uppercase tracking-[0.14em] text-[#6f7076]" data-skeleton-kicker>
+                {s.kicker}
+                <span className="sr-only">: </span>
+              </span>
+            ) : null}
+            <span className="block text-center font-display text-[15px] font-medium tracking-[0.02em] text-[#a3a4a9] md:text-[16px]" data-skeleton-title>
               {s.title}
               {s.completed ? null : <span className="sr-only"> (not started yet)</span>}
             </span>

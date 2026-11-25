@@ -30,8 +30,8 @@ afterEach(() => {
 });
 
 const sections: PaperSection[] = [
-  { id: "intro", title: "Introduction", group: "intro", sectionKey: "intro", completed: true, preview: ["my hook"] },
-  { id: "body-1", title: "Body Paragraph 1", group: "body", sectionKey: "body", completed: false, preview: [] },
+  { id: "intro", kicker: null, title: "Introduction", group: "intro", sectionKey: "intro", completed: true, preview: ["my hook"] },
+  { id: "body-1", kicker: null, title: "Body Paragraph 1", group: "body", sectionKey: "body", completed: false, preview: [] },
 ];
 
 function overlay(onOpen = vi.fn(), onClose = vi.fn()) {
@@ -138,5 +138,20 @@ describe("PC-30 QA #5: every style they picked, joined naturally", () => {
   it("tying a body example to the pick: either picked style counts", () => {
     const pick = pickPhrase({ pick: "Servant", answer: "servant and transformational" });
     expect(outlineGap("Body", ["Sam Walton listened to associates in 1985", "that was transformational for Walmart"], null, null, pick)).toBeNull();
+  });
+});
+
+describe("PC-30 QA: the Stage 2 quick lesson names every picked style", () => {
+  it("two styles in the ask and the definition", async () => {
+    const { contextTeachCard } = await import("@/lib/coaching/teach");
+    const card = contextTeachCard({ summary: null, options: null, decision: { pick: "Transformational", answer: "servant and transformational, because Walton put associates first" } }, "r")!;
+    expect(card.ask).toBe("You picked servant and transformational leadership. Which moment shows it best?");
+    expect(card.definition).toMatch(/^servant and transformational leadership are the ideas this section/);
+  });
+  it("one pick reads as before", async () => {
+    const { contextTeachCard } = await import("@/lib/coaching/teach");
+    const card = contextTeachCard({ summary: null, options: null, decision: { pick: "Transformational", answer: "transformational because of the vision" } }, "r")!;
+    expect(card.ask).toBe("You picked Transformational. Which moment shows it best?");
+    expect(card.definition).toMatch(/^Transformational is the idea/);
   });
 });
