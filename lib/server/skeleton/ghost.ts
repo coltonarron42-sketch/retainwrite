@@ -105,32 +105,57 @@ export async function ensureOutline(input: {
   choices: string[];
   bodyNotes: string[];
   existing: GhostRow | null;
+  /** QA 1:11 AM #1: run the model refinement after the response (next/server after); the rules titles answer now. */
+  later?: (task: () => Promise<void>) => void;
 }): Promise<ShapeOutline | null> {
   const studentCorpus = [...input.choices, ...input.bodyNotes].join("\n");
   if (!input.facts.leader && !input.facts.styles.length && !input.bodyNotes.length) return input.existing?.outline ?? null;
   const hash = `${inputHash(input.shape.blocks.map((b) => b.key).join(","))}:${inputHash(JSON.stringify(input.facts) + studentCorpus)}`;
+  const pending = `r:${hash}`;
   if (input.existing?.outline && input.existing.outlineHash === hash) return input.existing.outline;
-  const raw = await askJson(
-    OUTLINE_SYSTEM,
-    JSON.stringify({
-      body_paragraphs: input.shape.blocks.filter((b) => b.group === "body").map((b) => b.sub),
-      leader: input.facts.leader,
-      styles: input.facts.styles,
-      student_choices: input.choices.map((c) => c.slice(0, 600)),
-      student_body_notes: input.bodyNotes.map((n, i) => ({ i, note: n.slice(0, 600) })),
-    }),
-    false,
-    "outline",
-  );
-  let outline = (raw ? outlineFromModel(raw, input.shape, input.bodyNotes.length, input.facts) : null) ?? ruleOutline(input.shape, input.facts);
-  // Same leak guard as the hidden draft: a title may not carry hidden-draft wording.
-  const hidden = await loadHiddenDraftMaterial(input.paperId).catch(() => null);
-  if (hidden) {
+  const guard = async (outline: ShapeOutline): Promise<ShapeOutline> => {
+    // Same leak guard as the hidden draft: a title may not carry hidden-draft wording.
+    const hidden = await loadHiddenDraftMaterial(input.paperId).catch(() => null);
+    if (!hidden) return outline;
     const leak = assertNoHiddenDraftLeak(outline.titles.map((t) => t.title).join(". "), hidden.text, studentCorpus, hidden.canary || undefined);
-    if (!leak.ok) outline = ruleOutline(input.shape, input.facts);
+    return leak.ok ? outline : ruleOutline(input.shape, input.facts);
+  };
+  const refine = async (): Promise<ShapeOutline | null> => {
+    const raw = await askJson(
+      OUTLINE_SYSTEM,
+      JSON.stringify({
+        body_paragraphs: input.shape.blocks.filter((b) => b.group === "body").map((b) => b.sub),
+        leader: input.facts.leader,
+        styles: input.facts.styles,
+        student_choices: input.choices.map((c) => c.slice(0, 600)),
+        student_body_notes: input.bodyNotes.map((n, i) => ({ i, note: n.slice(0, 600) })),
+      }),
+      true,
+      "outline",
+    );
+    const model = raw ? outlineFromModel(raw, input.shape, input.bodyNotes.length, input.facts) : null;
+    if (!model) return null;
+    const safe = await guard(model);
+    await writeGhost(input.paperId, input.userId, "outline", safe, safe.source === "model" ? hash : pending).catch(() => undefined);
+    return safe;
+  };
+  const rules = await guard(ruleOutline(input.shape, input.facts));
+  if (!hasGrokKey()) {
+    await writeGhost(input.paperId, input.userId, "outline", rules, hash).catch(() => undefined);
+    return rules;
   }
-  await writeGhost(input.paperId, input.userId, "outline", outline, hash).catch(() => undefined);
-  return outline;
+  if (input.later) {
+    // Rules titles right away (kept as "pending"), the model's titles land for the next view.
+    if (!(input.existing?.outline && input.existing.outlineHash === pending)) await writeGhost(input.paperId, input.userId, "outline", rules, pending).catch(() => undefined);
+    input.later(async () => {
+      await refine().catch(() => undefined);
+    });
+    return input.existing?.outlineHash === pending && input.existing.outline ? input.existing.outline : rules;
+  }
+  const model = await refine().catch(() => null);
+  if (model) return model;
+  await writeGhost(input.paperId, input.userId, "outline", rules, pending).catch(() => undefined);
+  return rules;
 }
 
 export function viewFor(shape: PaperShape, outline: ShapeOutline | null): SkeletonView {

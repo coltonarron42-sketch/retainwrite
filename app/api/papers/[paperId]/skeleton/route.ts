@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { pickedLeader, pickedStyles } from "@/lib/stage1/paper-context";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -53,9 +54,11 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const facts = { leader: pickedLeader(pctx), styles: pickedStyles(pctx?.decision, pctx?.options?.options ?? []) };
     const choices = [...(post?.choices ?? []), pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].map((c) => c.trim()).filter(Boolean);
     const shapeChanged = Boolean(outline && outline.titles.some((t) => !shape.blocks.some((b) => b.key === t.key)));
-    if (post || ((!outline || shapeChanged) && (facts.leader || facts.styles.length))) {
+    const pendingModel = Boolean(existing?.outlineHash?.startsWith("r:"));
+    const leaderMissing = Boolean(facts.leader && outline && !outline.titles.some((t) => t.title.toLowerCase().includes(facts.leader!.toLowerCase())));
+    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing) && (facts.leader || facts.styles.length))) {
       const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
-      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing });
+      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task) });
     }
     return NextResponse.json({ view: viewFor(shape, outline) });
   } catch {

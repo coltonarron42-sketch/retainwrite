@@ -203,8 +203,10 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
   if (!facts.leader && !styles.length) return { v: 1, titles: [], source: "rules" };
   const titles = body.map((b, i) => {
     const style = styles[i] ?? (styles.length === 1 && i === 0 ? styles[0] : null);
-    const job = style ? null : clean(b.sub, 40);
-    const parts = [facts.leader, style ? `${style}${/leader|style/i.test(style) ? "" : " leadership"}` : job].filter((x): x is string => Boolean(x));
+    const job = style ? null : clean(b.sub.split(/\s*[:(–—-]\s*/)[0] ?? b.sub, 40);
+    // A theory, reading or counterargument paragraph is about the idea, not the leader.
+    const aboutIdea = Boolean(job) && /\b(theor|reading|northouse|goleman|counter|limit|research|definition|framework|model)\w*/i.test(job!);
+    const parts = [aboutIdea ? null : facts.leader, style ? `${style}${/leader|style/i.test(style) ? "" : " leadership"}` : job].filter((x): x is string => Boolean(x));
     return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[] };
   });
   return { v: 1, titles: titles.filter((t) => t.title), source: "rules" };
