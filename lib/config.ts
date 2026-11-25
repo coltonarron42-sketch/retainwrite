@@ -4,9 +4,8 @@ export const EMAIL_FROM = "RetainWrite Coach <coach@send.retainwrite.com>";
 export const PRICES = { single: 900, pack3: 1500, audio: 199 } as const; // cents, USD
 export const PACK3_CREDITS = 3;
 export const MIN_VOICE_SAMPLE_WORDS = 150; // AI checker voice check only
-export const STAGE1_VOICE_MIN_WORDS = 200; // Stage 1 embedded voice sample (Nov 20, 2026)
-export const STAGE1_VOICE_MIN_LONG_ANSWERS = 2;
-export const STAGE1_VOICE_MIN_LONG_ANSWER_WORDS = 40;
+// PC-32 (Colton t219u, Nov 25, 2026): the Stage 1 voice minimum (200 words, 2 × 40) is retired;
+// voice is captured in the background from every answer in every stage.
 export const WORDS_PER_PAGE_DOUBLE_SPACED = 275;
 export const ASSIGNMENT_MAX_FILES = 15;
 export const ASSIGNMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
