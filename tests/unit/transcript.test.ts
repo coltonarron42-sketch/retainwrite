@@ -45,12 +45,12 @@ describe("Stage 1 greeting says the name aloud", () => {
 });
 
 describe("greeting pronunciation", () => {
-  it("reads 'Hi, I'm Pau Pau.' as 'Pow pow'", async () => {
+  it("reads 'Hi, I'm Pau.' as 'Pow'", async () => {
     const { speakableSentences } = await import("@/lib/voice/speakable");
     const { ASSIGNMENT_GREETING } = await import("@/lib/stage1/chat-copy");
     const out = speakableSentences(`${ASSIGNMENT_GREETING} What's the assignment we're working on?`).join(" ");
-    expect(out).toContain("Hi, I'm Pow pow.");
-    expect(out).not.toContain("Pau Pau");
+    expect(out).toContain("Hi, I'm Pow.");
+    expect(out).not.toContain("Pau");
     expect(out).toContain("What's the assignment we're working on?");
   });
 });
