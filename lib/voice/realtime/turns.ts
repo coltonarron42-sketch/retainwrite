@@ -14,8 +14,8 @@ export const TURN_TUNING = {
   frameMs: 100,
   /** Barge-in is ignored this long after her audio starts (her first words always land). */
   graceMs: 1_500,
-  /** Talking over her must be sustained this long before she pauses. */
-  sustainMs: 500,
+  /** Talking over her must be sustained this long (voiced frames) before she pauses: longer than a cough/door/click with its tail. */
+  sustainMs: 600,
   /** Up to three quiet frames (300 ms) inside a run don't reset it (breaths, pauses between words); only voiced frames count toward sustainMs. */
   gapFrames: 3,
   /** Floor RMS for "voiced" while she talks or is about to (0..1 full scale). The transcript

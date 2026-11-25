@@ -13,6 +13,7 @@ import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { buildStage1Instructions, buildInstructions } from "@/lib/voice/realtime/persona";
 
 const F = TURN_TUNING.frameMs;
+const N = Math.ceil(TURN_TUNING.sustainMs / TURN_TUNING.frameMs);
 
 describe("BargeGate: talking over her", () => {
   const frame = (g: BargeGate, now: number, rms: number, extra: Partial<{ guarded: boolean; playing: boolean; herOutRms: number; coupling: number }> = {}) =>
@@ -23,14 +24,14 @@ describe("BargeGate: talking over her", () => {
     expect(frame(g, 0, 0.5, { guarded: false, playing: false })).toBe("pass");
   });
 
-  it("mutes barge-in for the first 1.5 s of her reply, then needs >= 500 ms of sustained voice", () => {
+  it("mutes barge-in for the first 1.5 s of her reply, then needs >= 600 ms of sustained voice", () => {
     const g = new BargeGate();
     g.herAudioStarted(1000);
     // Loud talk from the start: held through the grace window.
     let t = 1000;
     for (; t < 1000 + TURN_TUNING.graceMs; t += F) expect(frame(g, t, 0.3)).toBe("hold");
-    // Grace works like a mute: after it, a fresh 500 ms of talk is needed.
-    for (let i = 0; i < 4; i++, t += F) expect(frame(g, t, 0.3)).toBe("hold");
+    // Grace works like a mute: after it, a fresh 600 ms of talk is needed.
+    for (let i = 0; i < N - 1; i++, t += F) expect(frame(g, t, 0.3)).toBe("hold");
     expect(frame(g, t, 0.3)).toBe("barge");
   });
 
@@ -38,9 +39,9 @@ describe("BargeGate: talking over her", () => {
     const g = new BargeGate();
     g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    // Blips up to 400 ms with real gaps between them (4+ quiet frames).
+    // Blips up to 500 ms (a cough with its tail) with real gaps between them (4+ quiet frames).
     const q = [0.01, 0.01, 0.01, 0.01];
-    const pattern = [0.3, 0.3, ...q, 0.3, ...q, 0.3, 0.3, 0.3, 0.3, ...q, 0.2, ...q];
+    const pattern = [0.3, 0.3, ...q, 0.3, ...q, 0.3, 0.3, 0.3, 0.3, ...q, 0.5, 0.4, 0.3, 0.1, 0.05, ...q, 0.2, ...q];
     pattern.forEach((rms, i) => expect(frame(g, t0 + i * F, rms)).toBe("hold"));
   });
 
@@ -48,9 +49,9 @@ describe("BargeGate: talking over her", () => {
     const g = new BargeGate();
     g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    const out = [0.2, 0.2, 0.01, 0.01, 0.2, 0.2, 0.2].map((rms, i) => frame(g, t0 + i * F, rms));
-    expect(out.slice(0, 6)).toEqual(["hold", "hold", "hold", "hold", "hold", "hold"]);
-    expect(out[6]).toBe("barge");
+    const out = [0.2, 0.2, 0.01, 0.01, 0.01, 0.2, 0.2, 0.2, 0.2].map((rms, i) => frame(g, t0 + i * F, rms));
+    expect(out.slice(0, 8).every((d) => d === "hold")).toBe(true);
+    expect(out[8]).toBe("barge");
   });
 
   it("a short spoken interrupt with a word gap (recorded \"wait, hold on\" frame RMS) barges", () => {
@@ -59,15 +60,16 @@ describe("BargeGate: talking over her", () => {
     const t0 = TURN_TUNING.graceMs + 100;
     const clip = [0.0, 0.074, 0.105, 0.022, 0.0, 0.004, 0.157, 0.118, 0.052, 0.048, 0.034, 0.013, 0.0];
     const out = clip.map((rms, i) => frame(g, t0 + i * F, rms));
-    expect(out.indexOf("barge")).toBe(8);
+    // Six voiced frames across a 300 ms word gap: barges on the sixth (the 0.048 frame).
+    expect(out.indexOf("barge")).toBe(9);
   });
 
   it("a quiet talker (~0.05 RMS, phone at arm's length) can still interrupt", () => {
     const g = new BargeGate();
     g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    const out = [0.05, 0.05, 0.05, 0.05, 0.05].map((rms, i) => frame(g, t0 + i * F, rms, { herOutRms: 0.1, coupling: 0.05 }));
-    expect(out[4]).toBe("barge");
+    const out = Array.from({ length: N }, (_, i) => frame(g, t0 + i * F, 0.05, { herOutRms: 0.1, coupling: 0.05 }));
+    expect(out[N - 1]).toBe("barge");
   });
 
   it("her own echo (loud speakers) isn't the student: the bar rises with her output", () => {

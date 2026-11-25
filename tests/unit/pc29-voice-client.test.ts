@@ -98,8 +98,8 @@ describe("client barge-in: pause, then resume or drop", () => {
     ctx.currentTime += 0.1;
     any.onMic(micFrame(), 0.01);
     expect(sent.some((e) => e.type === "rw.barge")).toBe(false);
-    // Sustained sound (>= 500 ms) at ~1.6 s in: pause and report how much she got out.
-    for (let i = 0; i < 5; i++) {
+    // Sustained sound (>= sustainMs) at ~1.6 s in: pause and report how much she got out.
+    for (let i = 0; i < Math.ceil(TURN_TUNING.sustainMs / TURN_TUNING.frameMs); i++) {
       clock += 100;
       ctx.currentTime += 0.1;
       any.onMic(micFrame(), 0.3);
@@ -128,7 +128,7 @@ describe("client barge-in: pause, then resume or drop", () => {
     for (let i = 0; i < 30; i++) any.onServer({ type: "response.output_audio.delta", response_id: "r1", delta: herChunk() });
     clock += 2000;
     ctx.currentTime += 2;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < Math.ceil(TURN_TUNING.sustainMs / TURN_TUNING.frameMs); i++) {
       clock += 100;
       any.onMic(micFrame(), 0.3);
     }
