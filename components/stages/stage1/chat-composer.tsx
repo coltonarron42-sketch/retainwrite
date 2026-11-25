@@ -1,5 +1,6 @@
 "use client";
 
+import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { joinTranscript } from "@/lib/stage1/transcript";
 import {
@@ -156,6 +157,12 @@ export function ChatComposer({
     const t = window.setTimeout(() => setMicNote(null), 6000);
     return () => window.clearTimeout(t);
   }, [micNote]);
+  // PC-29: keep the typing signal honest when the box changes under focus (sent, cleared,
+  // or spoken words appended), and release it when this composer goes away.
+  useEffect(() => {
+    if (typeof document !== "undefined" && document.activeElement === taRef.current) typingArbiter.focus(value.trim().length > 0);
+  }, [value]);
+  useEffect(() => () => typingArbiter.blur(), []);
   const [canDictate, setCanDictate] = useState(false);
   // Mic permission denied (QA 8:45 PM #5): one message, the mic-blocked one,
   // never "No voice replies in this browser" beside the talk controls.
@@ -567,6 +574,7 @@ export function ChatComposer({
     dropCallRecognizer();
     // A real reply (typed, or spoken in a voice call): what she says next is
     // new and may be read aloud; restored history never is (Colton 5:03 PM).
+    typingArbiter.sent();
     armSpeech();
     onSend();
   }
@@ -687,8 +695,13 @@ export function ChatComposer({
           placeholder={placeholder}
           data-composer-sending={sending || undefined}
           onChange={(e) => onChange(e.target.value)}
+          onInput={(e) => typingArbiter.key(e.currentTarget.value.trim().length > 0)}
           onPaste={onPaste}
+          // PC-29: typing pauses the voice call's mic (one input channel at a time).
+          onFocus={(e) => typingArbiter.focus(e.currentTarget.value.trim().length > 0)}
+          onBlur={() => typingArbiter.blur()}
           onKeyDown={(e) => {
+            typingArbiter.key(e.currentTarget.value.trim().length > 0 || e.key.length === 1);
             // Desktop: Enter sends, Shift+Enter is a new line. Phones keep Enter for new lines.
             if (enterSends && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) {
               e.preventDefault();

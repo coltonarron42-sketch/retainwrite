@@ -6,6 +6,9 @@
  * relay. Output deltas play gapless with a small lead; barge-in stops them.
  * The browser never holds an xAI key and never sends session config.
  */
+import { typingArbiter } from "./arbiter";
+import { BargeGate, PlaybackLedger, TURN_TUNING } from "./turns";
+
 export type RtPhase = "off" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 
 export type RtEvents = {
@@ -17,17 +20,19 @@ export type RtEvents = {
   echo?: (itemId: string) => void;
   pauDone?: (responseId: string, status: string | undefined) => void;
   pauCancelled?: (responseId: string) => void;
-  saveNote?: (callId: string, text: string, itemId: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote?: (callId: string, text: string, itemId: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string; spoken?: string }>;
   sources?: (links: { title: string; url: string; why?: string }[]) => void;
   error?: (message: string) => void;
   metric?: (m: { e2eMs?: number; bargeMs?: number }) => void;
+  /** PC-29: the mic is paused because the student is typing. */
+  typing?: (on: boolean) => void;
+  /** PC-29: a reply the relay dropped (noise turn, typed turn, repeat): hide it without touching playback. */
+  pauDropped?: (responseId: string) => void;
 };
 
 const RATE = 24_000;
 const CHUNK = 2_400; // 100 ms
 const LEAD_S = 0.06;
-/** Mic must be this much louder than her measured echo to count as the student (echo gate). */
-const ECHO_MARGIN = 2.5;
 /** Room echo and capture delay after her last sample. */
 const ECHO_TAIL_MS = 250;
 const VOICE_RMS = 0.02;
@@ -106,10 +111,25 @@ export class RealtimeVoice {
   private screenMsg: Record<string, unknown> | null = null;
   private outFrames: { t: number; rms: number }[] = [];
   private echoTailUntil = 0;
-  private bargeRoll: ArrayBuffer[] = [];
   private echoRatios: number[] = [];
   private gateDone = false;
   private gateHeard = false;
+  // PC-29 turn-taking.
+  private gate = new BargeGate();
+  private ledger = new PlaybackLedger();
+  /** Her reply paused by a possible barge-in, waiting for the relay's verdict (real words or noise). */
+  private paused: { rid: string | null; remaining: Float32Array[]; playedMs: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** After a confirmed barge-in, the mic goes straight up until the server hears the end of their turn. */
+  private listenOpen = false;
+  private roll: ArrayBuffer[] = [];
+  private typing = false;
+  private unsubTyping: (() => void) | null = null;
+  private resumeToken: string | null = null;
+  private reconnects = 0;
+  /** What she was saying when the socket dropped (re-said after a reconnect). */
+  private dropRemainder = "";
+  private herText = new Map<string, string>();
+  private respRid: string | null = null;
 
   constructor(
     private paperId: string,
@@ -121,6 +141,10 @@ export class RealtimeVoice {
   async start(): Promise<void> {
     this.stopped = false;
     this.setPhase("connecting");
+    if (!this.opts.gate) {
+      this.typing = typingArbiter.isTyping();
+      this.unsubTyping = typingArbiter.subscribe((t) => this.setTyping(t));
+    }
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     let ctx: AudioContext;
     try {
@@ -177,7 +201,8 @@ export class RealtimeVoice {
     if (this.opts.effort) q.set("effort", this.opts.effort);
     q.set("vad", this.opts.vad ?? "server");
     for (const [k, v] of Object.entries(this.opts.tuning ?? {})) q.set(k, v);
-    if (this.resume) q.set("resume", this.resume);
+    const resume = this.resume ?? (this.reconnects > 0 ? this.resumeToken : null);
+    if (resume) q.set("resume", resume);
     if (this.opts.gate) q.set("gate", String(this.opts.gate));
     if (this.opts.stage === 1 || this.opts.stage === 3) q.set("stage", String(this.opts.stage));
     const ws = new WebSocket(`${proto}://${location.host}/api/voice/realtime?${q}`);
@@ -190,6 +215,9 @@ export class RealtimeVoice {
         ws.send(JSON.stringify({ type: "rw.start", welcome: this.opts.welcome, welcomeIndex: this.opts.welcomeIndex, welcomeText: this.opts.welcomeText ?? null }));
       }
       if (this.screenMsg) ws.send(JSON.stringify({ ...this.screenMsg, followUp: false }));
+      if (this.typing) ws.send(JSON.stringify({ type: "rw.typing", on: true }));
+      if (this.reconnects > 0 && this.dropRemainder) ws.send(JSON.stringify({ type: "rw.resume_hint", remainder: this.dropRemainder }));
+      this.dropRemainder = "";
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
@@ -202,6 +230,18 @@ export class RealtimeVoice {
       this.ws = null;
       if (this.stopped) return;
       if (ev.code === 4000 && this.resume) return this.connect(); // rotation before the 800 s cap
+      // PC-29: a glitch (network drop, upstream hiccup) reconnects with resumption instead of
+      // ending the call; what she was saying is picked up from where the student stopped hearing it.
+      if (!this.opts.gate && ev.code !== 1000 && ev.code !== 1008 && this.resumeToken && this.reconnects < 2) {
+        this.reconnects++;
+        const rem = this.cutReport().remainder;
+        if (rem) this.dropRemainder = rem;
+        this.hardStop();
+        this.responding = false;
+        this.setPhase("connecting");
+        setTimeout(() => !this.stopped && this.connect(), 300 * this.reconnects);
+        return;
+      }
       this.setPhase("error");
       this.on.error?.(ev.code === 1008 || ev.code === 1006 ? "Voice disconnected. Tap the voice button to reconnect, or type." : "Voice ended. Tap to reconnect, or type.");
     };
@@ -278,52 +318,134 @@ export class RealtimeVoice {
       this.lastVoiceAt = now;
     }
     if (this.muted || this.stopped) {
-      this.voicedRun = 0;
+      this.gate.reset();
+      this.roll.length = 0;
       return;
     }
-    // Speakers without headphones: her own voice comes back through the mic. While
-    // she plays (and a short tail after), only sound clearly louder than what she is
-    // playing counts as the student; anything else goes up as silence, so neither the
-    // server VAD nor the transcript ever hears her echo.
+    // One input channel at a time: while they type, the mic sends silence (the server VAD
+    // never starts a spoken turn that would compete with the typed one).
+    if (this.typing) {
+      this.gate.reset();
+      this.roll.length = 0;
+      this.sendAudio(new ArrayBuffer(pcm.byteLength));
+      return;
+    }
+    // A confirmed barge-in (or a pause waiting on its verdict): their words go straight up.
+    if (this.listenOpen) {
+      this.sendAudio(pcm);
+      return;
+    }
+    // Speakers without headphones: her own voice comes back through the mic. While she
+    // plays, is about to reply, or her echo tail is in the room, only sustained sound
+    // clearly louder than her echo counts as the student (PC-29 gate); the rest goes up
+    // as silence, so neither the server VAD nor the transcript hears echo or room noise.
     const playing = this.sources.size > 0;
-    const echoWindow = playing || now < this.echoTailUntil;
+    const guarded = playing || this.responding || now < this.echoTailUntil;
     const out = this.outRms();
-    // How much of her playback reaches the mic (headphones ~0, speakers more):
-    // the median recent ratio is the echo level (the student talks over her only now and then;
-    // the minimum undershoots while her echo is still arriving).
     if (playing && out > 0.02) {
       this.echoRatios.push(rms / out);
       if (this.echoRatios.length > 40) this.echoRatios.shift();
     }
+    // Echo level = a low percentile of recent mic/out ratios (talking over her mustn't teach the
+    // gate that their voice is "echo"), capped so a loud room can't make barge-in impossible.
     const recent = this.echoRatios.slice(-20).sort((a, b) => a - b);
-    const coupling = recent.length >= 3 ? recent[Math.floor(recent.length / 2)]! : 1;
-    const voiced = rms > Math.max(0.05, ECHO_MARGIN * coupling * out);
-    if (echoWindow) {
-      this.voicedRun = voiced ? this.voicedRun + 1 : 0;
-      this.bargeRoll.push(pcm);
-      if (this.bargeRoll.length > 3) this.bargeRoll.shift();
-      if (this.voicedRun < 2) {
-        this.sendAudio(new ArrayBuffer(pcm.byteLength));
-        return;
-      }
-      // Local barge-in: the student really is talking over her.
-      this.voicedRun = 0;
-      if (playing) {
-        this.stopPlayback();
-        this.send({ type: "response.cancel" });
-        const barge = Math.round(now - (this.voiceOnsetAt || now) + 100);
-        this.on.metric?.({ bargeMs: barge });
-        this.send({ type: "rw.metric", barge_ms: barge });
-      }
-      this.echoTailUntil = 0;
-      this.voiceOnsetAt = 0;
-      this.setPhase("listening");
-      for (const b of this.bargeRoll.splice(0)) this.sendAudio(b);
+    const coupling = recent.length >= 3 ? Math.min(TURN_TUNING.maxCoupling, recent[Math.floor(recent.length * 0.3)]!) : 1;
+    const d = this.gate.frame({ now, rms, guarded, playing, herOutRms: out, coupling });
+    if (d === "pass" || d === "flush") {
+      // Their words that began over her tail aren't lost when her turn ends mid-word.
+      if (d === "flush") for (const b of this.roll) this.sendAudio(b);
+      this.roll.length = 0;
+      this.sendAudio(pcm);
       return;
     }
-    this.voicedRun = 0;
-    this.bargeRoll.length = 0;
-    this.sendAudio(pcm);
+    this.roll.push(pcm);
+    const maxRoll = Math.round(TURN_TUNING.rollMs / TURN_TUNING.frameMs);
+    if (this.roll.length > maxRoll) this.roll.splice(0, this.roll.length - maxRoll);
+    if (d === "hold") {
+      this.sendAudio(new ArrayBuffer(pcm.byteLength));
+      return;
+    }
+    // Sustained talk over her: pause (not drop) her reply and let the server hear them.
+    this.pauseForBarge(now);
+    for (const b of this.roll.splice(0)) this.sendAudio(b);
+  }
+
+  /** Played/total ms of her current reply and the words the student hasn't heard yet. */
+  private cutReport(): { rid: string | null; playedMs: number; totalMs: number; remainder: string } {
+    const t = this.ctx?.currentTime ?? 0;
+    const playedMs = this.paused ? this.paused.playedMs : this.ledger.playedMs(t);
+    const totalMs = this.ledger.totalMs();
+    const text = this.ledger.rid ? (this.herText.get(this.ledger.rid) ?? "") : "";
+    let remainder = "";
+    if (text && totalMs > 0) {
+      const share = Math.min(1, playedMs / totalMs);
+      if (share < 0.97) {
+        const parts = text.replace(/\s+/g, " ").trim().split(" ");
+        remainder = parts.slice(Math.floor(parts.length * share)).join(" ");
+      }
+    }
+    return { rid: this.ledger.rid, playedMs, totalMs, remainder };
+  }
+
+  /** Possible barge-in: stop her audio but keep the unplayed part until the relay's verdict. */
+  private pauseForBarge(now: number) {
+    const ctx = this.ctx;
+    const playing = this.sources.size > 0;
+    const rep = playing ? this.cutReport() : { rid: this.responding ? this.respRid : null, playedMs: 0, totalMs: 0, remainder: "" };
+    const remaining = ctx && playing ? this.ledger.remainingPcm(ctx.currentTime, RATE) : [];
+    if (this.sources.size) {
+      const barge = Math.round(now - (this.voiceOnsetAt || now) + 100);
+      this.on.metric?.({ bargeMs: barge });
+      this.send({ type: "rw.metric", barge_ms: barge });
+    }
+    this.hardStop();
+    if (this.paused) clearTimeout(this.paused.timer);
+    this.paused = {
+      rid: rep.rid,
+      remaining,
+      playedMs: rep.playedMs,
+      // No verdict in time (the server never heard a turn): it was noise, carry on.
+      timer: setTimeout(() => this.onVerdict(false, rep.rid), TURN_TUNING.clientVerdictTimeoutMs),
+    };
+    this.listenOpen = true;
+    this.echoTailUntil = 0;
+    this.voiceOnsetAt = 0;
+    this.send({ type: "rw.barge", response_id: rep.rid, played_ms: rep.playedMs, total_ms: rep.totalMs, remainder: rep.remainder.slice(0, 600) });
+    this.setPhase("listening");
+  }
+
+  /** The relay heard the barge-in's words (real) or nothing worth answering (noise). */
+  private onVerdict(real: boolean, rid?: string | null) {
+    const p = this.paused;
+    if (!p || (rid !== undefined && rid !== null && p.rid !== null && rid !== p.rid)) {
+      if (!real) this.listenOpen = false;
+      return;
+    }
+    clearTimeout(p.timer);
+    this.paused = null;
+    if (real) {
+      // They really talked over her: the rest of that reply is dropped here (the relay keeps
+      // the unheard words so she can come back to the point after answering them).
+      if (p.rid) this.cancelled.add(p.rid);
+      this.ledger.clear();
+      return;
+    }
+    // Noise: no new turn; she carries on from the exact spot she paused.
+    this.listenOpen = false;
+    this.gate.reset();
+    if (p.rid && p.remaining.length) {
+      if (this.ledger.rid === p.rid) this.ledger.rebase(p.playedMs);
+      for (const c of p.remaining) this.play(c, p.rid, true);
+    } else if (!this.responding) {
+      this.setPhase("listening");
+    }
+  }
+
+  private setTyping(on: boolean) {
+    if (this.typing === on) return;
+    this.typing = on;
+    this.on.typing?.(on);
+    this.send({ type: "rw.typing", on });
   }
 
   /** Loudness of what she is playing right now (last ~150 ms), from the scheduled PCM. */
@@ -347,7 +469,19 @@ export class RealtimeVoice {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(e));
   }
 
+  /** A real cut (new app turn, Send, Talk now, guard): drop her audio and any paused remainder. */
   private stopPlayback() {
+    if (this.paused) {
+      clearTimeout(this.paused.timer);
+      this.paused = null;
+    }
+    this.listenOpen = false;
+    this.hardStop();
+    this.ledger.clear();
+  }
+
+  /** Stop what's scheduled now (the ledger and any pause are kept). */
+  private hardStop() {
     for (const s of this.sources) {
       try {
         s.stop();
@@ -361,9 +495,11 @@ export class RealtimeVoice {
     }
   }
 
-  private play(pcm: Float32Array) {
+  private play(pcm: Float32Array, rid = "", resumed = false) {
     const ctx = this.ctx;
     if (!ctx || !this.out || !pcm.length) return;
+    // Her first ~1.5 s of each reply (and of a resume) can't be cut by barge-in.
+    if (rid && (this.ledger.begin(rid) || (resumed && !this.sources.size))) this.gate.herAudioStarted(performance.now());
     const buf = ctx.createBuffer(1, pcm.length, RATE);
     buf.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
@@ -377,6 +513,7 @@ export class RealtimeVoice {
       this.outFrames.push({ t: at + i / RATE, rms: Math.sqrt(sum / Math.max(1, end - i)) });
     }
     src.start(at);
+    this.ledger.add(at, pcm, RATE);
     this.nextTime = at + buf.duration;
     this.sources.add(src);
     if (this.pendingE2E !== null) {
@@ -388,6 +525,8 @@ export class RealtimeVoice {
     }
     src.onended = () => {
       this.sources.delete(src);
+      // Paused for a possible barge-in: not idle (nothing queued may start yet).
+      if (this.paused) return;
       if (!this.sources.size && this.gateDone) {
         this.stop();
         return;
@@ -410,6 +549,11 @@ export class RealtimeVoice {
         if (this.phase === "connecting") this.setPhase("listening");
         return;
       case "input_audio_buffer.speech_started": {
+        if (this.paused) {
+          // Already paused by the client gate: wait for the relay's verdict.
+          this.setPhase("listening");
+          return;
+        }
         if (this.sources.size) {
           this.stopPlayback();
           this.send({ type: "response.cancel" });
@@ -425,6 +569,7 @@ export class RealtimeVoice {
         return;
       }
       case "input_audio_buffer.speech_stopped":
+        if (!this.paused) this.listenOpen = false;
         this.speechStoppedAt = performance.now();
         // End of speech = the last chunk with voice in it (before VAD's silence wait).
         this.pendingE2E = this.lastVoiceAt && this.speechStoppedAt - this.lastVoiceAt < 3000 ? this.lastVoiceAt : this.speechStoppedAt;
@@ -439,27 +584,53 @@ export class RealtimeVoice {
         return;
       case "response.created":
         this.responding = true;
+        this.respRid = String((e.response as { id?: string } | undefined)?.id ?? "") || null;
         this.gateHeard = true;
         return;
       case "response.output_audio.delta": {
         const rid = String(e.response_id ?? "");
         if (this.cancelled.has(rid)) return;
-        this.play(b64ToPcm(String(e.delta ?? "")));
+        const pcm = b64ToPcm(String(e.delta ?? ""));
+        // The paused reply is still streaming in: keep it for a resume.
+        if (this.paused && this.paused.rid === rid) {
+          this.paused.remaining.push(pcm);
+          return;
+        }
+        // The relay only lets a new reply through after a real barge-in.
+        if (this.paused) this.onVerdict(true);
+        this.play(pcm, rid);
         return;
       }
-      case "response.output_audio_transcript.delta":
-        this.on.pauDelta?.(String(e.response_id ?? ""), String(e.delta ?? ""));
+      case "response.output_audio_transcript.delta": {
+        const rid = String(e.response_id ?? "");
+        this.herText.set(rid, (this.herText.get(rid) ?? "") + String(e.delta ?? ""));
+        if (this.herText.size > 8) this.herText.delete(this.herText.keys().next().value!);
+        this.on.pauDelta?.(rid, String(e.delta ?? ""));
         return;
+      }
       case "response.done": {
         this.responding = false;
         const r = e.response as { id?: string; status?: string } | undefined;
         this.on.pauDone?.(String(r?.id ?? ""), r?.status);
-        if (!this.sources.size) {
+        if (!this.sources.size && !this.paused) {
           this.setPhase("listening");
           this.send({ type: "rw.idle" });
         }
         return;
       }
+      case "rw.verdict":
+        this.onVerdict(e.real === true, typeof e.response_id === "string" ? e.response_id : undefined);
+        return;
+      case "rw.drop": {
+        // A reply that shouldn't be heard (noise turn, typed turn, repeat): never plays, playback untouched.
+        const rid = String(e.response_id ?? "");
+        this.cancelled.add(rid);
+        this.on.pauDropped?.(rid);
+        return;
+      }
+      case "rw.resume":
+        this.resumeToken = String(e.resume ?? "") || null;
+        return;
       case "rw.guard": {
         const rid = String(e.response_id ?? "");
         this.cancelled.add(rid);
@@ -476,7 +647,7 @@ export class RealtimeVoice {
         const run = this.on.saveNote ? this.on.saveNote(callId, text, String(e.item_id ?? ""), typeof e.kind === "string" ? e.kind : undefined) : Promise.resolve({ ok: false, result: "unsupported" });
         void run
           .catch(() => ({ ok: false, result: "error" }))
-          .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen }));
+          .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen, spoken: (r as { spoken?: string }).spoken }));
         return;
       }
       case "rw.echo":
@@ -502,6 +673,7 @@ export class RealtimeVoice {
   }
 
   sendText(text: string) {
+    this.reportCut(true);
     this.stopPlayback();
     this.speechStoppedAt = performance.now();
     this.pendingE2E = this.speechStoppedAt;
@@ -510,19 +682,30 @@ export class RealtimeVoice {
   }
 
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
-  sayTurn(text: string, opts: { detail?: boolean } = {}) {
+  sayTurn(text: string, opts: { detail?: boolean; spoken?: string } = {}) {
+    // The app moved on: what she didn't get to say is superseded (truncate, no re-offer).
+    this.reportCut(false);
     this.stopPlayback();
     this.pendingE2E = performance.now();
-    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}) });
+    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}), ...(opts.spoken !== undefined ? { spoken: opts.spoken.slice(0, 1600) } : {}) });
   }
 
   /** What the app shows now and the choices waiting for a tap (data for her). */
-  setScreen(text: string, choices: string[], followUp: boolean) {
-    this.screenMsg = { type: "rw.screen", text: text.slice(0, 800), choices: choices.slice(0, 6), followUp };
+  setScreen(text: string, choices: string[], followUp: boolean, spoken?: string) {
+    this.screenMsg = { type: "rw.screen", text: text.slice(0, 800), choices: choices.slice(0, 6), followUp, ...(spoken !== undefined ? { spoken: spoken.slice(0, 1600) } : {}) };
     this.send(this.screenMsg);
   }
 
+  /** Tell the relay how much of her reply was heard (it truncates her turn there). */
+  private reportCut(reoffer: boolean) {
+    if (!this.sources.size && !this.paused) return;
+    const r = this.cutReport();
+    if (!r.rid) return;
+    this.send({ type: "rw.cut", response_id: r.rid, played_ms: r.playedMs, total_ms: r.totalMs, remainder: reoffer ? r.remainder.slice(0, 600) : "" });
+  }
+
   interrupt() {
+    this.reportCut(true);
     this.stopPlayback();
     this.send({ type: "response.cancel" });
     this.setPhase("listening");
@@ -544,6 +727,8 @@ export class RealtimeVoice {
 
   stop() {
     this.stopped = true;
+    this.unsubTyping?.();
+    this.unsubTyping = null;
     this.stopPlayback();
     try {
       this.ws?.close(1000);
