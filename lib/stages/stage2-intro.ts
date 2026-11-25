@@ -6,6 +6,7 @@ import { dropHedges } from "@/lib/copy/tidy";
  * // SOP: coaching only, never generate submission text
  */
 import { clipWords } from "@/lib/copy/clip";
+import { notAlreadyNamed } from "@/lib/stage1/readback-tidy";
 import { andList, answerNamesOption, decisionHasReason, decisionLabel, pickedStyles, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
 /** "I think my team…" → "you think your team…": the student's reason, in second person. */
@@ -83,7 +84,8 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
 export function stage2IntroText(readback: ReadbackPlain | null | undefined, fallback: { heading: string; body: string }): { heading: string; body: string } {
   const ask = readback?.ask?.replace(/\s+/g, " ").trim();
   if (!ask) return fallback;
-  const must = (readback?.mustInclude ?? []).filter(Boolean).slice(0, 3);
+  // PC-29b: the list skips what the sentence above it already names (its sources, "one real leader").
+  const must = notAlreadyNamed((readback?.mustInclude ?? []).filter(Boolean), ask).slice(0, 3);
   return {
     heading: "Your assignment, in plain words",
     body: must.length ? `${ask} It has to include: ${must.join("; ")}.` : ask,

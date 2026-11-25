@@ -1,3 +1,4 @@
+import { gradedSentence } from "@/lib/stage1/readback-tidy";
 import { oneQuipParas } from "@/lib/coach/quips";
 /**
  * Pau (POW-pow) is the coach. After the assignment is read, Pau says
@@ -405,7 +406,7 @@ function readBackParasRaw(
     const plainParas = [
       facts,
       `In plain words, here's what it's asking: ${p.ask.replace(/\s+/g, " ").trim()}`,
-      [p.mustInclude.length ? `A strong answer needs ${list(p.mustInclude)}.` : body[1] ?? "", p.graded.length ? `It's graded on ${list(p.graded)}.` : ""]
+      [p.mustInclude.length ? `A strong answer needs ${list(p.mustInclude)}.` : body[1] ?? "", p.graded.length ? gradedSentence(p.graded) : ""]
         .filter(Boolean)
         .join(" "),
     ].filter(Boolean);
