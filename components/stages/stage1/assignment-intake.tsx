@@ -2,7 +2,8 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { isNoLeaderSaying, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { isNoLeaderSaying, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -984,6 +985,9 @@ export function AssignmentIntake({
   // QA 11:26: each question's turn exactly as it was last shown while current (without the intro).
   const askedAs = useRef<Record<string, ReactNode[]>>({});
   const interviewDone = useRef(false);
+  /** QA round 5 (2): she asked them about a boss, coach or teacher (per question). */
+  const noLeaderAsked = useRef<Record<string, boolean>>({});
+  const said0Named = (t: string) => Boolean(namedPerson(t) || singleNamedLeader(t));
   const keepAsked = (qid: string, isEditing: boolean, bubbles: ReactNode[], introCount: number): ReactNode[] => {
     if (!isEditing) askedAs.current[qid] = bubbles.slice(introCount);
     return bubbles;
@@ -2489,6 +2493,16 @@ export function AssignmentIntake({
     if (text && !offerAnswered && (q.id === "decision_pick" || q.id === "leader_pick" || q.id === "material_check") && isNoLeaderSaying(text) && wordCount(text) <= 25) {
       const qid = q.id;
       setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: noLeaderReply(brief?.options?.people ?? []) }].slice(-12));
+      noLeaderAsked.current[qid] = true;
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
+    // Her open ask is "who's a boss, coach or teacher…": a vague or filler reply stays on that, never the style again.
+    if (text && noLeaderAsked.current[q.id] && !said0Named(text) && (isFillerSaying(text) || isVaguePick(text) || wordCount(text) <= 3)) {
+      const qid = q.id;
+      const NUDGE = "No rush. Think of anyone who ran a team you were part of: a shift manager, a coach, a teacher, even a club or group leader. Who comes to mind first?";
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [prev.some((x) => x.qid === qid && x.paras[0] === NUDGE) ? "Take your time. Anyone works, even a famous name from the examples above. Just tell me who, in a few words." : NUDGE] }].slice(-12));
       dropSent(sentBox);
       setError(null);
       return;

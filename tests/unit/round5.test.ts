@@ -46,6 +46,8 @@ describe("(2) 'I don't really know any leaders'", () => {
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(src.indexOf("isNoLeaderSaying(text)")).toBeGreaterThan(0);
     expect(src.indexOf("isNoLeaderSaying(text)")).toBeLessThan(src.indexOf("let tookRec = false;"));
+    // A vague/filler reply to her boss/coach/teacher question stays on it (never the style again).
+    expect(src).toMatch(/noLeaderAsked\.current\[q\.id\] && !said0Named\(text\)[\s\S]{0,400}Who comes to mind first\?/);
   });
 });
 
