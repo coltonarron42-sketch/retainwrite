@@ -6,7 +6,8 @@ import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import { openSkeleton } from "@/lib/skeleton/live";
 import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
@@ -695,18 +696,14 @@ export function StanceChat(props: Props) {
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
       <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       <FocusBar
-        onSkeleton={() => setPanel("skeleton")}
         onPast={() => setPanel("past")}
         hasPast={transcript.length > 0 || Boolean(props.earlier?.length)}
         menu={introInCurrent || showIntro ? undefined : introControls}
       />
-      {panel === "skeleton" ? (
-        <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
-      ) : null}
       {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 2 · Stance")} onClose={() => setPanel(null)} /> : null}
       <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
         {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
-        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} onOpen={setOpenerOpen} />
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={openSkeleton} onOpen={setOpenerOpen} />
         {history}
 
         {/* Pau's current turn: ONE reply. */}
@@ -717,7 +714,7 @@ export function StanceChat(props: Props) {
           headingId="stance-question"
           live
         >
-          <p className={dsCaption} data-section-step>
+          <p className={dsCaption} data-section-step data-section-key={section.key}>
             Section {active + 1} of {sections.length} · {section.title}: {section.needs}
           </p>
 
