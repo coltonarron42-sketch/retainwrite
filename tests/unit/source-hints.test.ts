@@ -44,6 +44,24 @@ describe("stored sources", () => {
     expect(placed.intro).toBeUndefined();
     expect(placed.conc).toBeUndefined();
   });
+  it("the place stays put while they write: an intro note never pulls a source out of the body (QA p3b)", () => {
+    const NK = S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["Transformational leaders build a shared vision so a team buys into change."]);
+    const GK = S("knowledge", "Goleman's “What Makes a Leader?”", ["Empathy and social skill matter during change."]);
+    const live = [
+      { key: "intro", title: "Introduction", needs: "Introduce the work", kind: "intro", ideas: ["Transformational leadership works best for leading a team through change because people buy into a shared vision."] },
+      { key: "body", title: "Body", needs: "Develop the main examples", kind: "body", ideas: [] },
+      { key: "conclusion", title: "Conclusion", needs: "Close the paper", kind: "conclusion", ideas: [] },
+    ];
+    const before = placeSources(live.map((x) => ({ ...x, ideas: [] })), [NK, GK]);
+    const after = placeSources(live, [NK, GK]);
+    expect(Object.keys(before)).toEqual(["body"]);
+    expect(after).toEqual(before);
+    expect(sourceHintsFor(live[1]!, live, [NK, GK]).map((h) => h.title)).toEqual([NK.title, GK.title]);
+  });
+  it("with no fit, sources are shared out over the body sections", () => {
+    const placed = placeSources(SECTIONS, [S("reading", "Lecture notes", ["Week three overview."]), S("reading", "Case packet", ["Week four."])]);
+    expect(Object.keys(placed).sort()).toEqual(["body1", "body2"]);
+  });
   it("a source that fits no section goes to the first body section, never the intro", () => {
     const placed = placeSources(SECTIONS, [S("reading", "Lecture notes", ["Week three overview."])]);
     expect(Object.keys(placed)).toEqual(["body1"]);

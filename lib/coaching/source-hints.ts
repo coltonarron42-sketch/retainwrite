@@ -8,7 +8,7 @@
  */
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
 
-export type HintSection = { key: string; title: string; needs?: string; concept?: string | null; ideas?: string[] };
+export type HintSection = { key: string; title: string; needs?: string; concept?: string | null; ideas?: string[]; kind?: string };
 export type SourceHint = {
   title: string;
   url: string | null;
@@ -69,26 +69,33 @@ export function storedSources(summaries: MaterialSummary[] | null | undefined): 
   return out;
 }
 
-/** Each source's home: the section it fits best (by shared words); a source that fits none goes to the first body section. */
+const isFrame = (s: HintSection) => (s.kind ? s.kind !== "body" : FRAME.test(s.title));
+/**
+ * Each source's home: the body section it fits best by its title, needs and concept (never the
+ * student's notes, so the place stays put while they write; QA p3b: an intro note pulled both
+ * sources into the intro after the Body had already passed in Stage 2). With no fit, sources are
+ * shared out over the body sections in order. The intro/conclusion only when there's no body.
+ */
 export function placeSources(sections: HintSection[], summaries: MaterialSummary[] | null | undefined): Record<string, MaterialSummary[]> {
   const out: Record<string, MaterialSummary[]> = {};
   if (!sections.length) return out;
-  const secWords = sections.map((s) => words([s.title, s.needs ?? "", s.concept ?? "", ...(s.ideas ?? [])].join(" ")));
-  const body = sections.findIndex((s) => !FRAME.test(s.title));
-  for (const src of storedSources(summaries)) {
+  const pool = sections.filter((s) => !isFrame(s));
+  const homes = pool.length ? pool : sections;
+  const secWords = homes.map((s) => words([s.title, s.needs ?? "", s.concept ?? ""].join(" ")));
+  storedSources(summaries).forEach((src, n) => {
     const sw = words([src.title, ...src.points].join(" "));
     let best = -1;
     let score = 1;
     secWords.forEach((w, i) => {
-      const n = overlap(sw, w) + (FRAME.test(sections[i]!.title) ? -1 : 0);
-      if (n > score) {
-        score = n;
+      const k = overlap(sw, w);
+      if (k > score) {
+        score = k;
         best = i;
       }
     });
-    const i = best >= 0 ? best : body >= 0 ? body : 0;
-    (out[sections[i]!.key] ??= []).push(src);
-  }
+    const home = homes[best >= 0 ? best : n % homes.length]!;
+    (out[home.key] ??= []).push(src);
+  });
   return out;
 }
 
