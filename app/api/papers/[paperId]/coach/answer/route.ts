@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
-import { grokResearch, RESEARCH_SEARCH_CALLS, MAX_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
+import { grokResearch, RESEARCH_SEARCH_CALLS, READING_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
@@ -100,7 +100,7 @@ export async function POST(request: Request, ctx: Ctx) {
     // t218u: per-turn cap (2 research / 3 reading) plus a per-paper soft budget.
     const wantsSearch = mode === "research" || mode === "reading";
     const paperUsed = wantsSearch ? await paperSearchesUsed(paperId).catch(() => 0) : 0;
-    const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? MAX_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
+    const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? READING_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
     const search = wantsSearch && searchCap > 0;
     const effort = mode === "reframe" ? "none" : mode === "reading" ? "high" : turn.effort;
     emit(STATUS_ROTATION[mode === "reading" ? "reading" : mode === "research" ? "research" : mode === "summary" ? "summary" : "think"][0]!);

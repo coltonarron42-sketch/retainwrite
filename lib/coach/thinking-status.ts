@@ -69,15 +69,27 @@ const obj = (v: unknown): Ev | null => (v && typeof v === "object" ? (v as Ev) :
  * One Responses stream event → a status line (or null). Handles the web_search_call item (its action's
  * query and sources), URL citations, and the first text delta. Reasoning events are ignored on purpose.
  */
-export function statusFromEvent(ev: Ev, seen: { writing?: boolean; hosts?: Set<string>; topic?: string | null; searched?: number } = {}): string[] {
+export function statusFromEvent(
+  ev: Ev,
+  seen: { writing?: boolean; hosts?: Set<string>; topic?: string | null; searched?: number; lines?: number; shown?: Set<string> } = {},
+): string[] {
   const type = String(ev.type ?? "");
   if (/reasoning/.test(type)) return [];
   const out: string[] = [];
+  // QA: the first search line always reads "Searching for …"; later ones "Searching a bit more on …".
+  const searchLine = (what: string | null) => {
+    const n = seen.lines ?? 0;
+    const key = (what ?? "").toLowerCase();
+    if (key && seen.shown?.has(key)) return;
+    if (key) (seen.shown ??= new Set()).add(key);
+    seen.lines = n + 1;
+    out.push(what ? (n === 0 ? `Searching for ${what}…` : `Searching a bit more on ${what}…`) : n === 0 ? "Searching…" : "Searching a bit more…");
+  };
   const item = obj(ev.item);
   if (item && item.type === "web_search_call") {
     const action = obj(item.action);
     const q = searchingLine(action?.query ?? (Array.isArray(action?.queries) ? (action!.queries as unknown[])[0] : null));
-    if (q) out.push(q);
+    if (q) searchLine(q.replace(/^Searching for /, "").replace(/…$/, ""));
     const srcs = Array.isArray(action?.sources) ? (action!.sources as unknown[]) : [];
     for (const s of srcs.slice(0, 3)) {
       const line = readingLine(obj(s)?.url);
@@ -89,7 +101,12 @@ export function statusFromEvent(ev: Ev, seen: { writing?: boolean; hosts?: Set<s
     }
   } else if (/web_search_call\.searching$/.test(type)) {
     seen.searched = (seen.searched ?? 0) + 1;
-    out.push(seen.topic ? (seen.searched === 1 ? `Searching for ${seen.topic}…` : `Searching a bit more on ${seen.topic}…`) : "Searching…");
+    if (seen.searched === 1 || !seen.topic) searchLine(seen.topic ?? null);
+    else if (!seen.shown?.has(`more:${seen.topic.toLowerCase()}`) && !((seen.lines ?? 0) > 1 && seen.shown?.has(seen.topic.toLowerCase()))) {
+      (seen.shown ??= new Set()).add(`more:${seen.topic.toLowerCase()}`);
+      seen.lines = (seen.lines ?? 0) + 1;
+      out.push(`Searching a bit more on ${seen.topic}…`);
+    }
   }
   const ann = obj(ev.annotation);
   if (ann && ann.type === "url_citation") {

@@ -19,6 +19,8 @@ export type ResearchResult =
 
 /** Cap per turn: she gets a few searches, not an open-ended crawl. */
 export const MAX_SEARCH_CALLS = 3;
+/** QA 3:32 speed: a reading lookup gets 2 (the reading by title and author, then the topic only if needed). */
+export const READING_SEARCH_CALLS = 2;
 /** t213u speed: plain research asks get 2 searches; a reading lookup keeps 3 (find the reading, then the topic). */
 export const RESEARCH_SEARCH_CALLS = 2;
 
