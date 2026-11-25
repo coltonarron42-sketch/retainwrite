@@ -5,7 +5,7 @@ import { AudioLines, Mic, MicOff } from "lucide-react";
 import { RealtimeVoice, type RtPhase } from "@/lib/voice/realtime/client";
 import { cn } from "@/lib/utils";
 
-export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; sources?: { title: string; url: string; why?: string }[] };
+export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; echo?: boolean; sources?: { title: string; url: string; why?: string }[] };
 
 /** An earlier Pau row whose words the newest row repeats (its whole text, at its end) is dropped. */
 export function dedupePau(rows: LiveTurn[], id: string): LiveTurn[] {
@@ -113,6 +113,13 @@ export function useRealtimeCall(opts: {
   const lastPau = useRef<string | null>(null);
   const welcomed = useRef(false);
   const welcomeText = useRef<string | null>(null);
+  /** The last few on-screen prompts the app had her say word for word (Stage 1). */
+  const prompts = useRef<string[]>([]);
+  const notePrompt = (t?: string) => {
+    const v = t?.trim();
+    if (!v || prompts.current.includes(v)) return;
+    prompts.current = [...prompts.current, v].slice(-3);
+  };
 
   const upsert = (id: string, who: LiveTurn["who"], fn: (cur: string) => string, extra?: Partial<LiveTurn>) =>
     setLive((rows) => {
@@ -165,6 +172,9 @@ export function useRealtimeCall(opts: {
               if (!hide) welcomeText.current = null;
               return rows.map((x) => (x === row ? { ...x, saved: hide } : x));
             });
+          // PC-29 follow-up: her word-for-word on-screen prompt (Stage 1) is already on the page;
+          // no copy of it lingers in the voice transcript (e.g. below "Start stance interview").
+          if (prompts.current.length) setLive((rows) => hidePromptEcho(rows, `p:${rid}`, prompts.current));
         },
         echo: (itemId) => setLive((rows) => rows.map((x) => (x.id === `u:${itemId}` ? { ...x, saved: true } : x))),
         pauCancelled: (rid) => setLive((rows) => rows.filter((r) => r.id !== `p:${rid}`)),
@@ -204,6 +214,8 @@ export function useRealtimeCall(opts: {
     rt.current?.stop();
     rt.current = null;
     setPhase("off");
+    // The call is over: nothing from it lingers under the chat.
+    setLive([]);
   }, []);
 
   useEffect(() => () => rt.current?.stop(), []);
@@ -234,8 +246,14 @@ export function useRealtimeCall(opts: {
     start,
     stop,
     toggleMute,
-    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string }) => rt.current?.sayTurn(text, opts),
-    setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => rt.current?.setScreen(text, choices, followUp, spoken),
+    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string }) => {
+      notePrompt(opts?.spoken);
+      return rt.current?.sayTurn(text, opts);
+    },
+    setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => {
+      notePrompt(spoken);
+      return rt.current?.setScreen(text, choices, followUp, spoken);
+    },
     interrupt: () => rt.current?.interrupt(),
     clearLive: () => setLive([]),
     level: () => rt.current?.level() ?? 0,
@@ -243,6 +261,20 @@ export function useRealtimeCall(opts: {
 }
 
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z]+/g, "");
+
+/** A Pau row that is (so far) one of the on-screen prompts, or ends with one (a welcome line + the prompt), is hidden. */
+export function hidePromptEcho(rows: LiveTurn[], id: string, prompts: string[]): LiveTurn[] {
+  const row = rows.find((r) => r.id === id);
+  if (!row || row.who !== "pau") return rows;
+  const a = norm(row.text);
+  if (!a) return rows;
+  const ps = prompts.map(norm).filter((p) => p.length >= 12);
+  const hide = ps.some((p) => p.startsWith(a) || a.endsWith(p));
+  if (hide && !row.saved) return rows.map((x) => (x === row ? { ...x, saved: true, echo: true } : x));
+  // Only a row this hid comes back (it turned out to be her own words, not the prompt).
+  if (!hide && row.echo) return rows.map((x) => (x === row ? { ...x, saved: false, echo: false } : x));
+  return rows;
+}
 
 const STATUS: Record<RtPhase, string> = {
   off: "Talk with Pau",

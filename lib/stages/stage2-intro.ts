@@ -37,8 +37,19 @@ const REASON_RE = /\b(because|since|bc|cuz|'cause|so that|as it|it fits|it shows
  * example, because …") instead of quoting the raw answer.
  */
 export function stage2Earlier(decision: PaperContext["decision"] | null | undefined, leader?: PaperContext["leader"] | null, options: DecisionOption[] = []): string | null {
-  if (!decision || !decisionHasReason(decision.answer)) return null;
+  if (!decision) return null;
   const said = decision.answer.replace(/\s+/g, " ").trim();
+  if (!decisionHasReason(decision.answer)) {
+    // PC-29 QA follow-up: an informed pick whose early take carries no "because" (QA 95b78e8f:
+    // "…his big vision of low prices kept people bought in") still opens with the styles and the
+    // leader they named, just without a reason, never the bare read-back.
+    const named = pickedStyles(decision, options);
+    const one = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
+    const pick0 = named.length > 1 ? andList(named) : one;
+    const who0 = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
+    if (pick0) return `Earlier you picked ${pick0}${who0 ? ` with ${who0} as your example` : ""}.`;
+    return null;
+  }
   // QA 1:11 AM #7: both picks when they named two ("servant and transformational").
   const styles = pickedStyles(decision, options);
   const pick =
