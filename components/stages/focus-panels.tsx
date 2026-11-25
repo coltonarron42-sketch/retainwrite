@@ -51,6 +51,11 @@ function Overlay({ label, onClose, children, side = false, data }: { label: stri
   );
 }
 
+/** Her saved lines from before the rename (Colton t187u: she's just "Pau"). */
+export function coachNameNow(text: string): string {
+  return text.replace(/\bPau Pau\b/g, "Pau").replace(/\bPAU PAU\b/g, "PAU");
+}
+
 /** The full earlier conversation, read-only. */
 export function PastChatPanel({ lines, onClose }: { lines: PastLine[]; onClose: () => void }) {
   return (
@@ -67,8 +72,8 @@ export function PastChatPanel({ lines, onClose }: { lines: PastLine[]; onClose: 
                     : "ml-8 rounded-[10px] bg-ds-page px-3 py-2 text-[15px] leading-[1.6] text-ds-ink"
                 }
               >
-                <span className="sr-only">{l.who === "pau" ? "Pau Pau: " : "You: "}</span>
-                {l.who === "pick" ? `Picked: ${l.text}` : l.text}
+                <span className="sr-only">{l.who === "pau" ? "Pau: " : "You: "}</span>
+                {l.who === "pick" ? `Picked: ${l.text}` : l.who === "pau" ? coachNameNow(l.text) : l.text}
               </p>
             </li>
           ))}

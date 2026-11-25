@@ -2,7 +2,7 @@
  * Is the student's message content for their paper, or something said TO the
  * coach? (QA 10:38: "Ask me some probing questions please." was saved as a
  * stance note, passed the logic check and was prefilled into Stage 3.)
- * A request or a question to Pau Pau is answered and is NEVER saved as a note.
+ * A request or a question to Pau is answered and is NEVER saved as a note.
  * The model decides when it can; these rules are the fallback and the fast path.
  * // SOP: coaching only, never generate submission text
  */
@@ -126,7 +126,7 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
   return `When you're ready, tell me your idea for your ${sectionTitle.toLowerCase()} in your own words.`;
 }
 
-/** Pau Pau's reply to a request or question. It rides inside her current turn. */
+/** Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
   if (ctx.text && isWriteRequest(ctx.text)) {
     const part = ctx.section.title.toLowerCase();
