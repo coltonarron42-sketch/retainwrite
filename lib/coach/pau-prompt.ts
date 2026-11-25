@@ -88,7 +88,7 @@ export const PAU_TEXT_MODES: Record<PauTextMode, string> = {
   interview:
     "They asked you to interview them about their own story. Ask exactly one short question (under 20 words) that builds on a specific detail from their latest answer and uses the person's name. Open with at most a 6-word acknowledgement of that detail.",
   research:
-    "They want ideas, examples or sources. Use web_search, then give 2-4 strong options, one bullet each: lead with the useful point (who or what, and why it fits their assignment), then the source in a few words (outlet or site). End with one question asking which ones interest them.",
+    "They want ideas, examples or sources. Use web_search, then give 2-4 strong options, one bullet each: lead with the useful point (who or what, and why it fits their assignment), then the source: the site you actually read it on, by its domain (e.g. strategypunk.com), never an outlet you did not open. End with one question asking which ones interest them.",
   summary:
     "They asked for a summary of the readings. Give 3-5 short bullets, each leading with the key idea, then where it comes from. Use their uploaded reading text when the paper context has it; otherwise follow R2: ask for the pages in one line and label the bullets general background. When their story or decision is in the paper context, end the bullets with one line tying the most relevant idea back to it by name. End with one question.",
   story:

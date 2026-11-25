@@ -14,7 +14,10 @@ export function sourcesLine(sources: SourceRef[] | undefined | null): string | n
   if (!list.length) return null;
   const parts = list.map((s) => {
     const host = sourceHost(s.url);
-    const title = (s.title || host).replace(/\s+/g, " ").trim().slice(0, 80);
+    const raw = (s.title || "").replace(/\s+/g, " ").trim();
+    // xAI citations often come back with the URL as the title: show the site name, not a raw link.
+    const title = !raw || /^https?:\/\//i.test(raw) ? host : raw.slice(0, 80);
+    if (title === host) return host;
     return host && !title.toLowerCase().includes(host.split(".")[0]!.toLowerCase()) ? `${title} (${host})` : title;
   });
   return `Sources: ${parts.join(" · ")}`;

@@ -65,9 +65,9 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const turn = classifyTurn(body.message, { mode: body.mode, step: body.step });
   const mode = resolveMode(body.mode, turn.intent);
-  const hasReadingText = Boolean(paperCtx?.readings?.some((r) => r.text?.trim()));
-  // Summaries search only when their own pages aren't uploaded (their text always wins).
-  const search = mode === "research" || (mode === "summary" && !hasReadingText);
+  // Research turns search. Summaries work from their uploaded pages, or general background when none are
+  // uploaded: on the PC-31 preview a summary that searched took ~40 s and found no usable pages for a textbook chapter.
+  const search = mode === "research";
   const effort = mode === "reframe" ? "none" : turn.effort;
   const userJson = JSON.stringify({
     mode,

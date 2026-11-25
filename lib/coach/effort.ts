@@ -33,7 +33,7 @@ export const EFFORT_TABLE: Record<TurnIntent, { effort: Effort; search: boolean 
   write_request: { effort: "none", search: false },
   chat: { effort: "none", search: false },
   research: { effort: "high", search: true },
-  summary: { effort: "high", search: true },
+  summary: { effort: "high", search: false },
   explain: { effort: "low", search: false },
   interview: { effort: "low", search: false },
   story: { effort: "low", search: false },
