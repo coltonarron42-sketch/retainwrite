@@ -40,7 +40,24 @@ describe("MUST-FIX 1: 'My high school soccer coach, Mr. Alvarez' then 'ok'", () 
     expect(intake).toMatch(/const said0Named = \(t: string\) => Boolean\(storyWho\(t\)\?\.named/);
   });
   it("style chips hide under the boss/coach/teacher ask", () => {
-    expect(intake).toContain('aria-label="Options" hidden={Boolean(noLeaderAsked.current[q.id])}');
+    expect(intake).toContain('cn("flex flex-wrap gap-2", noLeaderAsked.current[q.id] && "hidden")} role="group" aria-label="Options"');
+  });
+});
+
+describe("the interview on the named coach", () => {
+  const story = "My high school soccer coach, Mr. Alvarez\nHe made every player run the same drills, even the stars, and he stayed late to help anyone who asked.\nWe started trusting each other and won more games because nobody felt left out.\nI think he just cared about us as people more than about winning.";
+  it("the reflection reads cleanly and names Mr. Alvarez", () => {
+    const r = reflectStory(story) ?? reflectStory(story, { tentative: true });
+    expect(r?.who).toBe("Mr. Alvarez");
+    expect(r?.style).toBe("servant");
+    expect(r?.actions).toEqual(["made every player run the same drills", "cared about the team as people"]);
+  });
+  it("only a bare name starts it; a pick with a style and reason is a pick", () => {
+    expect(intake).toContain("wordCount(text) <= 15 && !stylesIn(text).length && !decisionHasReason(text)");
+    expect(intake).toContain("?.who ?? storyWho(story)?.who ?? null;");
+  });
+  it("the gate keeps the style the story showed", () => {
+    expect(intake).toContain("setStoryStyle(r.style);");
   });
 });
 

@@ -620,6 +620,8 @@ export function AssignmentIntake({
   const [storyTieBack, setStoryTieBack] = useState<{ qid: string; paras: string[] } | null>(null);
   /** The question their story finished Stage 1 on (its answer and the early take are their story). */
   const [stanceViaStory, setStanceViaStory] = useState<string | null>(null);
+  // The style their story showed, for the gate ("your style: servant, your leader: Mr. Alvarez").
+  const [storyStyle, setStoryStyle] = useState<string | null>(null);
   const lastStory = useRef<string | null>(null);
   // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
   const [savedPast, setSavedPast] = useState<PastLine[]>([]);
@@ -2189,7 +2191,7 @@ export function AssignmentIntake({
       done();
     };
     const startInterview = async (story: string, said: string) => {
-      const who = story ? reflectStory(story, { tentative: true })?.who ?? null : null;
+      const who = story ? reflectStory(story, { tentative: true })?.who ?? storyWho(story)?.who ?? null : null;
       setStoryProposal(null);
       const ask = story
         ? await interviewAsk(story, said, "", 0, who)
@@ -2222,7 +2224,8 @@ export function AssignmentIntake({
           return true;
         }
         setAsideBusy("Thinking…");
-        const who = reflectStory(story, { tentative: true })?.who ?? null;
+        // QA 2:12 PM: the person they named ("Mr. Alvarez") even before the story hints at a style.
+        const who = reflectStory(story, { tentative: true })?.who ?? storyWho(story)?.who ?? null;
         const ask = await interviewAsk(story, typed, interview.ask, said.length, who);
         setAsideBusy(null);
         setInterview({ ...interview, said, ask });
@@ -2338,6 +2341,7 @@ export function AssignmentIntake({
     setStoryAngle({ text: story, source: "student" });
     setStoryFromDecision(true);
     setStanceViaStory(qn.id);
+    setStoryStyle(r.style);
     await Promise.race([saved, new Promise((res) => setTimeout(res, 4_000))]);
     setDecisionSaving(false);
     setError(null);
@@ -2509,7 +2513,8 @@ export function AssignmentIntake({
     }
     // QA 2:12 PM #1: "My high school soccer coach, Mr. Alvarez" answers her boss/coach/teacher ask:
     // that person is their leader, and one question about them starts the interview.
-    if (text && brief?.northstar && noLeaderAsked.current[q.id] && !isRichStory(text) && wordCount(text) <= 25) {
+    // Only a name (and who they are): a style or a reason with it ("Servant fits because Walton…") is a pick, handled below.
+    if (text && brief?.northstar && noLeaderAsked.current[q.id] && !isRichStory(text) && wordCount(text) <= 15 && !stylesIn(text).length && !decisionHasReason(text)) {
       const w = storyWho(text);
       const who = w?.named ? w.who : namedPerson(text) ?? singleNamedLeader(text);
       if (who) {
@@ -4070,7 +4075,7 @@ export function AssignmentIntake({
                     Catch me up on the reading first
                   </DsButton>
                 ) : null}
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Options" hidden={Boolean(noLeaderAsked.current[q.id])}>
+                <div className={cn("flex flex-wrap gap-2", noLeaderAsked.current[q.id] && "hidden")} role="group" aria-label="Options" data-style-chips-hidden={noLeaderAsked.current[q.id] ? "" : undefined}>
                   {brief.options.options.slice(0, 3).map((o) => (
                     <DsButton
                       key={o.label}
@@ -4195,7 +4200,7 @@ export function AssignmentIntake({
                       earlyFromStory:
                         Boolean(stanceViaStory) ||
                         Boolean(brief?.decision?.answer && answers.find((a) => a.questionId === "stance_early")?.answerText.trim() === brief.decision.answer.trim()),
-                      style: stylesIn(brief?.decision?.answer ?? "").find((x) => /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral)$/i.test(x)) ?? null,
+                      style: stylesIn(brief?.decision?.answer ?? "").find((x) => /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral)$/i.test(x)) ?? storyStyle,
                       leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : null,
                       materialLabel: materialGateLabel({
                         catchUpDone: northstarGate.catchUpDone,

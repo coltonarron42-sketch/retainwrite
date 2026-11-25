@@ -104,13 +104,17 @@ export function storyActions(text: string, who: string): string[] {
   const VERB = /^(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built|met|sat|put|set|let|paid|stayed|found|broke|showed)$/i;
   const out: string[] = [];
   const tidy = (rest: string) =>
-    rest
-      .split(/\s+(?:when|while|because|since|so that|which|until|after|before)\b/i)[0]!
+    ((r0: string) => {
+      // QA 2:12 PM: a clause ends at a comma aside ("the same drills, even the stars") or a comparison ("more than about winning").
+      const c = r0.split(/,\s+/)[0]!;
+      return c.split(/\s+/).length >= 3 ? c : r0;
+    })(rest.split(/\s+(?:when|while|because|since|so that|which|until|after|before|more than|rather than|instead of|even though|even if)\b/i)[0]!)
+      .replace(/\bus as people\b/gi, "the team as people")
       .split(/\s+/)
       .slice(0, 7)
       .join(" ")
       .replace(/[,;:]+$/, "")
-      .replace(/(?:\s+(?:and|but|so|to|the|a|an|with|of|for|on|in|at|from|by|every|each))+$/i, "")
+      .replace(/(?:\s+(?:and|but|so|to|the|a|an|with|of|for|on|in|at|from|by|every|each|even|about|than|as|that|just|really|like))+$/i, "")
       .replace(/\b(us|we)\b/gi, "people")
       .replace(/\bour\b/gi, "the")
       .replace(/\bme\b/gi, "you")
