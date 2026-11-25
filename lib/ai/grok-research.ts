@@ -9,6 +9,7 @@
 import type OpenAI from "openai";
 import { getGrokClient } from "@/lib/ai/grok";
 import { MODEL_FAST } from "@/lib/config";
+import { statusFromEvent } from "@/lib/coach/thinking-status";
 
 export type ResearchSource = { title: string; url: string };
 
@@ -18,6 +19,8 @@ export type ResearchResult =
 
 /** Cap per turn: she gets a few searches, not an open-ended crawl. */
 export const MAX_SEARCH_CALLS = 3;
+/** t213u speed: plain research asks get 2 searches; a reading lookup keeps 3 (find the reading, then the topic). */
+export const RESEARCH_SEARCH_CALLS = 2;
 
 type AnyJson = Record<string, unknown>;
 
@@ -82,31 +85,53 @@ export async function grokResearch(opts: {
   effort: "high" | "low" | "none";
   search: boolean;
   timeoutMs: number;
+  /** Max web searches this turn (default MAX_SEARCH_CALLS). */
+  maxSearches?: number;
+  /** PC-31 t213u: stream the response and report the real steps (searching, reading a site, writing). */
+  onStatus?: (line: string) => void;
 }): Promise<ResearchResult> {
   const started = Date.now();
   const grok = getGrokClient();
   if (!grok) return { ok: false, reason: "missing_key", ms: 0 };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  const body: AnyJson = {
+    model: MODEL_FAST,
+    instructions: opts.system,
+    input: [{ role: "user", content: opts.user }],
+    ...(opts.search ? { tools: [{ type: "web_search" }], max_tool_calls: opts.maxSearches ?? MAX_SEARCH_CALLS } : {}),
+    reasoning: { effort: opts.effort },
+    store: false,
+  };
+  const call = async (b: AnyJson): Promise<AnyJson> => {
+    if (!opts.onStatus) return (await grok.responses.create(b as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AnyJson;
+    const stream = (await grok.responses.create({ ...(b as object), stream: true } as unknown as OpenAI.Responses.ResponseCreateParamsStreaming, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AsyncIterable<AnyJson>;
+    const seen = { writing: false, hosts: new Set<string>() };
+    const types = new Set<string>();
+    let final: AnyJson | null = null;
+    let text = "";
+    for await (const ev of stream) {
+      const type = String(ev.type ?? "");
+      types.add(type);
+      for (const line of statusFromEvent(ev, seen)) opts.onStatus?.(line);
+      if (type === "response.output_text.delta" && typeof ev.delta === "string") text += ev.delta;
+      if ((type === "response.completed" || type === "response.done") && ev.response && typeof ev.response === "object") final = ev.response as AnyJson;
+    }
+    // Event names only (never content): to see what the stream gives us on a preview.
+    console.info("[grok-research] stream", { types: [...types].slice(0, 30) });
+    return final ?? { output_text: text, output: [] };
+  };
   try {
-    const body = {
-      model: MODEL_FAST,
-      instructions: opts.system,
-      input: [{ role: "user", content: opts.user }],
-      ...(opts.search ? { tools: [{ type: "web_search" }], max_tool_calls: MAX_SEARCH_CALLS } : {}),
-      reasoning: { effort: opts.effort },
-      store: false,
-    } as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming;
     let resp: AnyJson;
     try {
-      resp = (await grok.responses.create(body, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AnyJson;
+      resp = await call(body);
     } catch (err) {
       // If the API doesn't take max_tool_calls, retry once without it (the prompt still asks for a few searches).
       if ((err as { status?: number } | null)?.status !== 400 || !opts.search) throw err;
-      const { max_tool_calls: _drop, ...rest } = body as unknown as AnyJson;
+      const { max_tool_calls: _drop, ...rest } = body;
       void _drop;
       console.warn("[grok-research] retry without max_tool_calls");
-      resp = (await grok.responses.create(rest as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming, { signal: controller.signal, timeout: opts.timeoutMs })) as unknown as AnyJson;
+      resp = await call(rest);
     }
     clearTimeout(timer);
     const text = researchText(resp);

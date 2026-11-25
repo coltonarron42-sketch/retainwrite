@@ -110,6 +110,7 @@ import {
 import { finalStanceIntent, intentReply, isWriteRequest, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
 import { sourcesLine } from "@/lib/coach/sources-line";
+import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
 import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
@@ -384,6 +385,8 @@ export function CoachingLoop({
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
   const [answering, setAnswering] = useState(false);
+  /** PC-31 t213u: her live "thinking" line while an answer streams in. */
+  const [answerStatus, setAnswerStatus] = useState<string | null>(null);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
@@ -827,23 +830,14 @@ export function CoachingLoop({
   /** Her real answer (content question, "idk", a vague note), from the paper context; null = fall back. */
   async function coachAnswer(mode: CoachMode, message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
     try {
-      const controller = new AbortController();
-      // PC-31: research and summaries run web search at high effort (up to ~30 s); other turns ~16 s.
-      const timer = setTimeout(() => controller.abort(), mode === "research" || mode === "summary" ? 50_000 : 19_000);
-      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) }),
-        signal: controller.signal,
-      });
-      // The 8 s cap covers reading the body too (a stalled body kept the buttons busy).
-      if (!res.ok) {
-        clearTimeout(timer);
-        return null;
-      }
-      const d = (await res.json()) as { paras?: string[]; sources?: { title: string; url: string }[] };
-      clearTimeout(timer);
-      if (!d.paras?.length) return null;
+      // PC-31 t213u: streamed, with her live steps as the busy line ("Searching for …", "Reading …").
+      const d = await fetchPauAnswer(
+        `/api/papers/${paperId}/coach/answer`,
+        { mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) },
+        { kind: statusKindFor(mode), idleMs: 22_000, maxMs: 55_000, onStatus: (line) => setAnswerStatus(line) },
+      );
+      setAnswerStatus(null);
+      if (!d?.paras?.length) return null;
       const src = sourcesLine(d.sources);
       return [...d.paras.map((p) => oneQuip(p)), ...(src ? [src] : [])];
     } catch {
@@ -1455,6 +1449,7 @@ export function CoachingLoop({
           classify={classifyIntent}
           onAside={onAside}
           busy={checkingLogic || answering}
+          busyNote={answering ? answerStatus : null}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
