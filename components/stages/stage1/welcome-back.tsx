@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PauPauGroup } from "@/components/stages/stage1/chat-bubbles";
-import { parseWelcomeState, welcomeBackLine } from "@/lib/coach/welcome-back";
-import { readScoped, writeScoped } from "@/lib/local/user-scope";
+import { welcomeBackLine, type WelcomeFill } from "@/lib/coach/welcome-back";
+import { DsButton } from "@/components/ui/ds-button";
 import { useChatPrefs } from "@/lib/voice/prefs";
 import { markHeard, speak } from "@/lib/voice/speech";
 
@@ -63,45 +63,61 @@ export function resetReturnForTests(): void {
   returnPaper = null;
 }
 
+export type FocusState = {
+  /** History existed when this visit opened: the chat starts clean (PC-28). */
+  focused: boolean;
+  /** This visit is a return (page load / from outside the paper): Pau Pau opens with one line. */
+  line: string | null;
+  index: number;
+  /** Show the earlier turns in place (only for an explicit "edit an earlier answer"). */
+  unfocus: () => void;
+};
+
 /**
- * Decides ONCE per visit, when the restored history is ready, whether Pau Pau
- * says a welcome-back line (Colton 3:46 PM). Call it in the component that
- * lives for the whole visit, so a chat that starts empty never gets one, even
- * after the student replies, and moving between screens never adds another.
+ * PC-28 (Colton t185u): decides ONCE per visit, when the restored state is ready,
+ * whether the chat opens clean. Every return with history opens a clean active chat,
+ * one random welcome-back line with the real last-locked piece and the next one, then
+ * the exact prompt they were on. The old chat stays saved and reachable ("Past chat").
  */
-export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: boolean): string | null {
+export function useFocusReturn(paperId: string, ready: boolean, hasHistory: boolean, fill: WelcomeFill): FocusState {
   const decided = useRef(false);
-  const [line, setLine] = useState<string | null>(null);
-  const [restored, setRestored] = useState(false);
+  const fillRef = useRef(fill);
+  useEffect(() => {
+    fillRef.current = fill;
+  });
+  const [state, setState] = useState<{ focused: boolean; line: string | null; index: number }>({ focused: false, line: null, index: 0 });
   useEffect(() => {
     if (!ready || decided.current) return;
     decided.current = true;
-    // Any restored history opens at the bottom, welcome line or not.
-    if (hasHistory) setRestored(true);
-    // Only a chat with history spends this return's one welcome, so a mount
-    // that renders before its history (then remounts) never eats it.
-    if (!hasHistory || !claimReturn(paperId)) return;
-    // Per paper AND stage (QA 4:42 #6a): a Stage 2 welcome never silences Stage 3.
-    const name = welcomeStateName(paperId, stageFromPath(window.location.pathname));
-    const pick = welcomeBackLine({ hasHistory, last: parseWelcomeState(readScoped(name)), now: Date.now() });
-    if (!pick) return;
-    writeScoped(name, JSON.stringify(pick.next));
-    setLine(pick.line);
+    if (!hasHistory) return;
+    const returning = claimReturn(paperId);
+    const pick = welcomeBackLine(fillRef.current);
+    setState({ focused: true, line: returning ? pick.line : null, index: pick.index });
+    window.scrollTo({ top: 0, behavior: "auto" });
   }, [ready, hasHistory, paperId]);
-  useEffect(() => {
-    if (!restored) return;
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
-    const timers = [0, 300, 1000].map((ms) => window.setTimeout(toBottom, ms));
-    return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [restored]);
-  return line;
+  return { ...state, unfocus: () => setState((s) => ({ ...s, focused: false })) };
 }
 
-/** The welcome-back turn at the end of the restored chat. Only this line is spoken. */
-export function WelcomeBack({ line, scope, signal, silent = false }: { line: string | null; scope: string; signal: string | number; silent?: boolean }) {
-  // It greets the return, then steps aside: once the chat moves on (a reply, a
-  // new turn), it's gone, so it never sits under newer turns.
+/**
+ * Pau Pau's one opener on a return, with the two answers: keep going (the prompt
+ * below is where they left off) or check the progress (opens the skeleton). It steps
+ * aside once the chat moves on, so it never sits under newer turns.
+ */
+export function FocusOpener({
+  line,
+  scope,
+  signal,
+  silent = false,
+  onProgress,
+}: {
+  line: string | null;
+  scope: string;
+  signal: string | number;
+  silent?: boolean;
+  onProgress: () => void;
+}) {
   const [atSignal, setAtSignal] = useState<string | number | null>(null);
+  const [answered, setAnswered] = useState(false);
   useEffect(() => {
     if (line && atSignal === null) setAtSignal(signal);
   }, [line, signal, atSignal]);
@@ -109,25 +125,43 @@ export function WelcomeBack({ line, scope, signal, silent = false }: { line: str
   const shownAt = useRef(0);
   const spoken = useRef<string | null>(null);
   useEffect(() => {
-    if (!line) return;
-    if (!shownAt.current) shownAt.current = Date.now();
-    // Restored history opens at the bottom, with this line in view above the
-    // pinned composer (the thread's spacer leaves room for it).
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
-    const timers = [0, 300, 1000].map((ms) => window.setTimeout(toBottom, ms));
-    return () => timers.forEach((t) => window.clearTimeout(t));
+    if (line && !shownAt.current) shownAt.current = Date.now();
   }, [line]);
   useEffect(() => {
-    // Voice prefs can load a moment late; after that, the Voice switch reads it.
     if (silent || !line || !voice || spoken.current === line || Date.now() - shownAt.current > 4000) return;
     spoken.current = line;
     markHeard(scope, [line]);
-    speak([line]);
+    speak([line], { welcome: true });
   }, [line, voice, scope, silent]);
   if (!line || (atSignal !== null && atSignal !== signal)) return null;
   return (
-    <div data-welcome-back>
-      <PauPauGroup bubbles={[line]} />
+    <div data-welcome-back data-focus-opener>
+      <PauPauGroup bubbles={[line]}>
+        {answered ? null : (
+          <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Pick up or check progress">
+            <DsButton type="button" size="sm" variant="primary" data-focus-continue onClick={() => setAnswered(true)}>
+              Keep going
+            </DsButton>
+            <DsButton
+              type="button"
+              size="sm"
+              variant="secondary"
+              data-focus-progress
+              onClick={() => {
+                setAnswered(true);
+                onProgress();
+              }}
+            >
+              Check the progress
+            </DsButton>
+          </div>
+        )}
+      </PauPauGroup>
     </div>
   );
+}
+
+/** @deprecated PC-28: the welcome line now comes from useFocusReturn + FocusOpener. */
+export function useWelcomeBack(paperId: string, ready: boolean, hasHistory: boolean): string | null {
+  return useFocusReturn(paperId, ready, hasHistory, { done: null, next: "the next step" }).line;
 }
