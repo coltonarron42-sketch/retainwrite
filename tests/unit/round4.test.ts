@@ -305,3 +305,21 @@ describe("QA 11:56: a lead-in that lands above the ask is the same turn", () => 
     expect(linesOf(recs).map((l) => l.text.split("\n")[0])).toEqual(["Awesome, Walton it is.", "Walton visited stores."]);
   });
 });
+
+describe("QA 11:56: an in-between re-shape of a just-drawn reply is one line", () => {
+  it("is replaced whole, not split into opening + ask", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [a, b, c] = [{}, {}, {}] as unknown as Element[];
+    const att = new Set<Element>([a!]);
+    const on = (x: Element) => att.has(x);
+    foldLines(recs, [{ el: a!, who: "you", text: "I'd pick servant leadership because Walton put associates first." }], on, 0);
+    att.add(b!);
+    foldLines(recs, [{ el: a!, who: "you", text: "I'd pick servant leadership because Walton put associates first." }, { el: b!, who: "pau", text: "Awesome, Walton it is.\nWhich style do you want to argue?" }], on, 1_000);
+    att.delete(b!); att.add(c!);
+    foldLines(recs, [{ el: a!, who: "you", text: "I'd pick servant leadership because Walton put associates first." }, { el: c!, who: "pau", text: "Awesome, Walton it is.\nLast one before the stance interview.\nWhen did Walton lead a change?" }], on, 1_400);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([
+      "I'd pick servant leadership because Walton put associates first.",
+      "Awesome, Walton it is.\nLast one before the stance interview.\nWhen did Walton lead a change?",
+    ]);
+  });
+});

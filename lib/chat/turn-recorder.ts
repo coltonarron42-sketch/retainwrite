@@ -112,7 +112,9 @@ export function foldLines(
     // QA 11:26: once the student has replied after this line, it has settled: a new ask in the same bubble is a new line.
     const answered = recs.slice(recs.indexOf(mine) + 1).some((r) => !r.quiet && r.who !== mine.who);
     // A lead-in that lands above the ask ("Awesome, …" then the same question): still that turn.
-    if (mine.quiet ? restoring : rel.grow || isTail(view, mine.text) || (!answered && now - (mine.at ?? 0) < SETTLE_MS)) {
+    // QA 11:56: a line still in its first moments (no reply yet) that re-shapes is one turn, never split into opening + ask.
+    const young = !answered && mine.born !== undefined && now - mine.born < FLASH_MS;
+    if (mine.quiet ? restoring : rel.grow || isTail(view, mine.text) || young || (!answered && now - (mine.at ?? 0) < SETTLE_MS)) {
       mine.text = view;
       mine.at = now;
       if (!mine.quiet) changed = true;
@@ -156,6 +158,16 @@ export function foldLines(
       // Swapped for a fresh bubble that keeps the opening of a line that just left and adds a new ask:
       // the new ask is its own line.
       const opener = [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.quiet && !r.skip && relate(r.text, s.text).k > 0);
+      // QA 11:56: the line it would split from was itself only just drawn, with no reply since: an in-between render this replaces whole.
+      const youngOpener = opener && opener.born !== undefined && now - opener.born < FLASH_MS && !recs.slice(recs.indexOf(opener) + 1).some((r) => !r.quiet && r.who !== opener.who);
+      if (opener && youngOpener) {
+        opener.text = s.text;
+        opener.el = s.el;
+        opener.at = now;
+        opener.gone = undefined; opener.flash = undefined;
+        if (!opener.quiet) changed = true;
+        continue;
+      }
       if (opener) {
         const k = relate(opener.text, s.text).k;
         const rest = paras(s.text).slice(k).join("\n");
