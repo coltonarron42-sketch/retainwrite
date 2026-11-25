@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { ensureGhostScript, ghostInputFor } from "@/lib/server/ghost/store";
+import { classifyStartingPoint, IDEAS_CHECK_ID, ideasSaid } from "@/lib/stage1/starting-point";
 import { z } from "zod";
 import { assertAssignmentConfirmGate } from "@/lib/assignment/confirm";
 import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
@@ -12,10 +14,10 @@ import { createClient } from "@/lib/supabase/server";
 import { intakeCompleteAllowed } from "@/lib/stages/gate-guard";
 import { wordCount } from "@/lib/utils";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
-import { pickFrom } from "@/lib/stage1/paper-context";
-import { northstarGateFrom } from "@/lib/stage1/intake-resume";
 
 export const runtime = "nodejs";
+/** The ghost script is written in after() (up to ~150 s) once the response has gone. */
+export const maxDuration = 300;
 
 const answerSchema = z.object({
   questionId: z.string(),
@@ -72,19 +74,17 @@ export async function POST(request: Request, ctx: Ctx) {
   // stage. Its size is never a Stage 1 condition; the tally is only a passive log stat.
 
   const stance = body.answers.find((a) => a.questionId === "stance_early");
-  if (!stance || wordCount(stance.answerText) < 25) {
-    return NextResponse.json(
-      { error: "Early stance needs at least 25 words" },
-      { status: 400 },
-    );
-  }
-
-  if (!body.storyAngle?.text?.trim()) {
-    return NextResponse.json(
-      { error: "Pick a story angle before finishing Stage 1" },
-      { status: 400 },
-    );
-  }
+  // Older papers (and demo) still run the old Stage 1: early take + story angle are required there.
+  // New ("north star") papers run the short Stage 1 (Colton t221u): no early take, story or pick.
+  const legacyGate = () => {
+    if (!stance || wordCount(stance.answerText) < 25) {
+      return NextResponse.json({ error: "Early stance needs at least 25 words" }, { status: 400 });
+    }
+    if (!body.storyAngle?.text?.trim()) {
+      return NextResponse.json({ error: "Pick a story angle before finishing Stage 1" }, { status: 400 });
+    }
+    return null;
+  };
 
   // Every answer they wrote (not only the old "voice sample" questions); the profile itself is
   // refreshed from everything saved on the paper below.
@@ -109,12 +109,14 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const demo = await getDemoSession();
   if (demo || !hasSupabaseConfig()) {
+    const blocked = legacyGate();
+    if (blocked) return blocked;
     return NextResponse.json({
       ok: true,
       demo: true,
       stage2Url,
       styleMetrics: metrics,
-      originalThesis: stance.answerText,
+      originalThesis: stance?.answerText ?? "",
     });
   }
 
@@ -133,47 +135,35 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ ok: true, stage2Url, already: true, currentStage: current.current_stage });
   }
 
-  // North star (QA 7:02 AM): skipping everything never passes. A confirmed read-back, the
-  // material, a decision with its reason (and leader when needed) are still required, on
-  // top of the early-take and story-angle hard gates above.
   let pctx = await readPaperContext(supabase, paperId);
-  // Server-side recovery (QA 10:21 walk C): a pick that's in their answers but never reached
-  // the paper context (a dropped request) is restored from the answers, not lost.
-  if (pctx.northstar && !pctx.decision?.answer) {
-    const pick = [...body.answers].reverse().find((a) => a.questionId === "decision_pick" && a.answerText.trim());
-    if (pick) {
-      const why = [...body.answers].reverse().find((a) => a.questionId === "decision_why" && a.answerText.trim())?.answerText.trim();
-      const answer = [pick.answerText.trim().replace(/[.!?\s]+$/, ""), why].filter(Boolean).join(". ").slice(0, 2000);
-      pctx = await writePaperContext(supabase, paperId, user.id, (p) => ({
-        ...p,
-        decision: p.decision ?? { question: "Your pick", pick: pickFrom(answer, p.options?.options ?? []), answer, at: Date.now(), source: "asked" },
-      }));
-    }
-  }
+  let startingIdeas = "";
   if (pctx.northstar) {
-    const gate = northstarGateFrom({
-      answers: body.answers.map((a) => ({ questionId: a.questionId, answerText: a.answerText })),
-      decisionAnswer: pctx.decision?.answer ?? null,
-      needsLeader: (pctx.options?.people?.length ?? 0) >= 2,
-      leaderAnswer: pctx.leader?.answer ?? null,
-      materialShown: Boolean(pctx.materialShownAt),
-    });
-    const reasons = [
-      ...(pctx.readback && !pctx.readback.confirmed ? ["readback"] : []),
-      ...(gate.catchUpDone ? [] : ["material"]),
-      ...(gate.decided ? [] : ["decision"]),
-    ];
-    if (reasons.length) {
-      // Tell the client which question to re-ask, so the student is never left at a dead gate.
-      const reask = !gate.decided
-        ? !(pctx.decision?.answer || body.answers.some((a) => a.questionId === "decision_pick" && a.answerText.trim()))
-          ? "decision_pick"
-          : (pctx.options?.people?.length ?? 0) >= 2 && !pctx.leader?.answer && !body.answers.some((a) => a.questionId === "leader_pick" && a.answerText.trim())
-            ? "leader_pick"
-            : "decision_why"
-        : null;
-      return NextResponse.json({ error: "Finish the Stage 1 steps first: the read-back, the material, and your decision with a reason.", reasons, reask }, { status: 400 });
+    // PC-32 (Colton t221u): Stage 1 is short and sweet. The only hard gate is the confirmed
+    // read-back (plus the confirmed card above). Their idea is optional: "no idea" still advances.
+    if (pctx.readback && !pctx.readback.confirmed) {
+      return NextResponse.json({ error: "Confirm the summary of the assignment first.", reasons: ["readback"], reask: null }, { status: 400 });
     }
+    const said = (id: string) => [...body.answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText.trim() ?? null;
+    const point = classifyStartingPoint({
+      ideas: said(IDEAS_CHECK_ID) ?? said("decision_pick") ?? said("stance_early"),
+      followUp: ideasSaid(body.answers).followUp ?? said("decision_why"),
+      lostAtStart: pctx.lostAtStart,
+      hasReading: Boolean(pctx.readings?.length),
+      materialAnswer: said("material_check"),
+    });
+    startingIdeas = point.ideas ?? "";
+    pctx = await writePaperContext(supabase, paperId, user.id, (p) => ({ ...p, startingPoint: point }));
+    // The ghost script: written in the background from Pau's own research, server-only, never
+    // shown (lib/ghost/script.ts). It never blocks moving to Stage 2.
+    const uid = user.id;
+    const ghostCtx = pctx;
+    after(async () => {
+      const input = await ghostInputFor(supabase, paperId, ghostCtx, requirements);
+      await ensureGhostScript(supabase, paperId, uid, input, "stage1_complete");
+    });
+  } else {
+    const blocked = legacyGate();
+    if (blocked) return blocked;
   }
 
   const now = new Date().toISOString();
@@ -195,8 +185,9 @@ export async function POST(request: Request, ctx: Ctx) {
         completed_at: now,
         data: {
           useInterestProfile: body.useInterestProfile ?? true,
-          originalThesis: stance.answerText,
-          storyAngle: body.storyAngle,
+          originalThesis: stance?.answerText ?? startingIdeas,
+          storyAngle: body.storyAngle ?? null,
+          startingPoint: pctx.startingPoint?.kind ?? null,
         },
       },
       {
@@ -205,8 +196,8 @@ export async function POST(request: Request, ctx: Ctx) {
         stage: 2,
         status: "in_progress",
         data: {
-          storyAngle: body.storyAngle,
-          originalThesis: stance.answerText,
+          storyAngle: body.storyAngle ?? null,
+          originalThesis: stance?.answerText ?? startingIdeas,
         },
       },
     ]);
@@ -221,6 +212,6 @@ export async function POST(request: Request, ctx: Ctx) {
     ok: true,
     stage2Url,
     styleMetrics: metrics,
-    originalThesis: stance.answerText,
+    originalThesis: stance?.answerText ?? startingIdeas,
   });
 }

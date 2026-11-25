@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
 import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
+import { stage2StartingLine } from "@/lib/stage1/starting-point";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -130,6 +131,8 @@ type PaperBrief = {
   leader?: PaperContext["leader"] | null;
   readback?: ReadbackPlain | null;
   missingAsk?: string | null;
+  /** PC-32: where they start after the short Stage 1 (has ideas / read the material / no clue). */
+  startingPoint?: PaperContext["startingPoint"] | null;
 };
 
 type RuntimeSection = {
@@ -1416,7 +1419,7 @@ export function CoachingLoop({
                       : assignmentPurposeLine(subject),
             }),
             purpose: STAGE_PURPOSE[2],
-            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []),
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []) ?? stage2StartingLine(pctx?.startingPoint),
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
