@@ -105,3 +105,15 @@ describe("#69 side-answer route: grounding + one speech path", () => {
     expect(intake).toMatch(/asideSpoken\(lastAside\.paras\)/);
   });
 });
+
+describe("t213u polish", () => {
+  it("joins spaced-out site names and treats publisher lines as labeled", async () => {
+    const { cleanPauParas } = await import("@/lib/coach/answer");
+    expect(cleanPauParas(["• Covered on sagepub. com and hbr. org."])[0]).toBe("• Covered on sagepub.com and hbr.org.");
+    expect(groundParas(["From the SAGE publisher page for the chapter: Northouse covers the style approach."], { source: "", unreadRefs: ["Northouse"] }).labeled).toBe(0);
+  });
+  it("probing turns get one quick retry at none instead of the canned fallback", () => {
+    const route = readFileSync("app/api/papers/[paperId]/coach/answer/route.ts", "utf8");
+    expect(route).toMatch(/chatOnce\("none", 7_000\)/);
+  });
+});
