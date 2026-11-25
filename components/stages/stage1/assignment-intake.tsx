@@ -2212,7 +2212,8 @@ export function AssignmentIntake({
       }
     }
     const story0 = storyProposal?.story ?? lastStory.current;
-    if (kind === "summary" && qn.id !== "material_check") {
+    // On the first question the lost path teaches (and offers angles); with their story already told, it's this summary then back to the story.
+    if (kind === "summary" && (qn.id !== "material_check" || story0)) {
       // (c) the readings in plain words (their chapters, or clearly general background), then back to their story.
       setStoryProposal(null);
       push(typed, ["Sure. Here's the short version of the key ideas, in plain words."]);

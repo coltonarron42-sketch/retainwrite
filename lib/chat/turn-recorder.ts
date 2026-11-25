@@ -208,6 +208,48 @@ export function linesOf(recs: Rec[]): PastLine[] {
   return live.filter((r, i) => !r.flash || live.slice(i + 1).find((x) => !x.flash)?.who === "you").map(({ who, text }) => ({ who, text }));
 }
 
+/**
+ * Colton 12:11 (e) / QA 11:26: Past chat is the screen. Lines saved on an earlier visit that the screen
+ * doesn't redraw come first; then every turn now on screen, in screen order, with its words as drawn.
+ * Anything this visit drew and took away again (an in-between render, a re-shaped ask) is not a turn.
+ */
+export function screenLines(recs: Rec[], onScreen: { el: Element; who: PastLine["who"]; text: string }[]): PastLine[] {
+  const byEl = new Map<Element, Rec>();
+  for (const r of recs) if (r.el) byEl.set(r.el, r);
+  const shown = new Set(onScreen.map((s) => s.el));
+  const onNow = (r: Rec) => Boolean(r.el && shown.has(r.el));
+  const earlier = recs.filter((r) => !r.quiet && r.born === undefined && !onNow(r));
+  const out: PastLine[] = earlier.map(({ who, text }) => ({ who, text }));
+  const norm = (t: string) => pkey(t).toLowerCase();
+  const screenText = onScreen.map((s) => norm(s.text));
+  // A settled turn (answered) this visit drew, now off screen, whose words the screen doesn't show some other way:
+  // kept where it happened (a screen that hides history for a moment never shortens Past chat).
+  // Covered: most of its words (by sentence) are on screen in one bubble, or it holds a whole bubble's words.
+  const covered = (r: Rec) => {
+    const parts = norm(r.text).split(/(?<=[.!?])\s+/).filter(Boolean);
+    const total = parts.reduce((n, p) => n + p.length, 0) || 1;
+    return (
+      screenText.some((t) => parts.filter((p) => t.includes(p)).reduce((n, p) => n + p.length, 0) / total >= 0.5) ||
+      screenText.some((t) => t.length >= 40 && norm(r.text).includes(t))
+    );
+  };
+  const kept = recs
+    .map((r, i) => ({ r, i }))
+    .filter(({ r, i }) => !r.quiet && r.born !== undefined && !onNow(r) && recs.slice(i + 1).some((x) => !x.quiet && x.who !== r.who) && !covered(r));
+  let k = 0;
+  for (const s of onScreen) {
+    if (!s.text) continue;
+    const r = byEl.get(s.el);
+    // Redrawn history after a reload is already in the saved lines above.
+    if (r?.quiet) continue;
+    const at = r ? recs.indexOf(r) : Infinity;
+    while (k < kept.length && kept[k].i < at) out.push({ who: kept[k].r.who, text: kept[k++].r.text });
+    out.push(r && r.born === undefined ? { who: r.who, text: r.text } : { who: s.who, text: s.text });
+  }
+  while (k < kept.length) out.push({ who: kept[k].r.who, text: kept[k++].r.text });
+  return out;
+}
+
 /** Saved lines first; a bubble already on screen that matches one maps onto it; the rest is re-rendered history (quiet). */
 export function seedLines(saved: PastLine[], current: Rec[]): Rec[] {
   const out: Rec[] = saved.map((l) => ({ who: l.who, text: l.text, el: null }));
@@ -223,6 +265,7 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
   const recs = useRef<Rec[]>([]);
   const seeded = useRef(false);
   const restoreUntil = useRef(0);
+  const lastKey = useRef("");
   const [lines, setLines] = useState<PastLine[]>([]);
   const onChange = useRef(opts.onChange);
   useEffect(() => {
@@ -256,8 +299,11 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
         .filter((el) => !el.closest(SKIP) && !el.parentElement?.closest("[data-chat-line]"))
         .map((el) => ({ el, who: (el.getAttribute("data-chat-line") as PastLine["who"]) || "pau", text: chatLineText(el) }));
       const now = Date.now();
-      if (foldLines(recs.current, onScreen, (el) => el.isConnected, now, now < restoreUntil.current)) {
-        const next = linesOf(recs.current);
+      foldLines(recs.current, onScreen, (el) => el.isConnected, now, now < restoreUntil.current);
+      const next = screenLines(recs.current, onScreen);
+      const key = JSON.stringify(next);
+      if (key !== lastKey.current) {
+        lastKey.current = key;
         setLines(next);
         onChange.current?.(next);
       }
