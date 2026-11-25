@@ -9,7 +9,7 @@ import { namedPerson, stylesIn } from "@/lib/stage1/north-turns";
 export type StoryReflect = { style: string; who: string; named: boolean; actions: string[]; tentative: boolean };
 
 const ROLE = "manager|boss|supervisor|coach|teacher|mentor|team lead|team leader|lead|director|captain|principal|professor|pastor|sergeant|shift lead|store manager|general manager|owner";
-const ROLE_RE = new RegExp(`\\b(?:my|our)\\s+(?:old\\s+|former\\s+|first\\s+)?(${ROLE})\\b(?:\\s*,?\\s*(?:named\\s+)?([A-Z][a-z]{2,}))?`, "i");
+const ROLE_RE = new RegExp(`\\b(?:my|our)\\s+(?:old\\s+|former\\s+|first\\s+)?(?:[a-z]+\\s+){0,3}?(${ROLE})\\b(?:\\s*,?\\s*(?:named\\s+)?([A-Z][a-z]{2,}))?`, "i");
 
 /** Plain meaning of each style, in the student's register. */
 export const STYLE_MEANING: Record<string, string> = {
@@ -53,9 +53,15 @@ const NOT_WHO =
   /^(I|Okay|Ok|So|And|But|If|We|She|He|They|It|Our|The|This|That|There|Then|When|Once|Honestly|Yeah|Yes|No|Maybe|Sorry|Can|Uh|Um|Doesn|Like|Well|Also|Her|His|My|Mr|Mrs|Ms|T-Mobile|Mobile|Walmart|Target|Starbucks|Amazon|Google|Microsoft|Apple|Costco|Verizon|Best|Buy|Servant|Transformational|Situational|Leadership|Monday|Friday)$/;
 const ROLE_WORD = "leader|manager|boss|supervisor|mentor|coach|lead|director|teacher|captain|principal|professor|pastor|sergeant|owner";
 
+const TITLED_RE = /\b(Mr|Mrs|Ms|Miss|Dr|Coach|Professor|Prof|Sgt|Sergeant|Pastor|Captain|Officer)\.?\s+([A-Z][a-z'’-]{2,})\b/;
+const titledName = (title: string, name: string) => `${/^(Mr|Mrs|Ms|Dr|Prof|Sgt)$/.test(title) ? `${title}.` : title} ${name}`;
+
 /** Who the story is about: "Mandy" (from "my manager Mandy" or "an incredible leader, uh, Mandy, who…"), a named person, or "your manager". */
 export function storyWho(text0: string): { who: string; named: boolean } | null {
   const text = withoutSpokenFiller(text0);
+  // QA 2:12 PM: "My high school soccer coach, Mr. Alvarez": a title and a surname is a named person.
+  const titled = text.match(TITLED_RE);
+  if (titled) return { who: titledName(titled[1]!, titled[2]!), named: true };
   const m = text.match(ROLE_RE);
   if (m?.[2] && !NOT_WHO.test(m[2])) return { who: m[2], named: true };
   const ok = (n?: string) => (n && !NOT_WHO.test(n) ? n : null);
@@ -70,6 +76,17 @@ export function storyWho(text0: string): { who: string; named: boolean } | null 
   if (p && !p.split(/\s+/).some((w) => NOT_WHO.test(w))) return { who: p, named: true };
   if (m?.[1]) return { who: `your ${m[1].toLowerCase()}`, named: false };
   return null;
+}
+
+/** QA 2:12 PM #2: their story as an angle the route takes (at most 500 characters): whole sentences, else whole words, in their words. */
+export function storyAngleText(story: string, max = 500): string {
+  const t = story.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (end >= max * 0.5) return cut.slice(0, end + 1).trim();
+  const sp = cut.lastIndexOf(" ");
+  return `${cut.slice(0, sp > 0 ? sp : max - 1).trim()}…`.slice(0, max);
 }
 
 /** A real story of their own: a person, things that happened (past tense), and some length. */
@@ -87,13 +104,17 @@ export function storyActions(text: string, who: string): string[] {
   const VERB = /^(?:[a-z]{2,}ed|held|made|took|gave|ran|led|kept|got|taught|brought|built|met|sat|put|set|let|paid|stayed|found|broke|showed)$/i;
   const out: string[] = [];
   const tidy = (rest: string) =>
-    rest
-      .split(/\s+(?:when|while|because|since|so that|which|until|after|before)\b/i)[0]!
+    ((r0: string) => {
+      // QA 2:12 PM: a clause ends at a comma aside ("the same drills, even the stars") or a comparison ("more than about winning").
+      const c = r0.split(/,\s+/)[0]!;
+      return c.split(/\s+/).length >= 3 ? c : r0;
+    })(rest.split(/\s+(?:when|while|because|since|so that|which|until|after|before|more than|rather than|instead of|even though|even if)\b/i)[0]!)
+      .replace(/\bus as people\b/gi, "the team as people")
       .split(/\s+/)
       .slice(0, 7)
       .join(" ")
       .replace(/[,;:]+$/, "")
-      .replace(/(?:\s+(?:and|but|so|to|the|a|an|with|of|for|on|in|at|from|by|every|each))+$/i, "")
+      .replace(/(?:\s+(?:and|but|so|to|the|a|an|with|of|for|on|in|at|from|by|every|each|even|about|than|as|that|just|really|like))+$/i, "")
       .replace(/\b(us|we)\b/gi, "people")
       .replace(/\bour\b/gi, "the")
       .replace(/\bme\b/gi, "you")

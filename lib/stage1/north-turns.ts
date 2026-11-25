@@ -61,6 +61,19 @@ export function withoutFiller(text: string): string {
   return lines.join("\n").trim();
 }
 
+/**
+ * QA 2:12 PM #1: messages sent back to back are one turn. The real answer is what Pau answers;
+ * a trailing (or leading) filler ("ok", "hmm") never turns it into a non-answer.
+ */
+export function keepSubstance(parts: string[]): string {
+  const all = parts.map((p) => p.trim()).filter(Boolean);
+  const real = all.filter((p) => withoutFiller(p) !== "" && !/^(?:h+m+|u+h+|u+m+|e+r+m*|mm+)[.!?,\s]*$/i.test(p));
+  // A bare "ok" after the answer is a sign-off, not a reply to the offer (a leading "ok" may be one, so it stays).
+  const SIGN_OFF = /^(?:ok(?:ay)?|k+|kk|alright|all right|cool|got it|that'?s it|done)[.!\s]*$/i;
+  while (real.length > 1 && SIGN_OFF.test(real[real.length - 1]!)) real.pop();
+  return (real.length ? real : all).join("\n");
+}
+
 /** The gentle re-ask after a non-answer: one short line, then the same question (QA 1:11 AM #4). */
 export function fillerNudge(qid: string): string {
   switch (qid) {
@@ -171,6 +184,11 @@ export function pickEscalation(input: {
     : null;
   // QA 11:08: short: the options and one ask. Example leaders only when they're confused and
   // being taught (Colton 12:08), never on a plain "make this easier".
+  // QA round 5 minor: a second "make it easier" in a row is short (no second copy of the same list).
+  if (step >= 1 && !input.confused) {
+    const short = [`No rush. Simplest way in: start with ${rec.label}${rec.why ? `, since it ${plain(rec.why).replace(/^lets you\s+/i, "lets you ")}` : ""}.`, ask];
+    return { paras: short.join("\n") === input.last ? [`Okay, keep it simple.`, ask] : short, recommend: rec, offerCatchUp };
+  }
   let paras = [intro, ...lines, ...(exLine && step <= 1 && input.confused ? [exLine] : []), `${recLine} ${ask}`];
   if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...lines, `${recLine} ${ask}`];
   return { paras, recommend: rec, offerCatchUp };
@@ -337,4 +355,22 @@ export function lostOffer(ask: string | null | undefined): string {
   const m = t.match(/\bwhich ([a-z]+(?: [a-z]+)?) (?:is|are|works?|would)\b/i);
   const what = m ? `the main ${m[1]!.toLowerCase().replace(/y$/, "ie").replace(/(?<!s)$/, "s")}` : "the key ideas you need for this paper";
   return `That's okay, that's why you're here! Want me to summarize ${what} in plain words? It's short, and then we'll go straight to picking your direction.`;
+}
+
+
+/* ------------------- QA round 5 (2): "I don't really know any leaders" ------------------- */
+
+/** They don't know any leaders to use (not a style question at all). */
+export function isNoLeaderSaying(text: string): boolean {
+  return /\b(?:(?:don'?t|do not|dont) (?:really |actually )?know (?:any|many|of any|a lot of)(?: \w+)? leaders?|(?:can'?t|cannot) think of (?:a|any)(?: \w+)? leaders?|no idea (?:who|which leader)|(?:don'?t|do not) have (?:a|any) leaders? in mind|not sure (?:who|which leader) to (?:use|pick))\b/i.test(text);
+}
+
+/** Reassure, offer example leaders, and ask about someone from their own life. One ask, never the style again. */
+export function noLeaderReply(people: DecisionOption[] = []): string[] {
+  const ex = people.slice(0, 3).map((p) => `${p.label}${p.why ? ` (${plain(p.why)})` : ""}`);
+  return [
+    "That's completely fine. Most people don't have a famous leader in mind, and you don't need one.",
+    ...(ex.length ? [`If you'd like a well-known example, people often write about ${ex.join("; ")}.`] : []),
+    "You can also use someone from your own life. Who's a boss, coach or teacher you've had that people liked working for?",
+  ];
 }
