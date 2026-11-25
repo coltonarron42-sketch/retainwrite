@@ -16,6 +16,7 @@ import {
   parseSection,
   sealGhost,
   sectionsToFix,
+  wordsIn,
   type GhostInput,
   type GhostPlan,
   type GhostScript,
@@ -144,10 +145,12 @@ async function generate(input: GhostInput, inputHash: string): Promise<GhostScri
   }
   if (written.some((t) => !t)) return null;
   const texts = written as string[];
-  // Up to two passes that bring the total into the range.
-  for (let pass = 0; pass < 2 && Date.now() - started < 520_000; pass++) {
+  // Up to four passes that bring the total into the range (speed doesn't matter: background).
+  let passes = 0;
+  for (let pass = 0; pass < 4 && Date.now() - started < 520_000; pass++) {
     const fixes = sectionsToFix(p.outline.map((x) => x.words), texts, input.targetMin, input.targetMax);
     if (!fixes.length) break;
+    passes++;
     await Promise.all(
       fixes.map(async ({ i, target }) => {
         const t = await section(input, p, i, { have: texts[i], target });
@@ -155,7 +158,11 @@ async function generate(input: GhostInput, inputHash: string): Promise<GhostScri
       }),
     );
   }
-  return assembleGhost(p, texts, { inputHash, startingKind: input.startingKind, searches: planned.searches, targetMin: input.targetMin, targetMax: input.targetMax });
+  const ghost = assembleGhost(p, texts, { inputHash, startingKind: input.startingKind, searches: planned.searches, targetMin: input.targetMin, targetMax: input.targetMax });
+  const words = texts.reduce((a, t) => a + wordsIn(t), 0);
+  const { targetMin, targetMax } = input;
+  if (ghost === null) console.info("[ghost]", { status: "out_of_range", words, targetMin, targetMax, passes });
+  return ghost;
 }
 
 /**

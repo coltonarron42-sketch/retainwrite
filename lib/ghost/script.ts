@@ -255,7 +255,7 @@ export function ghostSectionPrompt(input: GhostInput, plan: GhostPlan, i: number
   return {
     system: [
       SYSTEM_BASE,
-      `Step 2 of 2: write ONE section of the paper, about ${target} words (stay within 10%). Polished academic prose in plain paragraphs, no heading, no bullet points. Use only the research notes and sources given; never invent quotes, numbers or sources. Cite in the assignment's citation style when you use a source. Return JSON only: {"text": string}.`,
+      `Step 2 of 2: write ONE section of the paper, between ${target} and ${sectionCeil(target)} words (never fewer than ${target}: count them). Polished academic prose in plain paragraphs, no heading, no bullet points. Use only the research notes and sources given; never invent quotes, numbers or sources. Cite in the assignment's citation style when you use a source. Return JSON only: {"text": string}.`,
     ].join("\n"),
     user: [
       `Assignment requirements:\n${input.requirements.slice(0, 1500)}`,
@@ -265,12 +265,17 @@ export function ghostSectionPrompt(input: GhostInput, plan: GhostPlan, i: number
       plan.sources.length ? `Sources:\n${plan.sources.map((x) => `- ${x.title} (${x.url})`).join("\n")}` : "",
       input.direction ? `The student's direction (build on it): ${input.direction}` : "",
       opts.have
-        ? `Here is the current draft of section ${i + 1} ("${sec.section}"), ${wordsIn(opts.have)} words. Rewrite it to about ${target} words, keeping its points:\n"""${opts.have}"""`
+        ? `Here is the current draft of section ${i + 1} ("${sec.section}"), ${wordsIn(opts.have)} words. Rewrite it to between ${target} and ${sectionCeil(target)} words (never fewer than ${target}), keeping its points:\n"""${opts.have}"""`
         : `Write section ${i + 1}: "${sec.section}" covering: ${sec.points.join("; ")}`,
     ]
       .filter(Boolean)
       .join("\n\n"),
   };
+}
+
+/** Upper bound for one section's ask: models tend to come in short, so ask for target..+10%. */
+export function sectionCeil(target: number): number {
+  return Math.round(target * 1.1);
 }
 
 export function parseSection(text: string): string | null {
@@ -283,35 +288,26 @@ export function parseSection(text: string): string | null {
 }
 
 /**
- * Sections that need one more pass to bring the total into the range: the ones furthest from
- * their budget (in the direction of the gap), rewritten to their budget, until the projected total fits.
+ * Sections that need one more pass to bring the total into the range. Short or long, every
+ * section is rewritten in proportion so the total lands on the middle of the range (a single
+ * section can't be stretched far without padding). Empty when the total already fits.
  */
 export function sectionsToFix(budgets: number[], written: string[], min: number, max: number): { i: number; target: number }[] {
   const have = written.map(wordsIn);
-  let total = have.reduce((a, b) => a + b, 0);
+  const total = have.reduce((a, b) => a + b, 0);
   if (total >= min && total <= max) return [];
-  const short = total < min;
-  const order = have
-    .map((h, i) => ({ i, off: h - budgets[i]! }))
-    .filter((x) => (short ? x.off < 0 : x.off > 0))
-    .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
-  const fixes: { i: number; target: number }[] = [];
-  for (const { i, off } of order) {
-    fixes.push({ i, target: budgets[i]! });
-    total -= off;
-    if (total >= min && total <= max) return fixes;
-  }
-  // Every section already met its budget but the total still misses: scale them all.
   const goal = Math.round((min + max) / 2);
-  const factor = goal / Math.max(1, have.reduce((a, b) => a + b, 0));
-  return have.map((h, i) => ({ i, target: Math.max(60, Math.round(h * factor)) }));
+  // A section the model under-wrote gets back at least to its budget when short.
+  const factor = goal / Math.max(1, total);
+  return have.map((h, i) => ({ i, target: Math.max(60, total < min ? Math.max(Math.round(h * factor), Math.min(budgets[i] ?? 0, Math.round(h * factor * 1.2))) : Math.round(h * factor)) }));
 }
 
-/** The finished ghost (null if it can't meet the minimum: never a short "full paper"). */
+/** The finished ghost (null unless it lands inside the word range). */
 export function assembleGhost(plan: GhostPlan, written: string[], meta: { inputHash: string; startingKind: string; searches: number; targetMin: number; targetMax: number }): GhostScript | null {
   const paper = written.filter(Boolean).join("\n\n").trim();
   const words = wordsIn(paper);
-  if (words < Math.round(meta.targetMin * 0.95)) return null;
+  // Enforced: the full paper meets the instructor's word range (never a short or overlong one).
+  if (words < meta.targetMin || words > meta.targetMax) return null;
   return {
     v: 1,
     inputHash: meta.inputHash,

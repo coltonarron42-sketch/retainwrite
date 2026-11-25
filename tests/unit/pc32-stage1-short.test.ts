@@ -14,6 +14,7 @@ import {
   parseGhostPlan,
   parseSection,
   sectionsToFix,
+  sectionCeil,
   withBudgets,
   wordsIn,
   sealGhost,
@@ -154,14 +155,24 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
     expect(parseGhostPlan('{"thesis":"t","outline":[{"section":"a","points":[]}]}', { targetMin: 1, targetMax: 2 })).toBeNull();
     expect(withBudgets([{ words: 0 }, { words: 0 }], 1000, 1200).map((x) => x.words)).toEqual([550, 550]);
   });
-  it("fixes the sections furthest from budget until the total is in range; never stores a short paper", () => {
+  it("rewrites sections in proportion until the total is in range; never stores a short or overlong paper", () => {
     const w = (n: number) => Array.from({ length: n }, () => "word").join(" ");
     expect(sectionsToFix([300, 600, 300], [w(300), w(600), w(300)], 1100, 1300)).toEqual([]);
-    expect(sectionsToFix([300, 600, 300], [w(300), w(300), w(300)], 1100, 1300)).toEqual([{ i: 1, target: 600 }]);
-    expect(sectionsToFix([300, 600, 300], [w(500), w(900), w(300)], 1100, 1300)).toEqual([{ i: 1, target: 600 }, { i: 0, target: 300 }]);
+    const short = sectionsToFix([300, 600, 300], [w(300), w(300), w(300)], 1100, 1300);
+    expect(short.map((x) => x.i)).toEqual([0, 1, 2]);
+    expect(short.reduce((a, x) => a + x.target, 0)).toBeGreaterThanOrEqual(1200);
+    expect(short[1]!.target).toBeGreaterThan(short[0]!.target);
+    const long = sectionsToFix([300, 600, 300], [w(500), w(900), w(300)], 1100, 1300);
+    expect(long.reduce((a, x) => a + x.target, 0)).toBeGreaterThanOrEqual(1100);
+    expect(long.reduce((a, x) => a + x.target, 0)).toBeLessThanOrEqual(1300);
+    // 1156 of 1200-1500 (the 4:17 PM walk) is not good enough any more.
+    expect(sectionsToFix([450, 450, 450], [w(400), w(380), w(376)], 1200, 1500).length).toBe(3);
+    expect(sectionCeil(500)).toBe(550);
     const plan = { thesis: "t", outline: [{ section: "a", points: [], words: 600 }], sources: [], notes: [] };
     const meta = { inputHash: "h", startingKind: "no_clue", searches: 3, targetMin: 1200, targetMax: 1500 };
     expect(assembleGhost(plan, [w(659)], meta)).toBeNull();
+    expect(assembleGhost(plan, [w(600), w(556)], meta)).toBeNull();
+    expect(assembleGhost(plan, [w(900), w(700)], meta)).toBeNull();
     const g = assembleGhost(plan, [w(700), w(600)], meta);
     expect(wordsIn(g!.paper)).toBe(1300);
     expect(g?.targetMin).toBe(1200);
