@@ -288,8 +288,29 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
       .replace(/\s+([,.;:!?])/g, "$1")
       .trim();
   const back = paras.some((p) => BACK_LINE.test(p.trim()));
-  // PC-31: the "Sources: …" line under a researched answer is shown, not read out.
-  let body = paras.filter((p) => !BACK_LINE.test(p.trim()) && !/^Sources:/i.test(p.trim())).map(clean).filter(Boolean).join(" ");
+  // PC-31: the "Sources: …" line under a researched answer is shown, not read out; per-bullet
+  // site tags ("Source: online.ben.edu", a trailing "hbr.org") are dropped and said once at the end.
+  const hosts: string[] = [];
+  const DOMAIN = "(?:[a-z0-9-]+\\.)+(?:com|org|edu|net|gov|io|co|uk|ca|au)";
+  const untag = (t: string) =>
+    t
+      .replace(new RegExp(`[\\s(\\[–—-]*(?:Sources?:\\s*)?(${DOMAIN})[)\\].]*\\s*$`, "i"), (_m, h: string) => {
+        const host = h.toLowerCase().replace(/^www\./, "");
+        if (!hosts.includes(host)) hosts.push(host);
+        return /[.!?]$/.test(t.slice(0, t.length - _m.length)) ? "" : ".";
+      })
+      .replace(new RegExp(`\\s*Sources?:\\s*(${DOMAIN})\\.?`, "gi"), (_m, h: string) => {
+        const host = h.toLowerCase().replace(/^www\./, "");
+        if (!hosts.includes(host)) hosts.push(host);
+        return "";
+      });
+  let body = paras
+    .filter((p) => !BACK_LINE.test(p.trim()) && !/^Sources:/i.test(p.trim()))
+    .map(clean)
+    .map(untag)
+    .filter(Boolean)
+    .join(" ");
+  if (hosts.length) body += ` I found those on ${hosts.length === 1 ? hosts[0] : `${hosts.slice(0, 2).join(" and ")}${hosts.length > 2 ? ", and a couple of other sites" : ""}`}.`;
   // PC-29d QA retest: nothing is filtered here any more. The on-screen answer (sideAnswerParas)
   // already has no trailing question of its own, so voice says the screen's words from the first
   // word; filtering "questions" again dropped an opening sentence with a title ending in "?".

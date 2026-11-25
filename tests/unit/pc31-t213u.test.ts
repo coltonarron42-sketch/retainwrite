@@ -181,3 +181,29 @@ describe("t213u #4: no 'from general background on <reading>' phrasing (walk8)",
     expect(r.paras.join(" ")).not.toMatch(/from general background/i);
   });
 });
+
+describe("QA 3:32: status order and spoken sources", () => {
+  it("first search line is always 'Searching for'", async () => {
+    const { statusFromEvent } = await import("@/lib/coach/thinking-status");
+    const seen = { topic: "what Northouse chapter 4 says", searched: 0, hosts: new Set<string>() };
+    const a = statusFromEvent({ type: "response.output_item.done", item: { type: "web_search_call", action: { query: "Northouse Leadership chapter 4 style approach" } } }, seen);
+    const b = statusFromEvent({ type: "response.web_search_call.searching" }, seen);
+    const c = statusFromEvent({ type: "response.web_search_call.searching" }, seen);
+    expect(a).toEqual(["Searching for Northouse Leadership chapter 4 style approach…"]);
+    expect(b).toEqual(["Searching a bit more on what Northouse chapter 4 says…"]);
+    expect(c).toEqual([]);
+  });
+  it("speaks the sites once, not per bullet", async () => {
+    const { asideSpoken } = await import("@/lib/stage1/voice-turn");
+    const s = asideSpoken([
+      "• Cheryl Bachelder revived Popeyes by putting franchisees first. Source: online.ben.edu",
+      "• Herb Kelleher grew Southwest by serving employees first. hbr.org",
+      "• Howard Schultz rebuilt Starbucks around partners. Source: success.com",
+      "Sources: hbr.org, ben.edu",
+    ]);
+    expect(s).not.toMatch(/Source:/);
+    expect(s.match(/hbr\.org/g)?.length).toBe(1);
+    expect(s).toMatch(/I found those on online\.ben\.edu and hbr\.org, and a couple of other sites\.$/);
+    expect(s).toContain("Herb Kelleher grew Southwest by serving employees first.");
+  });
+});
