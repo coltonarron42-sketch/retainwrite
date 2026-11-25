@@ -111,23 +111,40 @@ export const TEACH_RULES = `# Teaching the material (this outranks "keep it shor
 
 `;
 
-export function buildStage3Instructions(stateBlock: string, alreadyAsked: string[] = []): string {
-  const asked = alreadyAsked.length
+/**
+ * PC-29 (Colton t194u): how a spoken conversation flows. Shared by every stage;
+ * the xAI voice prompting guide recommends an explicit Variety rule.
+ */
+export const VOICE_FLOW_RULES = `# Conversation flow on a voice call
+- Variety: never say the same sentence, opener or question twice in a call. Vary how you start replies ("Nice", "Okay", "Got it" are each fine once in a while, not every time). If a point was already made, build on it instead of restating it.
+- If you were cut off, the state tells you what they didn't hear. Answer what the student just said first; bring the dropped point back only if it still matters, in a few words.
+- Background noise, a cough or an "um" isn't a turn. If you didn't catch real words, don't ask them to repeat unless they clearly tried to say something.
+- Typed and spoken messages are the same conversation. When they type while you're talking, answer the typed message once; never answer the same thing twice.
+- One reply per turn. Don't stack a second reply on top of one you just gave.
+
+`;
+
+const recentBlock = (recent: string[]) => {
+  const lines = recent.map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).slice(-3);
+  return lines.length ? `# Your last lines this call\nDon't say these again, even reworded:\n${lines.map((l) => `- ${l.slice(0, 220)}`).join("\n")}\n\n` : "";
+};
+
+const askedBlock = (alreadyAsked: string[]) =>
+  alreadyAsked.length
     ? `# Questions you already asked this session\nNever ask any of these again, even reworded. Ask something new, or move the student on:\n${alreadyAsked.map((q) => `- ${q}`).join("\n")}\n\n`
     : "";
-  return `${STAGE3_RULES}${TEACH_RULES}${asked}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
+
+const tail = (stateBlock: string, alreadyAsked: string[], recent: string[]) =>
+  `${VOICE_FLOW_RULES}${askedBlock(alreadyAsked)}${recentBlock(recent)}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
+
+export function buildStage3Instructions(stateBlock: string, alreadyAsked: string[] = [], recent: string[] = []): string {
+  return `${STAGE3_RULES}${TEACH_RULES}${tail(stateBlock, alreadyAsked, recent)}`;
 }
 
-export function buildStage1Instructions(stateBlock: string, alreadyAsked: string[] = []): string {
-  const asked = alreadyAsked.length
-    ? `# Questions you already asked this session\nNever ask any of these again, even reworded. Ask something new, or move the student on:\n${alreadyAsked.map((q) => `- ${q}`).join("\n")}\n\n`
-    : "";
-  return `${STAGE1_RULES}${TEACH_RULES}${asked}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
+export function buildStage1Instructions(stateBlock: string, alreadyAsked: string[] = [], recent: string[] = []): string {
+  return `${STAGE1_RULES}${TEACH_RULES}${tail(stateBlock, alreadyAsked, recent)}`;
 }
 
-export function buildInstructions(stateBlock: string, alreadyAsked: string[] = []): string {
-  const asked = alreadyAsked.length
-    ? `# Questions you already asked this session\nNever ask any of these again, even reworded. Ask something new, or move the student on:\n${alreadyAsked.map((q) => `- ${q}`).join("\n")}\n\n`
-    : "";
-  return `${REALTIME_RULES}${TEACH_RULES}${asked}# Personality\n${PAU_PERSONALITY}\nOn this voice call: at most one quip per reply, many replies have none, and never the cartoon joke.\n\n# Current state\n${stateBlock}\n`;
+export function buildInstructions(stateBlock: string, alreadyAsked: string[] = [], recent: string[] = []): string {
+  return `${REALTIME_RULES}${TEACH_RULES}${tail(stateBlock, alreadyAsked, recent)}`;
 }
