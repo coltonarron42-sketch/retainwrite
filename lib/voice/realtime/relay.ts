@@ -7,7 +7,10 @@ import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
 import { buildInstructions, buildStage1Instructions, buildStage3Instructions } from "./persona";
-import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
+import { loadPauContextBlock } from "@/lib/server/paper-context/store";
+import { classifyTurn, type Effort } from "@/lib/coach/effort";
+import { proseVerdict } from "@/lib/coach/prose-gate";
+import { verifySpoken } from "@/lib/coach/spoken-sign";
 import { loadFlowState, loadStage1State, loadStage3State, stage1Block, stage3Block, stateBlock, type FlowState, type Stage1State, type Stage3State } from "./flow-state";
 import { essayGuard, GUARD_REDIRECTS, isEcho, wordsFromStudent } from "./guard";
 import {
@@ -76,7 +79,11 @@ const TOOLS = [
   },
 ];
 
-/** Stage 1 (Intake): the app owns every step; her one write is "move on" (submit_answer). */
+/**
+ * Stage 1 (Intake): the app owns every step; her one write is "move on" (submit_answer).
+ * PC-31: side questions go through submit_answer too: the app answers them with the text
+ * model (paper context + web search + gates) and she speaks that answer word for word.
+ */
 const STAGE1_TOOLS = [
   {
     type: "function",
@@ -94,7 +101,7 @@ const STAGE1_TOOLS = [
     type: "function",
     name: "submit_answer",
     description:
-      "The student has finished answering the on-screen question (or asked to move on). The app saves exactly what they said, word for word, runs its checks, and shows the next step. Takes no text: you never supply their answer.",
+      "The student has finished answering the on-screen question (or asked to move on), OR asked you something on the side (a question about the assignment or a concept, a request for examples or sources, a summary, or for you to write something). The app takes exactly what they said, word for word: an answer is saved and the next step shows; a side question gets a researched answer on screen that you then say aloud. Takes no text: you never supply their words.",
     parameters: { type: "object", properties: {}, required: [] },
   },
 ];
@@ -295,6 +302,17 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let pendingDetail = false;
   // The paper context (north star D): read-back, material key points, decision, early take, locked points.
   let paperBlock = "";
+  // PC-31: reasoning effort per turn ("high" for research/probing, "none" for acks and read-backs).
+  // A typed turn switches before its reply; a spoken turn's reply has already started, so it applies from the next one.
+  let turnEffort: Effort = ctx.effort;
+  const effortFor = (text: string, why: "typed" | "spoken") => {
+    const c = classifyTurn(text, { step: stage1 && flow1 && !flow1.confirmed ? "readback" : null });
+    const want: Effort = ctx.effort === "high" ? "high" : c.effort;
+    console.log(JSON.stringify({ evt: "pau_realtime_effort", sid, intent: c.intent, effort: want, changed: want !== turnEffort, why }));
+    if (want === turnEffort) return false;
+    turnEffort = want;
+    return true;
+  };
   /** Say the app's line exactly (no model wording). One line, once: the same line within 10 s is skipped. */
   const sayLine = (text: string, o: { cancel?: boolean } = {}) => {
     const t = text.replace(/\s+/g, " ").trim().slice(0, 1600);
@@ -619,7 +637,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   });
 
   const refreshFlow = async () => {
-    void loadPaperContextBlock(ctx.supabase, ctx.paperId)
+    void loadPauContextBlock(ctx.supabase, ctx.paperId)
       .then((r) => {
         paperBlock = r.block;
       })
@@ -723,7 +741,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
       session: {
         voice: REALTIME_VOICE,
         instructions: instructions(),
-        reasoning: { effort: ctx.effort },
+        reasoning: { effort: turnEffort },
         turn_detection: ctx.gate || ctx.vad === "client" ? null : { type: "server_vad", ...(ctx.vadTuning ?? {}) },
         tools: ctx.gate ? [] : stage1 ? STAGE1_TOOLS : stage3 ? STAGE3_TOOLS : TOOLS,
         audio: {
@@ -840,7 +858,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     } catch {}
     const out = (o: unknown) => ({ call_id: callId, output: JSON.stringify(o) });
     if (name === "get_paper_context") {
-      const r = await loadPaperContextBlock(ctx.supabase, ctx.paperId).catch(() => null);
+      const r = await loadPauContextBlock(ctx.supabase, ctx.paperId).catch(() => null);
       if (r) paperBlock = r.block;
       return out({ context: r?.block || "Nothing saved about this paper yet." });
     }
@@ -1032,6 +1050,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
               afterNoise(null);
             }
           }
+          if (final && !echo && realWords(t).length >= 2 && effortFor(t, "spoken")) sessionUpdate();
           if (final && (echo || isNoiseTurn(t, false))) noiseItems.add(id);
           // Real words from the student: an app turn held back for them stays superseded.
           else if (done && realWords(t).length) skippedTurn = null;
@@ -1140,7 +1159,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             release(rid, "repeat");
           }
         }
-        const v = essayGuard(so);
+        // App lines said word for word (force_message) were checked before; her own words get the essay
+        // guard plus the PC-31 pasteable-prose gate before more of them are heard.
+        const forcedLine = forcedRids.has(rid);
+        const v = forcedLine ? ({ block: false } as const) : essayGuard(so).block ? essayGuard(so) : proseVerdict(so);
         if (v.block) {
           guarded.add(rid);
           m.guardTrips++;
@@ -1404,6 +1426,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         m.textInputs++;
         studentSaid.push(text);
         speechStoppedAt = Date.now();
+        if (effortFor(text, "typed")) sessionUpdate();
         upSend({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
         upSend({ type: "response.create" });
         return;
@@ -1444,6 +1467,26 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             },
           });
         }
+        return;
+      }
+      case "rw.say": {
+        // PC-31: a typed Pau answer (text model + web search, gated server-side), spoken word for word.
+        // Only words the coach route signed for this paper are said.
+        if (ctx.gate) return;
+        const text = String(e.text ?? "").replace(/\s+/g, " ").trim().slice(0, 1600);
+        if (!text || !verifySpoken(ctx.paperId, text, String(e.sig ?? ""))) {
+          console.log(JSON.stringify({ evt: "pau_realtime_say_refused", sid }));
+          return;
+        }
+        if (proseVerdict(text).block) return;
+        m.tools.typed_answer = (m.tools.typed_answer ?? 0) + 1;
+        if (responding || speechActive) {
+          void waitIdle(8_000).then(() => {
+            if (!closed) sayLine(text);
+          });
+          return;
+        }
+        sayLine(text);
         return;
       }
       case "rw.turn": {
