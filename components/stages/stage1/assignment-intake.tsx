@@ -1460,7 +1460,7 @@ export function AssignmentIntake({
       if (kind === "submit") submitBusy.current = Date.now() + 60_000;
       try {
         const result = await voiceRef.current(text, kind);
-        return { ok: true, result, screen: rtScreenRef.current.text };
+        return { ok: true, result, screen: rtScreenRef.current.text, spoken: voiceLineRef.current };
       } finally {
         if (kind === "submit") submitBusy.current = Date.now() + 1_500;
       }
@@ -1490,6 +1490,15 @@ export function AssignmentIntake({
           ? `${spokenAll ? `First, the key points, saying where each comes from (teaching content, never their paper text): ${spokenAll}. ` : ""}${brief.missingAsk ? `Then say honestly and warmly, in your own words: ${brief.missingAsk} ` : ""}Then the question on screen: `
           : ""
       : "";
+  // PC-29 QA round 2: the same teaching, as words she says verbatim before the question.
+  const teachSpoken =
+    curId && brief
+      ? reoffer === curId && spokenAll
+        ? `No worries. Here's what I've got again. ${spokenAll}`
+        : curId === "decision_pick" && lostNow && (spokenAll || brief.missingAsk)
+          ? [spokenAll, brief.missingAsk ?? ""].filter(Boolean).join(" ")
+          : ""
+      : "";
   const rtView0 = stage1VoiceScreen({
     screen,
     qIndex,
@@ -1500,10 +1509,16 @@ export function AssignmentIntake({
     editing: editReturn !== null || editingDetails,
     error,
     greeting: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}`,
+    ask: rtQuestion,
+    teach: teachSpoken,
   });
   const rtDetail = Boolean(teachFirst) || (screen === "card" && confirmTurns.length <= 1);
   const rtView = { ...rtView0, key: `${rtView0.key}${teachFirst ? `:t${brief?.summary ? 1 : 0}${brief?.missingAsk ? 1 : 0}${reoffer ?? ""}` : ""}` };
   const rtScreenRef = useRef(rtView);
+  // PC-29 QA round 2: the on-screen prompt exactly as shown (the turn branches below refine it
+  // during render with the copy they actually display); the call says it word for word.
+  const voiceLineRef = useRef("");
+  voiceLineRef.current = rtView.spoken;
   useEffect(() => {
     rtScreenRef.current = rtView;
     draftRef.current = draftAnswer;
@@ -1610,17 +1625,17 @@ export function AssignmentIntake({
     }
     if (rtSeen.current === null || rtSeen.current === rtView.key) {
       rtSeen.current = rtView.key;
-      rt.setScreen(rtView.text, rtView.choices);
+      rt.setScreen(rtView.text, rtView.choices, false, voiceLineRef.current);
       return;
     }
     rtSeen.current = rtView.key;
     rt.clearLive();
-    rt.setScreen(rtView.text, rtView.choices);
+    rt.setScreen(rtView.text, rtView.choices, false, voiceLineRef.current);
     // Her own submit_answer already carries the next step: she asks it from the tool result.
     if (Date.now() < submitBusy.current) return;
     // A student turn on the read-back waits for the app's reply.
     if (screen === "card" && confirmTurns[confirmTurns.length - 1]?.role !== "pau") return;
-    rt.sayTurn(rtView.text, { detail: rtDetail });
+    rt.sayTurn(rtView.text, { detail: rtDetail, spoken: voiceLineRef.current });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtView.key, rt.on]);
   // PC-29: the assignment is pasted or typed, never spoken: focusing the box pauses the mic.
@@ -2872,6 +2887,8 @@ export function AssignmentIntake({
       setScreen("story");
       return;
     }
+    // PC-29 QA minor: Stage 1 is finished; the voice call ends cleanly (after her short "Let's go.").
+    if (rt.on) window.setTimeout(() => rt.stop(), 1_500);
 
     const sample = answers
       .filter((a) => a.isVoiceSample)
@@ -3980,6 +3997,18 @@ export function AssignmentIntake({
               ...(metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? [readyVoiceLine(voiceEval.totalWords) as string] : []),
             ]
           : [];
+    // PC-29 QA round 2: what the call says is the copy this turn shows, word for word.
+    voiceLineRef.current = [
+      error ?? "",
+      screen === "story"
+        ? informedStory
+          ? informedStoryAsk(informedLeader)
+          : "Here are a few directions your paper could take, built from what you told me. Tap one, or write your own angle below."
+        : [screen === "coaching" ? teachSpoken : "", ...currentTurnTexts].filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
     // Leads fold into Pau's CURRENT turn (PLAN.md 9): her intro, the links, then the question. Never a separate bubble.
     const leadsShown = leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode;
     const leadsList = leadsShown ? (
@@ -4417,7 +4446,11 @@ export function AssignmentIntake({
                 )}
                 {rtMode ? (
                   <div className="mt-3">
-                    <RealtimeControls call={rt} />
+                    {/* PC-29 QA minor: Stage 1 is done here; say what voice is waiting for (no text box). */}
+                    <RealtimeControls
+                      call={rt}
+                      listenHint={startingStance ? "Starting the stance interview…" : blockers.length ? "Voice is on. Tap an answer above to change it." : "Say “yes” or tap Start stance interview."}
+                    />
                   </div>
                 ) : null}
               </div>
