@@ -145,6 +145,8 @@ type Props = {
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
   /** Pau is checking (relevance) before she answers. */
   busy?: boolean;
+  /** PC-31 t213u: her live step while busy ("Searching for …"); replaces the generic lookup note. */
+  busyNote?: string | null;
   idea: string;
   onIdea: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -988,9 +990,9 @@ export function StanceChat(props: Props) {
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
-        {lookupNote && (checking || props.busy) ? (
+        {(props.busy && props.busyNote) || (lookupNote && (checking || props.busy)) ? (
           <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
-            {lookupNote}
+            {props.busy && props.busyNote ? props.busyNote : lookupNote}
           </p>
         ) : null}
       </div>

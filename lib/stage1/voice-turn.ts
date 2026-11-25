@@ -288,7 +288,8 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
       .replace(/\s+([,.;:!?])/g, "$1")
       .trim();
   const back = paras.some((p) => BACK_LINE.test(p.trim()));
-  let body = paras.filter((p) => !BACK_LINE.test(p.trim())).map(clean).filter(Boolean).join(" ");
+  // PC-31: the "Sources: …" line under a researched answer is shown, not read out.
+  let body = paras.filter((p) => !BACK_LINE.test(p.trim()) && !/^Sources:/i.test(p.trim())).map(clean).filter(Boolean).join(" ");
   // PC-29d QA retest: nothing is filtered here any more. The on-screen answer (sideAnswerParas)
   // already has no trailing question of its own, so voice says the screen's words from the first
   // word; filtering "questions" again dropped an opening sentence with a title ending in "?".
