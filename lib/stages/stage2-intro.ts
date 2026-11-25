@@ -5,7 +5,7 @@ import { dropHedges } from "@/lib/copy/tidy";
  * (never "idk"), and the Stage 1 options reused when they ask for options.
  * // SOP: coaching only, never generate submission text
  */
-import { clipWords } from "@/lib/copy/clip";
+import { namedPerson } from "@/lib/stage1/north-turns";
 import { notAlreadyNamed } from "@/lib/stage1/readback-tidy";
 import { andList, answerNamesOption, decisionHasReason, decisionLabel, pickedStyles, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
@@ -31,6 +31,24 @@ export function smoothCause(text: string): string {
   return `${m[1]}, and as a result, ${effect}`;
 }
 
+/**
+ * QA full prod walk (8979326a): the leader they named, even when the menu answer was saved as
+ * "their own" ("I already said it, Sam Walton!") or the name only lives in their pick.
+ */
+function leaderName(leader: PaperContext["leader"] | null | undefined, said: string): string | null {
+  if (leader?.pick && leader.pick !== "their own" && leader.pick.length <= 40) return leader.pick;
+  return namedPerson(leader?.answer ?? "") ?? namedPerson(said);
+}
+
+/** Their reason, in whole sentences (never cut mid-thought into "because… and…"): the first sentence, or two short ones. */
+function wholeReason(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  const parts = t.match(/[^.!?]+(?:[.!?]+|$)/g) ?? [t];
+  let out = parts[0]!.trim();
+  if (out.split(/\s+/).length < 8 && parts[1]) out = `${out} ${parts[1].trim()}`;
+  return out;
+}
+
 const REASON_RE = /\b(because|since|bc|cuz|'cause|so that|as it|it fits|it shows|it would|that's why|which is why)\b\s*(.*)$/i;
 
 /**
@@ -47,7 +65,7 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
     const named = pickedStyles(decision, options);
     const one = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
     const pick0 = named.length > 1 ? andList(named) : one;
-    const who0 = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
+    const who0 = leaderName(leader, said);
     if (pick0) return `Earlier you picked ${pick0}${who0 ? ` with ${who0} as your example` : ""}.`;
     return null;
   }
@@ -59,9 +77,9 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
       : decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick)
         ? decision.pick
         : null;
-  const who = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
+  const who = leaderName(leader, said);
   const m = said.match(REASON_RE);
-  const tidy = (t: string) => clipWords(toSecondPerson(smoothCause(t)).replace(/[\s.!,;:]+$/, ""), 220);
+  const tidy = (t: string) => toSecondPerson(wholeReason(smoothCause(t))).replace(/[\s.!,;:]+$/, "");
   const reason = m ? tidy(/^(because|since|bc|cuz|'cause)$/i.test(m[1]) ? m[2] : `${m[1]} ${m[2]}`) : "";
   if (pick) {
     const ex = who ? ` with ${who} as your example` : "";

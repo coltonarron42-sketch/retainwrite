@@ -35,17 +35,46 @@ export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.
  * QA 8:31 AM: never the same line every time. Each try gets a different opener and
  * points at what's actually missing from what they wrote (the claim, the reason, the example).
  */
-export function moreWordsNote(_have: number, _need: number, what: string, text = "", attempt = 0): string {
+export type AskKind = "example" | "case" | "claim";
+/**
+ * QA prod smoke (51dddefe): what the question on screen asks for, so the nudge asks for the same
+ * thing ("When did Sam Walton have to lead people through a big change…" is an example question:
+ * never "Start with what you think" or "Now the why").
+ */
+export function askKind(question: string | null | undefined): AskKind {
+  const q = String(question ?? "");
+  if (/\bNow your case\b|\bNext up is your case\b|\bwhy does (?:it|that|your)\b/i.test(q)) return "case";
+  if (/\bNext up is (?:your example|the change part)\b|\bWhen did\b|\breal moment\b|\bwhat did (?:they|he|she) do\b|\bwhat happened\b/i.test(q)) return "example";
+  return "claim";
+}
+
+export function moreWordsNote(_have: number, _need: number, what: string, text = "", attempt = 0, kind: AskKind = "claim"): string {
   // No counts in the visible copy; keep it a nudge, not a meter.
   const opener = OPENERS[attempt % OPENERS.length]!;
   const t = text.trim();
-  if (!t) return `${opener} ${what} is almost there. Add to it below.`;
+  if (!t) return kind === "example" ? `${opener} Tell me the moment itself: when it happened and what they actually did.` : `${opener} ${what} is almost there. Add to it below.`;
+  if (kind === "example") {
+    // An example question gets example nudges: the moment, what they did, what happened next. Never the why.
+    const when = /\b(when|in (?:19|20)\d\d|after|during|before|once|the time|year|day|week|started|opened|took over|became)\b/i.test(t);
+    const did = /\b(did|led|made|told|asked|visited|listened|shared|changed|turned|cut|built|started|opened|pushed|gave|went|took|put|kept|got|called|met|moved|rallied|fired|hired)\b/i.test(t);
+    const after = /\b(so|then|after that|as a result|which|that made|because of it|people|team|workers|employees|associates|staff)\b/i.test(t);
+    const ask = !when
+      ? "When was it? Name the moment, then what they did."
+      : !did
+        ? "What did they actually do in that moment? One or two things is plenty."
+        : !after
+          ? "What happened next: how did the people around them respond?"
+          : "One more detail from that moment: what changed because of what they did?";
+    return `${opener} ${ask}`;
+  }
   const reason = REASON_RE.test(t);
   const example = /\b(for example|for instance|like when|such as|at [A-Z]\w+|[A-Z][a-z]+ [A-Z][a-z]+)\b/.test(t) || /\b(when (he|she|they)|did|led|changed|turned)\b/i.test(t);
   const claim = /\b(i think|i'?d argue|i want to argue|i believe|works? best|is (the )?(best|most)|better|transformational|situational|servant|democratic|task|relationship)\b/i.test(t);
   // QA 11:51 (b): a full sentence is never told to "start with one plain sentence": one ask, about what it shows.
   const sentence = t.split(/\s+/).length >= 8 && /[.!]["”]?\s*$/.test(t);
-  const need = !claim
+  const need = !claim && kind === "case"
+    ? "Tie it to your pick: which approach shows up in that moment, and why does it work best here?"
+    : !claim
     ? sentence
       ? "That's a real example. What does it show about which approach works best, and why?"
       : "Start with what you think, in one plain sentence."
