@@ -171,9 +171,12 @@ export function applySourceQuality(
     read?: string[];
     /** QA 4:08: page text we fetched (url → title/text). With it, every cited bullet gets a support check. */
     fetched?: Map<string, { title: string; text: string }>;
+    /** Pages that never mention what they asked about (QA retest minor: loosely related links drop). */
+    offTopic?: Set<string>;
     titles?: Map<string, string>;
   },
 ): QualityResult {
+  const tierOf = (u: string, about = ""): Tier => (o.offTopic?.has(u) ? (Math.min(1, sourceTier(u, about)) as Tier) : sourceTier(u, about));
   const lines = raw.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const dropped: QualityResult["dropped"] = [];
   const checks: AttributionCheck[] = [];
@@ -191,7 +194,7 @@ export function applySourceQuality(
     const cited = [...new Set([...urls, ...hosts.filter((h) => !urls.some((u) => hostOf(u) === h)).map((h) => known.find((u) => hostOf(u) === h) ?? h)])];
     const about = dropSiteMentions(line);
     const best = cited.reduce<{ t: Tier; u: string | null }>((acc, u) => {
-      const t = sourceTier(u, about);
+      const t = tierOf(u, about);
       return t > acc.t ? { t, u } : acc;
     }, { t: 0, u: null });
     if (!bullet) {
@@ -204,7 +207,7 @@ export function applySourceQuality(
       }
       // QA 4:08: a reading lead ("From SAGE's page for Northouse…") must be backed by a good page she read.
       if (check && o.mode === "reading" && !seenBullet && /\b(?:from|per|according to)\b/i.test(line) && keyTerms(line).entities.length) {
-        const pages = known.filter((u) => sourceTier(u, about) >= 2);
+        const pages = known.filter((u) => tierOf(u, about) >= 2);
         const hit = pages.find((u) => supportedBy(line, evidenceFor(u, o).text));
         checks.push({ bullet: stripCites(line).slice(0, 160), tag: "lead", page: hit ?? pages[0] ?? "", pageTitle: evidenceFor(hit ?? pages[0] ?? "", o).title.slice(0, 140), supported: Boolean(hit), retagged: false, terms: keyTerms(line).entities.slice(0, 4) });
         if (!hit) {
@@ -221,7 +224,7 @@ export function applySourceQuality(
     let page = best.u;
     if (!ok && check && cited.length) {
       // A bullet tagged to a weak site: re-tag it to a good page she read that does back it up.
-      const alt = known.find((u) => sourceTier(u, about) >= 2 && supportedBy(line, evidenceFor(u, o).text));
+      const alt = known.find((u) => tierOf(u, about) >= 2 && supportedBy(line, evidenceFor(u, o).text));
       checks.push({
         bullet: stripCites(line.replace(BULLET, "")).slice(0, 160),
         tag: hostOf(best.u ?? cited[0] ?? ""),
@@ -235,7 +238,7 @@ export function applySourceQuality(
         ok = true;
         page = alt;
         usedUrls.push(alt);
-        used.set(hostOf(alt), sourceTier(alt, about));
+        used.set(hostOf(alt), tierOf(alt, about));
         const body = stripCites(line.replace(BULLET, ""));
         out.push(`• ${body.replace(/\.$/, "")}${o.mode === "research" ? ` (${sourceName(alt)})` : ""}.`);
         continue;
@@ -247,8 +250,8 @@ export function applySourceQuality(
     }
     if (check && cited.length) {
       // Every passing page she could mean: the cited ones (a bare [hbr.org] tag covers each hbr.org page she read).
-      const tagged = [...new Set(cited.flatMap((c) => (/^https?:/i.test(c) ? [c] : known.filter((k) => hostOf(k) === hostOf(c)))).filter((u) => /^https?:/i.test(u) && sourceTier(u, about) >= 2))];
-      const others = known.filter((u) => !tagged.includes(u) && sourceTier(u, about) >= 2);
+      const tagged = [...new Set(cited.flatMap((c) => (/^https?:/i.test(c) ? [c] : known.filter((k) => hostOf(k) === hostOf(c)))).filter((u) => /^https?:/i.test(u) && tierOf(u, about) >= 2))];
+      const others = known.filter((u) => !tagged.includes(u) && tierOf(u, about) >= 2);
       const hit = tagged.find((u) => supportedBy(line, evidenceFor(u, o).text));
       const re = hit ? null : others.find((u) => supportedBy(line, evidenceFor(u, o).text));
       const chosen = hit ?? re ?? null;
@@ -270,7 +273,7 @@ export function applySourceQuality(
     }
     if (page && /^https?:/i.test(page)) usedUrls.push(page);
     for (const u of page ? [page] : cited) {
-      const t = sourceTier(u, about);
+      const t = tierOf(u, about);
       if (t >= 2) used.set(hostOf(u), Math.max(used.get(hostOf(u)) ?? 0, t) as Tier);
     }
     const body = stripCites(line.replace(BULLET, ""));
@@ -278,7 +281,7 @@ export function applySourceQuality(
     const attr = o.mode === "research" && page ? ` (${sourceName(page)})` : "";
     out.push(`• ${body.replace(/\.$/, "")}${attr}.`);
   }
-  const rank = (s: Src, about = "") => sourceTier(s.url, about);
+  const rank = (s: Src, about = "") => tierOf(s.url, about);
   let passing: Src[];
   if (check && o.mode === "research") {
     // The Sources line lists exactly the pages the kept bullets rest on.
@@ -287,7 +290,10 @@ export function applySourceQuality(
     passing = o.sources.filter((s) => used.has(hostOf(s.url)) || rank(s) >= 2);
     passing.sort((a, b) => Number(used.has(hostOf(b.url))) - Number(used.has(hostOf(a.url))) || rank(b) - rank(a));
   }
-  const goodUnused = [...new Set((o.read ?? []).filter((u) => sourceTier(u) >= 2).map(hostOf))].filter((h) => !used.has(h));
+  // QA retest minor: a source's label is never a bare domain: its fetched page title when the citation gave none.
+  const bare = (t: string, u: string) => !t || /^https?:/i.test(t) || t.toLowerCase().replace(/^www\./, "") === hostOf(u);
+  passing = passing.map((s) => (bare(s.title, s.url) ? { ...s, title: evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim().slice(0, 90) || s.title } : s));
+  const goodUnused = [...new Set((o.read ?? []).filter((u) => tierOf(u) >= 2).map(hostOf))].filter((h) => !used.has(h));
   return { text: out.join("\n"), sources: passing, kept: out.filter((l) => l.startsWith("• ")).length, dropped, checks, goodUnused };
 }
 
@@ -315,18 +321,53 @@ export function bestExcerpt(text: string, words: string[], size = 1500): string 
 }
 
 /** When nothing citable came back: say so plainly, keep the gist as labeled background (no sites). */
-export function noGoodSourcesParas(dropped: { line: string; why?: "weak" | "unsupported" }[], question: string | null): string[] {
+export function noGoodSourcesParas(
+  dropped: { line: string; why?: "weak" | "unsupported" }[],
+  question: string | null,
+  background: string[] = [],
+): string[] {
   const unsupported = dropped.length > 0 && dropped.every((d) => d.why === "unsupported");
+  // QA retest (da13848): never promise background and deliver nothing. The dropped bullets' gist, else
+  // general background written without any sources (concepts only, no names, numbers or studies), else no promise.
   const gist = dropped
     .slice(0, 3)
     .map((d) => `• ${stripCites(d.line.replace(BULLET, "")).replace(/\.$/, "")}.`)
-    .filter((l) => l.length > 6);
-  return [
-    unsupported
+    .filter((l) => l.length > 12);
+  const bg = background.map((l) => l.trim()).filter((l) => /^[•*-]\s+\S/.test(l) && l.length > 12)
+    // Unsourced background never carries specifics: no figures, no named people or companies, no links.
+    .filter((l) => !/\d|https?:|\[|\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(l.replace(/^[•*-]\s+\S+/, ""))).map((l) => `• ${l.replace(/^[•*-]\s+/, "")}`).slice(0, 4);
+  const body = gist.length ? gist : bg;
+  const lead = !body.length
+    ? "I couldn't find sources I'd want you to cite on this one."
+    : unsupported && gist.length
       ? "I couldn't match these to a page that actually backs them up, so treat this as general background, not something to cite:"
-      : "I couldn't find sources I'd want you to cite on this one. What came up were summary and blog sites, so here's general background instead (not something to cite):",
-    ...gist,
+      : "I couldn't find sources I'd want you to cite on this one. What came up were summary and blog sites, so here's general background instead (not something to cite):";
+  return [
+    lead,
+    ...body,
     "For citable examples, try Google Scholar or your library's business databases, or ask me to look for a specific leader or company.",
     ...(question ? [question] : []),
   ];
+}
+
+/** True when noGoodSourcesParas would have nothing to show under its lead (so the route writes general background). */
+export function needsBackground(dropped: { line: string }[]): boolean {
+  return !dropped.slice(0, 3).some((d) => stripCites(d.line.replace(BULLET, "")).length > 10);
+}
+
+const TOPIC_GENERIC = new Set(["leadership", "leader", "leaders", "example", "examples", "style", "styles", "theory", "theories", "management", "manager", "business", "company", "companies", "research", "sources", "about", "their", "which", "where", "there", "find", "other", "should", "would", "could", "practice", "approach", "approaches"]);
+/** The words a page has to mention to be on topic ("real examples of servant leadership" → ["servant"]). */
+export function topicTerms(topic: string): string[] {
+  return [...new Set(topic.toLowerCase().split(/[^a-z-]+/).filter((w) => w.length >= 5 && !TOPIC_GENERIC.has(w)))];
+}
+/** Fetched pages that never mention any topic term (a generic "Leadership case studies in education 4" page on a servant-leadership ask). */
+export function offTopicPages(fetched: Map<string, { title: string; text: string }>, terms: string[]): Set<string> {
+  const out = new Set<string>();
+  if (!terms.length) return out;
+  for (const [u, f] of fetched) {
+    const hay = `${f.title} ${f.text}`.toLowerCase();
+    // Only judge a page we actually read (a blocked or empty fetch says nothing about it).
+    if (f.text.length > 300 && !terms.some((t) => hay.includes(t.replace(/-/g, " ")) || hay.includes(t))) out.add(u);
+  }
+  return out;
 }

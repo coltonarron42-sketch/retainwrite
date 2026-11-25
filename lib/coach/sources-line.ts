@@ -1,3 +1,4 @@
+import { SOURCE_QUALITY } from "@/lib/coach/source-quality.config";
 /** PC-31: the line under a researched reply that names where it came from (site names; the links were checked server-side). */
 export type SourceRef = { title: string; url: string };
 
@@ -18,10 +19,11 @@ export function sourcesLine(sources: SourceRef[] | undefined | null): string | n
     const raw = (s.title || "").replace(/\s+/g, " ").trim();
     // xAI citations often come back with the URL as the title: use the page's slug as its title
     // ("Servant leadership at Heritage Bible College"), else the site name, not a raw link.
-    let title = !raw || /^https?:\/\//i.test(raw) || raw.toLowerCase().replace(/^www\./, "") === host.toLowerCase() ? slugTitle(s.url) ?? host : raw.slice(0, 80);
-    if (seen.has(title.toLowerCase())) title = slugTitle(s.url) ?? title;
+    // QA retest minor: never a bare domain: the page title, its slug, else a readable publisher name.
+    let title = !raw || /^https?:\/\//i.test(raw) || raw.toLowerCase().replace(/^www\./, "") === host.toLowerCase() ? slugTitle(s.url) ?? publisherName(host) : raw.slice(0, 80);
+    if (seen.has(title.toLowerCase())) title = slugTitle(s.url) ?? `${title} (another page)`;
     seen.add(title.toLowerCase());
-    const label = title === host ? host : host && !title.toLowerCase().includes(host.split(".")[0]!.toLowerCase()) ? `${title} (${host})` : title;
+    const label = host && !title.toLowerCase().includes(host.split(".")[0]!.toLowerCase()) ? `${title} (${host})` : title;
     // QA 3:46: one Sources line with linked titles (the chat renders [label](url) as a link).
     return /^https?:\/\//i.test(s.url) ? `[${label.replace(/[[\]]/g, "")}](${s.url})` : label;
   });
@@ -64,4 +66,19 @@ export function parseSourcesLine(line: string): ({ text: string } | { label: str
 /** The Sources line as plain words (speech, transcripts): labels without the links. */
 export function sourcesLinePlain(line: string): string {
   return line.replace(/\[([^\]]{1,160})\]\((https?:\/\/[^)\s]+)\)/g, "$1");
+}
+
+/** "collegepublishing.sagepub.com" → "SAGE"; "csuepress.columbusstate.edu" → "Columbusstate (university site)". */
+export function publisherName(host: string): string {
+  const h = host.toLowerCase().replace(/^www\./, "");
+  const key = Object.keys(SOURCE_QUALITY.names).sort((a, b) => b.length - a.length).find((d) => h === d || h.endsWith(`.${d}`));
+  if (key) {
+    const n = SOURCE_QUALITY.names[key]!.replace(/^(?:the|a)\s+/i, "");
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  }
+  const parts = h.split(".");
+  const tld = parts.at(-1) ?? "";
+  const core = parts.length >= 2 ? parts.at(-2)! : h;
+  const name = core.charAt(0).toUpperCase() + core.slice(1);
+  return tld === "edu" ? `${name} (university site)` : tld === "gov" ? `${name} (government site)` : name;
 }

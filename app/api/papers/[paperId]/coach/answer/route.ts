@@ -3,7 +3,7 @@ import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, READING_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
 import { sourceHost } from "@/lib/coach/sources-line";
-import { applySourceQuality, bestExcerpt, lineUrls, noGoodSourcesParas, sourceTier, type QualityResult } from "@/lib/coach/source-quality";
+import { applySourceQuality, bestExcerpt, lineUrls, needsBackground, noGoodSourcesParas, offTopicPages, topicTerms, sourceTier, type QualityResult } from "@/lib/coach/source-quality";
 import { fetchEvidence } from "@/lib/coach/page-evidence";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
@@ -165,7 +165,8 @@ export async function POST(request: Request, ctx: Ctx) {
           const cands = [...new Set([...lineUrls(rr.raw), ...rr.sources.map((x) => x.url), ...rr.read])].filter((u) => sourceTier(u) >= 2);
           emit(CHECKING_LINE);
           const fetched = await fetchEvidence(cands, { timeoutMs: 3_500, max: 8 });
-          return { q: applySourceQuality(rr.raw, { mode: qmode, sources: rr.sources, read: rr.read, fetched, titles: rr.titles }), fetched };
+          const offTopic = qmode === "research" ? offTopicPages(fetched, topicTerms(askTopic(body.message) ?? body.message)) : undefined;
+          return { q: applySourceQuality(rr.raw, { mode: qmode, sources: rr.sources, read: rr.read, fetched, titles: rr.titles, offTopic }), fetched };
         };
         let q: QualityResult | null = null;
         let retried = false;
@@ -225,7 +226,20 @@ export async function POST(request: Request, ctx: Ctx) {
           };
           if (none) {
             const lastQ = (r.ok ? r.text : "").split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
-            paras = noGoodSourcesParas(q.dropped, lastQ);
+            // QA retest: the "general background" promise always has background under it.
+            let background: string[] = [];
+            if (needsBackground(q.dropped)) {
+              emit("Pulling it together…");
+              const bgr = await grokResearch({
+                system: `${coachAnswerSystem(mode, { plain: true })}\nNo sources this turn. Give 2-3 short bullets (each starting with "• ") of general background on the concept they asked about: what it is and how it tends to show up at work. Concepts only: never name real people, companies, studies, statistics or quotes, and never write their paper. No question, no sources.`,
+                user: userJson,
+                effort: "low",
+                search: false,
+                timeoutMs: 12_000,
+              });
+              if (bgr.ok) background = bgr.raw.split(/\n+/);
+            }
+            paras = noGoodSourcesParas(q.dropped, lastQ, background);
             sources = [];
           } else {
             paras = cleanPauParas(q.text);
