@@ -22,7 +22,7 @@ export const INTRO_BUBBLES = [
 
 /** Pau's nudge when an answer is under its minimum. */
 const OPENERS = ["Give me a little more — a couple more sentences?", "Closer.", "Getting there.", "One more push."];
-export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.)/;
+export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.|No rush, that one doesn't count|All good, that one doesn't count)/;
 /**
  * QA 8:31 AM: never the same line every time. Each try gets a different opener and
  * points at what's actually missing from what they wrote (the claim, the reason, the example).

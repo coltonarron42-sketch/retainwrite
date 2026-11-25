@@ -21,7 +21,13 @@ export type PaperShape = {
 };
 
 /** Ghost #2: one short title per body paragraph and which of the student's body notes it uses. */
-export type ShapeOutline = { v: 1; titles: { key: string; title: string; ideaRefs: number[] }[]; source: "model" | "rules" };
+export type ShapeOutline = {
+  v: 1;
+  titles: { key: string; title: string; ideaRefs: number[] }[];
+  source: "model" | "rules";
+  /** QA 3:26 AM #3: the locked choices (leader, styles) the shown titles were made from. */
+  factsKey?: string;
+};
 
 /** What the client gets. Never includes private notes. */
 export type SkeletonView = {
@@ -189,6 +195,25 @@ export function outlineFromModel(raw: unknown, shape: PaperShape, bodyNotes: num
     };
   });
   return { v: 1, titles: titles.filter((t) => t.title), source: "model" };
+}
+
+/** QA 3:26 AM #3: what a title may change for: the student's locked leader and styles only. */
+export function factsKeyOf(facts: OutlineFacts): string {
+  return inputHash(JSON.stringify({ l: (facts.leader ?? "").trim().toLowerCase(), s: facts.styles.map((x) => x.trim().toLowerCase()).filter(Boolean).sort() }));
+}
+
+/**
+ * QA 3:26 AM #3: once a body title is shown it stays until the student locks a new choice.
+ * A refinement (model titles, a re-planned shape) may fill a blank title, never replace one.
+ */
+export function keepShownTitles(prev: ShapeOutline | null | undefined, next: ShapeOutline, factsKey: string): ShapeOutline {
+  if (!prev?.titles.length || (prev.factsKey && prev.factsKey !== factsKey)) return { ...next, factsKey };
+  const titles = next.titles.map((t, i) => {
+    const shown = prev.titles.find((x) => x.key === t.key) ?? prev.titles[i];
+    return shown?.title ? { ...t, title: shown.title } : t;
+  });
+  for (const [i, p] of prev.titles.entries()) if (p.title && !titles.some((t) => t.key === p.key) && i >= titles.length) titles.push(p);
+  return { ...next, titles, factsKey };
 }
 
 const lowerStyle = (s: string) => (/^[A-Z][a-z]+(?:[- ][a-z]+)*$/.test(s) ? s.toLowerCase() : s);

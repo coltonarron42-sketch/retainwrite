@@ -36,6 +36,23 @@ export function isFillerSaying(text: string): boolean {
   return FILLER.test(t) || /^(?:([a-z])\1{2,}|[a-z]{1,2})$/i.test(t);
 }
 
+const FILLER_LEAD = /^(?:(?:just\s+)?(?:a\s+|another\s+)?(?:(?:first|second|third|fourth|another|quick|test|random|short|little)\s+)+(?:message|msg|reply|note|post|one|try)|test(?:ing)?(?:\s+(?:test(?:ing)?|1|123))*)\b[.!?,;:\s-]*/i;
+/**
+ * QA 3:26 AM #4: filler never becomes part of a stored answer. Drops filler lines and a
+ * leading run of filler phrases ("first quick message second quick message When Walmart…").
+ */
+export function withoutFiller(text: string): string {
+  const lines = String(text ?? "")
+    .split(/\n+/)
+    .map((line) => {
+      let t = line.trim();
+      for (let i = 0; i < 6 && FILLER_LEAD.test(t); i++) t = t.replace(FILLER_LEAD, "").trim();
+      return t;
+    })
+    .filter((line) => line && !isFillerSaying(line));
+  return lines.join("\n").trim();
+}
+
 /** The gentle re-ask after a non-answer: one short line, then the same question (QA 1:11 AM #4). */
 export function fillerNudge(qid: string): string {
   switch (qid) {
@@ -47,6 +64,10 @@ export function fillerNudge(qid: string): string {
       return "No rush. What's your main reason for that pick, even one rough sentence?";
     case "leader_pick":
       return "Take your time. Which leader do you want to use as your example?";
+    case "stance_early":
+      return "No rush, that one doesn't count as your take. What do you think the answer is, and why? Rough is fine.";
+    case "own_story":
+      return "All good, that one doesn't count yet. What angle would you take, in your own words?";
     default:
       return "No rush. When you're ready, answer in a sentence or two, even roughly.";
   }

@@ -91,7 +91,29 @@ export function questionOf(text: string | null | undefined): string {
     if (SOURCE_LEAD.test(s) || FORMAT_LINE.test(s) || s.split(" ").length < 4) continue;
     return balanceQuotes(unmask(s, spans));
   }
-  return balanceQuotes(unmask(sentences[0] ?? t, spans));
+  // Only a sources or format line (QA 3:26 AM: "Using Chapter 4 … the HBR article 'What Makes a
+  // Leader?" stored as the prompt): no question here, never quote it as one.
+  return "";
+}
+
+/**
+ * QA 3:26 AM #1: the question every prompt check quotes and tests against: the stored prompt's
+ * real question, else the assignment sheet's, else the topic. Never a sources or format line.
+ */
+export function assignmentQuestion(input: { prompt?: string | null; raw?: string | null; topic?: string | null }): string {
+  const fromPrompt = questionOf(input.prompt);
+  if (fromPrompt) return fromPrompt;
+  const fromRaw = questionOf(input.raw);
+  if (fromRaw) return fromRaw;
+  const topic = (input.topic ?? "").replace(/\s+/g, " ").trim();
+  return topic && !SOURCE_LEAD.test(topic) && !FORMAT_LINE.test(topic) ? balanceQuotes(topic) : "";
+}
+
+/** A stored prompt that is really a sources/format line, or ends inside an open quote. */
+export function isSourcesLine(text: string | null | undefined): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  return !questionOf(t) || /(^|[\s(])['‘“"][^'’”"]{0,80}\?\s*$/.test(t);
 }
 
 
