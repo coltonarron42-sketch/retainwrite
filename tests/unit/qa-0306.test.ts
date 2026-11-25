@@ -33,7 +33,7 @@ describe("QA 3:06 #2: rapid sends never lose text", () => {
   it("typing stays open while a reply is in flight; Enter queues, shown in the chat, sent after the reply", () => {
     expect(composer).toContain("if (value.trim()) onQueue?.();");
     expect(composer).toContain("onChange={(e) => onChange(e.target.value)}");
-    expect(intake).toContain("onQueue={() => send()}");
+    expect(intake).toContain("onQueue={screen === \"story\" ? undefined : () => send()}");
     expect(intake).toContain("data-queued-said");
     expect(intake).toContain("const went = latestSendNow.current?.(merged, true);");
   });
@@ -169,5 +169,33 @@ describe("QA 3:51 suite: a research request is never saved as a note, even when 
     expect(rulesStanceIntent("Could you look up some studies on stress and memory?")).toBe("content_question");
     expect(rulesStanceIntent("find sources about servant leadership")).toBe("content_question");
     expect(rulesStanceIntent("Nadella got Microsoft to change its culture toward learning.")).toBe("content");
+  });
+});
+
+describe("QA 5:46: typing right after Enter is never wiped", () => {
+  const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+  const stance = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+  it("Stage 1: later clears only clear what was sent; one composer for every step (never remounted)", () => {
+    expect(intake).toContain("const dropSent = (sent?: string) =>");
+    expect(intake).not.toMatch(/screen === "story" \? \(\s*<ChatComposer/);
+    expect((intake.match(/<ChatComposer\b/g) ?? []).length).toBe(2); // the upload step's box + the one interview composer
+  });
+  it("Stage 2: a reply landing never clears or overwrites new typing", () => {
+    const i = stance.indexOf("async function sendNow(");
+    const body = stance.slice(i, stance.indexOf('return "tap_needed";', i));
+    expect(body).not.toContain('props.onIdea("")');
+    expect(body).toContain("if (!ideaRef.current.trim()) props.onIdea(text);");
+  });
+});
+
+describe("QA 5:46 minor: after the key points are given, only the upload offer", () => {
+  it("drops the source-material demand and the dark-web line", async () => {
+    const { uploadOfferOnly } = await import("@/lib/stage1/paper-context");
+    const out = uploadOfferOnly(
+      "I don't have your copy of Myers' Psychology, Ch. 6 yet. Can you give me what you have: a PDF, a photo of each page, a paste, or a link. I need the actual source material, and I'm not going to the dark web! Chapter numbers change between editions, so tell me which edition you have.",
+    );
+    expect(out).not.toMatch(/actual source material|dark web/i);
+    expect(out).toMatch(/a PDF, a photo of each page/);
+    expect(out).toMatch(/editions/);
   });
 });

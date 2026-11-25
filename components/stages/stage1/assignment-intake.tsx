@@ -31,6 +31,7 @@ import {
   stripReadingRefusal,
   vaguePickProbe,
   withoutDarkWeb,
+  uploadOfferOnly,
   STAGE_PURPOSE,
   summaryLabel,
   summaryParas,
@@ -371,7 +372,13 @@ function MaterialBubbles({
   const offers = (brief.whereToGet ?? [])
     .flatMap((w) => w.offers.map((o) => ({ ...o, title: w.title })))
     .filter((o, i, all) => all.findIndex((x) => x.url === o.url || (x.title === o.title && x.seller === o.seller)) === i);
-  const missingAsk = brief.missingAsk ? (darkWebOk ? brief.missingAsk : withoutDarkWeb(brief.missingAsk)) : null;
+  const missingAsk = brief.missingAsk
+    ? hasList
+      ? uploadOfferOnly(brief.missingAsk)
+      : darkWebOk
+        ? brief.missingAsk
+        : withoutDarkWeb(brief.missingAsk)
+    : null;
   return (
     <div className="space-y-4">
       {list.map((s, i) => (
@@ -526,6 +533,11 @@ export function AssignmentIntake({
   const [queuedSaid, setQueuedSaid] = useState<string | null>(null);
   // QA 3:51: a message queued during her last Stage 1 reply lands after the step closed (the gate has
   // no question to take it). It still shows, in order, with an honest reply; it is never dropped.
+  // QA 5:46: the box is cleared only at the moment of Enter (the send handler takes the text and
+  // empties the box in the same tick). Anything that runs later (a reply landing, a save resolving)
+  // never wipes what they typed since; it only clears the box if it still holds exactly what was sent.
+  const dropSent = (sent?: string) => setDraftAnswer((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
+  const dropSentStory = (sent?: string) => setOwnStory((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
   const [gateSaid, setGateSaid] = useState<{ id: number; said: string }[]>([]);
   const latestSendNow = useRef<((text: string, fromBox: boolean) => boolean | void) | null>(null);
   // Colton 1:54 R1: what a lost student first said, kept while the summary offer is open.
@@ -1755,14 +1767,14 @@ export function AssignmentIntake({
     void briefCall({ action: "confirm_readback" }).then((v) => (v && !v.options ? briefCall({ action: "options" }) : null));
     setScreen("coaching");
     setQIndex(0);
-    setDraftAnswer("");
+    dropSent();
     pasteMeta.reset();
   }
 
   function skipInterest() {
     setSkippedInterest(true);
     setAnswers((prev) => answersAfterSkippingInterest(prev));
-    setDraftAnswer("");
+    dropSent();
     // North star (QA 7:02 AM): every get-to-know-you question goes, the gate steps stay.
     const getToKnow = new Set(brief?.northstar ? ["bg_comfort", "personal_1", "fallback_voice"] : []);
     const rest = coachingPlan.filter((question) => question.kind !== "interest" && !getToKnow.has(question.id));
@@ -1932,6 +1944,7 @@ export function AssignmentIntake({
     setShortEcho(null);
     if (q.id !== "material_check") setInformedLead(null);
     let typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
+    const sentBox = (opts?.text ?? draftAnswer).trim();
     let offerAnswered = false;
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
     if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
@@ -1968,7 +1981,7 @@ export function AssignmentIntake({
       offerSaid.current = typed;
       setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: typed, paras: [lostOffer(brief?.readback?.ask ?? requirements?.promptQuestion.value)] }].slice(-12));
       setCatchUpOffer(q.id);
-      setDraftAnswer("");
+      dropSent(sentBox);
       setError(null);
       return;
     }
@@ -1979,7 +1992,7 @@ export function AssignmentIntake({
         { id: Date.now(), qid: q.id, said: typed, paras: ["Just to check: want me to catch you up on the key points first? Tap “Yes, catch me up” and I'll pull them together. If you've already read it, tap “I've read it”."] },
       ].slice(-12));
       setCatchUpOffer(q.id);
-      setDraftAnswer("");
+      dropSent(sentBox);
       setError(null);
       return;
     }
@@ -2008,7 +2021,7 @@ export function AssignmentIntake({
     }
     // A pasted reading paragraph is material, never their answer, and wins over any pick or question parsing (QA 8:31 AM).
     if (!opts?.skip && text && brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
-      setDraftAnswer("");
+      dropSent(sentBox);
       setError(null);
       pasteMeta.reset();
       await takePastedReading(q.id, text);
@@ -2023,7 +2036,7 @@ export function AssignmentIntake({
       !(q.id === "material_check" && materialLost(text)) &&
       (isReadingQuestion(text) || (isContentQuestion(text) && /\?\s*$/.test(text)))
     ) {
-      setDraftAnswer("");
+      dropSent(sentBox);
       setError(null);
       await answerAside(q.id, q.text, text);
       return;
@@ -2092,7 +2105,7 @@ export function AssignmentIntake({
     // Lost again later on: the key points come back, nothing is saved.
     if (!opts?.skip && text && q.kind === "coaching" && text.length <= 160 && brief?.summary && isLostSaying(text)) {
       setReoffer(q.id);
-      setDraftAnswer("");
+      dropSent(sentBox);
       setError(null);
       return;
     }
@@ -2167,7 +2180,7 @@ export function AssignmentIntake({
         });
     }
     setAnswers(nextAnswers);
-    setDraftAnswer("");
+    dropSent(sentBox);
     setError(null);
     setReoffer(null);
     pasteMeta.reset();
@@ -2403,7 +2416,7 @@ export function AssignmentIntake({
     if (pickingStory) return;
     // A pasted reading paragraph is material, never the angle (QA 6:03 AM).
     if (brief?.northstar && looksLikePastedReading(text, pasteMeta.meta.pasteRatio)) {
-      setOwnStory("");
+      dropSentStory(text);
       pasteMeta.reset();
       setError("That looks like part of the reading, so I saved it as material instead of your angle. Tell me your angle in your own words.");
       const works = requirements ? namedWorksFrom(requirements, rawText) : [];
@@ -2430,7 +2443,7 @@ export function AssignmentIntake({
       body: JSON.stringify({ text, source: "student" }),
     }).catch(() => undefined);
     pasteMeta.reset();
-    setOwnStory("");
+    dropSentStory(text);
     setPickingStory(null);
     afterStoryPicked();
   }
@@ -2509,7 +2522,7 @@ export function AssignmentIntake({
         void briefCall({ action: "decision", question: d?.question ?? brief.options?.question ?? "Your pick", answer: `${base.replace(/[.!?\s]+$/, "")}. ${text}`.slice(0, 2000), source: d?.source ?? "stated" });
       }
     }
-    setDraftAnswer("");
+    dropSent(fresh);
     pasteMeta.reset();
     setError(null);
     setEditReturn(null);
@@ -4228,52 +4241,41 @@ export function AssignmentIntake({
 
         {screen === "gate" ? null : (
           <ComposerDock>
-            {screen === "story" ? (
-              <ChatComposer
-                paperId={paperId}
-                labelledBy="story-ask"
-                value={ownStory}
-                onChange={(next) => {
+            {/* QA 5:46: ONE composer for every Stage 1 step (story box included), so the textarea is never
+                remounted mid-session and nothing typed right after an Enter is lost. */}
+            <ChatComposer
+              paperId={paperId}
+              labelledBy={screen === "story" ? "story-ask" : "coach-question"}
+              value={screen === "story" ? ownStory : draftAnswer}
+              onChange={(next) => {
+                if (screen === "story") {
                   pasteMeta.onChange(ownStory, next);
                   setOwnStory(next);
-                }}
-                onPaste={pasteMeta.onPaste}
-                inputProps={{ onDrop: pasteMeta.onDrop, onBeforeInput: pasteMeta.onBeforeInput }}
-                minRows={1}
-                sending={pickingStory === "own"}
-                sendLabel="Send"
-                placeholder="Or write your own angle as a question"
-                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
-                onSend={() => void submitOwnStory()}
-              />
-            ) : (
-              <ChatComposer
-                paperId={paperId}
-                labelledBy="coach-question"
-                value={draftAnswer}
-                onChange={(next) => {
+                } else {
                   pasteMeta.onChange(draftAnswer, next);
                   setDraftAnswer(next);
-                }}
-                onPaste={pasteMeta.onPaste}
-                inputProps={{
-                  onDrop: pasteMeta.onDrop,
-                  onBeforeInput: pasteMeta.onBeforeInput,
-                  "aria-busy": restoringDraft || undefined,
-                }}
-                minRows={1}
-                sending={submitting}
-                onQueue={() => send()}
-                sendLabel="Send"
-                placeholder={
-                  restoringDraft && !draftAnswer
+                }
+              }}
+              onPaste={pasteMeta.onPaste}
+              inputProps={{
+                onDrop: pasteMeta.onDrop,
+                onBeforeInput: pasteMeta.onBeforeInput,
+                "aria-busy": (screen !== "story" && restoringDraft) || undefined,
+              }}
+              minRows={1}
+              sending={screen === "story" ? pickingStory === "own" : submitting}
+              onQueue={screen === "story" ? undefined : () => send()}
+              sendLabel="Send"
+              placeholder={
+                screen === "story"
+                  ? "Or write your own angle as a question"
+                  : restoringDraft && !draftAnswer
                     ? "Restoring your draft…"
                     : PLACEHOLDERS[q?.id ?? ""] ?? "Tell me in your own words"
-                }
-                onSend={() => send()}
-                realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
-              />
-            )}
+              }
+              onSend={screen === "story" ? () => void submitOwnStory() : () => send()}
+              realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
+            />
             {minNote ? (
               // Floats above the box (QA 4:42 #1): typing never changes the dock's height.
               <p

@@ -542,6 +542,18 @@ export function withoutDarkWeb(text: string | null | undefined): string {
 }
 
 
+/** QA 5:46: once the key points are already given, the ask is only the upload offer: no "I need the actual
+ * source material" demand and no dark-web line. */
+export function uploadOfferOnly(text: string | null | undefined): string {
+  return withoutDarkWeb(
+    (text ?? "")
+      .replace(/\s*I need the actual source material(?:,?\s*and I'?m not going to the dark web)?[.!]?/i, "")
+      .replace(/\s*Real talk: I don't know [^.]*?, and I won't guess\.\s*/i, " "),
+  )
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /* --------------------------- QA 7:02 AM signals --------------------------- */
 
 /** A typed "skip" / "next" / "pass": never an answer, never counts toward the gate. */

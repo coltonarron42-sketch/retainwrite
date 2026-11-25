@@ -307,6 +307,9 @@ export function StanceChat(props: Props) {
   useStopSpeechOnUnmount();
   const [hintState, setHintState] = useState<{ text: string; key: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  // The box as it is right now (updated every render), so a reply that lands later never clobbers new typing.
+  const ideaRef = useRef(idea);
+  ideaRef.current = idea;
   const [lookupNote, setLookupNote] = useState<string | null>(null);
   // One send at a time, set synchronously (state lags a tap): a second send
   // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
@@ -419,7 +422,14 @@ export function StanceChat(props: Props) {
 
   async function sendNow(text: string, fromVoice = false): Promise<string> {
     // Put the words back only if nothing new was typed (a hint, a thin note).
-    const restore = () => props.onIdea(text);
+    // QA 5:46: never over words typed since Enter; and a later "clear" only clears what was sent.
+    const restore = () => {
+      if (!ideaRef.current.trim()) props.onIdea(text);
+    };
+    const clearSent = () => {
+      const cur = ideaRef.current.trim();
+      if (!cur || cur === text.trim()) clearSent();
+    };
     setHint(null);
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
     const yes = isPlainYes(text) || (fromVoice && isSpokenYes(text));
@@ -433,12 +443,12 @@ export function StanceChat(props: Props) {
     if (noteTurn && pending) {
       swapRef.current = null;
       if (isSwapYes(text) || (fromVoice && isSpokenYes(text))) {
-        props.onIdea("");
+        clearSent();
         await h.probeSave(fromVoice ? [pau(SWAP_ASK), you(text)] : [you(text)], { replace: true, text: pending.text });
         return "saved";
       }
       if (isSwapNo(text)) {
-        props.onIdea("");
+        clearSent();
         if (!fromVoice) h.discuss([you(text), pau("Okay, your note stays as it is.")]);
         return "swap_declined";
       }
@@ -446,7 +456,7 @@ export function StanceChat(props: Props) {
     const replacement = noteTurn ? replacementText(text) : null;
     if (replacement) {
       swapRef.current = { key: swapKey, text: replacement };
-      props.onIdea("");
+      clearSent();
       if (!fromVoice) h.discuss([you(text), pau(SWAP_ASK)]);
       return "swap_ask";
     }
@@ -467,7 +477,7 @@ export function StanceChat(props: Props) {
     if ((kind === "teach_card" || kind === "mirror" || kind === "probe") && !(choiceTurn && yes) && isVagueNote(text) && !vaguePushed.current.has(section.key)) {
       vaguePushed.current.add(section.key);
       if (fromVoice) return "aside";
-      props.onIdea("");
+      clearSent();
       props.onAside("content", kind === "teach_card" || kind === "mirror" ? kind : "probe", [pau(ask), you(text)], "vague");
       return "aside";
     }
@@ -488,21 +498,21 @@ export function StanceChat(props: Props) {
         return "saved";
       case "confirm":
         if (yes) {
-          props.onIdea("");
+          clearSent();
           h.confirm([pau(paras[0] ?? ""), you(text)]);
           return "saved";
         }
         break;
       case "logic_opener":
         if (yes) {
-          props.onIdea("");
+          clearSent();
           h.logicOpener("yes", [pau(logicAsk), you(text)]);
           return "saved";
         }
         break;
       case "logic_result":
         if (r?.tier === "pass" && yes) {
-          props.onIdea("");
+          clearSent();
           h.logicResult("pass", [pau(logicPassText(paperId, active)), you(text)]);
           return "saved";
         }
@@ -511,13 +521,13 @@ export function StanceChat(props: Props) {
     // QA 7:11 AM: a new, substantive answer over the confirm is added to their note, never
     // turned away ("Your note is still the one above…"). Replacing still asks first.
     if ((kind === "confirm" || kind === "logic_opener") && substantiveNote(text) && !isVagueNote(text)) {
-      props.onIdea("");
+      clearSent();
       await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text), pau(ADDED_NOTE)], { text, append: true });
       return "saved";
     }
     // Other words over a choice are discussion: the saved note never changes.
     if (noteTurn) {
-      props.onIdea("");
+      clearSent();
       if (!fromVoice) h.discuss([you(text), pau(discussionLine(transcript.length))]);
       return "discussion";
     }
