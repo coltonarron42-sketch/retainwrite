@@ -2502,7 +2502,12 @@ export function AssignmentIntake({
     if (text && noLeaderAsked.current[q.id] && !said0Named(text) && (isFillerSaying(text) || isVaguePick(text) || wordCount(text) <= 3)) {
       const qid = q.id;
       const NUDGE = "No rush. Think of anyone who ran a team you were part of: a shift manager, a coach, a teacher, even a club or group leader. Who comes to mind first?";
-      setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [prev.some((x) => x.qid === qid && x.paras[0] === NUDGE) ? "Take your time. Anyone works, even a famous name from the examples above. Just tell me who, in a few words." : NUDGE] }].slice(-12));
+      // Never the same line twice in a row: each nudge after the first is different, then a quiet "No rush."
+      const NUDGES = [NUDGE, "Take your time. Anyone works, even a famous name from the examples above. Just tell me who, in a few words.", "Whenever you're ready. A name and one thing they did is plenty.", "No rush."];
+      setQaAsides((prev) => {
+        const n = prev.filter((x) => x.qid === qid && NUDGES.includes(x.paras[0] ?? "")).length;
+        return [...prev, { id: Date.now(), qid, said: text, paras: [NUDGES[Math.min(n, NUDGES.length - 1)]!] }].slice(-12);
+      });
       dropSent(sentBox);
       setError(null);
       return;
