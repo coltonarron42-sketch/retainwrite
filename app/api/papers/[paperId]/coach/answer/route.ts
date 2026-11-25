@@ -3,7 +3,8 @@ import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, READING_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
 import { sourceHost } from "@/lib/coach/sources-line";
-import { applySourceQuality, noGoodSourcesParas } from "@/lib/coach/source-quality";
+import { applySourceQuality, bestExcerpt, lineUrls, noGoodSourcesParas, sourceTier, type QualityResult } from "@/lib/coach/source-quality";
+import { fetchEvidence } from "@/lib/coach/page-evidence";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
@@ -104,8 +105,8 @@ export async function POST(request: Request, ctx: Ctx) {
     const paperUsed = wantsSearch ? await paperSearchesUsed(paperId).catch(() => 0) : 0;
     const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? READING_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
     const search = wantsSearch && searchCap > 0;
-    // QA 3:46 speed: research synthesis runs at low (the source filter is in code); a reading lookup stays high.
-    const effort = mode === "reframe" ? "none" : mode === "reading" ? "high" : mode === "research" ? "low" : turn.effort;
+    // QA 3:46/4:08 speed: research and reading synthesis run at low (source filter, support check and grounding are in code).
+    const effort = mode === "reframe" ? "none" : mode === "reading" || mode === "research" ? "low" : turn.effort;
     emit(STATUS_ROTATION[mode === "reading" ? "reading" : mode === "research" ? "research" : mode === "summary" ? "summary" : "think"][0]!);
     const userJson = JSON.stringify({
       mode,
@@ -123,7 +124,9 @@ export async function POST(request: Request, ctx: Ctx) {
     let searches = 0;
     let path = "chat";
     let cache: "off" | "hit" | "miss" | "bypass" = "off";
-    let quality: { kept: number; dropped: string[]; retried: boolean; none: boolean } | undefined;
+    let quality:
+      | { kept: number; dropped: string[]; retried: boolean; none: boolean; capped: boolean; checks: { bullet: string; tag: string; page: string; pageTitle: string; supported: boolean; retagged: boolean }[] }
+      | undefined;
     if (wantsSearch || mode === "summary") {
       path = search ? "responses+web_search" : "responses";
       // t213u #1: dev/test search cache (never in production): repeated test turns reuse results.
@@ -155,12 +158,38 @@ export async function POST(request: Request, ctx: Ctx) {
           topic: askTopic(body.message),
         });
         searches = r.searches ?? 0;
-        if (r.ok && search) {
-          // QA 3:46: rank and filter the sources in code; bullets only from sources that pass.
-          const qmode = mode === "reading" ? "reading" : "research";
-          let q = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read });
-          let retried = false;
-          // She read a good page but leaned on weak ones: one more pass restricted to the good pages.
+        const qmode = mode === "reading" ? "reading" : "research";
+        const topicWords = (askTopic(body.message) ?? body.message).toLowerCase().split(/\W+/).filter((w) => w.length >= 5);
+        // QA 4:08: fetch the cited pages so every bullet's attribution is checked against what the page says.
+        const verify = async (rr: { raw: string; sources: ResearchSource[]; read: string[]; titles: Map<string, string> }) => {
+          const cands = [...new Set([...lineUrls(rr.raw), ...rr.sources.map((x) => x.url), ...rr.read])].filter((u) => sourceTier(u) >= 2);
+          emit(CHECKING_LINE);
+          const fetched = await fetchEvidence(cands, { timeoutMs: 3_500, max: 8 });
+          return { q: applySourceQuality(rr.raw, { mode: qmode, sources: rr.sources, read: rr.read, fetched, titles: rr.titles }), fetched };
+        };
+        let q: QualityResult | null = null;
+        let retried = false;
+        let capped = false;
+        if (!r.ok && r.reason === "capped" && search) {
+          // Hard per-turn cap hit: answer from the good pages she'd already opened, no more searching.
+          capped = true;
+          const good = [...new Set(r.read ?? [])].filter((u) => sourceTier(u) >= 2).slice(0, 4);
+          emit("Pulling it together…");
+          const fetched = await fetchEvidence(good, { timeoutMs: 3_500, max: 4 });
+          const pages = [...fetched.values()].filter((f) => f.text.length > 200).map((f) => ({ url: f.url, site: sourceHost(f.url), title: f.title, excerpt: bestExcerpt(f.text, topicWords, 1500) }));
+          if (pages.length) {
+            const r3 = await grokResearch({
+              system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search isn't available for the rest of this turn. Use ONLY the pages in "pages" (their excerpts are what they say) and tag each bullet with that page's site in square brackets.`,
+              user: JSON.stringify({ ...JSON.parse(userJson), pages }),
+              effort: "low",
+              search: false,
+              timeoutMs: 15_000,
+            });
+            if (r3.ok) q = applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles: r.titles });
+          }
+        } else if (r.ok && search) {
+          q = (await verify(r)).q;
+          // She read a good page but leaned on weak or unsupported ones: one more pass restricted to the good pages.
           if (qmode === "research" && q.kept < 2 && q.goodUnused.length && turnSearchCap(paperUsed + searches, 1) > 0) {
             retried = true;
             emit("Finding sources you can cite…");
@@ -177,14 +206,23 @@ export async function POST(request: Request, ctx: Ctx) {
             });
             searches += r2.searches ?? 0;
             if (r2.ok) {
-              const q2 = applySourceQuality(r2.raw, { mode: qmode, sources: r2.sources, read: r2.read });
+              const q2 = (await verify(r2)).q;
               if (q2.kept > q.kept) q = q2;
             }
           }
+        }
+        if (q) {
           const none = qmode === "research" && q.kept === 0;
-          quality = { kept: q.kept, dropped: [...new Set(q.dropped.flatMap((d) => d.hosts))].slice(0, 8), retried, none };
+          quality = {
+            kept: q.kept,
+            dropped: [...new Set(q.dropped.map((d) => `${d.why ?? "weak"}:${d.hosts.join("+")}`))].slice(0, 8),
+            retried,
+            none,
+            capped,
+            checks: q.checks.map((c) => ({ bullet: c.bullet.slice(0, 90), tag: c.tag, page: c.page, pageTitle: c.pageTitle.slice(0, 90), supported: c.supported, retagged: c.retagged })),
+          };
           if (none) {
-            const lastQ = r.text.split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
+            const lastQ = (r.ok ? r.text : "").split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
             paras = noGoodSourcesParas(q.dropped, lastQ);
             sources = [];
           } else {
@@ -284,7 +322,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
     // Only links that resolve (the same checker the voice relay uses for show_sources).
     if (sources.length) {
-      emit(CHECKING_LINE);
+      if (!quality) emit(CHECKING_LINE);
       try {
         sources = (await Promise.race([checkLinks(sources.slice(0, 5)), new Promise<ResearchSource[]>((res) => setTimeout(() => res(sources.slice(0, 4)), 2500))])).slice(0, 4);
       } catch {
