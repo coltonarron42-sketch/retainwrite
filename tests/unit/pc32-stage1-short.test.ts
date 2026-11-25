@@ -105,7 +105,8 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
     }
     // Only these server files read it.
     const readers = walk("app").filter((f) => /lib\/server\/ghost\/store/.test(src(f)));
-    expect(readers.sort()).toEqual(["app/api/papers/[paperId]/coach/answer/route.ts", "app/api/papers/[paperId]/intake/complete/route.ts"]);
+    // t227u: the fit check reads only its research titles (its words come from a fixed table).
+    expect(readers.sort()).toEqual(["app/api/papers/[paperId]/coach/answer/route.ts", "app/api/papers/[paperId]/coach/fit/route.ts", "app/api/papers/[paperId]/intake/complete/route.ts"]);
   });
   it("routes that touch it return only coaching output or flow data (no ghost variables in any response)", () => {
     const coach = src("app/api/papers/[paperId]/coach/answer/route.ts");

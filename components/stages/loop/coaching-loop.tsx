@@ -18,6 +18,7 @@ import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
 import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
 import { stage2StartingLine } from "@/lib/stage1/starting-point";
+import { fitKey, fitPairIn } from "@/lib/stage2/fit-check";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -392,6 +393,8 @@ export function CoachingLoop({
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
+  /** Fit checks already started this visit (the session events keep them across reloads). */
+  const fitAsked = useRef(new Set<string>());
   const stageProgressRef = useRef(stageProgress);
   useEffect(() => {
     stageProgressRef.current = stageProgress;
@@ -870,6 +873,46 @@ export function CoachingLoop({
     }
   }
 
+  /**
+   * PC-32 FIT CHECK (Colton t227u): a note that names a style and a leader gets a quick fit check,
+   * once per pair. Solid: one affirming line. Weak: kind feedback, the concept in plain words,
+   * 1-2 better fits, theirs to keep (their note is never changed). Runs after the save, so the
+   * flow never waits on it; the lines join the chat above the next ask.
+   */
+  async function fitCheck(note: string, sectionKey: string) {
+    if (stage !== 2) return;
+    const pair = fitPairIn(note, sessionRef.current?.assignmentText ?? "");
+    if (!pair) return;
+    const key = fitKey(pair);
+    const base0 = sessionRef.current ?? session;
+    if (!base0 || base0.events.includes(key) || fitAsked.current.has(key)) return;
+    fitAsked.current.add(key);
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(`/api/papers/${paperId}/coach/fit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: note.slice(0, 4000), sheet: (sessionRef.current?.assignmentText ?? "").slice(0, 20000) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) return;
+      const d = (await res.json()) as { verdict?: string | null; paras?: string[] };
+      const base = sessionRef.current;
+      if (!d.paras?.length || !base) return;
+      const next: Session = {
+        ...base,
+        transcript: appendLines(base.transcript, d.paras.map((text): LoopLine => ({ k: sectionKey, who: "pau", text }))),
+        events: [...base.events, key, `stance_fit_${d.verdict ?? "none"}`],
+      };
+      commit(next);
+      syncSession(next, sectionKey);
+    } catch {
+      // The fit check is a nice-to-have: the stance flow goes on without it.
+    }
+  }
+
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
   function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
     if (intent === "content_question") return "answer";
@@ -1004,6 +1047,7 @@ export function CoachingLoop({
     );
     paste.reset();
     clearSent(note);
+    void fitCheck(note, section.key);
   }
 
   async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string; append?: boolean }) {
@@ -1071,6 +1115,7 @@ export function CoachingLoop({
     );
     paste.reset();
     clearSent(note);
+    void fitCheck(note, section.key);
   }
 
   function onNameLead(text: string, more: LoopLine[]) {
