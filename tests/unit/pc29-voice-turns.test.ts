@@ -38,8 +38,9 @@ describe("BargeGate: talking over her", () => {
     const g = new BargeGate();
     g.herAudioStarted(1);
     const t0 = TURN_TUNING.graceMs + 100;
-    // Blips up to 400 ms with real gaps between them (3+ quiet frames).
-    const pattern = [0.3, 0.3, 0.01, 0.01, 0.01, 0.3, 0.01, 0.01, 0.01, 0.3, 0.3, 0.3, 0.3, 0.01, 0.01, 0.01, 0.2, 0.01, 0.01, 0.01];
+    // Blips up to 400 ms with real gaps between them (4+ quiet frames).
+    const q = [0.01, 0.01, 0.01, 0.01];
+    const pattern = [0.3, 0.3, ...q, 0.3, ...q, 0.3, 0.3, 0.3, 0.3, ...q, 0.2, ...q];
     pattern.forEach((rms, i) => expect(frame(g, t0 + i * F, rms)).toBe("hold"));
   });
 
@@ -50,6 +51,15 @@ describe("BargeGate: talking over her", () => {
     const out = [0.2, 0.2, 0.01, 0.01, 0.2, 0.2, 0.2].map((rms, i) => frame(g, t0 + i * F, rms));
     expect(out.slice(0, 6)).toEqual(["hold", "hold", "hold", "hold", "hold", "hold"]);
     expect(out[6]).toBe("barge");
+  });
+
+  it("a short spoken interrupt with a word gap (recorded \"wait, hold on\" frame RMS) barges", () => {
+    const g = new BargeGate();
+    g.herAudioStarted(1);
+    const t0 = TURN_TUNING.graceMs + 100;
+    const clip = [0.0, 0.074, 0.105, 0.022, 0.0, 0.004, 0.157, 0.118, 0.052, 0.048, 0.034, 0.013, 0.0];
+    const out = clip.map((rms, i) => frame(g, t0 + i * F, rms));
+    expect(out.indexOf("barge")).toBe(8);
   });
 
   it("a quiet talker (~0.05 RMS, phone at arm's length) can still interrupt", () => {

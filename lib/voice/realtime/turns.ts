@@ -16,8 +16,8 @@ export const TURN_TUNING = {
   graceMs: 1_500,
   /** Talking over her must be sustained this long before she pauses. */
   sustainMs: 500,
-  /** Up to two quiet frames inside a run don't reset it (breaths, short gaps between words). */
-  gapFrames: 2,
+  /** Up to three quiet frames (300 ms) inside a run don't reset it (breaths, pauses between words); only voiced frames count toward sustainMs. */
+  gapFrames: 3,
   /** Floor RMS for "voiced" while she talks or is about to (0..1 full scale). The transcript
    *  verdict catches loud noise that gets past this, so it stays low enough for quiet talkers. */
   guardFloorRms: 0.04,
