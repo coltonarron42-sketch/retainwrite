@@ -378,7 +378,7 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
   if (ctx.decision) lines.push(`Their decision (their words): picked "${clip(ctx.decision.pick, 80)}". "${clip(ctx.decision.answer, 260)}"`);
   if (extra.earlyTake) lines.push(`Their early take (their words): "${clip(extra.earlyTake, 260)}"`);
   if (extra.ownAngle) lines.push(`Their story angle: "${clip(extra.ownAngle, 160)}"`);
-  if (extra.voiceSample) lines.push(`How they talk (voice sample): "${clip(extra.voiceSample, 160)}"`);
+  if (extra.voiceSample) lines.push(`How they talk (their own words from an earlier answer; tone only, never paper content): "${clip(extra.voiceSample, 160)}"`);
   for (const l of (extra.lockedPoints ?? []).slice(0, 4)) {
     if (l.points.length) lines.push(`Stage 2 ${l.section} (locked, their words): ${clip(l.points.join(" | "), 200)}`);
   }
