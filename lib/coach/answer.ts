@@ -32,14 +32,18 @@ export function cleanPauParas(raw: unknown): string[] {
         p
           .replace(/^\s*(?:[-*–]|\d{1,2}[.)])\s+/, "• ")
           .replace(/[*#_`]+/g, "")
-          // "sagepub. com" → "sagepub.com" (a site name the model spaced out to avoid a link).
-          .replace(/\b([a-z0-9-]{2,})\. (com|org|edu|net|gov|io|co|uk|ca|au)\b/g, "$1.$2")
           .replace(/\s+/g, " ")
           .trim(),
       ),
     )
+    .map(joinSpacedDomains)
     .filter((p) => p.length > 0 && p.length <= 900 && p !== "•")
     .slice(0, 8);
+}
+
+/** "sagepub. com" / "hbr . org's" → "sagepub.com" / "hbr.org's" (a site name the model spaced out to avoid a link). */
+export function joinSpacedDomains(p: string): string {
+  return p.replace(/\b([A-Za-z0-9-]{2,})[\s\u00a0\u200b]*\.[\s\u00a0\u200b]+(com|org|edu|net|gov|io|co|uk|ca|au)\b/g, "$1.$2");
 }
 
 export function cleanCoachAnswer(raw: unknown, ctx?: { mode?: CoachAnswerMode; message?: string }): string[] {

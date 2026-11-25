@@ -128,3 +128,14 @@ describe("t213u: Searching for <their ask>", () => {
     expect(statusFromEvent({ type: "response.web_search_call.searching" }, seen)).toEqual(["Searching a bit more on examples of servant leadership…"]);
   });
 });
+
+describe("t213u: status topic and domain spacing (walk6)", () => {
+  it("skips a rambly ask and joins spaced domains", async () => {
+    const { askTopic } = await import("@/lib/coach/thinking-status");
+    const { joinSpacedDomains } = await import("@/lib/coach/answer");
+    expect(askTopic("I don't think this is working. Okay. Can you summarize the readings?")).toBeNull();
+    expect(joinSpacedDomains("From sagepub. com the chapter covers")).toBe("From sagepub.com the chapter covers");
+    expect(joinSpacedDomains("From hbr . org's page")).toBe("From hbr.org's page");
+    expect(joinSpacedDomains("It ends here. Common sense says")).toBe("It ends here. Common sense says");
+  });
+});

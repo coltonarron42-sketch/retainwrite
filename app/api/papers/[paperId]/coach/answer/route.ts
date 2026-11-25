@@ -10,7 +10,7 @@ import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { loadPauContextBlock } from "@/lib/server/paper-context/store";
-import { cleanPauParas, coachAnswerSystem } from "@/lib/coach/answer";
+import { cleanPauParas, coachAnswerSystem, joinSpacedDomains } from "@/lib/coach/answer";
 import { classifyTurn, resolveMode } from "@/lib/coach/effort";
 import { gateParas, reframeQuestion } from "@/lib/coach/prose-gate";
 import { groundParas, refTokens } from "@/lib/coach/grounding";
@@ -234,6 +234,7 @@ export async function POST(request: Request, ctx: Ctx) {
       blocked = d.dropped;
     }
     if (mode === "reading" && paras.length) paras = withUploadInvite(paras);
+    paras = paras.map(joinSpacedDomains);
 
     // Only links that resolve (the same checker the voice relay uses for show_sources).
     if (sources.length) {

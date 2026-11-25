@@ -53,7 +53,8 @@ export function askTopic(message: string): string | null {
     .replace(/[?.!]+\s*$/, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (t.length < 4) return null;
+  // A rambly or multi-sentence ask ("I don't think this is working. Okay. Can…") makes a bad status line.
+  if (t.length < 4 || /[.!?]\s/.test(t) || /^(?:i|i'm|i've|okay|ok|so|um|uh|well)\b/i.test(t)) return null;
   const words = t.split(" ").slice(0, 8).join(" ");
   return words.length > 60 ? words.slice(0, 59).trim() : words;
 }
