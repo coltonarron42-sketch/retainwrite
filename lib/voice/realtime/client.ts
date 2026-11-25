@@ -7,7 +7,7 @@
  * The browser never holds an xAI key and never sends session config.
  */
 import { typingArbiter } from "./arbiter";
-import { BargeGate, PlaybackLedger, TURN_TUNING } from "./turns";
+import { BargeGate, PlaybackLedger, sayTurnWaits, TURN_TUNING } from "./turns";
 
 export type RtPhase = "off" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 
@@ -683,9 +683,13 @@ export class RealtimeVoice {
 
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
   sayTurn(text: string, opts: { detail?: boolean; spoken?: string } = {}) {
-    // The app moved on: what she didn't get to say is superseded (truncate, no re-offer).
-    this.reportCut(false);
-    this.stopPlayback();
+    // Stage 2+: the app moved on, so what she didn't get to say is superseded (truncate, no re-offer).
+    // Stage 1 (a verbatim prompt): never cut her mid-sentence for it. The prompt queues behind
+    // what she's saying (the relay holds it while she's generating; playback is sequential).
+    if (!sayTurnWaits(opts)) {
+      this.reportCut(false);
+      this.stopPlayback();
+    }
     this.pendingE2E = performance.now();
     this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}), ...(opts.spoken !== undefined ? { spoken: opts.spoken.slice(0, 1600) } : {}) });
   }

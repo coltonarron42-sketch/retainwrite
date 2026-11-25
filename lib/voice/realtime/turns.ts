@@ -305,3 +305,91 @@ export function questionAllowed(question: string, prompt: string): boolean {
     return overlap(question, p) >= 0.7;
   });
 }
+
+/* ---------------- PC-29c: a stray question is lifted out, not a cliff ---------------- */
+
+/**
+ * Stage 1 question-gate tunables. Production (Colton, 2026-11-25 ~12:01 MT) showed every
+ * "cut herself off" was this gate ending her reply at an off-screen question (questionsCut 3,
+ * barge counters 0): the rest of her explanation was thrown away, and the cut point was a
+ * chars x ms-per-char guess that could land mid-word.
+ */
+export const QGATE_TUNING = {
+  /** Audio kept unreleased behind the last cleared sentence, so a cut can still move back to a pause. */
+  holdbackMs: 650,
+  /** How far either side of the estimated sentence boundary to look for a pause. */
+  searchBackMs: 600,
+  searchAheadMs: 700,
+  /** Analysis frame. */
+  frameMs: 20,
+  /** A pause between sentences: this long and quiet... */
+  pauseMs: 140,
+  /** ...or, failing that, at least a gap between words. */
+  minGapMs: 40,
+  /** "Quiet" = frame RMS below this share of the reply's median frame RMS (and an absolute floor). */
+  quietRatio: 0.18,
+  quietFloor: 120,
+} as const;
+
+/** RMS of each `frameMs` frame of 16-bit little-endian mono PCM. */
+export function frameRms(pcm: Buffer, rate: number, frameMs: number = QGATE_TUNING.frameMs): number[] {
+  const per = Math.max(1, Math.round((rate * frameMs) / 1000));
+  const n = Math.floor(pcm.length / 2);
+  const out: number[] = [];
+  for (let f = 0; f + per <= n; f += per) {
+    let s = 0;
+    for (let i = f; i < f + per; i++) {
+      const v = pcm.readInt16LE(i * 2);
+      s += v * v;
+    }
+    out.push(Math.sqrt(s / per));
+  }
+  return out;
+}
+
+/**
+ * The best place to cut her audio near `nearMs`: the middle of the closest real pause
+ * (>= pauseMs of quiet) inside [loMs, hiMs], else the closest gap between words (>= minGapMs),
+ * else `nearMs` itself. Never lands inside a word when there's any quiet to land on.
+ */
+export function quietCutPoint(pcm: Buffer, rate: number, nearMs: number, loMs: number, hiMs: number, t: Partial<typeof QGATE_TUNING> = {}): number {
+  const T = { ...QGATE_TUNING, ...t };
+  const rms = frameRms(pcm, rate, T.frameMs);
+  if (!rms.length) return nearMs;
+  const sorted = [...rms].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)]!;
+  const thr = Math.max(T.quietFloor, median * T.quietRatio);
+  const f0 = Math.max(0, Math.floor(loMs / T.frameMs));
+  const f1 = Math.min(rms.length, Math.ceil(hiMs / T.frameMs));
+  const runs: { mid: number; len: number }[] = [];
+  let s = -1;
+  for (let f = f0; f <= f1; f++) {
+    const quiet = f < f1 && rms[f]! < thr;
+    if (quiet && s < 0) s = f;
+    if (!quiet && s >= 0) {
+      runs.push({ mid: ((s + f) / 2) * T.frameMs, len: (f - s) * T.frameMs });
+      s = -1;
+    }
+  }
+  const pick = (min: number) =>
+    runs.filter((r) => r.len >= min).sort((a, b) => Math.abs(a.mid - nearMs) - Math.abs(b.mid - nearMs))[0];
+  return (pick(T.pauseMs) ?? pick(T.minGapMs))?.mid ?? nearMs;
+}
+
+/** `text` up to `upto` with the lifted-out [from, to) ranges removed, tidied. */
+export function textWithout(text: string, ranges: { from: number; to: number }[], upto = text.length): string {
+  let out = "";
+  let at = 0;
+  for (const r of [...ranges].sort((a, b) => a.from - b.from)) {
+    if (r.from >= upto) break;
+    out += text.slice(at, Math.min(r.from, upto));
+    at = Math.max(at, r.to);
+  }
+  if (at < upto) out += text.slice(at, upto);
+  return out.replace(/\s{2,}/g, " ").trim();
+}
+
+/** A new app turn waits for her to finish (Stage 1 verbatim prompts) instead of cutting her off. */
+export function sayTurnWaits(opts: { spoken?: string }): boolean {
+  return typeof opts.spoken === "string";
+}
