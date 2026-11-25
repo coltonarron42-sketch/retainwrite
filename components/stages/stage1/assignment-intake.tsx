@@ -50,7 +50,7 @@ import {
 } from "@/lib/stage1/confirm-reply";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, STAGE1_PAST_KEY, mergePast, parsePastLines, type PastLine } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, SkeletonPanel, STAGE1_PAST_KEY, parsePastLines, type PastLine } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
@@ -80,7 +80,7 @@ import {
   type SentMessage,
 } from "@/components/stages/stage1/chat-bubbles";
 import { readBackParas } from "@/lib/stage1/pau-pau";
-import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { ASSIGNMENT_ASK, ASSIGNMENT_GREETING, INTRO_BUBBLES, PLACEHOLDERS, MORE_WORDS_NOTE, isSolidReason, moreWordsNote } from "@/lib/stage1/chat-copy";
 import {
   assertAssignmentConfirmGate,
   markFieldConfirmed,
@@ -129,6 +129,7 @@ import {
 } from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
+import { useTurnRecorder } from "@/lib/chat/turn-recorder";
 import { clearLocalDraft, newerDraftText, readLocalDraft } from "@/lib/papers/local-draft";
 import { draftPointer, restoreDraftText } from "@/lib/papers/draft-resume";
 import { useDraftSave } from "@/lib/papers/use-draft-save";
@@ -593,7 +594,7 @@ export function AssignmentIntake({
   const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
   // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
   const [savedPast, setSavedPast] = useState<PastLine[]>([]);
-  const stanceAsked = useRef<string>("");
+  const recordedPast = useTurnRecorder({ enabled: true, saved: savedPast });
   // The pending bubble gives way as soon as the turn is on screen (no doubled student bubble).
   useEffect(() => {
     setPendingSaid(null);
@@ -1240,51 +1241,21 @@ export function AssignmentIntake({
           words={{}}
           direction={brief?.decision?.answer ?? null}
           onClose={() => setPanel(null)}
-          waiting={checklistConfirmed ? "Sizing up your paper… one sec." : undefined}
+          waiting={
+            checklistConfirmed
+              ? "Building your skeleton…"
+              : rawText.trim() || sentMessage
+                ? "Reading your assignment. Your skeleton starts building the moment you confirm the details."
+                : "Share your assignment and I'll sketch your skeleton right away."
+          }
         />
       ) : null}
       {panel === "past" ? <PastChatPanel lines={stage1PastLines()} onClose={() => setPanel(null)} /> : null}
     </>
   );
-  // QA 3:26 AM #5: Past chat is what was on screen, in order: her replies, asides, catch-up, re-asks.
+  // Round 4 #3: Past chat is a recording of the bubbles as they rendered (lib/chat/turn-recorder).
   function stage1PastLines(): PastLine[] {
-    return mergePast(savedPast, liveStage1Lines());
-  }
-  function liveStage1Lines(): PastLine[] {
-    const out: PastLine[] = [{ who: "pau", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}` }];
-    const pau = (text: string) => text.trim() && out.push({ who: "pau", text: text.trim() });
-    if (sentMessage?.text) out.push({ who: "you", text: sentMessage.text });
-    if (confirmTurns.length) {
-      for (const t of confirmTurns) out.push(t.role === "student" ? { who: "you", text: t.text } : { who: "pau", text: t.paras.join(" ") });
-    } else if (requirements && checklistConfirmed) pau(readBackParas(requirements, { seed: paperId }).join(" "));
-    const summaries = brief ? (brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : []).map(summarySpoken).join(" ") : "";
-    const asidesFor = (qid: string) => {
-      for (const a of qaAsides.filter((x) => x.qid === qid)) {
-        out.push({ who: "you", text: a.said });
-        pau(a.paras.join(" "));
-      }
-    };
-    const intro = brief?.northstar ? [STAGE_PURPOSE[1], ...INTRO_BUBBLES] : INTRO_BUBBLES;
-    coachingPlan.forEach((item, i) => {
-      const said = [...answers].reverse().find((a) => a.questionId === item.id && a.answerText.trim())?.answerText;
-      const asked = said || qaAsides.some((x) => x.qid === item.id) || coachingPlan[qIndex]?.id === item.id;
-      if (!asked) return;
-      pau(i === 0 ? [...intro, item.text].join(" ") : item.text);
-      asidesFor(item.id);
-      if (item.id === "material_check" && summaries && (brief?.materialShown || brief?.lostAtStart || (said && materialLost(said)))) pau(summaries);
-      if (said) out.push({ who: "you", text: said });
-    });
-    if (storyAngle?.text) {
-      pau("Which direction do you want to take your paper?");
-      out.push({ who: storyAngle.source === "student" ? "you" : "pick", text: storyAngle.text });
-    }
-    const stance = [...answers].reverse().find((a) => a.questionId === "stance_early" && a.answerText.trim())?.answerText;
-    if (stance || qaAsides.some((x) => x.qid === "stance_early")) {
-      if (stanceAsked.current) pau(stanceAsked.current);
-      asidesFor("stance_early");
-      if (stance) out.push({ who: "you", text: stance });
-    }
-    return out.map((l) => ({ ...l, text: l.text.slice(0, 2000) }));
+    return recordedPast;
   }
   const savedPastLoaded = useRef(false);
   useEffect(() => {
@@ -1302,7 +1273,7 @@ export function AssignmentIntake({
       cancelled = true;
     };
   }, [demoMode, paperId]);
-  const pastJson = !demoMode && resumeReady && screen !== "upload" ? JSON.stringify(stage1PastLines()) : "";
+  const pastJson = !demoMode && resumeReady && recordedPast.length > 1 ? JSON.stringify(recordedPast.slice(-300).map((l) => ({ ...l, text: l.text.slice(0, 2000) }))) : "";
   const pastSent = useRef("");
   useEffect(() => {
     if (!pastJson || !savedPastLoaded.current || pastJson === pastSent.current || pastJson.length > 49_000) return;
@@ -2612,10 +2583,18 @@ export function AssignmentIntake({
   function earlyTakeFull(text: string): string | null {
     const t = text.trim();
     if (wordCount(t) >= 25) return t;
-    if (wordCount(t) < 15 || !CAUSAL_LINK.test(t)) return null;
-    const base = (lockedInStance || briefRef.current?.decision?.answer || brief?.decision?.answer || "").trim();
-    if (!base || t.includes(base.slice(0, 30)) || base.includes(t.slice(0, 30))) return null;
-    const both = `${base}\n${t}`;
+    // Round 4 #2: a solid reason is accepted: it joins what they already said (their pick, their
+    // reading answer), all their own words, so the 25-word early take is met without a re-ask.
+    if (!(isSolidReason(t) || (wordCount(t) >= 15 && CAUSAL_LINK.test(t)))) return null;
+    const said = (id: string) => [...answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText.trim() ?? "";
+    const pieces = [lockedInStance || briefRef.current?.decision?.answer || brief?.decision?.answer || "", said("decision_pick"), said("decision_why"), said("material_check")]
+      .map((x) => (x ?? "").trim())
+      .filter((x, i, all) => x && !isFillerSaying(x) && !isLostSaying(x) && all.findIndex((y) => y === x) === i && !t.includes(x.slice(0, 30)) && !x.includes(t.slice(0, 30)));
+    let both = t;
+    for (const piece of pieces) {
+      if (wordCount(both) >= 25) break;
+      both = `${piece}\n${both}`;
+    }
     return wordCount(both) >= 25 ? both : null;
   }
 
@@ -3621,7 +3600,6 @@ export function AssignmentIntake({
             answers.some((a) => a.questionId === "story_own"),
           )
         : stanceBase;
-    if (stanceMode || !stanceAsked.current) stanceAsked.current = stanceText;
     const informedStance = [brief?.decision?.answer ?? "", answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" ").trim();
     const informedLeader =
       (brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null) ?? informedSaying(informedStance)?.leader ?? null;
