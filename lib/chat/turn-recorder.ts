@@ -74,9 +74,12 @@ export function foldLines(
       changed = true;
       continue;
     }
-    const again = recs.find(
-      (r) => r.who === s.who && r.text === s.text && (!r.el || !isAttached(r.el)) && (r.gone === undefined || now - r.gone < REMOUNT_MS),
-    );
+    const last = [...recs].reverse().find((r) => !r.quiet);
+    const again =
+      // The newest line drawn again after its bubble went away (however long that took): the same turn.
+      // Two identical bubbles on screen together stay two replies.
+      (last && last.who === s.who && last.text === s.text && (!last.el || !isAttached(last.el)) ? last : undefined) ??
+      recs.find((r) => r.who === s.who && r.text === s.text && (!r.el || !isAttached(r.el)) && (r.gone === undefined || now - r.gone < REMOUNT_MS));
     if (again) {
       again.el = s.el;
       again.gone = undefined;
@@ -118,7 +121,16 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
     if (seeded.current || !opts.saved.length) return;
     seeded.current = true;
     recs.current = seedLines(opts.saved, recs.current);
-    restoreUntil.current = Date.now() + 2500;
+    // The screen redraws its history after a reload (some of it only once the brief loads):
+    // that's not new turns. It ends at the student's first key or tap, or after 20 s.
+    restoreUntil.current = Date.now() + 20000;
+    const end = () => {
+      restoreUntil.current = 0;
+      document.removeEventListener("keydown", end, true);
+      document.removeEventListener("pointerdown", end, true);
+    };
+    document.addEventListener("keydown", end, true);
+    document.addEventListener("pointerdown", end, true);
     setLines(linesOf(recs.current));
   }, [opts.saved]);
   useEffect(() => {

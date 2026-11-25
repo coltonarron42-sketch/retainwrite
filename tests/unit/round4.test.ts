@@ -55,6 +55,14 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     expect(linesOf(recs)).toHaveLength(4);
     expect(sameTurn("Give me a little more. What happened?", "Closer. What happened next?")).toBe(false);
   });
+  it("the newest line drawn again by a second bubble is not a second turn", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a"), b = el("b");
+    foldLines(recs, [{ el: a, who: "pau", text: "Stage 1 is about this." }], () => true, 0);
+    foldLines(recs, [], () => false, 3000);
+    foldLines(recs, [{ el: b, who: "pau", text: "Stage 1 is about this." }], (x) => x === b, 9000);
+    expect(linesOf(recs)).toHaveLength(1);
+  });
   it("after a reload, history the screen re-renders is not added again", () => {
     const x = el("x"), y = el("y");
     const out = seedLines([{ who: "pau", text: "Hi" }], [{ who: "pau", text: "Next up is the change part.", el: y }, { who: "pau", text: "Hi", el: x }]);
