@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { chosenStyles, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { chosenStyles, gutPickOf, narrowedTwo, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -2604,6 +2604,20 @@ export function AssignmentIntake({
         text = `I'd pick ${rec.label}${rest ? `. ${rest}` : ""}`;
         recPending.current[q.id] = null;
         tookRec = true;
+      }
+      // QA ethos: after "Let's narrow it to two", naming one of the two (or "the first one") is their gut pick, in their words.
+      const two = narrowedTwo(lastProbe.current[q.id] ?? null);
+      if (!tookRec && text && two.length) {
+        const gut = gutPickOf(text, two);
+        if (gut) {
+          // Named it: their words stand as they typed them. "The first one": say which, then their words.
+          if (!new RegExp(`\\b${gut.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) {
+            const rest = text.replace(/^\s*(?:the\s+)?(?:first|second|1st|2nd|other|last)(?:\s+one)?[\s,.!:-]*/i, "").trim();
+            text = `I'd pick ${gut}${rest ? `. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : ""}`;
+          }
+          recPending.current[q.id] = null;
+          tookRec = true;
+        }
       }
     }
     const confused = !tookRec && (q.id === "decision_pick" || q.id === "leader_pick") && Boolean(text) && isConfusedSaying(text) && !decisionHasReason(text);

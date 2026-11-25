@@ -61,13 +61,22 @@ describe("PC-30 Skeleton sections: status and content", () => {
     expect(body.map((b) => b.preview)).toEqual([["first point"], ["second point", "third point"]]);
     expect(body.every((b) => b.completed && b.sectionKey === "body")).toBe(true);
   });
-  it("uses ghost #2's idea refs when there are some; its title is a heading only, never card words", () => {
+  it("uses ghost #2's idea refs when no title names a picked style; a title is a heading only, never card words", () => {
+    const v = viewFor(800);
+    v.blocks[1]!.ideaRefs = [1];
+    v.blocks[1]!.title = "Sam Walton, change story";
+    const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["a", "b"] } }));
+    const rows = paperSections({ view: v, words });
+    expect(rows[1]).toMatchObject({ kicker: "Body Paragraph 1", title: "Sam Walton, change story", preview: ["b"] });
+    expect(JSON.stringify(rows.map((r) => r.preview))).not.toContain("Sam Walton, change");
+  });
+  it("QA 13ccbcdb: with titles from their picked styles, notes go in order (the model's refs can't move them)", () => {
     const v = viewFor(800);
     v.blocks[1]!.ideaRefs = [1];
     v.blocks[1]!.title = "Sam Walton, servant leadership";
     const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["a", "b"] } }));
     const rows = paperSections({ view: v, words });
-    expect(rows[1]).toMatchObject({ kicker: "Body Paragraph 1", title: "Sam Walton, servant leadership", preview: ["b"] });
+    expect(rows[1]).toMatchObject({ kicker: "Body Paragraph 1", title: "Sam Walton, servant leadership", preview: ["a"] });
     expect(JSON.stringify(rows.map((r) => r.preview))).not.toContain("Sam Walton, servant");
   });
   it("blank notes are dropped", () => {
