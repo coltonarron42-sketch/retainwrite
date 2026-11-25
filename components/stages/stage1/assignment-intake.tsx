@@ -169,6 +169,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
+import { reflectsSetAside, setAsideStyles } from "@/lib/stage1/style-negation";
 import { asOnSheet, longEnough, studentTurns, studentWordTotal, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
 import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
@@ -2255,7 +2256,13 @@ export function AssignmentIntake({
       setPendingSaid(said);
       dropSent(sentBox);
       setAsideBusy("Thinking…");
-      const llm = await pauTurn("story", `Their story: ${story}${said.trim() !== story.trim() ? `\nTheir latest message: ${said}` : ""}`, qn.text, 18_000);
+      // #75 (kept through PC-31): the styles they chose / set aside go to Pau, and a reflection that names a set-aside style as theirs is never shown.
+      const both = `${story}\n${said}`;
+      const chose = stylesIn(both);
+      const aside = setAsideStyles(both);
+      const styleNote = chose.length || aside.length ? `\nStyles they chose: ${chose.join(", ") || "none named"}.${aside.length ? ` Styles they set aside (never reflect these as theirs): ${aside.join(", ")}.` : ""}` : "";
+      const got = await pauTurn("story", `Their story: ${story}${said.trim() !== story.trim() ? `\nTheir latest message: ${said}` : ""}${styleNote}`, qn.text, 18_000);
+      const llm = got && !reflectsSetAside(got.join("\n"), both) ? got : null;
       setAsideBusy(null);
       setPendingSaid(null);
       setStoryProposal({ id, qid: qn.id, story, reflect: r });
