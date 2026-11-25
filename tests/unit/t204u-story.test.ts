@@ -40,11 +40,10 @@ describe("t204u (b)/(c): his follow-ups", () => {
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(src).toContain("(await storyTurn(q, typed, sentBox))) return;");
     expect(src).toMatch(/await storyTurn\(\{ id: "stance_early"/);
-    expect(src).toContain("await catchUpNow(qn.id);");
-    expect(src).toContain("is a real example of the ${r.style} side of it. Want to run with that direction?");
+    expect(src).toContain("push(typed, storySummaryParas(list, r), true, id);");
     expect(src).toContain('q.kind !== "interest" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))');
     // One ask per turn: the plan's question is off screen while her story reply is the open ask.
-    expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") && !storyAsk ? (');
+    expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") && !storyAsk && !asideQ ? (');
     // Yes: the story is their answer, decision and early take; no "early take" ask, no "Which direction…?".
     expect(src).toMatch(/async function runWithStory[\s\S]{0,3000}stage1:stance_early[\s\S]{0,2000}setStoryFromDecision\(true\)[\s\S]{0,400}setScreen\("gate"\)/);
     expect(COACH_ANSWER_SYSTEM).toMatch(/mode "interview".*exactly ONE short question/);

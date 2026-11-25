@@ -174,7 +174,7 @@ describe("QA 11:21: in-between plan items are never rendered or spoken", () => {
   it("hides the style question while an informed answer's decision is saving", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") && !storyAsk ? (');
+    expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") && !storyAsk && !asideQ ? (');
     expect(src).toContain('const currentTurnTexts: string[] = storyTurnText ? [storyTurnText] : q && !(decisionSaving && q.id === "decision_pick")');
     expect(src).toMatch(/setDecisionSaving\(true\)[\s\S]{0,400}setDecisionSaving\(false\)/);
   });
