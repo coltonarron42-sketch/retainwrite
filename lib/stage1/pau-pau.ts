@@ -1,6 +1,6 @@
 import { oneQuipParas } from "@/lib/coach/quips";
 /**
- * Pau Pau (POW-pow) is the coach. After the assignment is read, Pau Pau says
+ * Pau (POW-pow) is the coach. After the assignment is read, Pau says
  * back what it understood in one conversational bubble, then asks for the one
  * most important missing thing, if any.
  * SOP: coaching only. These lines summarize the assignment sheet only; they
@@ -17,9 +17,9 @@ import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib
 import { displayWork, namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
 import type { ReadbackPlain } from "@/lib/stage1/paper-context";
 
-export const COACH_NAME = "Pau Pau";
+export const COACH_NAME = "Pau";
 /** For speech synthesis, which otherwise says "paw paw". */
-export const COACH_NAME_SPOKEN = "Pow pow";
+export const COACH_NAME_SPOKEN = "Pow";
 
 export type PauPauAsk = "topic" | "sources" | "length";
 
@@ -242,7 +242,7 @@ const SAID_BACK = [
 /**
  * Only facts we're sure of get said back: confirmed by the student, or read
  * with confidence ≥ 0.6 (the model read, or a labeled line). A topic must also
- * look like a topic. Everything else is left out, and Pau Pau asks instead.
+ * look like a topic. Everything else is left out, and Pau asks instead.
  */
 export function trustedView(req: AssignmentRequirements): { view: AssignmentRequirements; skipped: number } {
   const empty = emptyRequirements();
@@ -320,7 +320,7 @@ export type SummaryOptions = {
 };
 
 /**
- * What Pau Pau understood, as a few short chat bubbles, one idea each:
+ * What Pau understood, as a few short chat bubbles, one idea each:
  * what it is → what it needs → how it's graded → when and what about → wrap-up.
  */
 export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: SummaryOptions = {}): string[] {
@@ -370,7 +370,7 @@ export const RECONFIRM_ASK = "Look right now? If so, we're ready to roll.";
 
 /**
  * The read-back as ONE reply (PLAN.md 9): a few paragraphs in a single message,
- * ending with the one thing Pau Pau needs, or the invitation to confirm.
+ * ending with the one thing Pau needs, or the invitation to confirm.
  */
 export function readBackParas(
   full: AssignmentRequirements,
@@ -475,7 +475,7 @@ export function lengthFromAnswer(text: string): { wordsMin?: number; wordsMax?: 
 /** Colton 1:54 R2: the marker every material request ends with (so it's asked once). */
 export const SOURCES_MARKER = "Best summaries come from the exact material your professor is using.";
 
-/** True when Pau Pau already made this ask in what she said. */
+/** True when Pau already made this ask in what she said. */
 export function askWasMade(said: string, key: PauPauAsk): boolean {
   return key === "sources" ? said.includes(SOURCES_MARKER) : said.includes(PAU_PAU_ASK_TEXT[key]);
 }

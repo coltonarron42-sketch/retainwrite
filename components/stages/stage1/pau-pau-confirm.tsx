@@ -51,11 +51,11 @@ type Props = {
   /** The conversation about the read-back, saved so a reload shows the same thing. */
   turns: ConfirmTurn[];
   onTurns: (next: ConfirmTurn[]) => void;
-  /** The assignment sheet text, so Pau Pau can answer questions about it. */
+  /** The assignment sheet text, so Pau can answer questions about it. */
   sheetText?: string;
   /** The welcome-back line on a return (rendered after her latest turn). */
   welcome?: ReactNode;
-  /** PC-28: on a return, Pau Pau's one opener, shown first. */
+  /** PC-28: on a return, Pau's one opener, shown first. */
   opener?: ReactNode;
   /** PC-28: turns before this index were on screen before the return: hidden (her latest turn always shows). */
   hideBefore?: number;
@@ -82,9 +82,9 @@ export function dismissedFromTurns(turns: ConfirmTurn[]): Set<PauPauAsk> {
 }
 
 /**
- * After the read: Pau Pau says back what it understood in ONE reply and the
+ * After the read: Pau says back what it understood in ONE reply and the
  * student answers in the same chat box (PLAN.md 9). "Looks good" confirms;
- * a question gets an answer; a correction updates the card and Pau Pau
+ * a question gets an answer; a correction updates the card and Pau
  * re-confirms. Nothing moves on from an unclear reply.
  */
 export function PauPauConfirm({
@@ -188,7 +188,7 @@ export function PauPauConfirm({
     }).catch(() => undefined);
   }
 
-  /** Asks Pau Pau already made once: she doesn't repeat them every turn (the topic is the exception). */
+  /** Asks Pau already made once: she doesn't repeat them every turn (the topic is the exception). */
   function askedBefore(): Set<PauPauAsk> {
     const said = turnsRef.current.flatMap((t) => (t.role === "pau" ? t.paras : [])).join(" ");
     const out = new Set<PauPauAsk>();
@@ -196,7 +196,7 @@ export function PauPauConfirm({
     return out;
   }
 
-  /** The next missing thing Pau Pau hasn't asked yet, or null. */
+  /** The next missing thing Pau hasn't asked yet, or null. */
   function nextNewAsk(req: AssignmentRequirements, after: Set<PauPauAsk>): PauPauAsk | null {
     const next = pauPauNextAsk(req, new Set([...after, ...askedBefore()]), sheetText ?? "");
     return next;
@@ -225,7 +225,7 @@ export function PauPauConfirm({
     const text = (spoken ?? draft).replace(/\s+$/, "");
     if (!text.trim() || replying || confirming) return;
     if (spoken === undefined) setDraft("");
-    // The ask Pau Pau is actually waiting on: only if her last reply ended with it
+    // The ask Pau is actually waiting on: only if her last reply ended with it
     // (sources/length are asked once; after that she's asking "does it look right?").
     const lastPau = [...turnsRef.current].reverse().find((t) => t.role === "pau");
     const liveAsk: PauPauAsk | null =
@@ -277,7 +277,7 @@ export function PauPauConfirm({
       );
     }
     try {
-      // A link while Pau Pau is asking for sources: check it and keep it.
+      // A link while Pau is asking for sources: check it and keep it.
       const url = currentAsk === "sources" ? linkIn(text) : null;
       if (url) {
         const check = (await fetch(`/api/papers/${paperId}/assignment/readings`, {
@@ -443,7 +443,7 @@ export function PauPauConfirm({
     // Title from the file's own first line; the student's file name otherwise.
     const read = await extractFileText(paperId, file).catch(() => null);
     const firstLine = read && read.ok ? read.text.split(/\n/).map((l) => l.trim()).find((l) => l.length >= 6) : null;
-    // The reading's text is what Pau Pau summarizes when they haven't read it (north star B).
+    // The reading's text is what Pau summarizes when they haven't read it (north star B).
     if (read && read.ok && read.text.trim()) {
       void fetch(`/api/papers/${paperId}/intake/brief`, {
         method: "POST",
@@ -560,7 +560,7 @@ export function PauPauConfirm({
           realtimeSlot={realtimeSlot}
           sending={replying || confirming}
           minRows={1}
-          placeholder={ask === "topic" ? "What's the paper about?" : "Reply to Pau Pau… “looks good” or what to change"}
+          placeholder={ask === "topic" ? "What's the paper about?" : "Reply to Pau… “looks good” or what to change"}
         />
       </ComposerDock>
     </>

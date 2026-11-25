@@ -113,9 +113,9 @@ export function outlineAsk(section: OutlineSectionView, first: boolean, introSai
 }
 
 /**
- * Stage 3 (Outline) as one-at-a-time Pau Pau turns (PLAN.md 9): the three
+ * Stage 3 (Outline) as one-at-a-time Pau turns (PLAN.md 9): the three
  * outline boxes become three questions. The student's outline text is theirs;
- * Pau Pau never writes or rewrites it.
+ * Pau never writes or rewrites it.
  */
 export function OutlineChat(props: Props) {
   const { paperId, sections, done, transcript } = props;
@@ -230,7 +230,7 @@ export function OutlineChat(props: Props) {
     }),
   });
   const choice = current ? (notes ? "Keep my notes" : "Skip for now") : "Continue to sources";
-  // Their own lines (typed or spoken) are in the box: Keep my notes / Skip would replace them, so Pau Pau isn't told to offer it.
+  // Their own lines (typed or spoken) are in the box: Keep my notes / Skip would replace them, so Pau isn't told to offer it.
   const ownLines = Boolean(current && text.trim() && text.trim() !== notes.trim());
   const rtChoices = current && ownLines ? [] : [choice];
   const screenText = [
@@ -275,7 +275,7 @@ export function OutlineChat(props: Props) {
         await submit(notes, true);
         return moved();
       }
-      // Requests to Pau Pau are answered by her, never saved as their outline.
+      // Requests to Pau are answered by her, never saved as their outline.
       if (isSaidToCoach(spoken)) return "said_to_coach";
       // "That's my outline for this section" / "let's move on" is said to her, not outline content.
       const { line } = splitOutlineControl(spoken);
@@ -305,7 +305,7 @@ export function OutlineChat(props: Props) {
     rt.sayTurn(screenText);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtKey, rt.on]);
-  // Typing (or speaking) their own lines takes Keep my notes off what Pau Pau offers.
+  // Typing (or speaking) their own lines takes Keep my notes off what Pau offers.
   useEffect(() => {
     if (rt.on && rtSeen.current === rtKey) rt.setScreen(screenText, rtChoices);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when it flips
@@ -369,7 +369,7 @@ export function OutlineChat(props: Props) {
           ))}
         </ol>
       </details>
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
         <FocusOpener line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
         {shown.map((line, i) => {
           // PC-28 one section at a time: only this section's turns, and on a return only what's said since.
