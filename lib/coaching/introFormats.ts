@@ -37,7 +37,7 @@ export const FIRST_SUMMARY: Record<IntroVariant, string> = {
 };
 
 export const OPENER =
-  "Where are you at on this? Want to give it a shot, or want me to break it down?";
+  "Where are you at on this? Give it a shot, or I can break it down for you.";
 
 export const SHOT_SUMMARY: Record<string, string> = {
   intro: "Context → your point → where the paper is going",

@@ -1,3 +1,4 @@
+import { isSourcesLine } from "@/lib/copy/sentences";
 import { otherStyleName } from "@/lib/assignment/flat-parse";
 import { labeledValue, plausibleTopic } from "@/lib/assignment/plausible";
 import {
@@ -222,7 +223,7 @@ export function parseAssignmentFallback(
     .map((line) => line.trim().replace(/^(?:question|prompt|essay prompt|assignment)\s*:\s*/i, ""))
     .flatMap((line) => line.match(/[^.!?]*\?/g) ?? [])
     .map((sentence) => sentence.trim())
-    .find((sentence) => sentence.split(/\s+/).length >= 6 && !isFormatTopic(sentence));
+    .find((sentence) => sentence.split(/\s+/).length >= 6 && !isFormatTopic(sentence) && !isSourcesLine(sentence));
   if (question) {
     req.promptQuestion = extractedField(question.slice(0, 400), 0.7, question.slice(0, 120));
   }

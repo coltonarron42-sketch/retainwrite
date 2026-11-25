@@ -1,3 +1,4 @@
+import { isSourcesLine } from "@/lib/copy/sentences";
 /**
  * Assignment requirements extraction.
  * // SOP: coaching only, never generate submission text
@@ -153,8 +154,9 @@ export function sanitizeParsedRequirements(
   }
   if (
     typeof next.promptQuestion.value === "string" &&
-    isFormatOrLengthLine(next.promptQuestion.value)
+    (isFormatOrLengthLine(next.promptQuestion.value) || isSourcesLine(next.promptQuestion.value))
   ) {
+    // QA 3:26 AM #1: "Using Chapter 4 … the HBR article 'What Makes a Leader?" is a sources line, not the prompt.
     next.promptQuestion = emptyRequirements().promptQuestion;
   }
   // "other" with nothing named is not a style: it dead-ends the confirm gate
