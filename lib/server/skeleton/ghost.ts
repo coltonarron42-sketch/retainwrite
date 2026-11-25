@@ -119,7 +119,7 @@ export function viewFor(shape: PaperShape, outline: ShapeOutline | null): Skelet
   return projectSkeleton(shape, outline);
 }
 
-/** Server-side only: the decisions the shape says Pau Pau needs (for her prompts). */
+/** Server-side only: the decisions the shape says Pau needs (for her prompts). */
 export function shapeDecisionsBlock(shape: PaperShape | null): string {
   if (!shape) return "";
   const body = shape.blocks.filter((b) => b.group === "body").length;

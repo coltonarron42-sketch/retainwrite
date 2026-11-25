@@ -76,7 +76,7 @@ describe("5:03 PM: the queue only ever holds turns from after the restore", () =
     __resetSpeech();
   });
   const restored = [
-    { key: "r0", text: "Hi, I'm Pau Pau. What's the assignment?", turn: true },
+    { key: "r0", text: "Hi, I'm Pau. What's the assignment?", turn: true },
     { key: "r1", text: "Okay, I've read it through.", turn: true },
   ];
   it("sticky activation, late restores and a second chat on the same paper stay silent (no heard marks: another device)", () => {
