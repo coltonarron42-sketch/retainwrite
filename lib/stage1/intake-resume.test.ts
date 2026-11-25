@@ -29,7 +29,6 @@ describe("intake resume", () => {
       stanceStartBlockers({
         checklistConfirmed: true,
         hasStory: false,
-        voiceOk: true,
         stanceOk: true,
       }),
     ).toEqual(["Pick a story angle first."]);
@@ -37,7 +36,6 @@ describe("intake resume", () => {
       stanceStartBlockers({
         checklistConfirmed: true,
         hasStory: true,
-        voiceOk: true,
         stanceOk: true,
       }),
     ).toEqual([]);
