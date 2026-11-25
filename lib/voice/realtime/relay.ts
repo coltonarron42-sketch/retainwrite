@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { stage3ChoicesFor, stage3SectionOf } from "@/lib/stages/outline-voice";
 import WebSocket, { type RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { isWelcomeLine, WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { SWAP_ASK } from "@/lib/stages/stance-turn";
 import { gateSpoken } from "@/lib/stages/soft-gate";
@@ -843,8 +843,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           return;
         }
         if (e.welcome === true) {
+          // PC-28: the app's filled-in welcome line (its own copy, checked against the templates).
+          const text = typeof e.welcomeText === "string" ? e.welcomeText.slice(0, 400).trim() : "";
           const i = Math.abs(Number(e.welcomeIndex) || 0) % WELCOME_BACK_LINES.length;
-          upSend(say(WELCOME_BACK_LINES[i]!));
+          upSend(say(text && isWelcomeLine(text) ? text : WELCOME_BACK_LINES[i]!));
         } else {
           upSend({
             type: "response.create",

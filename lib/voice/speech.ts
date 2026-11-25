@@ -3,7 +3,7 @@
 import { legacyVoiceOn } from "@/lib/voice/legacy";
 import { localUser, readScoped, writeScoped } from "@/lib/local/user-scope";
 import { speakableSentences } from "@/lib/voice/speakable";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { isWelcomeLine } from "@/lib/coach/welcome-back";
 
 /**
  * One shared read-aloud queue for Pau Pau's own words (browser speechSynthesis).
@@ -742,7 +742,7 @@ export function speak(texts: string[], opts: { interrupt?: boolean; welcome?: bo
   if (!speechSupported()) return;
   // The welcome-back line is recognised by its text; an explicit Read aloud
   // tap by the tap that's running right now.
-  const welcome = opts.welcome || (texts.length === 1 && (WELCOME_BACK_LINES as readonly string[]).includes(texts[0]!.trim()));
+  const welcome = opts.welcome || (texts.length === 1 && isWelcomeLine(texts[0]!));
   const explicit = opts.explicit || Date.now() - explicitTapAt < 250;
   opts = { ...opts, welcome };
   // The restore hold: only the welcome line (or an explicit Read aloud tap).
