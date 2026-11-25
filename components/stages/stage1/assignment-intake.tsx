@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -556,6 +556,9 @@ export function AssignmentIntake({
   // (and separate Past chat lines), true to what the student sent.
   const saidParts = useRef(new Map<string, string[]>());
   const partsOf = (t: string) => saidParts.current.get(t) ?? [t];
+  // QA round 6: the last real answer sent (its words and when), so a filler right behind it folds into it.
+  const lastReal = useRef<{ key: string; at: number } | null>(null);
+  const [, setFoldTick] = useState(0);
   const saidBubbles = (t: string) =>
     partsOf(t).map((p, i) => <StudentBubble key={`said:${i}`} message={{ text: p, files: [], at: 0 }} />);
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
@@ -2533,14 +2536,16 @@ export function AssignmentIntake({
     // Only a name (and who they are): a style or a reason with it ("Servant fits because Walton…") is a pick, handled below.
     if (text && brief?.northstar && noLeaderAsked.current[q.id] && !isRichStory(text) && wordCount(text) <= 15 && !stylesIn(text).length && !decisionHasReason(text)) {
       const w = storyWho(text);
-      const who = w?.named ? w.who : namedPerson(text) ?? singleNamedLeader(text);
+      const named = w?.named ? w.who : namedPerson(text) ?? singleNamedLeader(text);
+      // "My old coach" (no name yet) is someone too: the interview is about them.
+      const who = named ?? (w && wordCount(text) >= 2 && !isFillerOnly(text) ? w.who : null);
       if (who) {
         const qid = q.id;
         noLeaderAsked.current[qid] = false;
-        void briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named: who });
+        if (named) void briefCall({ action: "decision", question: "stated", answer: text, slot: "leader", named });
         const ask = await interviewAsk(text, text, "", 0, who);
         setInterview({ qid, story: text, said: [], ask });
-        setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [`${who} works great. Let's dig in, one quick question at a time. ${ask}`] }].slice(-12));
+        setQaAsides((prev) => [...prev, { id: Date.now(), qid, said: text, paras: [`${who.charAt(0).toUpperCase()}${who.slice(1)} works great. Let's dig in, one quick question at a time. ${ask}`] }].slice(-12));
         dropSent(sentBox);
         setError(null);
         return;
@@ -2598,6 +2603,8 @@ export function AssignmentIntake({
             concept: brief?.options?.concept ?? null,
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
+      // QA round 6: "think of someone who led a team you were on" is the boss/coach/teacher ask: their answer starts the interview.
+      if (/^Let's come at it from a different side/.test(esc.paras[0] ?? "")) noLeaderAsked.current[q.id] = true;
       recPending.current[q.id] = esc.recommend;
       setCatchUpOffer(esc.offerCatchUp ? q.id : null);
       setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: esc.paras }].slice(-12));
@@ -4086,12 +4093,7 @@ export function AssignmentIntake({
                   {readingTools}
                 </div>
               ) : q.id === "decision_pick" && brief?.options?.options.length ? (
-                <div className="space-y-2 pt-1">
-                {catchUpOffer === q.id ? (
-                  <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-catchup-offer onClick={() => void catchUpNow(q.id)}>
-                    Catch me up on the reading first
-                  </DsButton>
-                ) : null}
+                <div className="space-y-3 pt-1">
                 <div className={cn("flex flex-wrap gap-2", noLeaderAsked.current[q.id] && "hidden")} role="group" aria-label="Options" data-style-chips-hidden={noLeaderAsked.current[q.id] ? "" : undefined}>
                   {brief.options.options.slice(0, 3).map((o) => (
                     <DsButton
@@ -4104,12 +4106,23 @@ export function AssignmentIntake({
                       {o.label}
                     </DsButton>
                   ))}
-                  {brief.missing?.length ? (
-                    <DsButton type="button" size="sm" variant="secondary" onClick={() => setReadingOpen((v) => !v)}>
-                      Add a reading
-                    </DsButton>
-                  ) : null}
                 </div>
+                {/* QA round 6 minor: the reading help is its own row under the styles, never read as a style option. */}
+                {catchUpOffer === q.id || brief.missing?.length ? (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-ds-border pt-3" role="group" aria-label="Reading help" data-reading-help>
+                    <span className={dsCaption}>Not ready to pick?</span>
+                    {catchUpOffer === q.id ? (
+                      <DsButton type="button" size="sm" variant="ghost" disabled={submitting} data-catchup-offer onClick={() => void catchUpNow(q.id)}>
+                        Catch me up on the reading first
+                      </DsButton>
+                    ) : null}
+                    {brief.missing?.length ? (
+                      <DsButton type="button" size="sm" variant="ghost" onClick={() => setReadingOpen((v) => !v)}>
+                        Add a reading
+                      </DsButton>
+                    ) : null}
+                  </div>
+                ) : null}
                 {readingTools}
                 </div>
               ) : q.id === "leader_pick" && brief?.options?.people?.length ? (
@@ -4380,6 +4393,15 @@ export function AssignmentIntake({
         setPendingSaid(coalesce.current.text);
         return;
       }
+      // QA round 6: "ok" within ~1 s of a real answer, or while Pau's reply to it is pending, is part of
+      // that answer: it shows as its own bubble under it, and Pau replies once (never to the "ok").
+      if (typedNow && !text && isFillerOnly(typedNow) && lastReal.current && !queuedRef.current && (submitting || sendLock.current || Date.now() - lastReal.current.at < 1000)) {
+        const key = lastReal.current.key;
+        if (!partsOf(key).includes(typedNow)) saidParts.current.set(key, [...partsOf(key), typedNow]);
+        setFoldTick((n) => n + 1);
+        setDraftAnswer("");
+        return;
+      }
       // QA 9:37 AM: one send at a time, even for two taps in the same tick.
       // QA 3:00: typed while a reply is in flight: queued (on screen), never dropped.
       if (submitting || sendLock.current) {
@@ -4397,6 +4419,7 @@ export function AssignmentIntake({
         if (!text) setDraftAnswer("");
         setPendingSaid(typedNow);
         setAsideBusy(statusFor(typedNow));
+        const enteredAt = Date.now();
         const entry = { text: typedNow, timer: setTimeout(() => {
           const joined = coalesce.current?.text ?? typedNow;
           coalesce.current = null;
@@ -4404,6 +4427,7 @@ export function AssignmentIntake({
           // real answer; a trailing filler never turns it into a non-answer.
           const merged = keepSubstance(partsOf(joined));
           if (merged !== joined || partsOf(joined).length > 1) saidParts.current.set(merged, partsOf(joined));
+          lastReal.current = isFillerOnly(merged) ? null : { key: merged, at: enteredAt };
           sendLock.current = false;
           // QA 5:46: between steps (the last question answered, the early take not up yet) the
           // render that took this Enter has nothing to send it to, so go through the latest
@@ -4450,6 +4474,7 @@ export function AssignmentIntake({
           const merged0 = fromBox && rejectedRef.current && withoutFiller(text ?? "") ? `${withoutFiller(text ?? "")}\n${queuedNext}` : queuedNext;
           const merged = keepSubstance(partsOf(queuedNext).length > 1 && merged0 === queuedNext ? partsOf(queuedNext) : [merged0]);
           if (merged !== queuedNext || partsOf(queuedNext).length > 1) saidParts.current.set(merged, partsOf(queuedNext));
+          lastReal.current = isFillerOnly(merged) ? null : { key: merged, at: Date.now() };
           // QA 3:51: the screen may not have re-rendered yet (a heavy render can take longer than a
           // beat), so a send that is still "busy" is retried, never silently dropped. It stays on
           // screen as queued until it actually goes.
