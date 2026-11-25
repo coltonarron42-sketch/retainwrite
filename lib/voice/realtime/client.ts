@@ -682,7 +682,8 @@ export class RealtimeVoice {
   }
 
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
-  sayTurn(text: string, opts: { detail?: boolean; spoken?: string } = {}) {
+  /** `say` (PC-29d): words to say that aren't the prompt itself (a side answer, a nudge); `spoken` stays the on-screen prompt. */
+  sayTurn(text: string, opts: { detail?: boolean; spoken?: string; say?: string } = {}) {
     // Stage 2+: the app moved on, so what she didn't get to say is superseded (truncate, no re-offer).
     // Stage 1 (a verbatim prompt): never cut her mid-sentence for it. The prompt queues behind
     // what she's saying (the relay holds it while she's generating; playback is sequential).
@@ -691,7 +692,7 @@ export class RealtimeVoice {
       this.stopPlayback();
     }
     this.pendingE2E = performance.now();
-    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}), ...(opts.spoken !== undefined ? { spoken: opts.spoken.slice(0, 1600) } : {}) });
+    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}), ...(opts.spoken !== undefined ? { spoken: opts.spoken.slice(0, 1600) } : {}), ...(opts.say ? { say: opts.say.slice(0, 1600) } : {}) });
   }
 
   /** What the app shows now and the choices waiting for a tap (data for her). */

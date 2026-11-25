@@ -253,6 +253,8 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let startLine = "";
   let lastPrompt = { text: "", at: 0 };
   let pendingSpoken: string | null = null;
+  // PC-29d: words to say that aren't the prompt (a side answer, a nudge), queued like a prompt.
+  let pendingSay: string | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
   let ownSection = "";
@@ -335,10 +337,23 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     const detail = pendingDetail;
     const spoken = pendingSpoken;
     pendingSpoken = null;
+    const sayExtra = pendingSay;
+    pendingSay = null;
     // The student talked over it: the screen block already carries the app's turn
     // (kept, in case that "talk" turns out to be noise).
     if (speechActive || speechAt > at) {
       skippedTurn = { text, detail, at: Date.now(), spoken };
+      return;
+    }
+    if (verbatim && sayExtra) {
+      // A side answer or nudge: said even if the prompt moved on meanwhile (it answers them).
+      sayLine(sayExtra);
+      // A new prompt that arrived meanwhile and was never said follows it (after this line ends).
+      if (spoken && spoken === screen.spoken && spoken !== lastPrompt.text) {
+        pendingTurn = spoken;
+        pendingSpoken = spoken;
+        pendingDetail = false;
+      }
       return;
     }
     if (verbatim && spoken !== null) {
@@ -1452,6 +1467,22 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const detail = e.detail === true;
         const text = String(e.text ?? "").slice(0, detail ? 1600 : 800);
         const spoken = verbatim && typeof e.spoken === "string" ? e.spoken.slice(0, 1600).trim() : null;
+        // PC-29d: `say` = words that aren't the prompt (a side answer, a nudge). The prompt stays
+        // what's on screen (the question gate keeps using it); only `say` is spoken, never the prompt again.
+        const sayExtra = verbatim && typeof e.say === "string" ? e.say.slice(0, 1600).trim() : "";
+        if (sayExtra) {
+          if (spoken) screen = { ...screen, spoken };
+          if (startOpen) startOpen = false;
+          if (responding || speechActive) {
+            pendingTurn = text || sayExtra;
+            pendingDetail = false;
+            pendingSpoken = spoken;
+            pendingSay = sayExtra;
+            return;
+          }
+          sayLine(sayExtra);
+          return;
+        }
         if (verbatim && spoken !== null) {
           // PC-29 QA round 2: the on-screen prompt, word for word; nothing to say means silence.
           if (!spoken) return;
