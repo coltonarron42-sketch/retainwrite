@@ -218,7 +218,8 @@ export function screenLines(recs: Rec[], onScreen: { el: Element; who: PastLine[
   for (const r of recs) if (r.el) byEl.set(r.el, r);
   const shown = new Set(onScreen.map((s) => s.el));
   const onNow = (r: Rec) => Boolean(r.el && shown.has(r.el));
-  const earlier = recs.filter((r) => !r.quiet && r.born === undefined && !onNow(r));
+  // Lines saved on an earlier visit: always first, in their saved order and words (a redraw never moves them).
+  const earlier = recs.filter((r) => !r.quiet && r.born === undefined);
   const out: PastLine[] = earlier.map(({ who, text }) => ({ who, text }));
   const norm = (t: string) => pkey(t).toLowerCase();
   const screenText = onScreen.map((s) => norm(s.text));
@@ -242,9 +243,10 @@ export function screenLines(recs: Rec[], onScreen: { el: Element; who: PastLine[
     const r = byEl.get(s.el);
     // Redrawn history after a reload is already in the saved lines above.
     if (r?.quiet) continue;
-    const at = r ? recs.indexOf(r) : Infinity;
+    const at = r && r.born !== undefined ? recs.indexOf(r) : r ? -1 : Infinity;
     while (k < kept.length && kept[k].i < at) out.push({ who: kept[k].r.who, text: kept[k++].r.text });
-    out.push(r && r.born === undefined ? { who: r.who, text: r.text } : { who: s.who, text: s.text });
+    if (r && r.born === undefined) continue;
+    out.push({ who: s.who, text: s.text });
   }
   while (k < kept.length) out.push({ who: kept[k].r.who, text: kept[k++].r.text });
   return out;
