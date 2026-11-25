@@ -1,16 +1,10 @@
 "use client";
 
-// PC-28 (Colton t185u): the focused chat's two side doors. "See skeleton" opens the
-// paper's skeleton (a side panel on desktop, a sheet on mobile) without leaving the chat.
-// "Past chat" opens the full earlier conversation, read-only. No animation.
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { SkeletonView } from "@/lib/skeleton/shape";
+// PC-28 (Colton t185u): "Past chat" opens the full earlier conversation, read-only.
+// PC-30: The Skeleton is its own full-screen view (components/skeleton/skeleton-dock.tsx).
+import { useEffect, useState, type ReactNode } from "react";
 
 export type PastLine = { who: "pau" | "you" | "pick"; text: string; heading?: string | null };
-
-export type SkeletonWords = Partial<
-  Record<"intro" | "body" | "conclusion", { locked: boolean; notes: string[]; outline?: string[] }>
->;
 
 function Overlay({ label, onClose, children, side = false, data }: { label: string; onClose: () => void; children: ReactNode; side?: boolean; data: string }) {
   useEffect(() => {
@@ -180,130 +174,16 @@ export function PastChatPanel({ lines, onClose }: { lines: PastLine[]; onClose: 
   );
 }
 
-type Block = SkeletonView["blocks"][number];
-
-/** Which of the student's own words belong to a block. */
-export function wordsForBlock(block: Block, bodyBlocks: Block[], words: SkeletonWords): string[] {
-  const w = words[block.group];
-  if (!w) return [];
-  if (block.group !== "body") return [...w.notes, ...(w.outline ?? [])];
-  if (block.ideaRefs.length) return block.ideaRefs.map((i) => w.notes[i]).filter((x): x is string => Boolean(x));
-  const i = bodyBlocks.findIndex((b) => b.key === block.key);
-  const last = i === bodyBlocks.length - 1;
-  const own = w.notes.filter((_, j) => Math.min(j, bodyBlocks.length - 1) === i);
-  return last ? [...own, ...(w.outline ?? [])] : own;
-}
-
-/** Their direction, short: their own sentences, no repeats, no fragments (their words only). */
-export function shortDirection(text: string | null | undefined, max = 240): string | null {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of (text ?? "").replace(/\s+/g, " ").split(/(?<=[.!?…])\s+/)) {
-    const sent = raw.trim();
-    const key = sent.toLowerCase().replace(/[^a-z ]/g, "");
-    if (!sent || /…$/.test(sent) || sent.split(" ").length < 4 || seen.has(key)) continue;
-    if ([...seen].some((k) => k.includes(key) || key.includes(k))) continue;
-    seen.add(key);
-    if (out.length && [...out, sent].join(" ").length > max) break;
-    out.push(sent);
-    if (out.length === 2) break;
-  }
-  const t = out.join(" ");
-  return t ? (t.length > max ? `${t.slice(0, max).replace(/\s+\S*$/, "")}…` : t) : null;
-}
-
-/** The skeleton: sectioned blocks. Locked ones open the student's own words; empty ones are labels. */
-export function SkeletonPanel({
-  view,
-  words,
-  direction,
-  onClose,
-  waiting,
-}: {
-  view: SkeletonView | null;
-  words: SkeletonWords;
-  direction?: string | null;
-  onClose: () => void;
-  waiting?: string | null;
-}) {
-  const [open, setOpen] = useState<string | null>(null);
-  const body = useMemo(() => (view?.blocks ?? []).filter((b) => b.group === "body"), [view]);
-  const dir = shortDirection(direction);
-  return (
-    <Overlay label="Your skeleton" onClose={onClose} side data="data-skeleton-panel">
-      {dir ? (
-        <p className="mb-3 text-[14px] leading-[1.6] text-ds-muted" data-skeleton-direction>
-          <span className="font-semibold text-ds-ink">Your direction: </span>
-          {dir}
-        </p>
-      ) : null}
-      {!view ? (
-        <p className="text-[15px] leading-[1.6] text-ds-muted" role="status">
-          {waiting ?? "Share your assignment and I'll sketch your skeleton right away."}
-        </p>
-      ) : (
-        <ol className="space-y-2">
-          {view.blocks.map((b) => {
-            const w = words[b.group];
-            const mine = wordsForBlock(b, body, words);
-            const locked = Boolean(w?.locked) && mine.length > 0;
-            const n = body.findIndex((x) => x.key === b.key);
-            const heading = b.title ? `Body ${n + 1} – ${b.title}` : `${b.label} – ${b.sub}`;
-            const transition = b.group === "body" && n > 0 ? view.transitions[n - 1] : null;
-            return (
-              <li key={b.key}>
-                {transition ? (
-                  <p className="mb-2 pl-3 text-[12px] leading-[1.5] text-ds-muted" data-skeleton-transition>
-                    {transition}
-                  </p>
-                ) : null}
-                {locked ? (
-                  <div className="rounded-[10px] border border-ds-border bg-ds-page">
-                    <button
-                      type="button"
-                      className="ds-focus flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-                      aria-expanded={open === b.key}
-                      data-skeleton-block={b.key}
-                      data-locked=""
-                      onClick={() => setOpen((o) => (o === b.key ? null : b.key))}
-                    >
-                      <span className={b.title ? "text-[15px] font-bold text-ds-ink" : "text-[15px] font-semibold text-ds-ink"}>{heading}</span>
-                      <span className="text-[13px] text-ds-muted">✓ {open === b.key ? "Hide" : "Open"}</span>
-                    </button>
-                    {open === b.key ? (
-                      <ul className="space-y-2 border-t border-ds-border px-3 py-2" data-skeleton-words={b.key}>
-                        {mine.map((t, i) => (
-                          <li key={i} className="text-[14px] leading-[1.6] text-ds-ink">
-                            {t}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ) : (
-                  <h3
-                    className={b.title ? "px-3 py-1 text-[15px] font-bold text-ds-ink" : "px-3 py-1 text-[15px] font-semibold text-ds-muted"}
-                    data-skeleton-empty={b.key}
-                  >
-                    {heading}
-                  </h3>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </Overlay>
-  );
-}
+// PC-30: the skeleton is now The Skeleton (components/skeleton/skeleton-dock.tsx), opened from
+// the tab on the right edge; its helpers live in lib/skeleton/sections.ts.
+export { shortDirection, wordsForBlock, type SkeletonWords } from "@/lib/skeleton/sections";
 
 /** The two buttons under the chat header. */
-export function FocusBar({ onSkeleton, onPast, hasPast, menu }: { onSkeleton: () => void; onPast: () => void; hasPast: boolean; menu?: ReactNode }) {
+/** PC-30: The Skeleton opens from the tab on the right edge (not a button here). */
+export function FocusBar({ onPast, hasPast, menu }: { onSkeleton?: () => void; onPast: () => void; hasPast: boolean; menu?: ReactNode }) {
+  if (!hasPast && !menu) return null;
   return (
     <div className="mt-2 flex flex-wrap items-start gap-2" data-focus-bar>
-      <button type="button" className="ds-focus rounded-full border border-ds-border px-3 py-1 text-[13px] font-semibold text-ds-ink" data-skeleton-open onClick={onSkeleton}>
-        See skeleton
-      </button>
       {hasPast ? (
         <button type="button" className="ds-focus rounded-full border border-ds-border px-3 py-1 text-[13px] font-semibold text-ds-ink" data-past-chat-open onClick={onPast}>
           Past chat
