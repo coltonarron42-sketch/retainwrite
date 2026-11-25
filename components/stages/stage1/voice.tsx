@@ -30,21 +30,6 @@ function useSupported() {
   return supported;
 }
 
-const UNSUPPORTED_SEEN = "rw:voice-unsupported-seen";
-/** QA 1:11 AM minor: the "not available" note shows once per visit, never again on resumed pages. */
-function useUnsupportedNoteOnce(show: boolean): boolean {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!show) return;
-    try {
-      if (window.sessionStorage.getItem(UNSUPPORTED_SEEN)) return;
-      window.sessionStorage.setItem(UNSUPPORTED_SEEN, "1");
-    } catch {}
-    setVisible(true);
-  }, [show]);
-  return visible;
-}
-
 function useSpeaking() {
   return useSyncExternalStore(subscribeSpeaking, isSpeaking, () => false);
 }
@@ -53,14 +38,30 @@ function useSpeaking() {
 export function VoiceToggle({ className }: { className?: string }) {
   const { voice } = useChatPrefs();
   const supported = useSupported();
-  const noteVisible = useUnsupportedNoteOnce(supported === false);
+  // QA 3:26 AM minor: the "not available" note shows only after they actually try voice.
+  const [tried, setTried] = useState(false);
   if (supported === null) return <span className={cn("min-h-[48px]", className)} aria-hidden />;
   if (!supported) {
-    if (!noteVisible) return <span className={cn("min-h-[48px]", className)} aria-hidden />;
+    if (tried)
+      return (
+        <span className={cn("text-[13px] leading-[1.6] text-ds-muted", className)} data-voice-unsupported role="status">
+          Read-aloud isn&apos;t available in this browser
+        </span>
+      );
     return (
-      <span className={cn("text-[13px] leading-[1.6] text-ds-muted", className)} data-voice-unsupported>
-        Read-aloud isn&apos;t available in this browser
-      </span>
+      <button
+        type="button"
+        aria-pressed={false}
+        data-voice-toggle
+        onClick={() => setTried(true)}
+        className={cn(
+          "ds-focus inline-flex min-h-[48px] items-center gap-2 rounded-full px-3 text-[14px] font-semibold text-ds-muted hover:text-ds-ink",
+          className,
+        )}
+      >
+        <VolumeX aria-hidden className="size-5" />
+        Voice off
+      </button>
     );
   }
   return (

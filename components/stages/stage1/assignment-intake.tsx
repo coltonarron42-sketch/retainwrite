@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { fillerNudge, isFillerSaying, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
+import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -50,7 +50,7 @@ import {
 } from "@/lib/stage1/confirm-reply";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
-import { FocusBar, PastChatPanel, SkeletonPanel, type PastLine } from "@/components/stages/focus-panels";
+import { FocusBar, PastChatPanel, SkeletonPanel, STAGE1_PAST_KEY, mergePast, parsePastLines, type PastLine } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
@@ -591,6 +591,9 @@ export function AssignmentIntake({
   const [reoffer, setReoffer] = useState<string | null>(null);
   /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
   const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
+  // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
+  const [savedPast, setSavedPast] = useState<PastLine[]>([]);
+  const stanceAsked = useRef<string>("");
   // The pending bubble gives way as soon as the turn is on screen (no doubled student bubble).
   useEffect(() => {
     setPendingSaid(null);
@@ -1243,20 +1246,72 @@ export function AssignmentIntake({
       {panel === "past" ? <PastChatPanel lines={stage1PastLines()} onClose={() => setPanel(null)} /> : null}
     </>
   );
+  // QA 3:26 AM #5: Past chat is what was on screen, in order: her replies, asides, catch-up, re-asks.
   function stage1PastLines(): PastLine[] {
-    const out: PastLine[] = [{ who: "pau", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}` }];
-    if (sentMessage?.text) out.push({ who: "you", text: sentMessage.text });
-    for (const t of confirmTurns) out.push(t.role === "student" ? { who: "you", text: t.text } : { who: "pau", text: t.paras.join(" ") });
-    for (const item of coachingPlan) {
-      const said = [...answers].reverse().find((a) => a.questionId === item.id && a.answerText.trim())?.answerText;
-      if (!said) continue;
-      out.push({ who: "pau", text: item.text }, { who: "you", text: said });
-    }
-    if (storyAngle?.text) out.push({ who: "pau", text: "Which direction do you want to take your paper?" }, { who: storyAngle.source === "student" ? "you" : "pick", text: storyAngle.text });
-    const stance = [...answers].reverse().find((a) => a.questionId === "stance_early" && a.answerText.trim())?.answerText;
-    if (stance) out.push({ who: "you", text: stance });
-    return out;
+    return mergePast(savedPast, liveStage1Lines());
   }
+  function liveStage1Lines(): PastLine[] {
+    const out: PastLine[] = [{ who: "pau", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}` }];
+    const pau = (text: string) => text.trim() && out.push({ who: "pau", text: text.trim() });
+    if (sentMessage?.text) out.push({ who: "you", text: sentMessage.text });
+    if (confirmTurns.length) {
+      for (const t of confirmTurns) out.push(t.role === "student" ? { who: "you", text: t.text } : { who: "pau", text: t.paras.join(" ") });
+    } else if (requirements && checklistConfirmed) pau(readBackParas(requirements, { seed: paperId }).join(" "));
+    const summaries = brief ? (brief.summaries?.length ? brief.summaries : brief.summary ? [brief.summary] : []).map(summarySpoken).join(" ") : "";
+    const asidesFor = (qid: string) => {
+      for (const a of qaAsides.filter((x) => x.qid === qid)) {
+        out.push({ who: "you", text: a.said });
+        pau(a.paras.join(" "));
+      }
+    };
+    const intro = brief?.northstar ? [STAGE_PURPOSE[1], ...INTRO_BUBBLES] : INTRO_BUBBLES;
+    coachingPlan.forEach((item, i) => {
+      const said = [...answers].reverse().find((a) => a.questionId === item.id && a.answerText.trim())?.answerText;
+      const asked = said || qaAsides.some((x) => x.qid === item.id) || coachingPlan[qIndex]?.id === item.id;
+      if (!asked) return;
+      pau(i === 0 ? [...intro, item.text].join(" ") : item.text);
+      asidesFor(item.id);
+      if (item.id === "material_check" && summaries && (brief?.materialShown || brief?.lostAtStart || (said && materialLost(said)))) pau(summaries);
+      if (said) out.push({ who: "you", text: said });
+    });
+    if (storyAngle?.text) {
+      pau("Which direction do you want to take your paper?");
+      out.push({ who: storyAngle.source === "student" ? "you" : "pick", text: storyAngle.text });
+    }
+    const stance = [...answers].reverse().find((a) => a.questionId === "stance_early" && a.answerText.trim())?.answerText;
+    if (stance || qaAsides.some((x) => x.qid === "stance_early")) {
+      if (stanceAsked.current) pau(stanceAsked.current);
+      asidesFor("stance_early");
+      if (stance) out.push({ who: "you", text: stance });
+    }
+    return out.map((l) => ({ ...l, text: l.text.slice(0, 2000) }));
+  }
+  const savedPastLoaded = useRef(false);
+  useEffect(() => {
+    if (demoMode || !paperId) return;
+    let cancelled = false;
+    fetch(`/api/papers/${paperId}/autosave`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { drafts?: { fieldKey?: string; text?: string }[] } | null) => {
+        if (cancelled) return;
+        setSavedPast(parsePastLines(data?.drafts?.find((d) => d.fieldKey === STAGE1_PAST_KEY)?.text));
+        savedPastLoaded.current = true;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [demoMode, paperId]);
+  const pastJson = !demoMode && resumeReady && screen !== "upload" ? JSON.stringify(stage1PastLines()) : "";
+  const pastSent = useRef("");
+  useEffect(() => {
+    if (!pastJson || !savedPastLoaded.current || pastJson === pastSent.current || pastJson.length > 49_000) return;
+    const t = window.setTimeout(() => {
+      pastSent.current = pastJson;
+      void persistField(paperId, { fieldKey: STAGE1_PAST_KEY, text: pastJson });
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [pastJson, paperId]);
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
@@ -2197,6 +2252,14 @@ export function AssignmentIntake({
       setError(null);
       return;
     }
+    // QA 3:26 AM #4: filler on the early take gets its own nudge and never sticks to the take.
+    if (!opts?.skip && q.id === "stance_early" && text && !withoutFiller(text)) {
+      setShortEcho(null);
+      setError(fillerNudge("stance_early"));
+      dropSent(sentBox);
+      return;
+    }
+    if (!opts?.skip && q.id === "stance_early") text = withoutFiller(text);
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25 && earlyTakeFull(text)) text = earlyTakeFull(text)!;
     if (!opts?.skip && q.id === "stance_early" && wordCount(text) < 25) {
       setShortEcho(text);
@@ -2494,7 +2557,13 @@ export function AssignmentIntake({
 
   async function submitOwnStory(spoken?: string) {
     setShortEcho(null);
-    const text = (spoken ?? ownStory).trim();
+    const rawStory = (spoken ?? ownStory).trim();
+    const text = withoutFiller(rawStory);
+    if (rawStory && !text) {
+      setError(fillerNudge("own_story"));
+      if (!spoken) setOwnStory("");
+      return;
+    }
     if (wordCount(text) < 15) {
       setShortEcho(text);
       setError(moreWordsNote(wordCount(text), 15, "Your own angle", text, shortTries.current++));
@@ -2552,9 +2621,16 @@ export function AssignmentIntake({
 
   async function submitStanceAnswer(spoken?: string) {
     // QA 3:00: what they already sent (turned back as short) stays part of the take; new lines add to it.
-    const prevShort = error && shortEcho ? shortEcho : "";
+    const prevShort = withoutFiller(error && shortEcho ? shortEcho : "");
     setShortEcho(null);
-    const fresh = (spoken ?? draftAnswer).trim();
+    const fresh = withoutFiller((spoken ?? draftAnswer).trim());
+    // QA 3:26 AM #4: a filler send gets the filler nudge, never "Closer.", and is never kept.
+    if (!fresh && (spoken ?? draftAnswer).trim()) {
+      if (prevShort) setShortEcho(prevShort);
+      setError(fillerNudge("stance_early"));
+      if (!spoken) setDraftAnswer("");
+      return;
+    }
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
     const text = earlyTakeFull(joined) ?? joined;
     if (wordCount(text) < 25) {
@@ -3545,6 +3621,7 @@ export function AssignmentIntake({
             answers.some((a) => a.questionId === "story_own"),
           )
         : stanceBase;
+    if (stanceMode || !stanceAsked.current) stanceAsked.current = stanceText;
     const informedStance = [brief?.decision?.answer ?? "", answers.find((a) => a.questionId === "material_check")?.answerText ?? ""].join(" ").trim();
     const informedLeader =
       (brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null) ?? informedSaying(informedStance)?.leader ?? null;
@@ -3810,7 +3887,8 @@ export function AssignmentIntake({
           // The queued message goes right after the reply. If the first was turned back (too short),
           // both go together as one answer, so neither is lost.
           queuedRef.current = null;
-          const merged = fromBox && rejectedRef.current && text ? `${text}\n${queuedNext}` : queuedNext;
+          // QA 3:26 AM #4: a turned-back filler send never merges into the next one.
+          const merged = fromBox && rejectedRef.current && withoutFiller(text ?? "") ? `${withoutFiller(text ?? "")}\n${queuedNext}` : queuedNext;
           // QA 3:51: the screen may not have re-rendered yet (a heavy render can take longer than a
           // beat), so a send that is still "busy" is retried, never silently dropped. It stays on
           // screen as queued until it actually goes.
@@ -3829,7 +3907,7 @@ export function AssignmentIntake({
         }
         // Turned back: their words go back in the box, never lost.
         // QA 3:06: a short early take stays in the chat (and counts toward the next send), not back in the box.
-        if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
+        if (fromBox && rejectedRef.current && text && withoutFiller(text) && !stanceMode) setDraftAnswer((d) => (d.trim() ? (d.includes(text) ? d : `${text}\n${d}`) : text));
       });
       return true;
     };

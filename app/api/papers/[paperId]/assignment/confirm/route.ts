@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { ensureShape, readGhost } from "@/lib/server/skeleton/ghost";
+import { wordsTarget } from "@/lib/skeleton/shape";
 import { z } from "zod";
 import { assertAssignmentConfirmGate } from "@/lib/assignment/confirm";
 import { formatLengthLabel } from "@/lib/assignment/pages-to-words";
@@ -138,6 +140,20 @@ export async function POST(request: Request, ctx: Ctx) {
         .eq("id", paperId)
         .eq("user_id", user.id);
 
+      // QA 3:26 AM #3: ghost paper #1 starts the moment the assignment is confirmed (same input as the skeleton GET).
+      const userId = user.id;
+      after(async () => {
+        try {
+          const { data: asg } = await supabase.from("assignments").select("raw_text").eq("paper_id", paperId).maybeSingle();
+          const req = requirements as { length?: { value?: { wordsMin?: number; wordsMax?: number; pagesMin?: number; pagesMax?: number } | null }; promptQuestion?: { value?: string | null }; topic?: { value?: string | null } };
+          const text = [asg?.raw_text ?? "", req.promptQuestion?.value ?? "", req.topic?.value ?? ""].filter(Boolean).join("\n");
+          if (!text.trim()) return;
+          const words = wordsTarget({ ...(req.length?.value ?? {}), text });
+          await ensureShape({ paperId, userId, assignmentText: text, words, material: "", existing: await readGhost(paperId) });
+        } catch {
+          /* the skeleton GET retries */
+        }
+      });
       return NextResponse.json({
         ok: true,
         paperPatch,

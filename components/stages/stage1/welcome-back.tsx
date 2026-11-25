@@ -135,8 +135,8 @@ export function FocusOpener({
   onOpen?: (open: boolean) => void;
 }) {
   const [atSignal, setAtSignal] = useState<string | number | null>(null);
-  const [answered, setAnswered] = useState(false);
-  const open = Boolean(line) && !answered && (atSignal === null || atSignal === signal);
+  // The opener asks nothing now (QA 3:26 AM #2), so the turn below never holds its question.
+  const open = false;
   useEffect(() => {
     onOpen?.(open);
   }, [open, onOpen]);
@@ -159,25 +159,12 @@ export function FocusOpener({
   return (
     <div data-welcome-back data-focus-opener>
       <PauPauGroup bubbles={[line]}>
-        {answered ? null : (
-          <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Pick up or check progress">
-            <DsButton type="button" size="sm" variant="primary" data-focus-continue onClick={() => setAnswered(true)}>
-              Keep going
-            </DsButton>
-            <DsButton
-              type="button"
-              size="sm"
-              variant="secondary"
-              data-focus-progress
-              onClick={() => {
-                setAnswered(true);
-                onProgress();
-              }}
-            >
-              Check the progress
-            </DsButton>
-          </div>
-        )}
+        {/* QA 3:26 AM #2: no question here, so one chip: the left-off prompt below is the question. */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <DsButton type="button" size="sm" variant="secondary" data-focus-progress onClick={onProgress}>
+            See skeleton
+          </DsButton>
+        </div>
       </PauPauGroup>
     </div>
   );
