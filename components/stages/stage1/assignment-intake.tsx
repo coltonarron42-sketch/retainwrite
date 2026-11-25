@@ -1430,7 +1430,10 @@ export function AssignmentIntake({
     // Only a question that DROPPED out of the plan moves them (a plan that grew, e.g. the
     // north-star steps arriving ahead of the hobby questions, keeps the index as it was).
     const at = coachingPlan.findIndex((x) => x.id === want);
-    if (at >= 0 || (here && answers.some((a) => a.questionId === want))) {
+    // QA full prod walk (8979326a): when the step after an answer drops out (a leader they already
+    // named fills the leader slot), never step back to the question they just answered.
+    const wantDone = answers.some((a) => a.questionId === want);
+    if ((at >= 0 && !(wantDone && !here)) || (here && wantDone)) {
       if (here) curQId.current = here.id;
       else if (at >= 0) setQIndex(at);
       return;
