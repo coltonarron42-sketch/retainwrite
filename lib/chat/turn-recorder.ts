@@ -111,7 +111,8 @@ export function foldLines(
     if (rel.shrink && !mine.quiet) continue;
     // QA 11:26: once the student has replied after this line, it has settled: a new ask in the same bubble is a new line.
     const answered = recs.slice(recs.indexOf(mine) + 1).some((r) => !r.quiet && r.who !== mine.who);
-    if (mine.quiet ? restoring : rel.grow || (!answered && now - (mine.at ?? 0) < SETTLE_MS)) {
+    // A lead-in that lands above the ask ("Awesome, …" then the same question): still that turn.
+    if (mine.quiet ? restoring : rel.grow || isTail(view, mine.text) || (!answered && now - (mine.at ?? 0) < SETTLE_MS)) {
       mine.text = view;
       mine.at = now;
       if (!mine.quiet) changed = true;
@@ -150,7 +151,7 @@ export function foldLines(
       // Swapped for a fresh bubble that also moved on a little (a checklist ticked as it remounted): still that turn.
       [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.skip && relate(r.text, s.text).grow) ??
       // QA 11:26: redrawn without its lead-in ("Last one before the stance interview.", a lead line): the same turn, the line keeps what was shown.
-      [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.quiet && !r.skip && isTail(r.text, s.text));
+      [...recs].reverse().find((r) => r.who === s.who && gone(r) && recent(r) && !r.quiet && !r.skip && (isTail(r.text, s.text) || isTail(s.text, r.text)));
     if (!again) {
       // Swapped for a fresh bubble that keeps the opening of a line that just left and adds a new ask:
       // the new ask is its own line.

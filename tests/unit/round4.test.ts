@@ -289,3 +289,19 @@ describe("QA 11:51 (b): a full-sentence early take", () => {
     expect(src).toContain('voiceLineRef.current = (screen === "coaching" && error) ? error : [');
   });
 });
+
+describe("QA 11:56: a lead-in that lands above the ask is the same turn", () => {
+  it("in place and on redraw", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [g, a, h] = [{}, {}, {}] as unknown as Element[];
+    const att = new Set<Element>([g!]);
+    const on = (x: Element) => att.has(x);
+    foldLines(recs, [{ el: g!, who: "pau", text: "Last one before the stance interview.\nNext up is the change part. When did Walton lead a change?" }], on, 1_000);
+    foldLines(recs, [{ el: g!, who: "pau", text: "Awesome, Walton it is.\nLast one before the stance interview.\nNext up is the change part. When did Walton lead a change?" }], on, 5_000);
+    att.add(a!);
+    foldLines(recs, [{ el: g!, who: "pau", text: "Awesome, Walton it is.\nLast one before the stance interview.\nNext up is the change part. When did Walton lead a change?" }, { el: a!, who: "you", text: "Walton visited stores." }], on, 6_000);
+    att.delete(g!); att.add(h!);
+    foldLines(recs, [{ el: h!, who: "pau", text: "Awesome, Walton it is.\nLast one before the stance interview.\nNext up is the change part. When did Walton lead a change?" }, { el: a!, who: "you", text: "Walton visited stores." }], on, 6_500);
+    expect(linesOf(recs).map((l) => l.text.split("\n")[0])).toEqual(["Awesome, Walton it is.", "Walton visited stores."]);
+  });
+});
