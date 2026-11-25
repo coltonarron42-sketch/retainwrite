@@ -16,7 +16,7 @@ import { wordCount } from "@/lib/utils";
 import { readPaperContext, writePaperContext } from "@/lib/server/paper-context/store";
 
 export const runtime = "nodejs";
-/** The ghost script is written in after() (up to ~150 s) once the response has gone. */
+/** The ghost script is written in after() (up to ~240 s) once the response has gone. */
 export const maxDuration = 300;
 
 const answerSchema = z.object({
@@ -158,8 +158,12 @@ export async function POST(request: Request, ctx: Ctx) {
     const uid = user.id;
     const ghostCtx = pctx;
     after(async () => {
-      const input = await ghostInputFor(supabase, paperId, ghostCtx, requirements);
-      await ensureGhostScript(supabase, paperId, uid, input, "stage1_complete");
+      try {
+        const input = await ghostInputFor(supabase, paperId, ghostCtx, requirements);
+        await ensureGhostScript(supabase, paperId, uid, input, "stage1_complete");
+      } catch (e) {
+        console.warn("[ghost] after error", { name: (e as Error)?.name ?? "error" });
+      }
     });
   } else {
     const blocked = legacyGate();

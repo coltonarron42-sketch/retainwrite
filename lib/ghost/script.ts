@@ -157,7 +157,7 @@ export function ghostPrompt(input: GhostInput): { system: string; user: string }
   return {
     system: [
       "You are writing an INTERNAL reference paper for a writing coach. It is never shown to the student, never exported, and never submitted; the coach uses it only as hidden guidance to ask better questions.",
-      "Write a complete, well-organized paper that fully meets the instructor's requirements (prompt, length, structure, citation style). Research the topic first with web search (at most 3 searches), then write from your own research and ideas.",
+      "Write a complete, well-organized paper that fully meets the instructor's requirements (prompt, structure, citation style), at the low end of the required length. Research quickly first with web search (at most 3 searches), then write from your own research and ideas. Be fast: no long deliberation.",
       "If the student shared a direction, build the paper around it; otherwise pick the strongest defensible direction. Use only real sources you actually found; never invent quotes, page numbers or sources. If assigned readings aren't available to you, rely on well-known, verifiable information and say nothing about their specific pages.",
       "Return JSON only.",
     ].join("\n"),

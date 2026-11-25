@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { assertCoachingOnly } from "@/lib/ai/guard";
@@ -7,10 +7,12 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
 import { ghostGuidance, ghostLeakCheck, type GhostScript } from "@/lib/ghost/script";
-import { readGhost } from "@/lib/server/ghost/store";
+import { backfillGhost, readGhost } from "@/lib/server/ghost/store";
 import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, type CoachAnswerMode } from "@/lib/coach/answer";
 
 export const runtime = "nodejs";
+/** A missing ghost is backfilled in after() (up to ~240 s). */
+export const maxDuration = 300;
 
 /**
  * Stages 1-3 typed: Pau ANSWERS content and teaching questions ("what are
@@ -56,6 +58,8 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
     block = loaded?.block ?? "";
     ghost = g;
+    // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
+    if (body.stage >= 2 && !g) after(() => backfillGhost(supabase, paperId, userId));
   }
   const res = await grokChatJson({
     model: MODEL_FAST,

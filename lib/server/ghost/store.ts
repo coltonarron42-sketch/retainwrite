@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MODEL_STRONG } from "@/lib/config";
+import { MODEL_FAST } from "@/lib/config";
 import {
   GHOST_FIELD,
   ghostInputHash,
@@ -42,6 +42,26 @@ async function writeGhost(supabase: SupabaseClient, paperId: string, userId: str
   return !error;
 }
 
+const PENDING_FIELD = "server:ghost_pending";
+const PENDING_MS = 5 * 60_000;
+const MAX_TRIES = 3;
+
+/**
+ * One generation at a time per paper, at most MAX_TRIES ever (each try may search the web):
+ * a server-only marker row holds the try count and when the last one started.
+ */
+async function claimTry(supabase: SupabaseClient, paperId: string, userId: string): Promise<boolean> {
+  const { data } = await supabase.from("paper_autosaves").select("draft_text, updated_at").eq("paper_id", paperId).eq("field_key", PENDING_FIELD).maybeSingle();
+  const tries = Number(data?.draft_text ?? 0) || 0;
+  const recent = data?.updated_at ? Date.now() - new Date(data.updated_at as string).getTime() < PENDING_MS : false;
+  if (tries >= MAX_TRIES || recent) return false;
+  const { error } = await supabase.from("paper_autosaves").upsert(
+    { paper_id: paperId, user_id: userId, field_key: PENDING_FIELD, draft_text: String(tries + 1), submitted: false, updated_at: new Date().toISOString() },
+    { onConflict: "paper_id,field_key" },
+  );
+  return !error;
+}
+
 /** Max searches the ghost may use for one paper (Colton t218u: be mindful of search counts). */
 export const GHOST_MAX_TURNS = 3;
 
@@ -50,14 +70,15 @@ async function generate(input: GhostInput, inputHash: string): Promise<GhostScri
   if (!key) return null;
   const { system, user } = ghostPrompt(input);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 150_000);
+  // Walk 3:56 PM: the strong model with search ran past 150 s; the fast model, inside the route's 300 s.
+  const timer = setTimeout(() => controller.abort(), 240_000);
   try {
     const res = await fetch("https://api.x.ai/v1/responses", {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: MODEL_STRONG,
+        model: MODEL_FAST,
         store: false,
         tools: [{ type: "web_search" }],
         max_turns: GHOST_MAX_TURNS,
@@ -115,10 +136,17 @@ export async function ensureGhostScript(
   input: GhostInput,
   reason: string,
 ): Promise<"kept" | "stored" | "failed" | "off"> {
-  if (!secret() || !process.env.GROK_API_KEY?.trim()) return "off";
+  if (!secret() || !process.env.GROK_API_KEY?.trim()) {
+    console.info("[ghost]", { reason, status: "off", secret: Boolean(secret()), model: Boolean(process.env.GROK_API_KEY?.trim()) });
+    return "off";
+  }
   const inputHash = ghostInputHash(input);
   const existing = await readGhost(supabase, paperId);
   if (existing?.inputHash === inputHash) return "kept";
+  if (!(await claimTry(supabase, paperId, userId))) {
+    console.info("[ghost]", { reason, status: "busy_or_capped" });
+    return "failed";
+  }
   const started = Date.now();
   const ghost = await generate(input, inputHash);
   if (!ghost) {
@@ -128,6 +156,24 @@ export async function ensureGhostScript(
   const ok = await writeGhost(supabase, paperId, userId, ghost);
   console.info("[ghost]", { reason, status: ok ? "stored" : "write_failed", ms: Date.now() - started, ...ghostLogDetail(ghost) });
   return ok ? "stored" : "failed";
+}
+
+/**
+ * Stage 2-3 backfill: a paper whose ghost isn't there yet (generation failed or timed out, or the
+ * paper finished Stage 1 before PC-32) gets one built in the background. Same caps as above.
+ */
+export async function backfillGhost(supabase: SupabaseClient, paperId: string, userId: string): Promise<void> {
+  try {
+    const [{ readPaperContext }, { data: asg }] = await Promise.all([
+      import("@/lib/server/paper-context/store"),
+      supabase.from("assignments").select("requirements").eq("paper_id", paperId).maybeSingle(),
+    ]);
+    const pctx = await readPaperContext(supabase, paperId);
+    if (!pctx.readback?.confirmed) return;
+    await ensureGhostScript(supabase, paperId, userId, await ghostInputFor(supabase, paperId, pctx, asg?.requirements ?? null), "stage2_backfill");
+  } catch (e) {
+    console.warn("[ghost] backfill error", { name: (e as Error)?.name ?? "error" });
+  }
 }
 
 /** What the ghost is built from: the assignment, the confirmed read-back, material summaries and their starting point. */
