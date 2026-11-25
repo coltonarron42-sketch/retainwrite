@@ -2590,8 +2590,11 @@ export function AssignmentIntake({
       if (!tookRec && text && two.length) {
         const gut = gutPickOf(text, two);
         if (gut) {
-          const rest = text.replace(new RegExp(`^\\s*(?:${gut.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|(?:the\\s+)?(?:first|second|1st|2nd)(?:\\s+one)?)[\\s,.!:-]*`, "i"), "").trim();
-          text = `I'd pick ${gut}${rest ? `. ${rest}` : ""}`;
+          // Named it: their words stand as they typed them. "The first one": say which, then their words.
+          if (!new RegExp(`\\b${gut.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) {
+            const rest = text.replace(/^\s*(?:the\s+)?(?:first|second|1st|2nd|other|last)(?:\s+one)?[\s,.!:-]*/i, "").trim();
+            text = `I'd pick ${gut}${rest ? `. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : ""}`;
+          }
           recPending.current[q.id] = null;
           tookRec = true;
         }

@@ -84,6 +84,8 @@ describe("their gut pick after the narrowed turn is taken (live walk: 'Situation
   });
   it("the intake takes it as their pick, in their words", () => {
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(src).toMatch(/const two = narrowedTwo\(lastProbe\.current\[q\.id\] \?\? null\);[\s\S]{0,400}const gut = gutPickOf\(text, two\);[\s\S]{0,400}text = `I'd pick \$\{gut\}/);
+    expect(src).toMatch(/const two = narrowedTwo\(lastProbe\.current\[q\.id\] \?\? null\);[\s\S]{0,400}const gut = gutPickOf\(text, two\);[\s\S]{0,600}text = `I'd pick \$\{gut\}/);
+    // Named it: kept exactly as typed (only "the first one" is spelled out).
+    expect(src).toMatch(/if \(!new RegExp\(`\\\\b\$\{gut/);
   });
 });
