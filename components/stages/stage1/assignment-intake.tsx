@@ -11,7 +11,6 @@ import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
   decisionHasReason,
@@ -50,7 +49,9 @@ import {
   type ConfirmTurn,
 } from "@/lib/stage1/confirm-reply";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
-import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
+import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
+import { FocusBar, PastChatPanel, SkeletonPanel, type PastLine } from "@/components/stages/focus-panels";
+import { useSkeleton } from "@/lib/skeleton/use-skeleton";
 import { CoachEyebrow } from "@/components/coaching/pau-pau";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { Input } from "@/components/ui/input";
@@ -462,6 +463,16 @@ function requiredSourcesText(value: RequiredSourcesValue | null | undefined): st
 
 function fieldNeedsAttention(field: Field<unknown>) {
   return field.confidence < 0.6 || field.source === "missing";
+}
+
+/** PC-28: what the Stage 1 welcome line names (the last thing finished, what's next). */
+export function stage1Fill(screen: string, qIndex: number): { done: string | null; next: string } {
+  if (screen === "card") return { done: "reading your assignment", next: "checking I got it right" };
+  if (screen === "story") return { done: "the warm-up questions", next: "picking your angle" };
+  if (screen === "gate") return { done: "every Stage 1 question", next: "the Stage 1 checklist" };
+  if (screen === "coaching" && qIndex < 0) return { done: "the warm-up questions", next: "your early take" };
+  if (screen === "coaching") return { done: qIndex > 0 ? `question ${qIndex}` : "your assignment read-back", next: `question ${qIndex + 1}` };
+  return { done: null, next: "the next step" };
 }
 
 export function AssignmentIntake({
@@ -1190,11 +1201,59 @@ export function AssignmentIntake({
 
   // Coming back to a conversation with turns: one welcome-back line, decided
   // once when the restore settles (Colton 3:46 PM). Nothing old is re-run.
-  const welcomeLine = useWelcomeBack(
+  // PC-28 (Colton t185u): a return with history opens a clean chat: one welcome line naming the
+  // last thing finished and what's next, then the exact question they were on. Nothing is lost:
+  // the earlier chat is saved and one tap away ("Past chat"); every gate still reads saved state.
+  const focus = useFocusReturn(
     paperId,
     !resumePending && confirmReady,
     screen !== "upload" || Boolean(sentMessage) || answers.length > 0 || confirmTurns.length > 0,
+    stage1Fill(screen, qIndex),
   );
+  const welcomeLine = focus.line;
+  const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
+  // What was already on screen when the clean chat opened: hidden from the active chat.
+  const focusSnap = useRef<{ confirm: number; answered: Set<string>; story: boolean; asides: Set<number>; gateSaid: number } | null>(null);
+  if (focus.focused && !focusSnap.current) {
+    focusSnap.current = {
+      confirm: confirmTurns.length,
+      answered: new Set(answers.filter((a) => a.answerText.trim()).map((a) => a.questionId)),
+      story: Boolean(storyAngle),
+      asides: new Set(qaAsides.map((a) => a.id)),
+      gateSaid: gateSaid.length,
+    };
+  }
+  const snap = focus.focused ? focusSnap.current : null;
+  const skeletonView = useSkeleton(paperId, { enabled: checklistConfirmed, fallbackText: rawText, refreshKey: brief?.decision?.answer ?? "" });
+  const focusTools = (
+    <>
+      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={Boolean(sentMessage) || confirmTurns.length > 0 || answers.length > 0} />
+      {panel === "skeleton" ? (
+        <SkeletonPanel
+          view={skeletonView}
+          words={{}}
+          direction={brief?.decision?.answer ?? null}
+          onClose={() => setPanel(null)}
+          waiting={checklistConfirmed ? "Sizing up your paper… one sec." : undefined}
+        />
+      ) : null}
+      {panel === "past" ? <PastChatPanel lines={stage1PastLines()} onClose={() => setPanel(null)} /> : null}
+    </>
+  );
+  function stage1PastLines(): PastLine[] {
+    const out: PastLine[] = [{ who: "pau", text: `${ASSIGNMENT_GREETING} ${ASSIGNMENT_ASK}` }];
+    if (sentMessage?.text) out.push({ who: "you", text: sentMessage.text });
+    for (const t of confirmTurns) out.push(t.role === "student" ? { who: "you", text: t.text } : { who: "pau", text: t.paras.join(" ") });
+    for (const item of coachingPlan) {
+      const said = [...answers].reverse().find((a) => a.questionId === item.id && a.answerText.trim())?.answerText;
+      if (!said) continue;
+      out.push({ who: "pau", text: item.text }, { who: "you", text: said });
+    }
+    if (storyAngle?.text) out.push({ who: "pau", text: "Which direction do you want to take your paper?" }, { who: storyAngle.source === "student" ? "you" : "pick", text: storyAngle.text });
+    const stance = [...answers].reverse().find((a) => a.questionId === "stance_early" && a.answerText.trim())?.answerText;
+    if (stance) out.push({ who: "you", text: stance });
+    return out;
+  }
   const earlyStance = answers.find((a) => a.questionId === "stance_early");
   const stanceOk = earlyStance ? wordCount(earlyStance.answerText) >= 25 : false;
   const cardGate = { ok: checklistConfirmed };
@@ -1349,7 +1408,7 @@ export function AssignmentIntake({
     },
     welcome: () => ({
       welcome: Boolean(welcomeLine),
-      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      index: focus.index,
       text: welcomeLine,
     }),
   });
@@ -2902,9 +2961,10 @@ export function AssignmentIntake({
     return (
       <div className="mx-auto max-w-[680px]">
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        {focusTools}
         <div className="mt-4 space-y-6">
-          <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
-          {sentMessage ? <StudentBubble message={sentMessage} /> : null}
+          {snap ? null : <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />}
+          {sentMessage && !snap ? <StudentBubble message={sentMessage} /> : null}
           {confirmReady ? (
             <PauPauConfirm
               paperId={paperId}
@@ -2922,7 +2982,8 @@ export function AssignmentIntake({
               turns={confirmTurns}
               onTurns={setConfirmTurns}
               sheetText={rawText}
-              welcome={confirmTurns.length > 0 ? null : <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />}
+              hideBefore={snap?.confirm ?? 0}
+              opener={<FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />}
               sendRef={confirmSendRef}
               oldVoiceOff={rtMode}
               realtimeSlot={rtMode ? <RealtimeControls call={rt} /> : undefined}
@@ -3880,11 +3941,14 @@ export function AssignmentIntake({
       <div className="mx-auto max-w-[680px]">
         <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
+        {focusTools}
         <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
+          {/* PC-28: on a return, the one opener first; earlier turns stay in "Past chat". */}
+          <FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
           {/* The start of the chat, rebuilt from what's saved. */}
-          <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />
-          {sentMessage ? <StudentBubble message={sentMessage} /> : null}
-          {confirmTurns.length ? (
+          {snap ? null : <PauPauGroup showName bubbles={[ASSIGNMENT_GREETING, ASSIGNMENT_ASK]} />}
+          {sentMessage && !snap ? <StudentBubble message={sentMessage} /> : null}
+          {snap ? null : confirmTurns.length ? (
             confirmTurns.map((t, i) =>
               t.role === "student" ? (
                 <StudentBubble key={`ct${i}`} message={{ text: t.text, files: [], at: 0 }} />
@@ -3909,6 +3973,8 @@ export function AssignmentIntake({
             if (!said && i >= reach) return null;
             const isCurrent = q?.id === item.id;
             if (isCurrent && !editing) return null;
+            // PC-28: answered before this return: saved, shown in "Past chat", not here.
+            if (snap?.answered.has(item.id) && !isCurrent) return null;
             return (
               <div key={item.id} className="space-y-4">
                 {/* The first question comes in the same reply as the intro. */}
@@ -3949,7 +4015,7 @@ export function AssignmentIntake({
           })}
 
           {/* North star: their decision above IS the direction (QA 7:02 AM: never a second "Which direction…?"). */}
-          {storyAngle && screen !== "story" && !(brief?.northstar && brief.decision) ? (
+          {storyAngle && screen !== "story" && !(brief?.northstar && brief.decision) && !snap?.story ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
               {storyAngle.source === "student" ? (
@@ -3968,7 +4034,7 @@ export function AssignmentIntake({
               )}
             </div>
           ) : null}
-          {stanceAnswer && !(stanceMode && !editing) ? (
+          {stanceAnswer && !(stanceMode && !editing) && !snap?.answered.has("stance_early") ? (
             <div className="space-y-4">
               <PauPauGroup bubbles={[stanceText]}>{stanceMode ? null : sparkFor("stance_early")}</PauPauGroup>
               <EchoBubble
@@ -3986,7 +4052,7 @@ export function AssignmentIntake({
           {/* Questions and pastes she answered in place for this question (never saved as answers). */}
           {q
             ? qaAsides
-                .filter((a) => a.qid === q.id)
+                .filter((a) => a.qid === q.id && !snap?.asides.has(a.id))
                 .map((a) => (
                   <div key={a.id} className="space-y-4" data-interview-aside>
                     <StudentBubble message={{ text: a.said, files: [], at: 0 }} />
@@ -4239,9 +4305,19 @@ export function AssignmentIntake({
                     {reason}
                   </p>
                 ))}
-                <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
-                  Want to change something? Tap any of your answers above.
-                </p>
+                {snap ? (
+                  <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
+                    Want to change something?{" "}
+                    <button type="button" className="font-semibold text-ds-ink underline underline-offset-4" data-show-answers onClick={focus.unfocus}>
+                      Show my answers
+                    </button>{" "}
+                    and tap the one to change.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[13px] leading-[1.6] text-ds-muted">
+                    Want to change something? Tap any of your answers above.
+                  </p>
+                )}
                 {rtMode ? (
                   <div className="mt-3">
                     <RealtimeControls call={rt} />
@@ -4251,7 +4327,7 @@ export function AssignmentIntake({
             </PauPauGroup>
           ) : null}
           {screen === "gate"
-            ? gateSaid.map((g) => (
+            ? gateSaid.slice(snap?.gateSaid ?? 0).map((g) => (
                 <div key={g.id} className="space-y-4" data-gate-said>
                   <StudentBubble message={{ text: g.said, files: [], at: 0 }} />
                   <PauPauGroup bubbles={[GATE_SAID_REPLY]} />
@@ -4259,10 +4335,6 @@ export function AssignmentIntake({
               ))
             : null}
 
-          {/* QA 1:16: on a reload, no "Welcome back…" appended after the conversation already on screen. */}
-          {answers.length === 0 ? (
-            <WelcomeBack line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} />
-          ) : null}
           {rt.on ? <LiveTurns rows={rt.live} /> : null}
           {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
           {error ? (

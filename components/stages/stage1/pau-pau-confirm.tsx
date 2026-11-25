@@ -55,6 +55,10 @@ type Props = {
   sheetText?: string;
   /** The welcome-back line on a return (rendered after her latest turn). */
   welcome?: ReactNode;
+  /** PC-28: on a return, Pau Pau's one opener, shown first. */
+  opener?: ReactNode;
+  /** PC-28: turns before this index were on screen before the return: hidden (her latest turn always shows). */
+  hideBefore?: number;
   /** Grok Voice: spoken replies go through the same path as typed ones. */
   sendRef?: { current: ((text: string) => Promise<void>) | null };
   /** Grok Voice controls in the composer, and this call's live turns. */
@@ -95,6 +99,8 @@ export function PauPauConfirm({
   onTurns,
   sheetText,
   welcome,
+  opener,
+  hideBefore = 0,
   sendRef,
   realtimeSlot,
   live,
@@ -471,8 +477,9 @@ export function PauPauConfirm({
           Reading it over…
         </p>
       ) : null}
+      {opener}
       {turns.map((t, i) =>
-        t.role === "student" ? (
+        i < hideBefore && i !== lastPau ? null : t.role === "student" ? (
           <StudentBubble key={i} message={{ text: t.text, files: [], at: 0 }} />
         ) : (
           <Fragment key={i}>
