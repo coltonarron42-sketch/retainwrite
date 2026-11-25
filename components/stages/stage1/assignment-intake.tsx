@@ -967,6 +967,12 @@ export function AssignmentIntake({
   const [needWhy, setNeedWhy] = useState(false);
   /** An informed answer's stated decision is on its way to the server (see the plan). */
   const [decisionSaving, setDecisionSaving] = useState(false);
+  // QA 11:26: each question's turn exactly as it was last shown while current (without the intro).
+  const askedAs = useRef<Record<string, ReactNode[]>>({});
+  const keepAsked = (qid: string, isEditing: boolean, bubbles: ReactNode[], introCount: number): ReactNode[] => {
+    if (!isEditing) askedAs.current[qid] = bubbles.slice(introCount);
+    return bubbles;
+  };
   // QA 11:26: the angle came from their decision (north star); the old "Which direction…?" turn never shows, even while the decision save lands.
   const [storyFromDecision, setStoryFromDecision] = useState(false);
   const coachingPlan = useMemo(() => {
@@ -4172,7 +4178,8 @@ export function AssignmentIntake({
             return (
               <div key={item.id} className="space-y-4">
                 {/* The first question comes in the same reply as the intro. */}
-                <PauPauGroup bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}>
+                {/* QA 11:26: an answered question reads as it was asked (lead-in and all), never as the plan re-words it later. */}
+                <PauPauGroup bubbles={i === 0 ? [...introBubbles, ...(askedAs.current[item.id] ?? [item.text])] : askedAs.current[item.id] ?? [item.text]}>
                   {isCurrent ? null : sparkFor(item.id)}
                 </PauPauGroup>
                 {said && offerReply[item.id]
@@ -4283,7 +4290,7 @@ export function AssignmentIntake({
           {/* Pau's current turn. */}
           {q && !(decisionSaving && q.id === "decision_pick") ? (
             <PauPauGroup
-              bubbles={[
+              bubbles={keepAsked(q.id, editing, [
                 ...(!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles : []),
                 editing
                   ? recovering
@@ -4294,7 +4301,7 @@ export function AssignmentIntake({
                 ...(informedLead && !editing && q.id !== "material_check" ? informedLead : []),
                 stanceMode && !editing ? "Last one before the stance interview." : null,
                 q.text,
-              ].filter((b) => Boolean(b))}
+              ].filter((b) => Boolean(b)), !editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles.length : 0)}
               headingIndex={
                 (!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles.length : 0) +
                 (editing ? 1 : 0) +

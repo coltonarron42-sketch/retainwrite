@@ -24,8 +24,8 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     const recs: Parameters<typeof foldLines>[0] = [];
     const a = el("a"), b = el("b"), c = el("c"), d = el("d");
     const attached = new Set<Element>([a, b, c]);
-    foldLines(recs, [{ el: a, who: "pau", text: "Q1?" }, { el: b, who: "you", text: "ok" }, { el: c, who: "you", text: "ok" }], (x) => attached.has(x));
-    expect(recs.map((r) => r.text)).toEqual(["Q1?", "ok", "ok"]);
+    foldLines(recs, [{ el: a, who: "pau", text: "○ Decision made" }, { el: b, who: "you", text: "ok" }, { el: c, who: "you", text: "ok" }], (x) => attached.has(x));
+    expect(recs.map((r) => r.text)).toEqual(["○ Decision made", "ok", "ok"]);
     foldLines(recs, [{ el: a, who: "pau", text: "○ Decision made → ✓ Decision made" }], (x) => attached.has(x));
     expect(recs[0]!.text).toMatch(/✓ Decision made/);
     // b re-rendered as d (same words, old bubble gone): mapped, not added.
@@ -250,6 +250,26 @@ describe("QA 11:26: quick answers and lead-in redraws keep Past chat in order", 
       "What's your early take on which style works best?",
       "I think transformational works best",
       "I pulled together a couple of places to start looking.",
+    ]);
+  });
+});
+
+describe("QA 11:26: a quickly answered question is not overwritten by the next ask in the same bubble", () => {
+  it("keeps Q, answer, next ask in order", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const [g, a, h] = [{}, {}, {}] as unknown as Element[];
+    const att = new Set<Element>([g!]);
+    const on = (x: Element) => att.has(x);
+    foldLines(recs, [{ el: g!, who: "pau", text: "Which leadership style do you want to argue works best here?" }], on, 1_000);
+    att.add(a!);
+    foldLines(recs, [{ el: g!, who: "pau", text: "Which leadership style do you want to argue works best here?" }, { el: a!, who: "you", text: "I'd pick Servant because Walton put associates first" }], on, 1_300);
+    foldLines(recs, [{ el: a!, who: "you", text: "I'd pick Servant because Walton put associates first" }, { el: g!, who: "pau", text: "What's your main reason for that pick?" }], on, 1_600);
+    att.add(h!);
+    foldLines(recs, [{ el: h!, who: "pau", text: "Which leadership style do you want to argue works best here?" }, { el: a!, who: "you", text: "I'd pick Servant because Walton put associates first" }, { el: g!, who: "pau", text: "What's your main reason for that pick?" }], on, 1_900);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([
+      "Which leadership style do you want to argue works best here?",
+      "I'd pick Servant because Walton put associates first",
+      "What's your main reason for that pick?",
     ]);
   });
 });

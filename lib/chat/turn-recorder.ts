@@ -109,7 +109,9 @@ export function foldLines(
     if (mine.text === view) continue;
     const rel = relate(mine.text, view);
     if (rel.shrink && !mine.quiet) continue;
-    if (mine.quiet ? restoring : rel.grow || now - (mine.at ?? 0) < SETTLE_MS) {
+    // QA 11:26: once the student has replied after this line, it has settled: a new ask in the same bubble is a new line.
+    const answered = recs.slice(recs.indexOf(mine) + 1).some((r) => !r.quiet && r.who !== mine.who);
+    if (mine.quiet ? restoring : rel.grow || (!answered && now - (mine.at ?? 0) < SETTLE_MS)) {
       mine.text = view;
       mine.at = now;
       if (!mine.quiet) changed = true;
