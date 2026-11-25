@@ -1,5 +1,5 @@
 /**
- * Pau Pau's quips in Stage 2 (PLAN.md 9 personality, QA 3:35 B): a per-paper
+ * Pau's quips in Stage 2 (PLAN.md 9 personality, QA 3:35 B): a per-paper
  * pool, dealt in order to (section, slot) so no quip repeats verbatim across
  * sections in one paper; when the pool runs out the line simply has none.
  * At most one quip per reply: `oneQuip` drops any extra.
@@ -66,7 +66,7 @@ export const SIGNATURE_QUIP = "I'd write it for you, but I'm legally a cartoon."
 /**
  * The "cartoon" joke family (QA 6:53 PM #3): one pool, one use per paper. Its
  * only line is the signature, dealt once (section 1); no other pool, template,
- * welcome line or model reply calls Pau Pau a cartoon.
+ * welcome line or model reply calls Pau a cartoon.
  */
 export const CARTOON_FAMILY = [SIGNATURE_QUIP] as const;
 const CARTOON = /\bcartoon\b/i;
