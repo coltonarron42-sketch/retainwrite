@@ -68,7 +68,8 @@ describe("hesitation spark", () => {
       const kind = sparkKind(id, id.split("_")[0]);
       expect(validateSparkQuestions(fallbackSparkQuestions(kind))).toEqual(fallbackSparkQuestions(kind));
     }
-    expect(SPARK_OFFER).toBe("Want me to ask a couple questions that might spark something?");
+    expect(SPARK_OFFER).toBe("If you're stuck, I can ask a couple of questions that might spark something.");
+    expect(SPARK_OFFER).not.toContain("?");
   });
   it("intake offers once per question, with Yes / No thanks / Don't offer again, and never for background", () => {
     const s = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");

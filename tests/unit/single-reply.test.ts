@@ -45,7 +45,9 @@ describe("A: one Pau reply per turn", () => {
     expect(src).toContain("bubbles={i === 0 ? [...introBubbles, ...(askedAs.current[item.id] ?? [item.text])] : askedAs.current[item.id] ?? [item.text]}");
     // QA 11:08 (lost-path order): once she has replied in place to the first question, the intro stays above those replies.
     expect(src).toContain("bubbles={keepAsked(q.id, editing, [\n                ...(!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles : []),");
-    expect(src).toContain("{introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}");
+    expect(src).toContain("{introAbove && !asideQ ? <PauPauGroup bubbles={introBubbles} /> : null}");
+    // QA round 5 (3): intro + the first question stay one turn above her in-place replies.
+    expect(src).toContain("{q && asideQ && introAbove ? (");
     expect(src).not.toContain("<PauPauGroup bubbles={INTRO_BUBBLES} />");
   });
   it("the hesitation offer, its choices and the answer are one reply", () => {

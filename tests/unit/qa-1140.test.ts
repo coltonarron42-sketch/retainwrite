@@ -46,7 +46,9 @@ describe("QA 11:40 preview retest", () => {
       last = txt;
       if (round >= 2) {
         expect(e.recommend).not.toBeNull();
-        expect(txt).toMatch(/A lot of students in your spot start with .+ because/);
+        // Round 2 teaches the list; a later "make it easier" is short (QA round 5: no near-identical lists).
+        if (round === 2) expect(txt).toMatch(/A lot of students in your spot start with .+ because/);
+        else expect(txt).toMatch(/Simplest way in: start with|keep it simple/);
         expect(txt).toMatch(/yes or no/i);
         expect(e.paras.filter((p) => p.startsWith("•")).length).toBeLessThanOrEqual(3);
       }

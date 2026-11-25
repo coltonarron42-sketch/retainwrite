@@ -7,7 +7,8 @@ import { PAU_PERSONALITY } from "@/lib/coach/personality";
  */
 import { assertCoachingOnly } from "@/lib/ai/guard";
 
-export const SPARK_OFFER = "Want me to ask a couple questions that might spark something?";
+// QA round 5: a statement, so it never makes a second ask under the open question (the Yes / No thanks buttons are the choice).
+export const SPARK_OFFER = "If you're stuck, I can ask a couple of questions that might spark something.";
 export const HESITATION_IDLE_MS = 25_000;
 export const HESITATION_DELETE_SETTLE_MS = 2_000;
 

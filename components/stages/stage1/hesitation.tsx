@@ -140,6 +140,7 @@ export function SparkExchange({
     return (
       <div
         data-spark
+        data-chat-part
         data-spark-status={turn.status}
         className="space-y-2 border-t border-ds-border pt-3 text-ds-text"
         aria-live={active ? "polite" : undefined}
