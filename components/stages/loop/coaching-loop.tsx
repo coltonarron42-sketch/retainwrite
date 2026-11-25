@@ -96,7 +96,7 @@ import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-ch
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
 import type { SkeletonWords } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
-import { skeletonWordsFromSession, withoutSectionQuery } from "@/lib/skeleton/sections";
+import { pendingSectionStorageKey, skeletonWordsFromSession, withoutSectionQuery } from "@/lib/skeleton/sections";
 import { revealSection, usePublishSkeleton, useSectionRequests } from "@/lib/skeleton/live";
 import {
   afterMirror,
@@ -391,25 +391,33 @@ export function CoachingLoop({
   // PC-30: a section picked in The Skeleton. From another page it arrives as ?section=key (read
   // once, then dropped from the URL); on this page as a request. Stage 2 opens that section (the
   // same as the section buttons); both stages then scroll to it and put the cursor in the box.
-  const skeletonAsk = useRef<string | null>(typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("section"));
-  // Clear ?section as soon as it appears (including a Stage 2 → 3 jump that doesn't remount).
-  // The key stays in the ref until the session is ready to open that section.
+  const skeletonAsk = useRef<string | null>(null);
+  // Clear ?section as soon as it appears (including a Stage 2 → 3 jump). Persist the key in
+  // sessionStorage so a remount after the URL is already clean still opens that section.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const key = new URLSearchParams(window.location.search).get("section");
+    const storeKey = pendingSectionStorageKey(paperId);
+    const fromUrl = new URLSearchParams(window.location.search).get("section");
+    const key = fromUrl || skeletonAsk.current || sessionStorage.getItem(storeKey);
     if (!key) return;
-    if (!skeletonAsk.current) skeletonAsk.current = key;
-    window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
-  }, [stage]);
+    skeletonAsk.current = key;
+    sessionStorage.setItem(storeKey, key);
+    if (fromUrl) window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+  }, [stage, paperId]);
   useEffect(() => {
-    if (!sessionLoaded || !skeletonAsk.current) return;
-    const key = skeletonAsk.current;
+    if (!sessionLoaded) return;
+    const storeKey = pendingSectionStorageKey(paperId);
+    const key = skeletonAsk.current || (typeof window !== "undefined" ? sessionStorage.getItem(storeKey) : null);
+    if (!key) return;
     skeletonAsk.current = null;
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("section")) {
-      window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(storeKey);
+      if (new URLSearchParams(window.location.search).has("section")) {
+        window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+      }
     }
     revealSection(stage, key);
-  }, [sessionLoaded, stage]);
+  }, [sessionLoaded, stage, paperId]);
   useSectionRequests(stage, (req) => {
     if (!session || stage !== 2) return;
     const index = session.sections.findIndex((item) => item.key === req.section);
@@ -480,7 +488,8 @@ export function CoachingLoop({
       unsentDrafts.current = {};
       for (const d of drafts) if (/^stance:.+:draft$/.test(d.fieldKey)) unsentDrafts.current[d.fieldKey] = { text: d.text, updatedAt: d.updatedAt ?? null };
       // PC-30: The Skeleton sent them here for one section (?section=key): that one opens.
-      const asked = skeletonAsk.current;
+      const asked = skeletonAsk.current ?? (typeof window !== "undefined" ? sessionStorage.getItem(pendingSectionStorageKey(paperId)) : null);
+      if (asked && !skeletonAsk.current) skeletonAsk.current = asked;
       if (asked && stage === 2 && base.sections.some((item) => item.key === asked)) sectionKey = asked;
       let index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
       // The resume pointer belongs to another stage (e.g. Stage 3 after a trip

@@ -159,6 +159,28 @@ export function withoutSectionQuery(href: string): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/** sessionStorage key for a section captured from ?section= before the URL is cleared. */
+export function pendingSectionStorageKey(paperId: string): string {
+  return `rw:skeleton-section:${paperId}`;
+}
+
+/**
+ * Read ?section= from the URL, or the value saved after a previous clear (so a remount
+ * still knows which section to open). When the URL has a key, it is written to storage.
+ */
+export function readPendingSection(paperId: string, href: string, stored: string | null): string | null {
+  const url = new URL(href, "http://local.test");
+  const fromUrl = url.searchParams.get("section");
+  return fromUrl || stored;
+}
+
+export function pendingSectionHref(href: string): { key: string | null; next: string } {
+  const url = new URL(href, "http://local.test");
+  const key = url.searchParams.get("section");
+  url.searchParams.delete("section");
+  return { key, next: `${url.pathname}${url.search}${url.hash}` };
+}
+
 /**
  * Round 3: the row titles come from #64's shaped skeleton. Body rows: ghost #2's short title (from
  * the student's own choices, leak-checked server side), else the shape's focus for that paragraph,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displaySectionTitle, paperSections, shapedTitle, withoutSectionQuery } from "@/lib/skeleton/sections";
+import { displaySectionTitle, paperSections, pendingSectionHref, pendingSectionStorageKey, readPendingSection, shapedTitle, withoutSectionQuery } from "@/lib/skeleton/sections";
 import { projectSkeleton, ruleShape, type SkeletonView } from "@/lib/skeleton/shape";
 import { conceptTeachCard, guardTeachCard } from "@/lib/coaching/teach";
 import { outlineAsk, outlineIntroLine, OUTLINE_INTRO } from "@/components/stages/loop/outline-chat";
@@ -31,6 +31,13 @@ describe("PC-30 follow-up: ?section is stripped from the URL immediately", () =>
     expect(withoutSectionQuery("/app/papers/p1/stage/3?section=body")).toBe("/app/papers/p1/stage/3");
     expect(withoutSectionQuery("https://retainwrite.vercel.app/app/papers/p1/stage/2?section=body#top")).toBe("/app/papers/p1/stage/2#top");
     expect(withoutSectionQuery("/app/papers/p1/stage/3?screen=outline")).toBe("/app/papers/p1/stage/3?screen=outline");
+  });
+  it("keeps the key after the URL is cleared, so a remount can still open the section", () => {
+    const first = pendingSectionHref("/app/papers/p1/stage/3?section=intro&screen=outline");
+    expect(first).toEqual({ key: "intro", next: "/app/papers/p1/stage/3?screen=outline" });
+    expect(readPendingSection("p1", first.next, first.key)).toBe("intro");
+    expect(readPendingSection("p1", first.next, null)).toBeNull();
+    expect(pendingSectionStorageKey("p1")).toBe("rw:skeleton-section:p1");
   });
 });
 
