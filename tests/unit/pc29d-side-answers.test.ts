@@ -167,6 +167,19 @@ describe("relay: a side answer is spoken, the prompt isn't re-read", () => {
     c.close();
   });
 
+  it("a 'responding' flag with no audio never wedges a side answer (it plays after a few seconds)", async () => {
+    const { c, send, up } = await session(PROMPT);
+    up({ type: "response.created", response: { id: "rStale" } });
+    await wait(30);
+    const before = forcedTexts(upstream).length;
+    send({ type: "rw.turn", text: "Question on screen", spoken: PROMPT, say: ASIDE });
+    await wait(3000);
+    expect(forcedTexts(upstream).length).toBe(before);
+    await wait(5000);
+    expect(forcedTexts(upstream).slice(before)).toEqual([ASIDE]);
+    c.close();
+  }, 15_000);
+
   it("while she's mid-reply the side answer waits for her, then plays", async () => {
     const { c, send, up } = await session(PROMPT);
     up({ type: "response.created", response: { id: "rBusy" } });

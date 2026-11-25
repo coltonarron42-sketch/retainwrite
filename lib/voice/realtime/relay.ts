@@ -255,6 +255,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
   let pendingSpoken: string | null = null;
   // PC-29d: words to say that aren't the prompt (a side answer, a nudge), queued like a prompt.
   let pendingSay: string | null = null;
+  // When her audio last went to the browser (a "responding" flag with no audio for a while is stale).
+  let lastAudioAt = 0;
+  let sayKick: ReturnType<typeof setInterval> | null = null;
   // Stage 3: once their own spoken lines are in this section's box, Keep my notes / Skip would discard them.
   let ownLines = false;
   let ownSection = "";
@@ -1120,6 +1123,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         const rid = String(e.response_id ?? "");
         if (guarded.has(rid)) return;
         const d = String(e.delta ?? "");
+        lastAudioAt = Date.now();
         m.audioOutBytes += Math.floor((d.length * 3) / 4);
         if (!firstDeltaSeen.has(rid)) {
           firstDeltaSeen.add(rid);
@@ -1473,11 +1477,33 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (sayExtra) {
           if (spoken) screen = { ...screen, spoken };
           if (startOpen) startOpen = false;
+          console.log(JSON.stringify({ evt: "pau_realtime_say", sid, wait: responding || speechActive, responding, speechActive, chars: sayExtra.length }));
           if (responding || speechActive) {
             pendingTurn = text || sayExtra;
             pendingDetail = false;
             pendingSpoken = spoken;
             pendingSay = sayExtra;
+            // Never wedged: once she's done (or "responding" has sent no audio for a while), it plays.
+            const mine = sayExtra;
+            const at = Date.now();
+            if (sayKick) clearInterval(sayKick);
+            sayKick = setInterval(() => {
+              const age = Date.now() - at;
+              if (pendingSay !== mine || closed || age > 20_000) {
+                if (sayKick) clearInterval(sayKick);
+                sayKick = null;
+                return;
+              }
+              if (speechActive) return;
+              if (responding && !(age >= 6_000 && Date.now() - lastAudioAt > 3_000)) return;
+              if (responding) {
+                console.log(JSON.stringify({ evt: "pau_realtime_stale_responding", sid }));
+                responding = false;
+              }
+              if (sayKick) clearInterval(sayKick);
+              sayKick = null;
+              void runPendingTurn();
+            }, 1_000);
             return;
           }
           sayLine(sayExtra);
