@@ -4,6 +4,7 @@
  * Pau's teaching content: never paper text, never a thesis for the student.
  * // SOP: coaching only, never generate submission text
  */
+import { dropInventedRestriction } from "@/lib/stage1/readback-tidy";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { wellKnownWork } from "@/lib/stage1/well-known";
 import { assertCoachingOnly } from "@/lib/ai/guard";
@@ -62,7 +63,7 @@ export async function generateReadback(a: AssignmentBasics): Promise<ReadbackPla
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou're playing an assignment sheet back to a student in plain words before they start.`,
-    user: `${basicsText(a)}\n\nReturn JSON: "ask" = what the assignment actually asks them to do, in 1-2 short plain sentences addressed to "you" (no thesis, no answer); "mustInclude" = 2-4 short phrases: what a strong answer must include (from the sheet); "graded" = 1-4 short phrases: how it's graded (from the rubric or sheet; empty if not stated).`,
+    user: `${basicsText(a)}\n\nReturn JSON: "ask" = what the assignment actually asks them to do, in 1-2 short plain sentences addressed to "you" (no thesis, no answer; name any required sources neutrally, and never add "only", "just" or any other limit the sheet doesn't state); "mustInclude" = 2-4 short phrases: what a strong answer must include (from the sheet); "graded" = 1-4 short phrases: how it's graded (from the rubric or sheet; empty if not stated).`,
     jsonSchema: {
       name: "readback",
       schema: {
@@ -81,9 +82,12 @@ export async function generateReadback(a: AssignmentBasics): Promise<ReadbackPla
   if (!r.ok) return null;
   try {
     const o = JSON.parse(r.text) as { ask?: string; mustInclude?: unknown; graded?: unknown };
-    const ask = clip(o.ask, 320);
+    // PC-29b: a limit the sheet never states ("using only Chapter 4…") is dropped, word for word.
+    const sheet = basicsText(a);
+    const ask = dropInventedRestriction(clip(o.ask, 320), sheet);
     if (!ask || !safe(ask)) return null;
-    return { ask, mustInclude: cleanPoints(o.mustInclude, 4).map((x) => x.replace(/\.$/, "")), graded: cleanPoints(o.graded, 4).map((x) => x.replace(/\.$/, "")) };
+    const tidy = (xs: string[]) => xs.map((x) => dropInventedRestriction(x.replace(/\.$/, ""), sheet));
+    return { ask, mustInclude: tidy(cleanPoints(o.mustInclude, 4)), graded: tidy(cleanPoints(o.graded, 4)) };
   } catch {
     return null;
   }
