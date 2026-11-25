@@ -6,7 +6,7 @@ import { isVagueNote, isContentQuestion } from "@/lib/coach/answer";
 import { smartReadingAsk, MATERIAL_SOURCE_POLICY } from "@/lib/config/material-policy";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 
-const base = { checklistConfirmed: true, hasStory: true, voiceOk: true, stanceOk: true };
+const base = { checklistConfirmed: true, hasStory: true, stanceOk: true };
 
 describe("north-star Stage 1 gate (clarify, catch up, decide)", () => {
   it("blocks until catch-up and decision are done", () => {

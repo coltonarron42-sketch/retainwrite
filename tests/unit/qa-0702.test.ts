@@ -315,8 +315,7 @@ describe("preview walk follow-ups (56237e1)", () => {
 describe("preview walk follow-ups (7a11df1)", () => {
   it("a prepared or skip-all student is never parked on the left-out voice question", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(intake).toContain("const fallbackOff = Boolean(brief?.northstar);");
-    expect(intake.match(/!fallbackOff &&/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(intake).toContain("voice.needsFallback && !fallbackOff");
+    // PC-32 (Colton t219u): there is no extra voice question for anyone, so nothing can park on it.
+    expect(intake).not.toMatch(/needsFallback|fallbackOff|setNeedFallback/);
   });
 });

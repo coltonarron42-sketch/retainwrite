@@ -194,7 +194,7 @@ describe("4. gate and checklist", () => {
       }).decided,
     ).toBe(true);
     expect(northstarGateFrom({ answers: [], decisionAnswer: "Team-based because it shares the work of change", needsLeader: true }).decided).toBe(false);
-    expect(stanceStartBlockers({ checklistConfirmed: true, hasStory: true, voiceOk: true, stanceOk: true, northstar: { catchUpDone: true, decided: false } })).toContain("Pick a direction and tell me why.");
+    expect(stanceStartBlockers({ checklistConfirmed: true, hasStory: true, stanceOk: true, northstar: { catchUpDone: true, decided: false } })).toContain("Pick a direction and tell me why.");
   });
   it("a friendly nudge replaces the bare counter", () => {
     expect(shortNoteNudge("stance", 8)).not.toMatch(/\d/);
