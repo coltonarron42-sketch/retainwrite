@@ -255,3 +255,53 @@ export function typingActive(s: { focused: boolean; lastKeyAt: number; hasText: 
   if (s.typedPrompt) return true;
   return s.hasText || (s.lastKeyAt > 0 && now - s.lastKeyAt < idleMs);
 }
+
+/* ---------------- PC-29 QA round 2: one question at a time, and it's the app's ---------------- */
+
+/**
+ * Complete sentences in `text` starting at `from`. A "?" ends a sentence at once; "." and "!"
+ * need a following space (or `final`), so "3.5" or a half-streamed "Mr." isn't a sentence end.
+ */
+export function completeSentences(text: string, from: number, final = false): { start: number; end: number; text: string }[] {
+  const out: { start: number; end: number; text: string }[] = [];
+  let start = from;
+  for (let i = from; i < text.length; i++) {
+    const c = text[i]!;
+    if (c !== "?" && c !== "." && c !== "!") continue;
+    // Swallow closing quotes/brackets and repeated marks.
+    let j = i + 1;
+    while (j < text.length && /[?!.\"”’')\]]/.test(text[j]!)) j++;
+    const atEnd = j >= text.length;
+    if (c !== "?" && !(text[j] === " " || text[j] === "\n" || (atEnd && final))) continue;
+    out.push({ start, end: j, text: text.slice(start, j) });
+    start = j;
+    i = j - 1;
+  }
+  return out;
+}
+
+/** The question sentences of a prompt. */
+export function questionsOf(prompt: string): string[] {
+  return completeSentences(prompt, 0, true)
+    .map((s) => s.text.trim())
+    .filter((s) => s.endsWith("?") || /\?["”’')\]]*$/.test(s));
+}
+
+/**
+ * May she ask this question? Only if it is the on-screen prompt's question in (nearly) its
+ * exact words: most of its word pairs appear in one of the prompt's questions.
+ */
+export function questionAllowed(question: string, prompt: string): boolean {
+  const q = wordsOf(question);
+  if (!q.length) return true;
+  const qs = questionsOf(prompt);
+  if (!qs.length) return false;
+  return qs.some((p) => {
+    if (q.length < 2) return wordsOf(p).includes(q[0]!);
+    // Containment both ways: "Where are you with it?" inside a longer on-screen line, or a lead-in.
+    const pw = wordsOf(p).join(" ");
+    const qw = q.join(" ");
+    if (pw.includes(qw) || qw.includes(pw)) return true;
+    return overlap(question, p) >= 0.7;
+  });
+}

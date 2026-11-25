@@ -79,7 +79,7 @@ export type RealtimeCall = ReturnType<typeof useRealtimeCall>;
 
 export function useRealtimeCall(opts: {
   paperId: string;
-  saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote: (text: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string; spoken?: string }>;
   welcome: () => { welcome: boolean; index: number; text?: string | null };
   /** 1 on Stage 1 (Intake); Stage 2 otherwise. */
   stage?: 1 | 2 | 3;
@@ -215,8 +215,8 @@ export function useRealtimeCall(opts: {
     start,
     stop,
     toggleMute,
-    sayTurn: (text: string, opts?: { detail?: boolean }) => rt.current?.sayTurn(text, opts),
-    setScreen: (text: string, choices: string[], followUp = false) => rt.current?.setScreen(text, choices, followUp),
+    sayTurn: (text: string, opts?: { detail?: boolean; spoken?: string }) => rt.current?.sayTurn(text, opts),
+    setScreen: (text: string, choices: string[], followUp = false, spoken?: string) => rt.current?.setScreen(text, choices, followUp, spoken),
     interrupt: () => rt.current?.interrupt(),
     clearLive: () => setLive([]),
     level: () => rt.current?.level() ?? 0,
@@ -264,7 +264,7 @@ function Waves({ call }: { call: RealtimeCall }) {
 }
 
 /** Composer row controls: start/end the call (waveform), Mute, and the status line. */
-export function RealtimeControls({ call }: { call: RealtimeCall }) {
+export function RealtimeControls({ call, listenHint }: { call: RealtimeCall; listenHint?: string }) {
   return (
     <div className="flex min-w-0 items-center gap-1" data-rt-controls data-rt-phase={call.phase} data-rt-typing={call.on && call.typing ? "" : undefined}>
       <button
@@ -296,7 +296,7 @@ export function RealtimeControls({ call }: { call: RealtimeCall }) {
         </button>
       ) : null}
       <span className="min-w-0 truncate px-1 text-[13px] leading-[1.4] text-ds-muted" role="status" data-rt-status>
-        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.on && call.typing ? "Typing — mic paused" : call.error && !call.on ? call.error : STATUS[call.phase]}
+        {call.on && call.muted ? "Your mic is muted. Type, or unmute to talk." : call.on && call.typing ? "Typing — mic paused" : call.error && !call.on ? call.error : call.on && call.phase === "listening" && listenHint ? listenHint : STATUS[call.phase]}
       </span>
     </div>
   );

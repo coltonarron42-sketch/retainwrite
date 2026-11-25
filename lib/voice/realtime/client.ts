@@ -20,7 +20,7 @@ export type RtEvents = {
   echo?: (itemId: string) => void;
   pauDone?: (responseId: string, status: string | undefined) => void;
   pauCancelled?: (responseId: string) => void;
-  saveNote?: (callId: string, text: string, itemId: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string }>;
+  saveNote?: (callId: string, text: string, itemId: string, kind?: string) => Promise<{ ok: boolean; result: string; screen?: string; spoken?: string }>;
   sources?: (links: { title: string; url: string; why?: string }[]) => void;
   error?: (message: string) => void;
   metric?: (m: { e2eMs?: number; bargeMs?: number }) => void;
@@ -647,7 +647,7 @@ export class RealtimeVoice {
         const run = this.on.saveNote ? this.on.saveNote(callId, text, String(e.item_id ?? ""), typeof e.kind === "string" ? e.kind : undefined) : Promise.resolve({ ok: false, result: "unsupported" });
         void run
           .catch(() => ({ ok: false, result: "error" }))
-          .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen }));
+          .then((r) => this.send({ type: "rw.applied", call_id: callId, ok: r.ok, result: r.result, screen: (r as { screen?: string }).screen, spoken: (r as { spoken?: string }).spoken }));
         return;
       }
       case "rw.echo":
@@ -682,17 +682,17 @@ export class RealtimeVoice {
   }
 
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
-  sayTurn(text: string, opts: { detail?: boolean } = {}) {
+  sayTurn(text: string, opts: { detail?: boolean; spoken?: string } = {}) {
     // The app moved on: what she didn't get to say is superseded (truncate, no re-offer).
     this.reportCut(false);
     this.stopPlayback();
     this.pendingE2E = performance.now();
-    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}) });
+    this.send({ type: "rw.turn", text, ...(opts.detail ? { detail: true } : {}), ...(opts.spoken !== undefined ? { spoken: opts.spoken.slice(0, 1600) } : {}) });
   }
 
   /** What the app shows now and the choices waiting for a tap (data for her). */
-  setScreen(text: string, choices: string[], followUp: boolean) {
-    this.screenMsg = { type: "rw.screen", text: text.slice(0, 800), choices: choices.slice(0, 6), followUp };
+  setScreen(text: string, choices: string[], followUp: boolean, spoken?: string) {
+    this.screenMsg = { type: "rw.screen", text: text.slice(0, 800), choices: choices.slice(0, 6), followUp, ...(spoken !== undefined ? { spoken: spoken.slice(0, 1600) } : {}) };
     this.send(this.screenMsg);
   }
 
