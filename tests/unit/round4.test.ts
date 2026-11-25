@@ -71,6 +71,15 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     foldLines(recs, [{ el: b, who: "pau", text: head + "✓ Decision made" }], (x) => x === b, 9000);
     expect(linesOf(recs).map((l) => l.text)).toEqual([head + "✓ Decision made"]);
   });
+  it("a bubble that flashes another line and settles back is still one line", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a");
+    const X = "Stage 1 is about getting clear. Okay, a few quick questions.";
+    foldLines(recs, [{ el: a, who: "pau", text: X }], () => true, 0);
+    foldLines(recs, [{ el: a, who: "pau", text: "Okay, a few quick questions." }], () => true, 5000);
+    foldLines(recs, [{ el: a, who: "pau", text: X }], () => true, 5300);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([X]);
+  });
   it("after a reload, history the screen re-renders is not added again", () => {
     const x = el("x"), y = el("y");
     const out = seedLines([{ who: "pau", text: "Hi" }], [{ who: "pau", text: "Next up is the change part.", el: y }, { who: "pau", text: "Hi", el: x }]);

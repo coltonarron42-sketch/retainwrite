@@ -66,6 +66,14 @@ export function foldLines(
         mine.text = s.text;
         mine.at = now;
         if (!mine.quiet) changed = true;
+        // A flash that settles back into the line before it (same bubble, same words): that line, not a second one.
+        const k = recs.indexOf(mine);
+        const prev = recs.slice(0, k).reverse().find((r) => !r.quiet);
+        if (!mine.quiet && prev && prev.who === mine.who && prev.text === mine.text && (!prev.el || !isAttached(prev.el))) {
+          prev.el = mine.el;
+          prev.gone = undefined;
+          recs.splice(k, 1);
+        }
         continue;
       }
       mine.el = null;
