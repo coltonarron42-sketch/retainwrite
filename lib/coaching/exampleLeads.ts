@@ -39,6 +39,9 @@ export function visibleSourceLead(lead: string | null | undefined): string | nul
     return null;
   }
   if (/^(soc\s+\d+|the assigned concept|your topic)\b/i.test(text)) return null;
+  // QA 1:11 AM #8: a coaching question she asked ("You wrote “…” — what bigger stakes…?") is
+  // never shown as a thing to look up.
+  if (/\?["”’)]?\s*$/.test(text) || /^you wrote\b/i.test(text) || /^(what|which|how|why|who|when|where|could|should|would|does|do|is|are)\b/i.test(text)) return null;
   return text;
 }
 

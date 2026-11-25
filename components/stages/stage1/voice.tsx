@@ -30,6 +30,21 @@ function useSupported() {
   return supported;
 }
 
+const UNSUPPORTED_SEEN = "rw:voice-unsupported-seen";
+/** QA 1:11 AM minor: the "not available" note shows once per visit, never again on resumed pages. */
+function useUnsupportedNoteOnce(show: boolean): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!show) return;
+    try {
+      if (window.sessionStorage.getItem(UNSUPPORTED_SEEN)) return;
+      window.sessionStorage.setItem(UNSUPPORTED_SEEN, "1");
+    } catch {}
+    setVisible(true);
+  }, [show]);
+  return visible;
+}
+
 function useSpeaking() {
   return useSyncExternalStore(subscribeSpeaking, isSpeaking, () => false);
 }
@@ -38,8 +53,10 @@ function useSpeaking() {
 export function VoiceToggle({ className }: { className?: string }) {
   const { voice } = useChatPrefs();
   const supported = useSupported();
+  const noteVisible = useUnsupportedNoteOnce(supported === false);
   if (supported === null) return <span className={cn("min-h-[48px]", className)} aria-hidden />;
   if (!supported) {
+    if (!noteVisible) return <span className={cn("min-h-[48px]", className)} aria-hidden />;
     return (
       <span className={cn("text-[13px] leading-[1.6] text-ds-muted", className)} data-voice-unsupported>
         Read-aloud isn&apos;t available in this browser

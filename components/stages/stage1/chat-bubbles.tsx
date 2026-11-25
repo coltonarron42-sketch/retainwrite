@@ -408,12 +408,14 @@ export function PickedChip({
   onEdit?: () => void;
   editLabel?: string;
 }) {
+  // QA 1:11 AM minor: one "Picked:" in the page text (the screen-reader copy only when the label is shortened).
+  const same = label.trim() === fullText.trim();
   const body = (
     <>
-      <span aria-hidden className="min-w-0 truncate">
+      <span aria-hidden={same ? undefined : true} className="min-w-0 truncate">
         <span className="text-ds-muted">Picked:</span> <span className="text-ds-ink">{label}</span>
       </span>
-      <span className="sr-only">Picked: {fullText}</span>
+      {same ? null : <span className="sr-only">{fullText}</span>}
     </>
   );
   const cls =

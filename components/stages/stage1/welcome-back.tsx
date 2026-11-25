@@ -124,15 +124,22 @@ export function FocusOpener({
   signal,
   silent = false,
   onProgress,
+  onOpen,
 }: {
   line: string | null;
   scope: string;
   signal: string | number;
   silent?: boolean;
   onProgress: () => void;
+  /** QA 1:11 AM #5: true while her opener question is waiting (the turn below holds its own question). */
+  onOpen?: (open: boolean) => void;
 }) {
   const [atSignal, setAtSignal] = useState<string | number | null>(null);
   const [answered, setAnswered] = useState(false);
+  const open = Boolean(line) && !answered && (atSignal === null || atSignal === signal);
+  useEffect(() => {
+    onOpen?.(open);
+  }, [open, onOpen]);
   useEffect(() => {
     if (line && atSignal === null) setAtSignal(signal);
   }, [line, signal, atSignal]);
