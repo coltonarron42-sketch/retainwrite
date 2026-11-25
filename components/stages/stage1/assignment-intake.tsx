@@ -537,6 +537,9 @@ export function AssignmentIntake({
   // empties the box in the same tick). Anything that runs later (a reply landing, a save resolving)
   // never wipes what they typed since; it only clears the box if it still holds exactly what was sent.
   const dropSent = (sent?: string) => setDraftAnswer((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
+  // Moving to the next step after a reply: its saved answer / prefill goes in only if they haven't typed since.
+  const setBoxUnlessTyped = (next: string, sent?: string) =>
+    setDraftAnswer((d) => (d.trim() && d.trim() !== (sent ?? "").trim() ? d : next));
   const dropSentStory = (sent?: string) => setOwnStory((d) => (!d.trim() || (sent !== undefined && d.trim() === sent.trim()) ? "" : d));
   const [gateSaid, setGateSaid] = useState<{ id: number; said: string }[]>([]);
   const latestSendNow = useRef<((text: string, fromBox: boolean) => boolean | void) | null>(null);
@@ -2085,7 +2088,7 @@ export function AssignmentIntake({
       recPending.current[q.id] = esc.recommend;
       setCatchUpOffer(esc.offerCatchUp ? q.id : null);
       setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: esc.paras }].slice(-12));
-      setDraftAnswer(lean && round <= 1 ? `I'd pick ${lean.label} because ` : "");
+      setBoxUnlessTyped(lean && round <= 1 ? `I'd pick ${lean.label} because ` : "", sentBox);
       setError(null);
       return;
     }
@@ -2324,9 +2327,7 @@ export function AssignmentIntake({
 
     if (qIndex + 1 < coachingPlan.length) {
       const nextQuestion = coachingPlan[qIndex + 1];
-      setDraftAnswer(
-        nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "",
-      );
+      setBoxUnlessTyped(nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "", sentBox);
       setQIndex(qIndex + 1);
       return;
     }

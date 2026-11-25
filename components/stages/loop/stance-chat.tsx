@@ -428,7 +428,7 @@ export function StanceChat(props: Props) {
     };
     const clearSent = () => {
       const cur = ideaRef.current.trim();
-      if (!cur || cur === text.trim()) clearSent();
+      if (!cur || cur === text.trim()) props.onIdea("");
     };
     setHint(null);
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.

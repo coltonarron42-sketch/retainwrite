@@ -183,7 +183,7 @@ describe("QA 5:46: typing right after Enter is never wiped", () => {
   it("Stage 2: a reply landing never clears or overwrites new typing", () => {
     const i = stance.indexOf("async function sendNow(");
     const body = stance.slice(i, stance.indexOf('return "tap_needed";', i));
-    expect(body).not.toContain('props.onIdea("")');
+    expect(body.split("props.onIdea(\"\")").length - 1).toBe(1); // only inside clearSent
     expect(body).toContain("if (!ideaRef.current.trim()) props.onIdea(text);");
   });
 });
@@ -197,5 +197,19 @@ describe("QA 5:46 minor: after the key points are given, only the upload offer",
     expect(out).not.toMatch(/actual source material|dark web/i);
     expect(out).toMatch(/a PDF, a photo of each page/);
     expect(out).toMatch(/editions/);
+  });
+});
+
+describe("QA 5:46: moving to the next question never overwrites words typed since Enter", () => {
+  it("the next step's saved answer or prefill goes in only if the box is untouched", () => {
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain("setBoxUnlessTyped(nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? \"\", sentBox);");
+  });
+});
+
+describe("QA 5:46: Stage 2 clearSent never calls itself", () => {
+  it("clears through onIdea", () => {
+    const src = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    expect(src).toContain('if (!cur || cur === text.trim()) props.onIdea("");');
   });
 });
