@@ -110,9 +110,6 @@ import {
   type RequiredSourcesValue,
 } from "@/lib/assignment/schema";
 import {
-  STAGE1_VOICE_MIN_WORDS,
-} from "@/lib/config";
-import {
   getDemoPaper,
   upsertDemoPaper,
   type DemoPaper,
@@ -125,12 +122,6 @@ import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angle
 import { clipWords } from "@/lib/copy/clip";
 import { isContentQuestion } from "@/lib/coach/answer";
 import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
-import {
-  evaluateStage1VoiceMinimum,
-  readyVoiceLine,
-  tallyVoiceWords,
-  type VoiceAnswer,
-} from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
 import { useTurnRecorder } from "@/lib/chat/turn-recorder";
@@ -143,12 +134,12 @@ import {
   intakeScreenAfterLoad,
   resumeIntake,
   stanceStartBlockers,
-  voiceShortNote,
   materialGateLabel, northstarChecklist,
   northstarGateFrom,
   shortNoteNudge,
 } from "@/lib/stage1/intake-resume";
 import { computeStyleMetrics } from "@/lib/style/metrics";
+import { buildVoiceCorpus, collectVoicePieces } from "@/lib/style/voice-capture";
 import { cn, wordCount } from "@/lib/utils";
 import { Check, Info } from "lucide-react";
 import { citationComfortQuestion } from "@/lib/stage1/comfort";
@@ -542,7 +533,6 @@ export function AssignmentIntake({
   const [submitting, setSubmitting] = useState(false);
   const sendLock = useRef(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
-  const [needFallback, setNeedFallback] = useState(false);
   const [error, setErrorRaw] = useState<string | null>(null);
   // QA 1:16 (composer): a send that's turned back (an error) puts their words back in the box.
   const rejectedRef = useRef(false);
@@ -1134,7 +1124,10 @@ export function AssignmentIntake({
         kind: "coaching",
         text: "In your own words, what do you think this assignment wants you to figure out?",
       });
-    if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({
+    // PC-32 (Colton t219u, Nov 25): no "write a few sentences" voice question in Stage 1 any more.
+    // Voice is captured in the background from every answer; an older paper that already
+    // answered it keeps it (its history and resume stay intact).
+    if (!northstar && has("personal_1")) plan.push({
       id: "personal_1",
       kind: "personal",
       // QA 11/23: never paste the whole assignment clause into the template.
@@ -1147,7 +1140,8 @@ export function AssignmentIntake({
             : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
-    if (!northstar && needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
+    // PC-32: the extra "write a little more" voice question is gone; kept only where it was answered.
+    if (!northstar && has("fallback_voice")) {
       plan.push({
         id: "fallback_voice",
         kind: "fallback_voice",
@@ -1155,7 +1149,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.northstarSet, northstarWaitOver, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
+  }, [requirements, skippedInterest, briefLoaded, brief?.northstar, brief?.northstarSet, northstarWaitOver, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
   // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
@@ -1163,24 +1157,11 @@ export function AssignmentIntake({
   // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
   const curQId = useRef<string | null>(null);
   const [recovering, setRecovering] = useState(false);
-  // North star (Colton 11:41): there is no extra voice question at all.
-  const fallbackOff = Boolean(brief?.northstar);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
     if (answers.length === 0 && !storyAngle && !pendingQuestion.current) {
       if (resumeReady) setResumePending(false);
-      return;
-    }
-    // needFallback is not saved; a reload must rebuild the plan with the
-    // fallback question before resuming, whether it was answered or was the
-    // question being typed when the page reloaded.
-    if (
-      !needFallback &&
-      (pendingQuestion.current === "fallback_voice" ||
-        answers.some((answer) => answer.questionId === "fallback_voice"))
-    ) {
-      setNeedFallback(true);
       return;
     }
     // Same for a skipped get-to-know-you: rebuild the shorter plan first, so
@@ -1241,15 +1222,7 @@ export function AssignmentIntake({
         while (next < coachingPlan.length && answers.some((answer) => answer.questionId === coachingPlan[next]?.id)) next++;
         if (next >= coachingPlan.length) {
           settleRestore();
-          const voice = evaluateStage1VoiceMinimum({
-            answers: answers.map((a) => ({ text: a.answerText, isVoiceSample: a.isVoiceSample, kind: a.kind, pasteRatio: a.pasteRatio })),
-          });
-          if (voice.needsFallback && !fallbackOff && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
-            setNeedFallback(true);
-            setQIndex(coachingPlan.length);
-            setScreen("coaching");
-            return;
-          }
+          // PC-32: no extra voice question after the plan; straight on.
           if (storyAngle) goToStanceOnStory();
           else finishCoaching(answers);
           return;
@@ -1270,7 +1243,7 @@ export function AssignmentIntake({
       }
     }
     settleRestore();
-  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, fallbackOff, skippedInterest, resumeReady]);
+  }, [demoMode, answers, coachingPlan, storyAngle, skippedInterest, resumeReady]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -1282,30 +1255,6 @@ export function AssignmentIntake({
     localCopy: true,
   });
 
-  const voiceEval = useMemo(() => {
-    const latest = new Map<string, (typeof answers)[number]>();
-    for (const answer of answers) {
-      if (!answer.isVoiceSample || !answer.answerText.trim()) continue;
-      latest.set(answer.questionId, answer);
-    }
-    const voiceAnswers: VoiceAnswer[] = [...latest.values()].map((answer) => ({
-      text: answer.answerText,
-      isVoiceSample: true,
-      kind: answer.kind,
-      pasteRatio: answer.pasteRatio,
-    }));
-    const evaluated = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    return {
-      ...evaluated,
-      totalWords: tallyVoiceWords(
-        [...latest.values()].map((answer) => ({
-          questionId: answer.questionId,
-          text: answer.answerText,
-          isVoiceSample: true,
-        })),
-      ),
-    };
-  }, [answers]);
 
   // Coming back to a conversation with turns: one welcome-back line, decided
   // once when the restore settles (Colton 3:46 PM). Nothing old is re-run.
@@ -1431,7 +1380,6 @@ export function AssignmentIntake({
       setQIndex(next);
       return;
     }
-    if (needFallback) return;
     curQId.current = null;
     if (storyAngle) goToStanceOnStory();
     else finishCoaching(answers);
@@ -1439,7 +1387,7 @@ export function AssignmentIntake({
   }, [planKey, qIndex, screen]);
   // A plain empty step (index past the plan, nothing pending) never strands them either.
   useEffect(() => {
-    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey || needFallback) return;
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey) return;
     if (coachingPlan[qIndex]) { curQId.current = coachingPlan[qIndex].id; return; }
     const t = setTimeout(() => {
       const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
@@ -1449,7 +1397,7 @@ export function AssignmentIntake({
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planKey, qIndex, screen, needFallback]);
+  }, [planKey, qIndex, screen]);
   // Server-side recovery (QA 10:21): a gate that can't pass on the decision re-asks it, with the
   // composer, instead of a disabled Start and no way forward. `forceRecover` is set when the
   // server's /intake/complete says the decision is missing.
@@ -1680,8 +1628,6 @@ export function AssignmentIntake({
           northstar: northstarGate,
           checklistConfirmed: cardGate.ok,
           hasStory: Boolean(storyAngle),
-          voiceOk: voiceEval.ok,
-          voiceReason: voiceEval.reasons[0],
           stanceOk,
         });
         if (!isQuickConfirm(text) || blocked.length > 0) return "aside";
@@ -2658,11 +2604,8 @@ export function AssignmentIntake({
       return;
     }
 
-    const isVoice =
-      q.kind === "interest" ||
-      q.kind === "coaching" ||
-      q.kind === "personal" ||
-      q.kind === "fallback_voice";
+    // PC-32 (Colton t219u): every answer they write or say feeds the background voice profile.
+    const isVoice = !opts?.skip;
 
     const existing = answers.find((a) => a.questionId === q.id);
     const nextAnswers = [
@@ -2881,23 +2824,6 @@ export function AssignmentIntake({
       return;
     }
 
-    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
-      text: a.answerText,
-      isVoiceSample: a.isVoiceSample,
-      kind: a.kind,
-      pasteRatio: a.pasteRatio,
-    }));
-    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    if (
-      evalResult.needsFallback &&
-      !fallbackOff &&
-      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
-      !needFallback
-    ) {
-      setNeedFallback(true);
-      setQIndex(coachingPlan.length);
-      return;
-    }
     // The story angle is already picked (the checklist says so): go on to the
     // early take instead of asking for the story again.
     if (storyAngle) {
@@ -3139,24 +3065,6 @@ export function AssignmentIntake({
       setLeads(suggested);
     }
 
-    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
-      text: a.answerText,
-      isVoiceSample: a.isVoiceSample,
-      kind: a.kind,
-      pasteRatio: a.pasteRatio,
-    }));
-    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    if (
-      evalResult.needsFallback &&
-      !fallbackOff &&
-      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
-      !needFallback
-    ) {
-      setNeedFallback(true);
-      setQIndex(coachingPlan.length);
-      setScreen("coaching");
-      return;
-    }
     setScreen("gate");
   }
 
@@ -3291,10 +3199,10 @@ export function AssignmentIntake({
     // PC-29 QA minor: Stage 1 is finished; the voice call ends cleanly (after her short "Let's go.").
     if (rt.on) window.setTimeout(() => rt.stop(), 1_500);
 
-    const sample = answers
-      .filter((a) => a.isVoiceSample)
-      .map((a) => a.answerText)
-      .join("\n");
+    // PC-32: the demo profile comes from every answer they wrote (background capture).
+    const sample = buildVoiceCorpus(
+      collectVoicePieces({ intake: answers.map((a) => ({ questionId: a.questionId, kind: a.kind, text: a.answerText })) }),
+    ).text;
     const metrics = computeStyleMetrics(sample);
 
     const progress = paper.stage_progress.map((s) => {
@@ -4213,20 +4121,10 @@ export function AssignmentIntake({
     const reach = beyondPlan
       ? coachingPlan.length
       : Math.max(lastAnswered + 1, qIndex);
-    const sample = answers
-      .filter((a) => a.isVoiceSample)
-      .map((a) => a.answerText)
-      .join("\n");
-    const metrics = screen === "gate" && sample ? computeStyleMetrics(sample) : null;
-    // The student sees words against the 200-word target, so that is what the
-    // check mark and the "short side" note follow.
-    const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS;
     const blockers = stanceStartBlockers({
           northstar: northstarGate,
       checklistConfirmed: cardGate.ok,
       hasStory: Boolean(storyAngle),
-      voiceOk: voiceEval.ok,
-      voiceReason: voiceEval.reasons[0],
       stanceOk,
     });
     const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
@@ -4265,14 +4163,6 @@ export function AssignmentIntake({
                 <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
                   <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
                   <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
-                  <li>
-                    {voiceWordsMet
-                      ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps me match your voice (optional)"}
-                    <span className="sr-only">
-                      {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
-                    </span>
-                  </li>
                   <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
                 </ul>
                 );
@@ -4281,7 +4171,6 @@ export function AssignmentIntake({
     // while a message is pending or queued, and whenever her reply is on screen.
     const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);
     const minNote = hintQuiet ? null : stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
-    const isVoiceQuestion = Boolean(q && q.kind !== "background");
     // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
     const readingTools = q ? (readingOpen ? (
                     <div className="space-y-2">
@@ -4574,7 +4463,6 @@ export function AssignmentIntake({
         : screen === "gate"
           ? [
               "That's everything for Stage 1. Ready for the stance interview?",
-              ...(metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? [readyVoiceLine(voiceEval.totalWords) as string] : []),
             ]
           : [];
     // PC-29 QA round 2: what the call says is the copy this turn shows, word for word.
@@ -4921,11 +4809,7 @@ export function AssignmentIntake({
               bubbles={[
                 ...leadsBubbles,
                 "That's everything for Stage 1. Ready for the stance interview?",
-                metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords)
-                  ? readyVoiceLine(voiceEval.totalWords)
-                  : null,
                 gateChecks,
-                voiceShortNote({ voiceOk: voiceWordsMet }) || null,
               ].filter((b) => b !== null)}
               headingIndex={leadsBubbles.length}
               headingId="gate-ask"
@@ -5080,21 +4964,6 @@ export function AssignmentIntake({
               <p className="flex shrink-0 items-center gap-2 whitespace-nowrap px-2">
                 {restoringDraft && !draftAnswer ? <span role="status">Restoring your draft… </span> : null}
                 {submitting ? <span role="status">Saving… </span> : null}
-                {isVoiceQuestion || stanceMode ? (
-                  <span
-                    className="inline-flex items-center gap-1"
-                    title="Your voice sample: how much of your own writing Pau has so far"
-                  >
-                    <span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>
-                    <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-ds-border">
-                      <span
-                        className="block h-full bg-ds-sage"
-                        style={{ width: `${Math.min(100, (voiceEval.totalWords / STAGE1_VOICE_MIN_WORDS) * 100)}%` }}
-                      />
-                    </span>
-                    <span aria-hidden>{voiceWordsMet ? "Voice ✓" : "Voice"}</span>
-                  </span>
-                ) : null}
                 <SaveStatus status={draftStatus} />
               </p>
             </div>
