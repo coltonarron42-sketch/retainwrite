@@ -2312,7 +2312,8 @@ export function AssignmentIntake({
         // QA full prod walk (8979326a): "Yes, run with it! Although I also think the transformational side
         // matters…": what they added is part of their pick (styles and reasons add up), never dropped.
         const more = yesWithMore(typed);
-        await runWithStory(more && more.split(/\s+/).length >= 4 ? { ...storyProposal, story: `${storyProposal.story}\n${typed}` } : storyProposal, qn);
+        const withMore = Boolean(more && more.split(/\s+/).length >= 4);
+        await runWithStory(withMore ? { ...storyProposal, story: `${storyProposal.story}\n${typed}` } : storyProposal, qn, withMore ? typed : undefined);
         return true;
       }
       if (kind === "interview") {
@@ -2357,7 +2358,7 @@ export function AssignmentIntake({
   }
 
   /** t204u: "yes, run with it": their story is their answer, their decision and their early take. */
-  async function runWithStory(pr: { story: string; reflect: StoryReflect }, qn: { id: string; text: string }) {
+  async function runWithStory(pr: { story: string; reflect: StoryReflect }, qn: { id: string; text: string }, said?: string) {
     setStoryProposal(null);
     setStoryTieBack(null);
     setInterview(null);
@@ -2382,8 +2383,9 @@ export function AssignmentIntake({
       ...(qn.id !== "stance_early" ? [{ questionId: qn.id, questionText: qn.text, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 }] : []),
       { questionId: "stance_early", questionText: stanceQ, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 },
     ]);
-    setOfferReply((prev) => ({ ...prev, [qn.id]: "Yes, let's run with it" }));
-    if (qn.id === "stance_early") setStanceSent("Yes, let's run with it");
+    // QA full prod walk (8979326a): a yes with more shows (and is recorded) as they typed it.
+    setOfferReply((prev) => ({ ...prev, [qn.id]: said ?? "Yes, let's run with it" }));
+    if (qn.id === "stance_early") setStanceSent(said ?? "Yes, let's run with it");
     setStoryAngle({ text: story, source: "student" });
     setStoryFromDecision(true);
     setStanceViaStory(qn.id);
