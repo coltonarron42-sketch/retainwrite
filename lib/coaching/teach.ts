@@ -1,7 +1,7 @@
 // SOP: coaching only, never generate submission text
 
 import { z } from "zod";
-import { pickPhrase } from "@/lib/stage1/paper-context";
+import { andList, pickPhrase } from "@/lib/stage1/paper-context";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { wordCount } from "@/lib/utils";
 
@@ -156,11 +156,13 @@ export function contextTeachCard(
  * A real concept lesson (QA 8:31 AM: the Body "Quick lesson" parroted the assignment).
  * General, well-established definitions of the style they picked; never what a chapter says.
  */
-const STYLE_LESSONS: { when: RegExp; concept: string; definition: string; qualities: string[]; showsUpAs: string[] }[] = [
+type StyleLesson = { when: RegExp; concept: string; definition: string; gist: string; qualities: string[]; showsUpAs: string[] };
+const STYLE_LESSONS: StyleLesson[] = [
   {
     when: /\btransformational\b/i,
     concept: "transformational leadership",
     definition: "Leading by inspiring people with a shared vision, so they want the change and stretch past what they thought they could do.",
+    gist: "inspires a shared vision so people want the change",
     qualities: ["A clear, shared vision", "Inspiring people to buy in", "Personal attention to each person", "Pushing people to think in new ways"],
     showsUpAs: ["A leader explaining why the change matters", "People taking ownership of the new direction"],
   },
@@ -168,6 +170,7 @@ const STYLE_LESSONS: { when: RegExp; concept: string; definition: string; qualit
     when: /\bsituational\b/i,
     concept: "situational leadership",
     definition: "Leading by matching your style to how ready each person or team is: more direction when they're new, more freedom as they grow.",
+    gist: "matches the style to how ready each person is",
     qualities: ["Reading the team's readiness", "Directing when skills are low", "Coaching and supporting in between", "Delegating once people are ready"],
     showsUpAs: ["Clear steps early in a change", "Handing off decisions as confidence grows"],
   },
@@ -175,6 +178,7 @@ const STYLE_LESSONS: { when: RegExp; concept: string; definition: string; qualit
     when: /\bservant\b/i,
     concept: "servant leadership",
     definition: "A way of leading that puts other people's growth and needs ahead of the leader's status.",
+    gist: "puts other people's growth and needs first",
     qualities: ["Listening before deciding", "Putting the team's needs first", "Helping other people grow", "Stepping back from status"],
     showsUpAs: ["Choices that put people ahead of status", "Habits other people can point to"],
   },
@@ -182,25 +186,92 @@ const STYLE_LESSONS: { when: RegExp; concept: string; definition: string; qualit
     when: /\b(behavioral|task vs\.? relationship|team management|task|relationship)\b/i,
     concept: "task vs. relationship leadership",
     definition: "Looking at what leaders actually do: how much they push to get the task done versus how much they care for the people doing it.",
+    gist: "balances getting the work done with care for the people doing it",
     qualities: ["Task focus: goals, roles, deadlines", "Relationship focus: trust and support", "Balancing both at once", "Team management: high on both"],
     showsUpAs: ["Clear goals set for the change", "Check-ins on how people are coping"],
   },
 ];
+
+function firstIndex(text: string, re: RegExp): number {
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+
+/** Every style named in their pick or answer, in the order they named them (answer first, not the STYLE_LESSONS table). */
+function styleLessonsFor(pick: string, answer: string): StyleLesson[] {
+  const said = `${pick} ${answer}`;
+  const hits = STYLE_LESSONS.filter((x) => x.when.test(said));
+  return hits.sort((a, b) => {
+    const aAns = firstIndex(answer, a.when);
+    const bAns = firstIndex(answer, b.when);
+    if (aAns >= 0 && bAns >= 0) return aAns - bAns;
+    if (aAns >= 0) return -1;
+    if (bAns >= 0) return 1;
+    return firstIndex(pick, a.when) - firstIndex(pick, b.when);
+  });
+}
+
+function combinedDefinition(hits: StyleLesson[]): string {
+  if (hits.length === 1) return hits[0]!.definition;
+  const parts = hits.map((h, i) => {
+    const name = i === 0 ? h.concept[0]!.toUpperCase() + h.concept.slice(1) : h.concept;
+    return `${name} ${h.gist}`;
+  });
+  const text = parts.length === 2 ? `${parts[0]}; ${parts[1]}.` : `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}.`;
+  if (wordCount(text) <= 35 && text.length <= 240) return text;
+  return `${andList(hits.map((h) => h.concept))} are the ideas this section has to show in action, with a real moment a reader can picture.`;
+}
+
+function takeFromEach(hits: StyleLesson[], key: "qualities" | "showsUpAs", max: number, min: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const h of hits) {
+    for (const item of h[key]) {
+      const k = item.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(item);
+      break;
+    }
+  }
+  if (out.length < min) {
+    for (const h of hits) {
+      for (const item of h[key]) {
+        const k = item.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(item);
+        if (out.length >= min) break;
+      }
+      if (out.length >= min) break;
+    }
+  }
+  return out.slice(0, max);
+}
+
 export function conceptTeachCard(
   b: { decision?: { pick: string; answer?: string } | null; leader?: { pick: string } | null } | null,
   rubricRef: string,
 ): TeachCard | null {
-  const said = `${b?.decision?.pick ?? ""} ${b?.decision?.answer ?? ""}`;
-  const hit = STYLE_LESSONS.find((x) => x.when.test(said));
-  if (!hit) return null;
+  const pick = b?.decision?.pick ?? "";
+  const answer = b?.decision?.answer ?? "";
+  const hits = styleLessonsFor(pick, answer);
+  if (!hits.length) return null;
   const who = b?.leader?.pick && b.leader.pick !== "their own" ? b.leader.pick : "your leader";
+  const picked = b?.decision ? pickPhrase(b.decision) : null;
+  const several = hits.length >= 2;
+  // PC-30 follow-up: every style they chose, never just the first match in STYLE_LESSONS.
+  const concept = several
+    ? (picked && / and /.test(picked) && picked.length <= 60 ? picked : andList(hits.map((h) => h.concept)))
+    : hits[0]!.concept;
+  const conceptSafe = concept.length <= 60 ? concept : "the styles you picked";
   const card: TeachCard = {
-    concept: hit.concept,
+    concept: conceptSafe,
     rubricRef,
     affirm: null,
-    definition: hit.definition,
-    qualities: hit.qualities,
-    showsUpAs: hit.showsUpAs,
+    definition: combinedDefinition(hits),
+    qualities: several ? takeFromEach(hits, "qualities", 5, 3) : hits[0]!.qualities,
+    showsUpAs: several ? takeFromEach(hits, "showsUpAs", 3, 2) : hits[0]!.showsUpAs,
     debate: null,
     ask: `Which of these did ${who} actually do, and when?`,
   };
