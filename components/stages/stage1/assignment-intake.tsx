@@ -10,6 +10,7 @@ import { DsButton } from "@/components/ui/ds-button";
 import { asQuestion, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
+import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { appendSpoken, isControlPhrase, isSaidToCoach, stage1VoiceScreen } from "@/lib/stage1/voice-turn";
 import {
@@ -1622,6 +1623,12 @@ export function AssignmentIntake({
     rt.sayTurn(rtView.text, { detail: rtDetail });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtView.key, rt.on]);
+  // PC-29: the assignment is pasted or typed, never spoken: focusing the box pauses the mic.
+  const typedPrompt = rt.on && screen === "upload";
+  useEffect(() => {
+    typingArbiter.setTypedPrompt(typedPrompt);
+    return () => typingArbiter.setTypedPrompt(false);
+  }, [typedPrompt]);
 
   // Nothing (no intro, no prefill, no speech) until the restore completes,
   // including the saved read-back turns (QA 5:44 PM).
