@@ -211,3 +211,24 @@ describe("QA 11:26: an in-between Pau bubble is never a Past chat line", () => {
     expect(src).toContain("{storyAngle && screen !== \"story\" && !storyFromDecision &&");
   });
 });
+
+import { stage2Earlier } from "@/lib/stages/stage2-intro";
+describe("QA 11:26: the Stage 2 recap keeps Walton after the voice merge", () => {
+  it("reads 'Earlier you picked Servant and Transformational with Sam Walton…'", () => {
+    const answer = "I'd pick Servant and Transformational because Sam Walton put associates first, and that kept people with him during growth and change.";
+    const opts = [{ label: "Servant", why: "x" }, { label: "Transformational", why: "y" }] as never;
+    const p = parseStance(answer, opts, [] as never);
+    expect(p?.leader).toMatch(/Walton/);
+    const s = stage2Earlier({ question: "q", pick: "Servant", answer, at: 1 } as never, { pick: p!.leader! } as never, opts);
+    expect(s).toMatch(/^Earlier you picked Servant and Transformational with Sam Walton as your example, because/);
+  });
+});
+
+describe("QA 11:08 must-fix (live): the decline is never a reading question", () => {
+  it("an answered summary offer skips the aside, skip and lookup readings", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain("if (typed && !offerAnswered && isSkipSaying(typed)) {");
+    expect(src).toMatch(/text &&\s*!offerAnswered &&\s*brief\?\.northstar &&\s*q\.id !== "stance_early"/);
+  });
+});

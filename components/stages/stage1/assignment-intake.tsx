@@ -2204,7 +2204,7 @@ export function AssignmentIntake({
       return;
     }
     // A typed "skip" / "n/a" is a skip, never an answer; the gate steps still need their words.
-    if (typed && isSkipSaying(typed)) {
+    if (typed && !offerAnswered && isSkipSaying(typed)) {
       if (STAGE1_REQUIRED_QS.includes(q.id)) {
         setError("This one counts toward finishing Stage 1, so I need a few words of your own here, even rough ones.");
         return;
@@ -2223,7 +2223,7 @@ export function AssignmentIntake({
     }
     // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
     // The status shows even before the brief has loaded (QA 9:37 AM: "Digging it up…" at 4-5 s).
-    const lookup = Boolean(text && (brief?.northstar ?? true) && mayNeedLookup(text));
+    const lookup = Boolean(text && !offerAnswered && (brief?.northstar ?? true) && mayNeedLookup(text));
     if (q?.id === "material_check" && text && materialLost(text)) setAsideBusy("Digging it up… pulling together the key points.");
     else if (lookup) setAsideBusy("Digging it up…");
     if (!opts?.skip && !text && q.kind !== "background") {
@@ -2247,6 +2247,7 @@ export function AssignmentIntake({
     if (
       !opts?.skip &&
       text &&
+      !offerAnswered &&
       brief?.northstar &&
       q.id !== "stance_early" &&
       !(q.id === "material_check" && materialLost(text)) &&
@@ -3724,6 +3725,7 @@ export function AssignmentIntake({
           : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
     const editing = editReturn !== null;
+    const introAbove = Boolean(q && !editing && q.id === coachingPlan[0]?.id && qaAsides.some((x) => x.qid === q.id && !snap?.asides.has(x.id)));
     // Latest answer wins (an edit replaces the earlier one).
     const answerFor = (id: string) =>
       [...answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText ?? "";
@@ -4248,6 +4250,8 @@ export function AssignmentIntake({
           {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
             <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
           ) : null}
+          {/* QA 11:08 (lost-path order): her Stage 1 intro came first, so it stays above her replies to the first question. */}
+          {introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}
           {/* Questions and pastes she answered in place for this question (never saved as answers). */}
           {q
             ? qaAsides
@@ -4280,7 +4284,7 @@ export function AssignmentIntake({
           {q && !(decisionSaving && q.id === "decision_pick") ? (
             <PauPauGroup
               bubbles={[
-                ...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : []),
+                ...(!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles : []),
                 editing
                   ? recovering
                     ? "One thing before the stance interview: I still need the reason behind your pick. One or two sentences is plenty."
@@ -4292,7 +4296,7 @@ export function AssignmentIntake({
                 q.text,
               ].filter((b) => Boolean(b))}
               headingIndex={
-                (!editing && q.id === coachingPlan[0]?.id ? introBubbles.length : 0) +
+                (!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles.length : 0) +
                 (editing ? 1 : 0) +
                 leadsBubbles.length +
                 (informedLead && !editing && q.id !== "material_check" ? informedLead.length : 0) +

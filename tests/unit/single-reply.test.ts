@@ -43,7 +43,9 @@ describe("A: one Pau reply per turn", () => {
   it("intro and the first question share one reply", () => {
     const src = read("components/stages/stage1/assignment-intake.tsx");
     expect(src).toContain("bubbles={i === 0 ? [...introBubbles, item.text] : [item.text]}");
-    expect(src).toContain("...(!editing && q.id === coachingPlan[0]?.id ? introBubbles : [])");
+    // QA 11:08 (lost-path order): once she has replied in place to the first question, the intro stays above those replies.
+    expect(src).toContain("...(!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles : [])");
+    expect(src).toContain("{introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}");
     expect(src).not.toContain("<PauPauGroup bubbles={INTRO_BUBBLES} />");
   });
   it("the hesitation offer, its choices and the answer are one reply", () => {
