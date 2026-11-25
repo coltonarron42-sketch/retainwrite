@@ -84,3 +84,33 @@ describe("QA 4:08 walk: product ids aren't titles", () => {
     expect(slugTitle("https://sk.sagepub.com/cases/servant-leadership-the-case-of-nelson-mandela")).toBe("Servant leadership the case of nelson mandela");
   });
 });
+
+describe("QA 4:08 walk 2: a site tag never makes a bullet 'about' that site", () => {
+  const RG = "https://www.researchgate.net/publication/378934769_Leading_with_compassion_and_passion_A_case_study_on_servant_leadership_at_the_Crisis_Center_of_Tampa_Bay";
+  const CC = "https://csuepress.columbusstate.edu/sltp/vol2/iss1/3";
+  it("researchgate stays weak; the bullet is re-tagged to a good page that backs it, or dropped", async () => {
+    const { applySourceQuality, sourceTier } = await import("@/lib/coach/source-quality");
+    const line = "• Clara Reynolds at Crisis Center of Tampa Bay applied servant leadership to triple the budget [researchgate.net]";
+    expect(sourceTier(RG, "Clara Reynolds at Crisis Center of Tampa Bay")).toBe(1);
+    const fetched = new Map([[CC, { title: "Implementing Servant Leadership at Cleveland Clinic", text: "Joseph Patrnchak Cleveland Clinic" }]]);
+    const dropped = applySourceQuality(line, { mode: "research", sources: [{ title: "x", url: RG }], read: [RG, CC], fetched });
+    expect(dropped.kept).toBe(0);
+    expect(dropped.checks[0]).toMatchObject({ supported: false, tag: "researchgate.net" });
+    const fetched2 = new Map([[CC, { title: "Servant leadership case", text: "Clara Reynolds, CEO of the Crisis Center of Tampa Bay" }]]);
+    const kept = applySourceQuality(line, { mode: "research", sources: [{ title: "x", url: RG }], read: [RG, CC], fetched: fetched2 });
+    expect(kept.kept).toBe(1);
+    expect(kept.checks[0]).toMatchObject({ supported: true, retagged: true, page: CC });
+    expect(kept.sources.map((s) => s.url)).toEqual([CC]);
+  });
+  it("a reading lead must be backed by a good page", async () => {
+    const { applySourceQuality } = await import("@/lib/coach/source-quality");
+    const SAGE = "https://edge.sagepub.com/northouse9e";
+    const raw = "From SAGE's page for Northouse, not your copy:\n• Chapter 4 covers the style approach.";
+    const ok = applySourceQuality(raw, { mode: "reading", sources: [{ title: "x", url: SAGE }], fetched: new Map([[SAGE, { title: "Leadership | SAGE", text: "Peter G. Northouse Leadership Theory and Practice" }]]) });
+    expect(ok.kept).toBe(1);
+    expect(ok.checks[0]).toMatchObject({ tag: "lead", supported: true });
+    const bad = applySourceQuality(raw, { mode: "reading", sources: [{ title: "x", url: SAGE }], fetched: new Map([[SAGE, { title: "Other book", text: "nothing relevant" }]]) });
+    expect(bad.kept).toBe(0);
+    expect(bad.text).toMatch(/^I couldn't find a page for your reading I'd trust/);
+  });
+});

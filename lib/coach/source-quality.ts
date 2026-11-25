@@ -120,7 +120,7 @@ const norm = (s: string) => ` ${s.toLowerCase().replace(/[’']/g, "").replace(/
 
 /** The bullet's key entities (people, companies: capitalized runs) and its content words. */
 export function keyTerms(bullet: string): { entities: string[]; words: string[] } {
-  const body = stripCites(bullet.replace(BULLET, "")).replace(/\([^)]*\)\.?$/, "");
+  const body = stripCites(bullet.replace(BULLET, "")).replace(/\([^)]*\)\.?$/, "").replace(/['’]s\b/g, "");
   const entities: string[] = [];
   for (const m of body.matchAll(/\b(?:[A-Z][a-zA-Z’'&.-]+|[A-Z]{2,})(?:\s+(?:of\s+|de\s+|&\s+)?(?:[A-Z][a-zA-Z’'&.-]+|[A-Z]{2,}))*/g)) {
     const toks = norm(m[0]).trim().split(" ").filter((t) => t.length >= 3 && !GENERIC.has(t));
@@ -189,8 +189,9 @@ export function applySourceQuality(
     const { urls, hosts } = lineCites(line);
     // A bare site name resolves to the page she actually read there (a PDF path matters).
     const cited = [...new Set([...urls, ...hosts.filter((h) => !urls.some((u) => hostOf(u) === h)).map((h) => known.find((u) => hostOf(u) === h) ?? h)])];
+    const about = dropSiteMentions(line);
     const best = cited.reduce<{ t: Tier; u: string | null }>((acc, u) => {
-      const t = sourceTier(u, line);
+      const t = sourceTier(u, about);
       return t > acc.t ? { t, u } : acc;
     }, { t: 0, u: null });
     if (!bullet) {
@@ -201,20 +202,53 @@ export function applySourceQuality(
         else out.push(dropSiteMentions(line));
         continue;
       }
+      // QA 4:08: a reading lead ("From SAGE's page for Northouse…") must be backed by a good page she read.
+      if (check && o.mode === "reading" && !seenBullet && /\b(?:from|per|according to)\b/i.test(line) && keyTerms(line).entities.length) {
+        const pages = known.filter((u) => sourceTier(u, about) >= 2);
+        const hit = pages.find((u) => supportedBy(line, evidenceFor(u, o).text));
+        checks.push({ bullet: stripCites(line).slice(0, 160), tag: "lead", page: hit ?? pages[0] ?? "", pageTitle: evidenceFor(hit ?? pages[0] ?? "", o).title.slice(0, 140), supported: Boolean(hit), retagged: false, terms: keyTerms(line).entities.slice(0, 4) });
+        if (!hit) {
+          leadOk = false;
+          out.push(READING_WEAK_LEAD);
+          continue;
+        }
+      }
       out.push(line.replace(CITE, (_m, _a, t: string | undefined) => t ?? "").replace(/[ \t]{2,}/g, " ").trim());
       continue;
     }
     seenBullet = true;
-    const ok = cited.length ? best.t >= 2 : o.mode === "reading" && leadOk;
+    let ok = cited.length ? best.t >= 2 : o.mode === "reading" && leadOk;
+    let page = best.u;
+    if (!ok && check && cited.length) {
+      // A bullet tagged to a weak site: re-tag it to a good page she read that does back it up.
+      const alt = known.find((u) => sourceTier(u, about) >= 2 && supportedBy(line, evidenceFor(u, o).text));
+      checks.push({
+        bullet: stripCites(line.replace(BULLET, "")).slice(0, 160),
+        tag: hostOf(best.u ?? cited[0] ?? ""),
+        page: alt ?? best.u ?? cited[0] ?? "",
+        pageTitle: evidenceFor(alt ?? best.u ?? "", o).title.slice(0, 140),
+        supported: Boolean(alt),
+        retagged: Boolean(alt),
+        terms: keyTerms(line).entities.slice(0, 4),
+      });
+      if (alt) {
+        ok = true;
+        page = alt;
+        usedUrls.push(alt);
+        used.set(hostOf(alt), sourceTier(alt, about));
+        const body = stripCites(line.replace(BULLET, ""));
+        out.push(`• ${body.replace(/\.$/, "")}${o.mode === "research" ? ` (${sourceName(alt)})` : ""}.`);
+        continue;
+      }
+    }
     if (!ok) {
       dropped.push({ line, hosts: cited.map(hostOf), why: "weak" });
       continue;
     }
-    let page = best.u;
     if (check && cited.length) {
       // Every passing page she could mean: the cited ones (a bare [hbr.org] tag covers each hbr.org page she read).
-      const tagged = [...new Set(cited.flatMap((c) => (/^https?:/i.test(c) ? [c] : known.filter((k) => hostOf(k) === hostOf(c)))).filter((u) => /^https?:/i.test(u) && sourceTier(u, line) >= 2))];
-      const others = known.filter((u) => !tagged.includes(u) && sourceTier(u, line) >= 2);
+      const tagged = [...new Set(cited.flatMap((c) => (/^https?:/i.test(c) ? [c] : known.filter((k) => hostOf(k) === hostOf(c)))).filter((u) => /^https?:/i.test(u) && sourceTier(u, about) >= 2))];
+      const others = known.filter((u) => !tagged.includes(u) && sourceTier(u, about) >= 2);
       const hit = tagged.find((u) => supportedBy(line, evidenceFor(u, o).text));
       const re = hit ? null : others.find((u) => supportedBy(line, evidenceFor(u, o).text));
       const chosen = hit ?? re ?? null;
@@ -236,7 +270,7 @@ export function applySourceQuality(
     }
     if (page && /^https?:/i.test(page)) usedUrls.push(page);
     for (const u of page ? [page] : cited) {
-      const t = sourceTier(u, line);
+      const t = sourceTier(u, about);
       if (t >= 2) used.set(hostOf(u), Math.max(used.get(hostOf(u)) ?? 0, t) as Tier);
     }
     const body = stripCites(line.replace(BULLET, ""));
