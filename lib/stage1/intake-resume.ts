@@ -174,3 +174,22 @@ export function shortNoteNudge(kind: "stance" | "story", words: number): string 
   if (words >= 15) return null;
   return "A little more on what you'd write about and why, and your own angle is ready.";
 }
+
+/**
+ * Short Stage 1 wrap-up (PC-32, Colton t221u): the confirmed assignment is the only must; their
+ * starting point is saved either way ("starting fresh" is a fine answer, never a blocker).
+ */
+export function shortStage1Checklist(input: { confirmed: boolean; kind: "has_ideas" | "read_material" | "no_clue" }): { label: string; done: boolean }[] {
+  return [
+    { label: "Assignment confirmed", done: input.confirmed },
+    {
+      label:
+        input.kind === "has_ideas"
+          ? "Your first idea, saved for Stage 2"
+          : input.kind === "read_material"
+            ? "Where you're starting: you've done the reading"
+            : "Where you're starting: fresh (totally fine)",
+      done: true,
+    },
+  ];
+}
