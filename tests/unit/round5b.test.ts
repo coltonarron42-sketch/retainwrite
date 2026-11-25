@@ -35,7 +35,7 @@ describe("MUST-FIX 1: 'My high school soccer coach, Mr. Alvarez' then 'ok'", () 
     expect(intake).toContain("saidParts.current.set(coalesce.current.text, parts)");
     expect(intake).toContain("{saidBubbles(a.said)}");
     expect(intake).toContain("{saidBubbles(pendingSaid)}");
-    expect(intake).toContain('slot: "leader", named: who });');
+    expect(intake).toContain('slot: "leader", named });');
     expect(intake).toContain("works great. Let's dig in, one quick question at a time.");
     expect(intake).toMatch(/const said0Named = \(t: string\) => Boolean\(storyWho\(t\)\?\.named/);
   });
