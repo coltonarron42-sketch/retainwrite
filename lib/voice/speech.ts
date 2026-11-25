@@ -6,7 +6,7 @@ import { speakableSentences } from "@/lib/voice/speakable";
 import { isWelcomeLine } from "@/lib/coach/welcome-back";
 
 /**
- * One shared read-aloud queue for Pau Pau's own words (browser speechSynthesis).
+ * One shared read-aloud queue for Pau's own words (browser speechSynthesis).
  * Sentences are queued separately (Chrome cuts long utterances) and read one
  * at a time, in order.
  *
@@ -20,10 +20,10 @@ import { isWelcomeLine } from "@/lib/coach/welcome-back";
  * Server voice first (PLAN.md 9, Nov 22): each sentence is fetched as MP3 from
  * /api/voice/tts (xAI text to speech) and played through one shared <audio>
  * element that is unlocked on the first tap. Web Speech is the fallback (no
- * server voice, a failed clip). "Audible" (waves, "Pau Pau is talking") is set
+ * server voice, a failed clip). "Audible" (waves, "Pau is talking") is set
  * only from real playback events ('playing' / onstart), never from a timer;
  * if playback can't start, `needsTap()` turns on and the UI shows "Tap to
- * hear Pau Pau".
+ * hear Pau".
  */
 
 let queue: string[] = [];
@@ -44,7 +44,7 @@ function setSpeaking(v: boolean) {
 
 /* The sentence the browser is actually saying right now: set from the
    utterance's own start event, cleared on its end/error and on stop. Drives
-   Pau Pau's speaking waves (never shown when nothing is audible). */
+   Pau's speaking waves (never shown when nothing is audible). */
 let audible: string | null = null;
 const audibleListeners = new Set<() => void>();
 function setAudible(text: string | null) {
@@ -180,7 +180,7 @@ function fetchClip(text: string): Promise<string | null> {
   }
   return p;
 }
-/** Which engine reads Pau Pau's words right now (for tests and the report). */
+/** Which engine reads Pau's words right now (for tests and the report). */
 export function voiceEngine(): "server" | "browser" | "unknown" {
   return serverVoice === "on" ? "server" : serverVoice === "off" ? "browser" : "unknown";
 }
@@ -737,7 +737,7 @@ function speakWithSynth(next: string, gen: number) {
   }, 4000);
 }
 
-/** Queue Pau Pau's words. `interrupt` replaces anything already playing. */
+/** Queue Pau's words. `interrupt` replaces anything already playing. */
 export function speak(texts: string[], opts: { interrupt?: boolean; welcome?: boolean; explicit?: boolean } = {}) {
   if (!speechSupported()) return;
   // The welcome-back line is recognised by its text; an explicit Read aloud
@@ -937,7 +937,7 @@ export function takeVisitOpener(): string[] {
   return visitOpener.texts;
 }
 
-/** Pau Pau's current turn, for "read it now" when voice is switched on. */
+/** Pau's current turn, for "read it now" when voice is switched on. */
 export function currentTurn(): string[] {
   const turn = restoreHoldActive() || latestTurnPath !== currentPath() ? [] : latestTurn;
   if (turn.length) return turn;

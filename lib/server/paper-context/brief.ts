@@ -1,7 +1,7 @@
 /**
  * The north-star Stage 1 brief (Colton t161u): the plain-words read-back, a
  * concise material summary, and 2-3 real options to decide between. All of it is
- * Pau Pau's teaching content: never paper text, never a thesis for the student.
+ * Pau's teaching content: never paper text, never a thesis for the student.
  * // SOP: coaching only, never generate submission text
  */
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
@@ -23,7 +23,7 @@ import {
   type SourceRef,
 } from "@/lib/stage1/paper-context";
 
-const RULES = `You are Pau Pau, a writing coach for students (some are minors). You coach; you never write any part of their paper.
+const RULES = `You are Pau, a writing coach for students (some are minors). You coach; you never write any part of their paper.
 Hard rules: never suggest a thesis, a position, a topic sentence, or any sentence they could put in their paper. Never say what they "should argue". Plain words a 9th grader understands, no jargon (explain any term you must use). Be accurate: use only what the provided text says; if something isn't there, leave it out. Never claim what a numbered chapter of a book contains unless the provided text shows that chapter: chapter contents change between editions.`;
 
 const clip = (s: string | null | undefined, n: number) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
