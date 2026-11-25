@@ -227,7 +227,7 @@ const CAUSAL_LINK = /\b(because|so|since|led to|leads to|leading to|which meant|
 const MATERIAL_CHECK_TEXT =
   "Before we dig in: have you read the course material for this yet? If not, or you're not sure where to start, say so and I'll give you the key points first. You can also add a reading: paste it or upload the file.";
 
-/** Pau Pau's summary of the material: labeled, with its sources. Teaching content, never paper text. */
+/** Pau's summary of the material: labeled, with its sources. Teaching content, never paper text. */
 function SummaryBubbles({ summary, lead }: { summary: MaterialSummary; lead?: string }) {
   const paras = summaryParas(summary);
   return (
@@ -495,7 +495,7 @@ export function AssignmentIntake({
   const [links] = useState("");
   const [rightsOk, setRightsOk] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<StagedAssignmentFile[]>([]);
-  /** What the student sent in the chat box, shown as their bubble above Pau Pau's reply. */
+  /** What the student sent in the chat box, shown as their bubble above Pau's reply. */
   const [sentMessage, setSentMessage] = useState<SentMessage | null>(null);
   // The conversation about the read-back (PLAN.md 9), saved per paper.
   const [confirmTurns, setConfirmTurnsState] = useState<ConfirmTurn[]>([]);
@@ -539,7 +539,7 @@ export function AssignmentIntake({
   // Rapid sends inside a short window merge into ONE turn (both messages kept, one reply).
   const coalesce = useRef<{ text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [pendingSaid, setPendingSaid] = useState<string | null>(null);
-  // QA 3:00: a message typed while Pau Pau is replying waits here (shown in the chat) and goes right after.
+  // QA 3:00: a message typed while Pau is replying waits here (shown in the chat) and goes right after.
   const queuedRef = useRef<string | null>(null);
   const [queuedSaid, setQueuedSaid] = useState<string | null>(null);
   // QA 3:51: a message queued during her last Stage 1 reply lands after the step closed (the gate has
@@ -564,7 +564,7 @@ export function AssignmentIntake({
   const [followupAsked, setFollowupAsked] = useState(false);
   const [checklistConfirmed, setChecklistConfirmed] = useState(false);
   // North star (Colton t161u): the paper context — plain read-back, the material
-  // summary (Pau Pau's teaching content, never paper text), the options and their decision.
+  // summary (Pau's teaching content, never paper text), the options and their decision.
   type BriefView = {
     northstar: boolean;
     readback: ReadbackPlain | null;
@@ -646,7 +646,7 @@ export function AssignmentIntake({
     if (demoMode) return;
     void briefCall({ action: "context" }).finally(() => setBriefLoaded(true));
   }, [briefCall, demoMode]);
-  /** The field-by-field editor behind Pau Pau's "Fix something". */
+  /** The field-by-field editor behind Pau's "Fix something". */
   const [editingDetails, setEditingDetails] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [startingStance, setStartingStance] = useState(false);
@@ -736,7 +736,7 @@ export function AssignmentIntake({
     setRawText(initialRawText);
     const confirmed = Boolean(initialRequirements.topic.confirmed || initialRequirements.promptQuestion.confirmed);
     if (confirmed) setChecklistConfirmed(true);
-    // Already confirmed with Pau Pau ("Let's go"): a reload goes on to the
+    // Already confirmed with Pau ("Let's go"): a reload goes on to the
     // first question instead of showing the read-back again.
     setScreen((current) => (current === "upload" ? (confirmed ? "coaching" : "card") : current));
   }, [paperId, accountPaper, initialRequirements, initialRawText, resumeReady]);
@@ -1507,7 +1507,7 @@ export function AssignmentIntake({
       }
       // Her own summary heard back (echo or parroting) is never their answer.
       if (qNow && b && overlapsTeaching(text, { v: 1, readback: b.readback ?? undefined, summaries: b.summary ? [b.summary] : undefined })) return "echo_of_summary";
-      // Requests to Pau Pau are answered by her, never saved as their answer (or voice sample).
+      // Requests to Pau are answered by her, never saved as their answer (or voice sample).
       if ((screen === "coaching" || screen === "story") && isSaidToCoach(text)) return "said_to_coach";
       if (screen === "coaching") {
         // The ref first: her move-on can arrive before the next render.
@@ -1926,7 +1926,7 @@ export function AssignmentIntake({
     setScreen("story");
   }
 
-  /** What Pau Pau taught (summary + read-back): used to keep it out of their answers. */
+  /** What Pau taught (summary + read-back): used to keep it out of their answers. */
   function teachCtx(): PaperContext {
     return {
       v: 1,
@@ -2175,7 +2175,7 @@ export function AssignmentIntake({
       setError("Tell me your main reason, even one sentence.");
       return;
     }
-    // Pau Pau's summary is teaching content, never their answer.
+    // Pau's summary is teaching content, never their answer.
     if (!opts?.skip && text && brief && overlapsTeaching(text, teachCtx())) {
       setError("That's my summary talking. Tell me in your own words, even roughly.");
       return;
@@ -3601,7 +3601,7 @@ export function AssignmentIntake({
                   <li>
                     {voiceWordsMet
                       ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps Pau Pau match your voice (optional)"}
+                      : "· Voice sample: a good start. More of your own writing helps Pau match your voice (optional)"}
                     <span className="sr-only">
                       {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
                     </span>
@@ -3610,7 +3610,7 @@ export function AssignmentIntake({
                 </ul>
                 );
     // A friendly nudge while the note is short, never a bare word counter (QA 6:03 AM).
-    // QA 3:00: the typing hint never stands in for Pau Pau's reply: hidden while she is replying,
+    // QA 3:00: the typing hint never stands in for Pau's reply: hidden while she is replying,
     // while a message is pending or queued, and whenever her reply is on screen.
     const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);
     const minNote = hintQuiet ? null : stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
@@ -3730,7 +3730,7 @@ export function AssignmentIntake({
     const send = (text?: string) => {
       const typedNow = (text ?? draftAnswer).trim();
       // QA 1:16 (composer): a second, different message sent right after the first joins it, so
-      // both are kept and Pau Pau replies once. Identical repeats (double Enter) add nothing.
+      // both are kept and Pau replies once. Identical repeats (double Enter) add nothing.
       if (coalesce.current) {
         if (typedNow && !coalesce.current.text.split("\n").includes(typedNow)) coalesce.current.text += `\n${typedNow}`;
         if (!text) setDraftAnswer("");
@@ -3866,7 +3866,7 @@ export function AssignmentIntake({
           : ["What's the first thing that comes to mind when you think about this topic?", "Where have you run into this in your own life?"],
       });
     };
-    // Only Pau Pau's own spoken sentences go to read-aloud.
+    // Only Pau's own spoken sentences go to read-aloud.
     const currentTurnTexts: string[] = q
       ? [
           editing
@@ -3883,7 +3883,7 @@ export function AssignmentIntake({
               ...(metrics && voiceWordsMet && readyVoiceLine(voiceEval.totalWords) ? [readyVoiceLine(voiceEval.totalWords) as string] : []),
             ]
           : [];
-    // Leads fold into Pau Pau's CURRENT turn (PLAN.md 9): her intro, the links, then the question. Never a separate bubble.
+    // Leads fold into Pau's CURRENT turn (PLAN.md 9): her intro, the links, then the question. Never a separate bubble.
     const leadsShown = leads.length > 0 && (screen === "coaching" || screen === "gate") && !stanceMode;
     const leadsList = leadsShown ? (
       <ul key="leads" className="space-y-3" aria-label="Research leads" data-leads>
@@ -3922,7 +3922,7 @@ export function AssignmentIntake({
       ...(storyAngle || screen === "story"
         ? [{ key: "story:intro", text: "Here are a few directions your paper could take, built from what you told me.", turn: screen === "story" }]
         : []),
-      // Leads: voice reads only Pau Pau's intro, never the links or lead cards; spoken before the question it rides with.
+      // Leads: voice reads only Pau's intro, never the links or lead cards; spoken before the question it rides with.
       ...(leadsShown ? [{ key: "leads:intro", text: LEADS_INTRO }] : []),
       ...(q ? [{ key: editing ? `edit:${editSeq}:${q.id}` : `q:${q.id}`, text: currentTurnTexts[0]!, turn: true }] : []),
       ...(screen === "story" && editing
@@ -3942,7 +3942,7 @@ export function AssignmentIntake({
         <SpeakNew scope={paperId} items={rtMode ? [] : threadSpeak} />
         <ChatHeader eyebrow="Stage 1 · Intake" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
         {focusTools}
-        <div className="mt-4 space-y-4" aria-label="Conversation with Pau Pau" role="log">
+        <div className="mt-4 space-y-4" aria-label="Conversation with Pau" role="log">
           {/* PC-28: on a return, the one opener first; earlier turns stay in "Past chat". */}
           <FocusOpener line={welcomeLine} scope={paperId} signal={`${screen}:${qIndex}:${answers.length}:${confirmTurns.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} />
           {/* The start of the chat, rebuilt from what's saved. */}
@@ -4073,10 +4073,10 @@ export function AssignmentIntake({
           {queuedSaid ? (
             <div data-queued-said>
               <StudentBubble message={{ text: queuedSaid, files: [], at: 0 }} />
-              <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau Pau replies.</p>
+              <p className="mt-1 text-right text-[13px] leading-[1.5] text-ds-muted" role="status">Sends as soon as Pau replies.</p>
             </div>
           ) : null}
-          {/* Pau Pau's current turn. */}
+          {/* Pau's current turn. */}
           {q ? (
             <PauPauGroup
               bubbles={[
@@ -4430,7 +4430,7 @@ export function AssignmentIntake({
                 {isVoiceQuestion || stanceMode ? (
                   <span
                     className="inline-flex items-center gap-1"
-                    title="Your voice sample: how much of your own writing Pau Pau has so far"
+                    title="Your voice sample: how much of your own writing Pau has so far"
                   >
                     <span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>
                     <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-ds-border">
