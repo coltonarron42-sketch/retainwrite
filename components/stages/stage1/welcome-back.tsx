@@ -68,7 +68,7 @@ const WELCOME_LAST_KEY = "rw:welcome-last";
 export type FocusState = {
   /** History existed when this visit opened: the chat starts clean (PC-28). */
   focused: boolean;
-  /** This visit is a return (page load / from outside the paper): Pau Pau opens with one line. */
+  /** This visit is a return (page load / from outside the paper): Pau opens with one line. */
   line: string | null;
   index: number;
   /** Show the earlier turns in place (only for an explicit "edit an earlier answer"). */
@@ -114,7 +114,7 @@ export function useFocusReturn(paperId: string, ready: boolean, hasHistory: bool
 }
 
 /**
- * Pau Pau's one opener on a return, with the two answers: keep going (the prompt
+ * Pau's one opener on a return, with the two answers: keep going (the prompt
  * below is where they left off) or check the progress (opens the skeleton). It steps
  * aside once the chat moves on, so it never sits under newer turns.
  */

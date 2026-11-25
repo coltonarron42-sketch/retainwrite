@@ -83,8 +83,8 @@ function useRecognitionSupported() {
 
 /**
  * Voice call mute (PLAN.md 9): while Voice is on the student's mic listens
- * between Pau Pau's turns. Mute keeps it off (remembered on the account);
- * Pau Pau still speaks. It lives on the composer, where the mic is (QA 7:21
+ * between Pau's turns. Mute keeps it off (remembered on the account);
+ * Pau still speaks. It lives on the composer, where the mic is (QA 7:21
  * PM, like Grok's voice mode): `compact` is the round 48px mic button there,
  * and the call status beside it says "Your mic is muted" when it is.
  */
@@ -134,8 +134,8 @@ export function ChatHeader({ eyebrow, eyebrowClassName, hideVoice = false }: { e
 }
 
 /**
- * Reads newly arrived Pau Pau bubbles while voice is on. Renders nothing.
- * Pass only Pau Pau's own spoken sentences (never UI text or student text).
+ * Reads newly arrived Pau bubbles while voice is on. Renders nothing.
+ * Pass only Pau's own spoken sentences (never UI text or student text).
  */
 export function SpeakNew({ scope, items }: { scope: string; items: SpeakItem[] }) {
   const { voice } = useChatPrefs();
@@ -150,14 +150,14 @@ export function SpeakNew({ scope, items }: { scope: string; items: SpeakItem[] }
   return null;
 }
 
-/** Small replay control under Pau Pau's current turn. */
+/** Small replay control under Pau's current turn. */
 export function ReplayButton({ texts, className }: { texts: string[]; className?: string }) {
   const supported = useSupported();
   const speaking = useSpeaking();
   const blocked = useSyncExternalStore(subscribeNeedsTap, needsTap, () => false);
   const { voice } = useChatPrefs();
   if (!supported || !texts.length) return null;
-  // Audio couldn't start (PLAN.md 9): the same spot becomes "Tap to hear Pau Pau".
+  // Audio couldn't start (PLAN.md 9): the same spot becomes "Tap to hear Pau".
   if (voice && blocked) return <TapToHear className={className} />;
   return (
     <button

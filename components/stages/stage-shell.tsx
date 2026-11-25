@@ -101,7 +101,7 @@ export function StageShell({
           </div>
         </div>
       ) : null}
-      {/* Review is read-only: no inputs, taps or Pau Pau actions on a finished stage. */}
+      {/* Review is read-only: no inputs, taps or Pau actions on a finished stage. */}
       {/* A disabled fieldset turns off every input and button but keeps scrolling. */}
       <fieldset
         disabled={review}
