@@ -1,4 +1,4 @@
-import { affirmsStyle } from "@/lib/stage1/style-negation";
+import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * QA 11:40 (preview retest): typed read-question replies, vague-pick escalation,
@@ -142,6 +142,52 @@ const plain = (s: string) => s.replace(/[.!?\s]+$/, "").replace(/^./, (c) => c.t
  * From round 2 (or right away when confused): teach the differences in 2-3 plain lines, recommend
  * one as a starting point with a reason, and ask yes or no plus why. Never the same text twice in a row.
  */
+/** What each style sounds like in a student's own words (only their words count, never the sheet). */
+const STYLE_CUES: Record<string, RegExp> = {
+  servant: /\b(?:servant|serv(?:e|ed|es|ing)|people first|put (?:people|the team|others|us|everyone) first|cared|car(?:e|es|ing) about|listen(?:ed|s|ing)?|help(?:ed|s|ing)? (?:people|others|everyone|us)|looked out for)\b/i,
+  transformational: /\b(?:transformational|vision|inspir\w*|big picture|motivat\w*|believe in|bought in|bigger goal)\b/i,
+  situational: /\b(?:situational|adapt\w*|adjust\w*|depend(?:s|ed|ing)? on|each person|flex\w*|fit(?:s|ted)? the (?:moment|situation|person))\b/i,
+  behavioral: /\b(?:behavioral|task|tasks|getting (?:the )?(?:work|job) done|deadlines|organized|relationships?)\b/i,
+  democratic: /\b(?:democratic|vot\w*|everyone (?:had|has|gets) a say|asked (?:us|everyone)|team decid\w*)\b/i,
+  transactional: /\b(?:transactional|rewards?|bonus\w*|consequences|incentives?)\b/i,
+  authentic: /\b(?:authentic|honest|real values|genuine)\b/i,
+};
+const listOr = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs.at(-1)}`);
+const cueKey = (label: string) => label.toLowerCase().match(/[a-z]+/)?.[0] ?? "";
+
+/**
+ * QA ethos should-fix (after #77): the two offered in a narrowed turn, and why those two, grounded in
+ * what the student actually said ("you said “he listened to everyone”"). Nothing said that points
+ * anywhere: the first two, and the rest is still on the table (never an invented reason).
+ */
+export function groundedTwo(opts: DecisionOption[], said: string): { two: DecisionOption[]; quote: string | null; rest: DecisionOption[] } {
+  const words = String(said ?? "");
+  const hits: { o: DecisionOption; at: number; phrase: string }[] = [];
+  for (const o of opts) {
+    const re = STYLE_CUES[cueKey(o.label)];
+    if (!re) continue;
+    const m = re.exec(words);
+    if (m && !rejectsStyle(words, m[0])) hits.push({ o, at: m.index, phrase: m[0] });
+  }
+  hits.sort((a, b) => a.at - b.at);
+  const picked = hits.slice(0, 2).map((h) => h.o);
+  for (const o of opts) if (picked.length < 2 && !picked.includes(o)) picked.push(o);
+  const quote = hits.length ? (() => {
+    const h = hits[0]!;
+    // Their phrase, a few words either side, in their words.
+    const from = Math.max(0, words.lastIndexOf(" ", Math.max(0, h.at - 18)));
+    const to = words.indexOf(" ", Math.min(words.length, h.at + h.phrase.length + 14));
+    return words.slice(from, to < 0 ? words.length : to).replace(/\s+/g, " ").replace(/^[\s,.;:!?]+|[\s,.;:!?]+$/g, "").trim();
+  })() : null;
+  return { two: picked.slice(0, 2), quote, rest: opts.filter((o) => !picked.slice(0, 2).includes(o)) };
+}
+
+/** "lets you show a leader selling a shared vision…" → "a leader selling a shared vision…" (a plain picture of the style). */
+const asLeader = (why: string) => {
+  const w = plain(why).replace(/^lets you (?:show|argue that|argue|weigh|focus on)\s+/i, "");
+  return /^(?:a |an |the )?leader\b/i.test(w) ? w.replace(/^(?:a |an |the )/i, "a ") : w;
+};
+
 export function pickEscalation(input: {
   options: DecisionOption[];
   round: number;
@@ -156,6 +202,8 @@ export function pickEscalation(input: {
   concept?: string | null;
   /** QA 1:16: the recommendation stays put between turns; it only moves on after a "no". */
   recIndex?: number;
+  /** QA ethos (after #77): everything the student has said so far, so the two offered are grounded in it. */
+  said?: string;
 }): { paras: string[]; recommend: DecisionOption | null; offerCatchUp: boolean } {
   const opts = input.options.slice(0, 3).map((o) => ({ ...o, why: input.unread ? scrubUnreadRefs(o.why) : o.why }));
   const what = input.kind === "leader" ? "leaders" : "options";
@@ -199,15 +247,39 @@ export function pickEscalation(input: {
   // the reading one tap away; round 5 is a different way in (someone they've seen lead); after
   // that, the two again in other words. No "ok" takes a pick here: they name one.
   const other = opts.find((o) => o.label !== rec.label) ?? null;
-  const two = other ? [rec, other] : [rec];
+  const grounded = input.kind === "leader" ? null : groundedTwo(opts, input.said ?? "");
+  const two = grounded ? grounded.two : other ? [rec, other] : [rec];
   const line2 = (o: DecisionOption) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`;
   // The reading button sits under the style question (the reading-help row); a leader pick has none.
   const readFirst = input.kind === "leader" ? "" : " Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.";
   const names = two.map((o) => o.label).join(" or ");
-  const narrow = [`Let's narrow it to two.`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
-  const narrow2 = [`No wrong answer here. Down to two:`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
+  // QA ethos (after #77): why these two, from their own words; otherwise the rest stays on the table (chips match the two).
+  const why2 = grounded?.quote
+    ? `You said “${grounded.quote}”, so these two are the closest fit.`
+    : grounded?.rest.length
+      ? `These two are a good place to start; ${grounded.rest.map((o) => o.label).join(" and ")} ${grounded.rest.length > 1 ? "are" : "is"} still on the table if neither fits.`
+      : null;
+  const narrow = [`Let's narrow it to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
+  const narrow2 = [`No wrong answer here. Down to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
   const otherWay = [`Let's come at it from a different side. Forget the labels for a second: think of someone who led a team you were on, at work, in sports, anywhere. What's one thing they did?`];
-  if (step >= 1 && !input.confused) {
+  // QA ethos (after #77): style turns 2 and 3 are neutral: plain definitions and one open question,
+  // never a recommendation or a lean toward one style. The gut pick between two waits for turn 4.
+  if (input.kind !== "leader" && step <= 1) {
+    const defs = opts.map((o) => `• ${o.label}: ${o.why ? asLeader(o.why) : "a real, well-known choice"}.`);
+    const head = input.confused
+      ? `That's okay, that's why you're here! ${concept ? `${concept} ` : ""}Here's the short version of each:`
+      : step === 0
+        ? `No problem. Here's the short version of each:`
+        : `Another way in:`;
+    const q1 = `Which one sounds most like a leader you know?`;
+    // Example leaders only while teaching a confused student (Colton 12:08); never a style lean.
+    let paras = [head, ...defs, ...(exLine && input.confused && step === 0 ? [exLine] : []), q1];
+    // Turn 3: the list was just given (QA round 5: never a second copy), so one short, open question.
+    if (step === 1 && !input.confused) paras = [`Another way in, no wrong answer: which of these sounds closest to how you'd want to be led yourself: ${listOr(opts.map((o) => o.label))}?`];
+    if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...defs, `Which one sounds most like someone you've seen lead?`];
+    return { paras, recommend: null, offerCatchUp };
+  }
+  if (step >= 1 && (!input.confused || input.kind !== "leader")) {
     const short = [`No rush. Simplest way in: start with ${rec.label}${rec.why ? `, since it ${plain(rec.why).replace(/^lets you\s+/i, "lets you ")}` : ""}.`, ask];
     const pick = step === 1 ? short : step === 2 ? narrow : step === 3 ? otherWay : narrow2;
     const paras = pick.join("\n") === input.last ? (pick === narrow ? narrow2 : narrow) : pick;
@@ -223,7 +295,7 @@ export function pickEscalation(input: {
 /** The two labels of a narrowed turn ("Let's narrow it to two." / "No wrong answer here. Down to two:"), in order; [] otherwise. */
 export function narrowedTwo(last: string | null | undefined): string[] {
   const t = String(last ?? "");
-  if (!/^(?:Let's narrow it to two\.|No wrong answer here\. Down to two:)/.test(t)) return [];
+  if (!/^(?:Let's narrow it to two\.|No wrong answer here\. Down to two[.:])/.test(t)) return [];
   return [...t.matchAll(/^• ([^:\n]+):/gm)].map((m) => m[1]!.trim()).slice(0, 2);
 }
 

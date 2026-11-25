@@ -23,7 +23,7 @@ describe("4th 'not sure': narrow to two, gut pick, reading one tap away", () => 
   it("two styles, one plain line each, one gut-pick question, the reading offered", () => {
     const e = run(4)[3]!;
     const txt = e.paras.join("\n");
-    expect(e.paras[0]).toBe("Let's narrow it to two.");
+    expect(e.paras[0]).toBe("Let's narrow it to two. These two are a good place to start; Servant is still on the table if neither fits.");
     expect(e.paras.filter((p) => p.startsWith("•"))).toEqual([
       "• Transformational: lets you show a leader selling a shared vision so people want the change.",
       "• Situational: lets you show a leader shifting style to fit how ready the team is.",
