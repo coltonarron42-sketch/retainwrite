@@ -94,6 +94,24 @@ export function wordsForBlock(block: Block, bodyBlocks: Block[], words: Skeleton
   return last ? [...own, ...(w.outline ?? [])] : own;
 }
 
+/** Their direction, short: their own sentences, no repeats, no fragments (their words only). */
+export function shortDirection(text: string | null | undefined, max = 240): string | null {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of (text ?? "").replace(/\s+/g, " ").split(/(?<=[.!?…])\s+/)) {
+    const sent = raw.trim();
+    const key = sent.toLowerCase().replace(/[^a-z ]/g, "");
+    if (!sent || /…$/.test(sent) || sent.split(" ").length < 4 || seen.has(key)) continue;
+    if ([...seen].some((k) => k.includes(key) || key.includes(k))) continue;
+    seen.add(key);
+    if (out.length && [...out, sent].join(" ").length > max) break;
+    out.push(sent);
+    if (out.length === 2) break;
+  }
+  const t = out.join(" ");
+  return t ? (t.length > max ? `${t.slice(0, max).replace(/\s+\S*$/, "")}…` : t) : null;
+}
+
 /** The skeleton: sectioned blocks. Locked ones open the student's own words; empty ones are labels. */
 export function SkeletonPanel({
   view,
@@ -110,12 +128,13 @@ export function SkeletonPanel({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const body = useMemo(() => (view?.blocks ?? []).filter((b) => b.group === "body"), [view]);
+  const dir = shortDirection(direction);
   return (
     <Overlay label="Your skeleton" onClose={onClose} side data="data-skeleton-panel">
-      {direction ? (
-        <p className="mb-3 text-[14px] leading-[1.6] text-ds-muted">
+      {dir ? (
+        <p className="mb-3 text-[14px] leading-[1.6] text-ds-muted" data-skeleton-direction>
           <span className="font-semibold text-ds-ink">Your direction: </span>
-          {direction}
+          {dir}
         </p>
       ) : null}
       {!view ? (

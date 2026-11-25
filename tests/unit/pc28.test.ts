@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fillWelcome, freshWelcomeIndex, isWelcomeLine, sectionLabel, welcomeBackLine, WELCOME_BACK_TEMPLATES } from "@/lib/coach/welcome-back";
 import { toneIssues } from "@/lib/coach/tone";
 import { bodyCountFor, outlineFromModel, projectSkeleton, ruleOutline, ruleShape, shapeFromModel, titleSafe, wordsTarget } from "@/lib/skeleton/shape";
-import { wordsForBlock } from "@/components/stages/focus-panels";
+import { shortDirection, wordsForBlock } from "@/components/stages/focus-panels";
 import { focusFill, pastLines } from "@/components/stages/loop/stance-chat";
 import { stage1Fill } from "@/components/stages/stage1/assignment-intake";
 
@@ -151,5 +151,14 @@ describe("PC-28: leak guards", () => {
     expect(sql).toMatch(/create table if not exists private\.ghost_shapes/i);
     expect(sql).toMatch(/enable row level security/i);
     expect(sql).not.toMatch(/grant [^;]* to (anon|authenticated)/i);
+  });
+});
+
+describe("PC-28: the skeleton's direction line", () => {
+  it("keeps their own sentences, drops fragments and repeats", () => {
+    const raw = "I read both… I want to argue transformational leadership, using Satya Nadella at Microsoft. Transformational works best. Transformational works best, because people buy in. I want to argue transformational leadership, using Satya Nadella at Microsoft.";
+    expect(shortDirection(raw)).toBe("I want to argue transformational leadership, using Satya Nadella at Microsoft. Transformational works best, because people buy in.");
+    expect(shortDirection("")).toBeNull();
+    expect(shortDirection("x ".repeat(400) + "end.")!.length).toBeLessThanOrEqual(241);
   });
 });
