@@ -161,6 +161,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
+import { isRichStory, proposalReply, reflectParas, reflectStory, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
 
@@ -603,7 +604,15 @@ export function AssignmentIntake({
   /** The question where they said they were lost again: the key points are offered there. */
   const [reoffer, setReoffer] = useState<string | null>(null);
   /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
-  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[]; filler?: boolean }[]>([]);
+  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[]; filler?: boolean; story?: boolean }[]>([]);
+  // t204u (Colton): their own story, reflected back with ONE next move (an easy yes), an interview one
+  // question at a time when they ask for one, and the catch-up tied back to the story. Never a list of asks.
+  const [storyProposal, setStoryProposal] = useState<{ id: number; qid: string; story: string; reflect: StoryReflect } | null>(null);
+  const [interview, setInterview] = useState<{ qid: string; story: string; said: string[]; ask: string } | null>(null);
+  const [storyTieBack, setStoryTieBack] = useState<{ qid: string; paras: string[] } | null>(null);
+  /** The question their story finished Stage 1 on (its answer and the early take are their story). */
+  const [stanceViaStory, setStanceViaStory] = useState<string | null>(null);
+  const lastStory = useRef<string | null>(null);
   // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
   const [savedPast, setSavedPast] = useState<PastLine[]>([]);
   const recordedPast = useTurnRecorder({ enabled: true, saved: savedPast });
@@ -2120,6 +2129,184 @@ export function AssignmentIntake({
     );
   }
 
+  /** t204u: one short interview question that builds on their last answer (falls back to a plain one). */
+  async function interviewAsk(story: string, latest: string, lastAsk: string, n: number, who: string | null): Promise<string> {
+    const fallback = [
+      `What's one moment with ${who ?? "them"} that stuck with you?`,
+      "What changed for you or the team because of it?",
+      `Why do you think ${who ?? "they"} led that way?`,
+    ][Math.min(n, 2)]!;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "interview", message: `Their story: ${story}\nTheir latest answer: ${latest}`.slice(0, 2000), stage: 1, ask: lastAsk.slice(0, 1000) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const data = (await res.json().catch(() => ({}))) as { paras?: string[] };
+      const text = (data.paras ?? []).join(" ").replace(/\s+/g, " ").trim();
+      // One ask: everything up to the first question mark.
+      const q1 = text.match(/^[^?]*\?/)?.[0]?.trim();
+      return q1 && q1.split(/\s+/).length <= 40 ? q1 : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  /** t204u (a)/(b)/(c): their story, a proposal, an interview, or the readings tied back. True when handled. */
+  async function storyTurn(qn: { id: string; text: string }, typed: string, sentBox: string): Promise<boolean> {
+    if (!brief?.northstar || !typed) return false;
+    const push = (said: string, paras: string[], story = false, id = Date.now()) =>
+      setQaAsides((prev) => [...prev, { id, qid: qn.id, said, paras, story }].slice(-12));
+    const done = () => {
+      dropSent(sentBox);
+      setError(null);
+    };
+    const propose = (said: string, story: string, r: StoryReflect, lead?: string) => {
+      const id = Date.now();
+      setStoryProposal({ id, qid: qn.id, story, reflect: r });
+      push(said, reflectParas(r, { lead }), true, id);
+      done();
+    };
+    const startInterview = async (story: string, said: string) => {
+      const who = story ? reflectStory(story, { tentative: true })?.who ?? null : null;
+      setStoryProposal(null);
+      const ask = story
+        ? await interviewAsk(story, said, "", 0, who)
+        : "Who's a leader you've worked with or watched up close?";
+      setInterview({ qid: qn.id, story, said: [], ask });
+      push(said, [`Sure, let's do it as an interview, one quick question at a time. ${ask}`]);
+      done();
+    };
+    const kind = proposalReply(typed);
+    // An interview in progress: each question builds on the last answer; after three, the direction.
+    if (interview && interview.qid === qn.id) {
+      if (kind === "summary") {
+        setInterview(null);
+      } else {
+        const said = [...interview.said, typed];
+        const story = [interview.story, ...said].filter(Boolean).join("\n");
+        if (said.length >= 3 || /\b(that'?s (?:it|all|enough)|i'?m done|let'?s move on)\b/i.test(typed)) {
+          setInterview(null);
+          lastStory.current = story;
+          const r = reflectStory(story, { tentative: true });
+          if (r) {
+            propose(typed, story, r, "Thanks, that gives me plenty.");
+            return true;
+          }
+          push(typed, ["Thanks, that gives me plenty. Which leadership style do you think that shows?"]);
+          done();
+          return true;
+        }
+        setAsideBusy("Thinking…");
+        const who = reflectStory(story, { tentative: true })?.who ?? null;
+        const ask = await interviewAsk(story, typed, interview.ask, said.length, who);
+        setAsideBusy(null);
+        setInterview({ ...interview, said, ask });
+        push(typed, [ask]);
+        done();
+        return true;
+      }
+    }
+    const story0 = storyProposal?.story ?? lastStory.current;
+    if (kind === "summary" && qn.id !== "material_check") {
+      // (c) the readings in plain words (their chapters, or clearly general background), then back to their story.
+      setStoryProposal(null);
+      push(typed, ["Sure. Here's the short version of the key ideas, in plain words."]);
+      done();
+      await catchUpNow(qn.id);
+      const r = story0 ? reflectStory(story0, { tentative: true }) : null;
+      if (story0 && r) {
+        setStoryProposal({ id: Date.now(), qid: qn.id, story: story0, reflect: r });
+        setStoryTieBack({ qid: qn.id, paras: [`That's the background. Your story about ${r.who} is a real example of the ${r.style} side of it. Want to run with that direction?`] });
+      } else {
+        setStoryTieBack({ qid: qn.id, paras: ["That's the background. Which of those ideas fits something you've seen yourself?"] });
+      }
+      return true;
+    }
+    if (storyProposal && storyProposal.qid === qn.id) {
+      if (kind === "yes") {
+        done();
+        await runWithStory(storyProposal, qn);
+        return true;
+      }
+      if (kind === "interview") {
+        await startInterview(storyProposal.story, typed);
+        return true;
+      }
+      if (kind === "confused") {
+        propose(typed, storyProposal.story, storyProposal.reflect, "No problem, here's what I mean.");
+        return true;
+      }
+      if (kind === "no") {
+        setStoryProposal(null);
+        setStoryTieBack(null);
+        push(typed, ["Got it. What would you change: the style, or the story you'd use?"]);
+        done();
+        return true;
+      }
+      setStoryProposal(null);
+      setStoryTieBack(null);
+    }
+    if (isRichStory(typed)) {
+      lastStory.current = typed;
+      const r = reflectStory(typed);
+      if (r) {
+        propose(typed, typed, r);
+        return true;
+      }
+    }
+    if (kind === "interview") {
+      await startInterview(story0 ?? "", typed);
+      return true;
+    }
+    if (kind === "confused" && story0) {
+      const r = reflectStory(story0, { tentative: true });
+      if (r) {
+        propose(typed, story0, r, "No problem, let me build on your story.");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** t204u: "yes, run with it": their story is their answer, their decision and their early take. */
+  async function runWithStory(pr: { story: string; reflect: StoryReflect }, qn: { id: string; text: string }) {
+    setStoryProposal(null);
+    setStoryTieBack(null);
+    setInterview(null);
+    const story = pr.story.slice(0, 2000);
+    const r = pr.reflect;
+    const bNow = briefRef.current ?? brief;
+    setDecisionSaving(true);
+    const saved = briefCall({ action: "decision", question: bNow?.options?.question ?? "Your pick", answer: story, source: "stated" }).then(() =>
+      r.named && !bNow?.leader ? briefCall({ action: "decision", question: "stated", answer: story, slot: "leader", named: r.who }) : null,
+    );
+    if (!demoMode) {
+      if (qn.id !== "stance_early") void persistField(paperId, { fieldKey: `stage1:${qn.id}`, text: story, submitted: true, resume: { stage: 1, questionId: "stance_early", screen: "coaching", at: Date.now() } });
+      void persistField(paperId, { fieldKey: "stage1:stance_early", text: story, submitted: true, resume: { stage: 1, questionId: "stance_early", screen: "gate" } });
+      void fetch(`/api/papers/${paperId}/intake/story-pick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: story, source: "student" }) }).catch(() => undefined);
+    }
+    const stanceQ = earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value });
+    setAnswers((prev) => [
+      ...prev.filter((a) => a.questionId !== qn.id && a.questionId !== "stance_early"),
+      ...(qn.id !== "stance_early" ? [{ questionId: qn.id, questionText: qn.text, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 }] : []),
+      { questionId: "stance_early", questionText: stanceQ, kind: "coaching" as const, answerText: story, isVoiceSample: true, pasteRatio: 0 },
+    ]);
+    setOfferReply((prev) => ({ ...prev, [qn.id]: "Yes, let's run with it" }));
+    if (qn.id === "stance_early") setStanceSent("Yes, let's run with it");
+    setStoryAngle({ text: story, source: "student" });
+    setStoryFromDecision(true);
+    setStanceViaStory(qn.id);
+    await Promise.race([saved, new Promise((res) => setTimeout(res, 4_000))]);
+    setDecisionSaving(false);
+    setError(null);
+    setScreen("gate");
+  }
+
   // QA 11:40 #2: the catch-up, offered after vague picks when they skipped it.
   async function catchUpNow(qid: string) {
     setCatchUpOffer(null);
@@ -2160,6 +2347,8 @@ export function AssignmentIntake({
     let typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     const sentBox = (opts?.text ?? draftAnswer).trim();
     let offerAnswered = false;
+    // t204u: their own story (or a request to build on it / be interviewed / be caught up) comes first.
+    if (typed && !opts?.skip && q.kind !== "background" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))) return;
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
     if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
       setError(null);
@@ -2669,6 +2858,13 @@ export function AssignmentIntake({
       void briefCall({ action: "reading", title: missing.length === 1 ? missing[0]! : works.length === 1 ? displayWork(works[0]!).replace(/[“”]/g, "") : "Pasted reading", text: text.slice(0, 200_000) });
       return;
     }
+    // t204u: a real story with its style, typed here, is their direction AND their early take: no second ask.
+    const storyR = brief?.northstar && isRichStory(text) ? reflectStory(text) : null;
+    if (storyR) {
+      dropSentStory(text);
+      await runWithStory({ story: text, reflect: storyR }, { id: "story_own", text: "I'll write my own story angle" });
+      return;
+    }
     setPickingStory("own");
     setStoryAngle({ text, source: "student" });
     setStoryFromDecision(false);
@@ -2729,6 +2925,10 @@ export function AssignmentIntake({
       if (prevShort) setShortEcho(prevShort);
       setError(fillerNudge("stance_early"));
       if (!spoken) setDraftAnswer("");
+      return;
+    }
+    if (fresh && (await storyTurn({ id: "stance_early", text: earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }) }, fresh, (spoken ?? draftAnswer).trim()))) {
+      if (prevShort) setShortEcho(prevShort);
       return;
     }
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
@@ -3740,6 +3940,18 @@ export function AssignmentIntake({
           : coachingPlan[qIndex];
     const isInterest = q?.kind === "interest";
     const editing = editReturn !== null;
+    // t204u: while her story reply (or an interview question) is the open ask, the plan's question stays off screen: one ask per turn.
+    const storyAsk = Boolean(q && ((storyProposal && storyProposal.qid === q.id) || (interview && interview.qid === q.id) || (storyTieBack && storyTieBack.qid === q.id)));
+    const storyChips = (
+      <div className="flex flex-wrap gap-2 pt-1" role="group" aria-label="Quick answers">
+        <DsButton type="button" size="sm" disabled={submitting} data-story-yes onClick={() => send("Yes, let's run with it")}>
+          Yes, run with it
+        </DsButton>
+        <DsButton type="button" size="sm" variant="secondary" disabled={submitting} data-story-interview onClick={() => send("Interview me about it first")}>
+          Interview me first
+        </DsButton>
+      </div>
+    );
     const introAbove = Boolean(q && !editing && q.id === coachingPlan[0]?.id && qaAsides.some((x) => x.qid === q.id && !snap?.asides.has(x.id)));
     // Latest answer wins (an edit replaces the earlier one).
     const answerFor = (id: string) =>
@@ -4064,7 +4276,9 @@ export function AssignmentIntake({
       });
     };
     // Only Pau's own spoken sentences go to read-aloud.
-    const currentTurnTexts: string[] = q && !(decisionSaving && q.id === "decision_pick")
+    // t204u: her story reply / interview question is the turn the call says (the plan's question is off screen).
+    const storyTurnText = storyAsk && q ? (storyTieBack?.qid === q.id ? storyTieBack.paras : qaAsides.filter((a) => a.qid === q.id).at(-1)?.paras ?? []).join(" ") : "";
+    const currentTurnTexts: string[] = storyTurnText ? [storyTurnText] : q && !(decisionSaving && q.id === "decision_pick")
       ? [
           editing
             ? `Sure, change anything and send it again. ${q.text}`
@@ -4181,6 +4395,8 @@ export function AssignmentIntake({
           {coachingPlan.map((item, i) => {
             const said = answerFor(item.id);
             if (!said && i >= reach) return null;
+            // t204u: their story finished Stage 1; questions it made unnecessary never show as "Skipped".
+            if (!said && stanceViaStory) return null;
             const isCurrent = q?.id === item.id;
             if (isCurrent && !editing) return null;
             // PC-28: answered before this return: saved, shown in "Past chat", not here.
@@ -4252,9 +4468,17 @@ export function AssignmentIntake({
               )}
             </div>
           ) : null}
-          {stanceAnswer && !(stanceMode && !editing) && !snap?.answered.has("stance_early") ? (
+          {stanceAnswer && !(stanceMode && !editing) && !snap?.answered.has("stance_early") && !(stanceViaStory && stanceViaStory !== "stance_early") ? (
             <div className="space-y-4">
               <PauPauGroup bubbles={askedAs.current.stance_early ?? [stanceText]}>{stanceMode ? null : sparkFor("stance_early")}</PauPauGroup>
+              {qaAsides
+                .filter((x) => x.qid === "stance_early")
+                .map((x) => (
+                  <div key={x.id} className="space-y-4" data-past-aside>
+                    <StudentBubble message={{ text: x.said, files: [], at: 0 }} />
+                    <PauPauGroup bubbles={x.paras} />
+                  </div>
+                ))}
               {stanceTries.map((t) => (
                 <div key={t.id} className="space-y-4" data-stance-try>
                   <StudentBubble message={{ text: t.said, files: [], at: 0 }} />
@@ -4271,9 +4495,6 @@ export function AssignmentIntake({
             </div>
           ) : null}
 
-          {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
-            <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead="No worries. Here's what I've got again. Take a look, then answer in your own words." />
-          ) : null}
           {/* QA 11:08 (lost-path order): her Stage 1 intro came first, so it stays above her replies to the first question. */}
           {introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}
           {/* Questions and pastes she answered in place for this question (never saved as answers). */}
@@ -4283,10 +4504,15 @@ export function AssignmentIntake({
                 .map((a) => (
                   <div key={a.id} className="space-y-4" data-interview-aside>
                     <StudentBubble message={{ text: a.said, files: [], at: 0 }} />
-                    <PauPauGroup bubbles={a.paras} />
+                    <PauPauGroup bubbles={a.paras}>{storyProposal?.id === a.id && !storyTieBack ? storyChips : null}</PauPauGroup>
                   </div>
                 ))
             : null}
+          {/* The key points come in where they were asked for (after the request), not above it. */}
+          {q && reoffer === q.id && brief && (brief.summary || brief.missingAsk) ? (
+            <MaterialBubbles brief={brief} paperId={paperId} darkWebOk={false} lead={storyTieBack?.qid === q.id ? "General background and your sources, in plain words:" : "No worries. Here's what I've got again. Take a look, then answer in your own words."} />
+          ) : null}
+          {q && storyTieBack?.qid === q.id && !summaryBusy ? <PauPauGroup bubbles={storyTieBack.paras}>{storyProposal ? storyChips : null}</PauPauGroup> : null}
           {pendingSaid ? (
             <div data-pending-said>
               <StudentBubble message={{ text: pendingSaid, files: [], at: 0 }} />
@@ -4305,7 +4531,7 @@ export function AssignmentIntake({
           ) : null}
           {/* QA 11:21: never the style question while an informed answer's decision is still saving (an in-between plan). */}
           {/* Pau's current turn. */}
-          {q && !(decisionSaving && q.id === "decision_pick") ? (
+          {q && !(decisionSaving && q.id === "decision_pick") && !storyAsk ? (
             <PauPauGroup
               bubbles={keepAsked(q.id, editing, [
                 ...(!editing && q.id === coachingPlan[0]?.id && !introAbove ? introBubbles : []),
