@@ -188,7 +188,9 @@ export async function grokResearch(opts: {
     const usage = final && typeof final === "object" ? ((final as AnyJson).server_side_tool_usage ?? ((final as AnyJson).usage as AnyJson | undefined)?.server_side_tool_usage_details ?? null) : null;
     // Event names and search-call shapes only (never content).
     console.info("[grok-research] stream", { cap, calls: callIds.size, capped, actions, usage, types: [...types].filter((t) => !/delta|reasoning/.test(t)).slice(0, 20) });
-    return { ...(final ?? { output_text: capped ? "" : text, output: [] }), _searched: callIds.size || seen.searched, _read: read, _capped: capped };
+    // Billed count when xAI reports it (server_side_tool_usage.web_search_calls), else the distinct calls we saw.
+    const billed = usage && typeof (usage as AnyJson).web_search_calls === "number" ? ((usage as AnyJson).web_search_calls as number) : null;
+    return { ...(final ?? { output_text: capped ? "" : text, output: [] }), _searched: billed ?? callIds.size, _read: read, _capped: capped };
   };
   try {
     let resp: AnyJson;
@@ -206,7 +208,7 @@ export async function grokResearch(opts: {
     clearTimeout(timer);
     const text = researchText(resp);
     const sources = extractSources(resp);
-    const searches = typeof resp._searched === "number" && resp._searched > 0 ? resp._searched : countSearches(resp);
+    const searches = typeof resp._searched === "number" ? resp._searched : countSearches(resp);
     for (const o of Array.isArray(resp.output) ? (resp.output as AnyJson[]) : []) {
       for (const c of Array.isArray(o.content) ? (o.content as AnyJson[]) : []) for (const a of Array.isArray(c.annotations) ? (c.annotations as AnyJson[]) : []) addTitle(a);
     }

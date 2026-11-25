@@ -76,3 +76,11 @@ describe("QA 4:08: the per-turn search cap is enforced in code", () => {
     vi.doUnmock("@/lib/ai/grok");
   });
 });
+
+describe("QA 4:08 walk: product ids aren't titles", () => {
+  it("skips 'leadership-4-229889'", async () => {
+    const { slugTitle } = await import("@/lib/coach/sources-line");
+    expect(slugTitle("https://collegepublishing.sagepub.com/products/leadership-4-229889")).toBeNull();
+    expect(slugTitle("https://sk.sagepub.com/cases/servant-leadership-the-case-of-nelson-mandela")).toBe("Servant leadership the case of nelson mandela");
+  });
+});

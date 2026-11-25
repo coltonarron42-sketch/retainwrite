@@ -39,8 +39,9 @@ export function slugTitle(url: string): string | null {
   const segs = path.split("/").map((x) => decodeURIComponent(x).replace(/\.(?:html?|php|aspx?|pdf)$/i, "")).filter(Boolean);
   const best = [...segs].reverse().find((x) => /[a-z]/i.test(x) && (x.match(/[-_]/g) ?? []).length >= 2 && !/^[0-9a-f-]{20,}$/i.test(x));
   if (!best) return null;
-  const words = best.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
-  if (words.length < 8) return null;
+  const words = best.replace(/[-_]+/g, " ").replace(/\b\d{4,}\b/g, " ").replace(/\s+/g, " ").trim();
+  // "leadership-4-229889" is a product id, not a title.
+  if (words.length < 8 || (words.match(/\b[a-z]{3,}\b/gi) ?? []).length < 2) return null;
   const t = words.charAt(0).toUpperCase() + words.slice(1);
   return t.length > 70 ? `${t.slice(0, 69).replace(/\s+\S*$/, "")}…` : t;
 }

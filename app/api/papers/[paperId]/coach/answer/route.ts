@@ -125,7 +125,7 @@ export async function POST(request: Request, ctx: Ctx) {
     let path = "chat";
     let cache: "off" | "hit" | "miss" | "bypass" = "off";
     let quality:
-      | { kept: number; dropped: string[]; retried: boolean; none: boolean; capped: boolean; checks: { bullet: string; tag: string; page: string; pageTitle: string; supported: boolean; retagged: boolean }[] }
+      | { kept: number; dropped: string[]; retried: boolean; none: boolean; capped: boolean; checks: string[] }
       | undefined;
     if (wantsSearch || mode === "summary") {
       path = search ? "responses+web_search" : "responses";
@@ -170,27 +170,31 @@ export async function POST(request: Request, ctx: Ctx) {
         let q: QualityResult | null = null;
         let retried = false;
         let capped = false;
-        if (!r.ok && r.reason === "capped" && search) {
-          // Hard per-turn cap hit: answer from the good pages she'd already opened, no more searching.
-          capped = true;
-          const good = [...new Set(r.read ?? [])].filter((u) => sourceTier(u) >= 2).slice(0, 4);
+        // Hard per-turn cap hit: answer from the good pages she'd already opened, no more searching.
+        const fromReadPages = async (read: string[], titles?: Map<string, string>): Promise<QualityResult | null> => {
+          const good = [...new Set(read)].filter((u) => sourceTier(u) >= 2).slice(0, 4);
+          if (!good.length) return null;
           emit("Pulling it together…");
           const fetched = await fetchEvidence(good, { timeoutMs: 3_500, max: 4 });
           const pages = [...fetched.values()].filter((f) => f.text.length > 200).map((f) => ({ url: f.url, site: sourceHost(f.url), title: f.title, excerpt: bestExcerpt(f.text, topicWords, 1500) }));
-          if (pages.length) {
-            const r3 = await grokResearch({
-              system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search isn't available for the rest of this turn. Use ONLY the pages in "pages" (their excerpts are what they say) and tag each bullet with that page's site in square brackets.`,
-              user: JSON.stringify({ ...JSON.parse(userJson), pages }),
-              effort: "low",
-              search: false,
-              timeoutMs: 15_000,
-            });
-            if (r3.ok) q = applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles: r.titles });
-          }
+          if (!pages.length) return null;
+          const r3 = await grokResearch({
+            system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search isn't available for the rest of this turn. Use ONLY the pages in "pages" (their excerpts are what they say) and tag each bullet with that page's site in square brackets.`,
+            user: JSON.stringify({ ...JSON.parse(userJson), pages }),
+            effort: "low",
+            search: false,
+            timeoutMs: 15_000,
+          });
+          return r3.ok ? applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles }) : null;
+        };
+        if (!r.ok && r.reason === "capped" && search) {
+          capped = true;
+          q = await fromReadPages(r.read ?? [], r.titles);
         } else if (r.ok && search) {
           q = (await verify(r)).q;
           // She read a good page but leaned on weak or unsupported ones: one more pass restricted to the good pages.
-          if (qmode === "research" && q.kept < 2 && q.goodUnused.length && turnSearchCap(paperUsed + searches, 1) > 0) {
+          // QA 4:08: only when nothing survived (a kept, supported bullet beats another search).
+          if (qmode === "research" && q.kept === 0 && q.goodUnused.length && turnSearchCap(paperUsed + searches, 1) > 0) {
             retried = true;
             emit("Finding sources you can cite…");
             const r2 = await grokResearch({
@@ -205,10 +209,8 @@ export async function POST(request: Request, ctx: Ctx) {
               topic: askTopic(body.message),
             });
             searches += r2.searches ?? 0;
-            if (r2.ok) {
-              const q2 = (await verify(r2)).q;
-              if (q2.kept > q.kept) q = q2;
-            }
+            const q2 = r2.ok ? (await verify(r2)).q : !r2.ok && r2.reason === "capped" ? ((capped = true), await fromReadPages(r2.read ?? [], r2.titles)) : null;
+            if (q2 && q2.kept > q.kept) q = q2;
           }
         }
         if (q) {
@@ -219,7 +221,7 @@ export async function POST(request: Request, ctx: Ctx) {
             retried,
             none,
             capped,
-            checks: q.checks.map((c) => ({ bullet: c.bullet.slice(0, 90), tag: c.tag, page: c.page, pageTitle: c.pageTitle.slice(0, 90), supported: c.supported, retagged: c.retagged })),
+            checks: q.checks.map((c) => `${c.supported ? (c.retagged ? "RETAGGED" : "OK") : "DROPPED"} | ${c.bullet.slice(0, 90)} | tag ${c.tag} | ${c.page} | "${c.pageTitle.slice(0, 90)}"`),
           };
           if (none) {
             const lastQ = (r.ok ? r.text : "").split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
@@ -331,6 +333,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
 
     const paperSearches = wantsSearch ? await addPaperSearches(paperId, paperUsed, searches).catch(() => paperUsed + searches) : null;
+    if (quality?.checks.length) console.info("[coach-answer] attribution", JSON.stringify({ paper: paperId.slice(0, 8), mode, checks: quality.checks }));
     console.info("[coach-answer]", {
       mode,
       asked: body.mode,
