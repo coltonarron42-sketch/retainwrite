@@ -125,7 +125,62 @@ export function paperSections(input: {
   return out;
 }
 
-const cap = (t: string) => (t ? t[0]!.toUpperCase() + t.slice(1) : t);
+/** Known acronyms kept uppercase in section titles (QA: "Goleman ei" → "Goleman EI"). */
+const TITLE_ACRONYMS = new Set(["EI", "EQ", "IQ", "AI", "APA", "MLA", "CEO", "CFO", "HR", "SWOT", "CSR", "MBA", "PHD"]);
+
+/**
+ * Sentence-case a skeleton title: first word starts with a capital, known acronyms stay
+ * uppercase, everything else is left as it arrived (never invent wording).
+ */
+export function displaySectionTitle(raw: string): string {
+  const t = raw.replace(/\s+/g, " ").trim();
+  if (!t) return t;
+  return t
+    .split(" ")
+    .map((word, i) => {
+      const m = word.match(/^([^A-Za-z]*)([A-Za-z]+)([^A-Za-z]*)$/);
+      if (!m) return i === 0 ? word[0]!.toUpperCase() + word.slice(1) : word;
+      const [, pre, letters, post] = m;
+      const upper = letters.toUpperCase();
+      if (TITLE_ACRONYMS.has(upper)) return `${pre}${upper === "PHD" ? "PhD" : upper}${post}`;
+      if (i === 0) return `${pre}${letters[0]!.toUpperCase()}${letters.slice(1)}${post}`;
+      return word;
+    })
+    .join(" ");
+}
+
+/**
+ * Path + search + hash with ?section= removed, so the URL can be cleared as soon as
+ * the page mounts (QA: it lingered 3–6 s waiting for the session to load).
+ */
+export function withoutSectionQuery(href: string): string {
+  const url = new URL(href, "http://local.test");
+  url.searchParams.delete("section");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+/** sessionStorage key for a section captured from ?section= before the URL is cleared. */
+export function pendingSectionStorageKey(paperId: string): string {
+  return `rw:skeleton-section:${paperId}`;
+}
+
+/**
+ * Read ?section= from the URL, or the value saved after a previous clear (so a remount
+ * still knows which section to open). When the URL has a key, it is written to storage.
+ */
+export function readPendingSection(paperId: string, href: string, stored: string | null): string | null {
+  const url = new URL(href, "http://local.test");
+  const fromUrl = url.searchParams.get("section");
+  return fromUrl || stored;
+}
+
+export function pendingSectionHref(href: string): { key: string | null; next: string } {
+  const url = new URL(href, "http://local.test");
+  const key = url.searchParams.get("section");
+  url.searchParams.delete("section");
+  return { key, next: `${url.pathname}${url.search}${url.hash}` };
+}
+
 /**
  * Round 3: the row titles come from #64's shaped skeleton. Body rows: ghost #2's short title (from
  * the student's own choices, leak-checked server side), else the shape's focus for that paragraph,
@@ -133,9 +188,9 @@ const cap = (t: string) => (t ? t[0]!.toUpperCase() + t.slice(1) : t);
  * subheading as the title line ("Introduction" / "Hook, context and your thesis").
  */
 export function shapedTitle(b: SkeletonView["blocks"][number], bodyIndex: number): { kicker: string | null; title: string } {
-  const sub = cap((b.sub ?? "").replace(/\s+/g, " ").trim());
+  const sub = displaySectionTitle((b.sub ?? "").replace(/\s+/g, " ").trim());
   if (b.group === "body") {
-    const own = (b.title ?? "").replace(/\s+/g, " ").trim();
+    const own = displaySectionTitle((b.title ?? "").replace(/\s+/g, " ").trim());
     const kicker = `Body Paragraph ${bodyIndex + 1}`;
     return { kicker, title: own || sub || kicker };
   }
