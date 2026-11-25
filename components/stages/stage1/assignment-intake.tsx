@@ -1624,10 +1624,26 @@ export function AssignmentIntake({
     // SOP: coaching only, never generate submission text
     if (combined.trim()) {
       try {
-        const res = await fetch(`/api/papers/${paperId}/assignment/parse`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ corpusText: combined, described: !hasFiles || undefined }),
+        // Suite r25: under load a parse request could hang with no answer ("Still reading… 280s").
+        // The server gives up by ~22 s, so a request with no answer by 35 s is retried once, then
+        // the student gets the try-again message instead of an endless spinner.
+        const askParse = async (): Promise<Response> => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 35_000);
+          try {
+            return await fetch(`/api/papers/${paperId}/assignment/parse`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ corpusText: combined, described: !hasFiles || undefined }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+        const res = await askParse().catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === "AbortError") return askParse();
+          throw e;
         });
         const data = (await res.json()) as {
           requirements?: AssignmentRequirements;
