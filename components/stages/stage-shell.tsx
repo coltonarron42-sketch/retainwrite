@@ -1,5 +1,6 @@
 "use client";
 
+import { questionOf } from "@/lib/copy/sentences";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
@@ -101,7 +102,7 @@ export function StageShell({
           </div>
         </div>
       ) : null}
-      {/* Review is read-only: no inputs, taps or Pau Pau actions on a finished stage. */}
+      {/* Review is read-only: no inputs, taps or Pau actions on a finished stage. */}
       {/* A disabled fieldset turns off every input and button but keeps scrolling. */}
       <fieldset
         disabled={review}
@@ -128,7 +129,7 @@ export function StageShell({
             paperStage={paper.current_stage}
             assignmentPrompt={paper.assignment_prompt}
             confirmedTopic={initialRequirements?.topic.value ?? null}
-            confirmedPrompt={initialRequirements?.promptQuestion.value ?? null}
+            confirmedPrompt={questionOf(initialRequirements?.promptQuestion.value) || null}
             storyAnswer={storyAnswer}
             savedBeat={paper.stage_progress.find((row) => row.stage === 5)?.data ?? null}
             persist={!demoMode}

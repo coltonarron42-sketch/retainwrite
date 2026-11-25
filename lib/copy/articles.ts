@@ -1,5 +1,5 @@
 /**
- * Putting list items from an assignment sheet into Pau Pau's sentences:
+ * Putting list items from an assignment sheet into Pau's sentences:
  * "Works Cited page" → "a Works Cited page", "abstract" → "an abstract",
  * "address at least one counterargument" → not a noun phrase (null).
  */

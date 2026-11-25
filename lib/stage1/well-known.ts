@@ -2,7 +2,7 @@
  * QA 9:37 AM (top regression): well-known assigned works get a deterministic,
  * labeled general-knowledge summary every time (book- or article-level, never a
  * specific chapter's contents). Obscure or unidentifiable works are not here,
- * so Pau Pau still says she won't guess about those.
+ * so Pau still says she won't guess about those.
  * // SOP: coaching only, never generate submission text
  */
 export type WellKnownWork = { id: string; title: string; bookLevel: boolean; points: string[] };

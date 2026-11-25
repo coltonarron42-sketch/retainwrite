@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { __resetSpeech, armSpeech, beginSpeakScope, currentTurn, noteInteraction, speechArmed, takeNew, textMark } from "@/lib/voice/speech";
-import { parseWelcomeState, welcomeBackLine, WELCOME_BACK_GAP_MS, WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { welcomeBackLine, WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
 import { setLocalUser } from "@/lib/local/user-scope";
 import { citationComfortQuestion } from "@/lib/stage1/comfort";
 
@@ -47,19 +47,16 @@ describe("3:46 PM: restored turns are never replayed", () => {
 });
 
 describe("3:46 PM: exactly one welcome-back on a return", () => {
-  it("none for a new conversation; one for history; none on rapid reloads", () => {
-    expect(welcomeBackLine({ hasHistory: false, last: null, now: 10000 })).toBeNull();
-    const first = welcomeBackLine({ hasHistory: true, last: null, now: 10000 })!;
+  // PC-28: the line is picked once per return (claimReturn guards reloads); it names what's done and what's next.
+  it("one line per pick, from the list, naming done and next", () => {
+    const first = welcomeBackLine({ done: "idea 2", next: "idea 3" });
     expect(WELCOME_BACK_LINES).toContain(first.line);
-    expect(welcomeBackLine({ hasHistory: true, last: first.next, now: 10001 })).toBeNull();
-    expect(welcomeBackLine({ hasHistory: true, last: first.next, now: 10000 + WELCOME_BACK_GAP_MS - 1 })).toBeNull();
-    const second = welcomeBackLine({ hasHistory: true, last: first.next, now: 10000 + WELCOME_BACK_GAP_MS })!;
-    expect(second.line).not.toBe(first.line);
+    expect(welcomeBackLine({ done: "idea 2", next: "idea 3" }, first.index).line).toBe(first.line);
   });
-  it("bad storage doesn't duplicate or crash the welcome", () => {
-    expect(parseWelcomeState("broken")).toBeNull();
-    expect(parseWelcomeState('{"at":123,"n":2}')).toEqual({ at: 123, n: 2 });
-    expect(parseWelcomeState('{"at":"x"}')).toBeNull();
+  it("no done yet still reads fine", () => {
+    const { line } = welcomeBackLine({ done: null, next: "the body" }, 0);
+    expect(line).toMatch(/the body/);
+    expect(line).not.toMatch(/\{|null|undefined/);
   });
 });
 
@@ -79,7 +76,7 @@ describe("5:03 PM: the queue only ever holds turns from after the restore", () =
     __resetSpeech();
   });
   const restored = [
-    { key: "r0", text: "Hi, I'm Pau Pau. What's the assignment?", turn: true },
+    { key: "r0", text: "Hi, I'm Pau. What's the assignment?", turn: true },
     { key: "r1", text: "Okay, I've read it through.", turn: true },
   ];
   it("sticky activation, late restores and a second chat on the same paper stay silent (no heard marks: another device)", () => {

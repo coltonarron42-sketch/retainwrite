@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
+import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
-import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
+import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
+import { FocusBar, PastChatPanel, SkeletonPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
 import { asHeading } from "@/lib/copy/topic-phrase";
@@ -33,7 +36,7 @@ import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
 import type { SpeakItem } from "@/lib/voice/speech";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { sectionLabel } from "@/lib/coach/welcome-back";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
 
@@ -139,7 +142,7 @@ type Props = {
   asideChips?: string[];
   classify: (text: string, ask: string) => Promise<StanceIntent>;
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
-  /** Pau Pau is checking (relevance) before she answers. */
+  /** Pau is checking (relevance) before she answers. */
   busy?: boolean;
   idea: string;
   onIdea: (value: string) => void;
@@ -151,7 +154,27 @@ type Props = {
   /** Voice note slot (PLAN.md 9: folded into her reply, never its own bubble). */
   voiceNote: string | null;
   handlers: StanceHandlers;
+  /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
+  skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
+  /** QA 1:11 AM #6: earlier stages for Past chat (Stage 1 here). */
+  earlier?: PastLine[];
 };
+
+/** PC-28: the earlier conversation for the read-only "Past chat" (section headings once). */
+export function pastLines(transcript: LoopLine[], sections: { key: string; title: string }[]): PastLine[] {
+  let lastK: string | null = null;
+  return transcript.map((l) => {
+    const heading = l.k !== lastK ? (sections.find((x) => x.key === l.k)?.title ?? null) : null;
+    lastK = l.k;
+    return { who: l.who, text: l.text, heading };
+  });
+}
+
+/** PC-28: what the welcome line names: the last locked section and the one they're on. */
+export function focusFill(sections: { title: string; status: string }[], active: number): { done: string | null; next: string } {
+  const done = [...sections.slice(0, active)].reverse().find((s) => s.status === "confirmed");
+  return { done: done ? sectionLabel(done.title) : null, next: sectionLabel(sections[active]?.title) || "the next section" };
+}
 
 /** Said when a new reply joins their note (QA 8:31 AM: never a silent overwrite). */
 export const ADDED_NOTE = "I added that to your note, and your earlier words stay too. If it should replace them instead, say \"change it to\" and the new words.";
@@ -173,7 +196,7 @@ export function isOffPrompt(r: { basis?: string; reason?: string } | null | unde
   return Boolean(r && (r.basis === "off_prompt" || /^This doesn't answer the question your prompt asks/.test(r.reason ?? "")));
 }
 
-/** Pau Pau's words for the current turn: what's spoken and what the turn says. */
+/** Pau's words for the current turn: what's spoken and what the turn says. */
 export function stanceTurnParas(
   kind: StanceTurnKind,
   ctx: {
@@ -286,10 +309,10 @@ function Choices({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Stage 2 (Stance) as one Pau Pau conversation (PLAN.md 9): one reply per
+ * Stage 2 (Stance) as one Pau conversation (PLAN.md 9): one reply per
  * turn, one question at a time, the same composer and voice call as Stage 1.
  * The teach card, mirror, probe, lead pick, confirm and logic check are each
- * one Pau Pau turn. Gates are decided by the caller (coaching-loop) exactly as before.
+ * one Pau turn. Gates are decided by the caller (coaching-loop) exactly as before.
  */
 export function StanceChat(props: Props) {
   const {
@@ -316,8 +339,11 @@ export function StanceChat(props: Props) {
   const inFlight = useRef(false);
   const vaguePushed = useRef(new Set<string>());
   const section = sections[active];
-  // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
-  const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau"));
+  // PC-28: a return with history opens a clean chat: one welcome line, then the exact turn they were on.
+  const focus = useFocusReturn(paperId, true, transcript.some((l) => l.who !== "pau"), focusFill(sections, active));
+  const welcomeLine = focus.line;
+  const [openerOpen, setOpenerOpen] = useState(false);
+  const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
   // Grok Voice realtime (Stage 2 PoC, server flag): the only voice path when on.
   const rtMode = useRealtimeEnabled(paperId);
   const sendNowRef = useRef<(text: string, fromVoice?: boolean) => Promise<string>>(async () => "none");
@@ -326,6 +352,7 @@ export function StanceChat(props: Props) {
   // A replacement waiting for "Want me to swap that in?" (section:turn, the new note).
   const swapRef = useRef<{ key: string; text: string } | null>(null);
   const mountLen = useRef(transcript.length);
+  const [mountAt] = useState(transcript.length);
   const rt = useRealtimeCall({
     paperId,
     saveNote: async (text) => {
@@ -340,7 +367,7 @@ export function StanceChat(props: Props) {
     },
     welcome: () => ({
       welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
-      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      index: focus.index,
       text: welcomeLine,
     }),
   });
@@ -463,7 +490,7 @@ export function StanceChat(props: Props) {
     if (choiceTurn && yes) {
       // handled below
     } else {
-      // Content, or something said TO Pau Pau? Requests are never saved as notes.
+      // Content, or something said TO Pau? Requests are never saved as notes.
       const intent = await props.classify(text, ask);
       if (intent !== "content") {
         // On a Grok Voice call she answers it out loud; it is still never saved as a note.
@@ -552,15 +579,11 @@ export function StanceChat(props: Props) {
             ? "Or name your own source or example"
             : kind === "teach_card"
               ? "Or tell me in your own words"
-              : "Reply to Pau Pau, or tap a choice";
+              : "Reply to Pau, or tap a choice";
 
   // The opener: question, "one section at a time", edit link, prompt type and
-  // section chips. It is the top of Pau Pau's FIRST reply, never its own bubble.
-  const introBubbles: ReactNode[] = [
-    `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
-    intro.body,
-    ...(intro.purpose ? [intro.purpose] : []),
-    ...(intro.earlier ? [intro.earlier] : []),
+  // section chips. It is the top of Pau's FIRST reply, never its own bubble.
+  const introControls = (
     <div key="intro-controls" className="space-y-3">
           {intro.material?.length ? (
             <details className="text-[14px] leading-[1.6]" data-material-summary>
@@ -613,36 +636,49 @@ export function StanceChat(props: Props) {
               ))}
             </ol>
           </nav>
-    </div>,
+    </div>
+  );
+  const introBubbles: ReactNode[] = [
+    `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
+    intro.body,
+    ...(intro.purpose ? [intro.purpose] : []),
+    ...(intro.earlier ? [intro.earlier] : []),
+    introControls,
   ];
 
-  // History as replies: consecutive Pau Pau lines in one section are one reply;
+  // History as replies: consecutive Pau lines in one section are one reply;
   // a tapped choice is a "Picked" chip; only typed words are student bubbles.
-  type Group = { k: string; who: LoopLine["who"]; texts: string[] };
-  const groups: Group[] = [];
-  for (const line of transcript) {
-    const last = groups[groups.length - 1];
+  type Group = { k: string; who: LoopLine["who"]; texts: string[]; start: number };
+  const allGroups: Group[] = [];
+  transcript.forEach((line, i) => {
+    const last = allGroups[allGroups.length - 1];
     if (last && line.who === "pau" && last.who === "pau" && last.k === line.k) last.texts.push(line.text);
-    else groups.push({ k: line.k, who: line.who, texts: [line.text] });
-  }
-  // Pau Pau lines at the very end belong to the current reply.
-  const trailing = groups.length && groups[groups.length - 1]!.who === "pau" && groups[groups.length - 1]!.k === section.key ? groups.pop()!.texts : [];
-  const introInCurrent = groups.length === 0;
-  const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...trailing, ...asideParas, ...paras];
+    else allGroups.push({ k: line.k, who: line.who, texts: [line.text], start: i });
+  });
+  // Pau lines at the very end belong to the current reply.
+  const trailing = allGroups.length && allGroups[allGroups.length - 1]!.who === "pau" && allGroups[allGroups.length - 1]!.k === section.key ? allGroups.pop()!.texts : [];
+  const introInCurrent = allGroups.length === 0 && !focus.focused;
+  // PC-28 one idea at a time: only this section's turns, and on a return only what's said since.
+  // Locked sections and earlier turns live in the skeleton and "Past chat", never above the prompt.
+  const focusFrom = focus.focused ? mountAt : 0;
+  const groups = allGroups.filter((g) => g.k === section.key && g.start >= focusFrom);
+  const turnText = openerOpen ? withoutClosingQuestion([...trailing, ...asideParas, ...paras]) : [...trailing, ...asideParas, ...paras];
+  const currentBubbles: ReactNode[] = [...(introInCurrent ? introBubbles : []), ...turnText];
   // eslint-disable-next-line react-hooks/refs -- latest screen text for her tools
   screenRef.current = [...trailing, ...asideParas, ...paras].join(" ");
   const speak: SpeakItem[] = rtMode ? [] : [
     { key: "s2:intro", text: `${intro.heading}. ${intro.body}`, opener: !transcript.some((l) => l.who !== "pau") },
     { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
   ];
+  const showIntro = allGroups.length > 0 && allGroups[0]!.k === section.key && groups[0]?.start === 0 && !focus.focused;
   const history = groups.map((group, i) => {
-    const head = i === 0 || groups[i - 1]!.k !== group.k ? sections.find((item) => item.key === group.k)?.title : null;
-    const first = i === 0 && group.who === "pau";
+    const head = i === 0 ? sections.find((item) => item.key === group.k)?.title : null;
+    const first = i === 0 && group.who === "pau" && showIntro;
     return (
       <div key={i} className="space-y-4">
         {head && !(i === 0 && !first) ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
-        {i === 0 && !first ? <PauPauGroup showName bubbles={introBubbles} /> : null}
-        {i === 0 && !first && head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
+        {i === 0 && !first && showIntro ? <PauPauGroup showName bubbles={introBubbles} /> : null}
+        {i === 0 && !first && showIntro && head ? <p className={`text-center ${dsCaption}`}>{head}</p> : null}
         {group.who === "pau" ? (
           <PauPauGroup showName={first} bubbles={first ? [...introBubbles, ...group.texts] : group.texts} />
         ) : group.who === "pick" ? (
@@ -658,10 +694,22 @@ export function StanceChat(props: Props) {
     <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
       <SpeakNew scope={`${paperId}:stage2`} items={speak} />
       <ChatHeader eyebrow="Stage 2 · Stance" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
+      <FocusBar
+        onSkeleton={() => setPanel("skeleton")}
+        onPast={() => setPanel("past")}
+        hasPast={transcript.length > 0 || Boolean(props.earlier?.length)}
+        menu={introInCurrent || showIntro ? undefined : introControls}
+      />
+      {panel === "skeleton" ? (
+        <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
+      ) : null}
+      {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 2 · Stance")} onClose={() => setPanel(null)} /> : null}
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
+        {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={() => setPanel("skeleton")} onOpen={setOpenerOpen} />
         {history}
 
-        {/* Pau Pau's current turn: ONE reply. */}
+        {/* Pau's current turn: ONE reply. */}
         <PauPauGroup
           showName={introInCurrent}
           bubbles={currentBubbles}
@@ -809,7 +857,8 @@ export function StanceChat(props: Props) {
                     <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
                   </div>
                   {(() => {
-                    const angle = [section.teachAspect, section.concept].find((item) => item && !/^(the )?(assigned )?concept$/i.test(item)) ?? null;
+                    // QA 1:11 AM minor: "Something else" is a button, never an angle.
+                    const angle = [section.teachAspect, section.concept].find((item) => item && item !== SOMETHING_ELSE && !/^(the )?(assigned )?concept$|^something else$/i.test(item)) ?? null;
                     return angle ? (
                       <div>
                         <dt className="inline font-semibold">Angle: </dt>
@@ -937,8 +986,6 @@ export function StanceChat(props: Props) {
             ) : null}
           </div>
         </PauPauGroup>
-        {/* The welcome-back line belongs to the start of the return: above this call's turns, once. */}
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} />
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
@@ -973,7 +1020,7 @@ export function StanceChat(props: Props) {
 }
 
 /**
- * Pau Pau's rotating stock lines (QA 4:42 #2): every line she says once per
+ * Pau's rotating stock lines (QA 4:42 #2): every line she says once per
  * section (the probe ask, the leads intro, the confirm, the logic-check opener,
  * the pass line, the "your call" line) comes from a per-paper pool. Section i
  * gets pool[(offset + i) % n], so no stock line repeats verbatim inside one
@@ -985,24 +1032,24 @@ export const STOCK_POOLS = {
   /** Probe ask (lesson path). The first section always gets the canonical line. */
   lesson_probe: [
     LESSON_PROBE_OPENER,
-    "Know where this part's headed? Or want me to ask a few questions and get the research going?",
-    "Got a direction for this one? Or should I start asking questions until one shows up?",
-    "Any thoughts on this part yet? Or should I start poking with questions?",
-    "Got a plan here? Or want me to grill you a little first? Nicely.",
-    "Already know what goes here? Or want a few questions to point you at some research?",
-    "Got a hunch for this part? Trust it, or let me ask a few questions first.",
-    "Know what you want to say here? Or want me to ask until something clicks?",
+    "Where's this part headed for you? If you'd like questions first, just say so.",
+    "What direction feels right for this one? If you're stuck, I'll start asking questions.",
+    "What are you thinking for this part? I can ask a few questions if you'd like.",
+    "What's your plan here? If you want, I'll grill you a little first. Nicely.",
+    "What do you think goes here? I can point you at research with a few questions too.",
+    "What's your hunch for this part? Trust it. I can ask a few questions too.",
+    "What do you want to say here? If nothing clicks yet, I'll ask a few questions.",
   ],
   /** Probe ask (memory path). */
   memory_probe: [
     MEMORY_PROBE_OPENER,
-    "Any moment from your life that fits here? Or want a few questions to shake one loose?",
-    "Got a memory for this one? Or should I play detective with a few questions?",
-    "Is there a moment that fits here already? Or want help digging one up?",
-    "Thinking of a moment for this part? Or want a few questions to jog it?",
-    "Something from your own life fit here? Or want me to ask around first?",
-    "Got a story for this section? Or want some questions to help you find one?",
-    "Any moment come to mind for this part? Or should I nudge you with a few questions?",
+    "What moment from your life fits here? I can ask a few questions to shake one loose.",
+    "What memory fits this one? If none comes, I'll play detective with a few questions.",
+    "Which moment fits here? I'm happy to help dig one up.",
+    "What moment are you thinking of for this part? A few questions can jog it, too.",
+    "What from your own life fits here? I can ask around first if you'd like.",
+    "What story goes in this section? I can ask questions to help you find one.",
+    "What moment comes to mind for this part? I can nudge you with a few questions.",
   ],
   /** Leads intro; {x} is the section title, {q} the optional quip. */
   pick_lead: [
@@ -1012,7 +1059,7 @@ export const STOCK_POOLS = {
     "Your note gave me some places to dig for your {x}.{q} Take one, or pitch your own.",
     "A few paths for your {x}, built from what you wrote.{q} Choose one, or name a different one.",
     "Okay, leads for your {x} that actually fit your note.{q} Pick one to chase, or tell me yours.",
-    "Your note points a few ways for your {x}.{q} Want one of these? Or name your own.",
+    "Your note points a few ways for your {x}.{q} Take one of these, or name your own.",
     "Some starting points for your {x}, pulled from your note.{q} Take one, or tell me what you'd rather check.",
   ],
   /** Confirm after a lesson-path pick. */
@@ -1020,7 +1067,7 @@ export const STOCK_POOLS = {
     // QA 7:11 AM: no hollow praise on a pick (it fired on a question-only lead).
     "Ready to roll with it?",
     "Want to lock this one in?",
-    "Lock it in, or keep working on it?",
+    "Lock it in?",
     "Ready to run with it?",
     "Going with it?",
     "Want to go with it?",

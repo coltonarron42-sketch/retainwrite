@@ -47,7 +47,7 @@ describe("Stage 1 is one chat thread", () => {
     expect(moreWordsNote(12, 25, "Your early take")).toMatch(/^Give me a little more — a couple more sentences\?/);
   });
 
-  it("every question has a placeholder in Pau Pau's voice; the voice sample is mentioned once", () => {
+  it("every question has a placeholder in Pau's voice; the voice sample is mentioned once", () => {
     for (const id of ["interest_1", "interest_2", "bg_comfort", "coaching_take", "personal_1", "fallback_voice", "stance_early"]) {
       expect(PLACEHOLDERS[id]).toBeTruthy();
     }
@@ -115,8 +115,8 @@ describe("step 3 leftovers", () => {
     expect(s).toContain('shortNoteNudge("stance", draftWords)');
     expect(moreWordsNote(8, 25, "Your early take")).not.toMatch(/\d/);
   });
-  it("no 'Send to Pau Pau' label; Enter-to-send stays on (composer limits it to fine pointers)", () => {
-    expect(intakeSrc()).not.toContain("Send to Pau Pau");
+  it("no 'Send to Pau' label; Enter-to-send stays on (composer limits it to fine pointers)", () => {
+    expect(intakeSrc()).not.toContain("Send to Pau");
     expect(intakeSrc()).not.toContain("enterSends={false}");
     expect(readFileSync("components/stages/stage1/chat-composer.tsx", "utf8")).toContain('matchMedia("(pointer: fine)")');
   });

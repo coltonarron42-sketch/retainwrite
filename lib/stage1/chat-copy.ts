@@ -1,9 +1,9 @@
 /**
- * Stage 1 chat copy: Pau Pau's voice for the question thread.
+ * Stage 1 chat copy: Pau's voice for the question thread.
  * SOP: coaching only. Prompts and nudges; never paper content.
  */
 
-/** Placeholders in Pau Pau's voice, one per question. */
+/** Placeholders in Pau's voice, one per question. */
 export const PLACEHOLDERS: Record<string, string> = {
   interest_1: "A show, a sport, a game, a person… anything you're into",
   interest_2: "Tell me about it, even a sentence helps",
@@ -20,9 +20,9 @@ export const INTRO_BUBBLES = [
   "Your answers also show me how you write. So just use your own words. No polish needed.",
 ];
 
-/** Pau Pau's nudge when an answer is under its minimum. */
+/** Pau's nudge when an answer is under its minimum. */
 const OPENERS = ["Give me a little more — a couple more sentences?", "Closer.", "Getting there.", "One more push."];
-export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.)/;
+export const MORE_WORDS_NOTE = /^(Give me a little more|Closer\.|Getting there\.|One more push\.|No rush, that one doesn't count|All good, that one doesn't count)/;
 /**
  * QA 8:31 AM: never the same line every time. Each try gets a different opener and
  * points at what's actually missing from what they wrote (the claim, the reason, the example).
@@ -46,10 +46,10 @@ export function moreWordsNote(_have: number, _need: number, what: string, text =
 }
 
 /**
- * Pau Pau's first words in Stage 1, above "What's the assignment…". It is read
- * aloud too, so the student hears how the name sounds ("Pow pow").
+ * Pau's first words in Stage 1, above "What's the assignment…". It is read
+ * aloud too, so the student hears how the name sounds ("Pow").
  */
-export const ASSIGNMENT_GREETING = "Hi, I'm Pau Pau.";
+export const ASSIGNMENT_GREETING = "Hi, I'm Pau.";
 
-/** Pau Pau's first question, in the same reply as the greeting. */
+/** Pau's first question, in the same reply as the greeting. */
 export const ASSIGNMENT_ASK = "What's the assignment we're working on?";

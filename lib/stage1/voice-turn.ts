@@ -1,6 +1,6 @@
 /**
  * Stage 1 on Grok Voice (Colton t159u, Nov 23): what the app shows right now,
- * as data for Pau Pau on the call, and how spoken words join the answer box.
+ * as data for Pau on the call, and how spoken words join the answer box.
  * The student's spoken words are their verbatim transcript; nothing the model
  * says is ever written into an answer (the voice sample stays theirs).
  */
@@ -57,7 +57,7 @@ export function isControlPhrase(spoken: string): boolean {
   return t.length > 0 && t.length <= 40 && CONTROL.test(t);
 }
 
-/** Requests and jailbreaks said TO Pau Pau ("write it for me", "ignore your rules"): never part of an answer. */
+/** Requests and jailbreaks said TO Pau ("write it for me", "ignore your rules"): never part of an answer. */
 const TO_COACH =
   /\b(ignore (your|the|all|any|previous) (rules|instructions)|pretend (you'?re|you are|to be)|you are now|act as|jailbreak|no limits|developer mode|(write|do|make|finish|give me) (it|this|that|my|the|an?)\b[^.?!]{0,40}\bfor me|write (my|the|an?) (whole |entire |full )?(answer|take|essay|paper|intro|introduction|paragraph|story|angle)|write (my|the|an?|this) (whole |entire |full )?(outline|thesis|section|conclusion|body)|(?:^|(?<=[.!?,]\s*)|(?<=\b(?:can|could|would|will) you (?:please )?)|(?<=\bplease ))(?:just |please )?(write|give|make) me (a|an|one|some|the)\b[^.?!]{0,30}\b(line|lines|sentence|sentences|outline|thesis|intro|introduction|conclusion|paragraph|topic sentence)\b|(that |which )?i can (just )?copy|just pretend|tell me a (dirty |funny )?joke)\b/i;
 export function isSaidToCoach(spoken: string): boolean {

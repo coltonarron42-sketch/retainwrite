@@ -31,6 +31,12 @@ describe("2. gate material state is accurate", () => {
   it("names the source, a pass, or waiting", () => {
     expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["knowledge"], materialAnswer: "I haven't read it yet" })).toBe("Material: caught up from general background (not your copy yet)");
     expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["reading"] })).toBe("Material: caught up from your own reading");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["reading"], materialAnswer: "skimmed the key points, going from those" })).toBe("Material: caught up from your own reading");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: ["reading"], materialAnswer: "first quick message" })).toBe("Material: waiting on the readings");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: ["reading"], materialAnswer: "I want to use Sam Walton", shownInChat: false })).toBe("Material: you haven't said yet whether you read it");
+    expect(northstarChecklist({ confirmed: true, catchUpDone: true, decided: true, stanceOk: true, materialLabel: "Material: you haven't said yet whether you read it" })[1]!.done).toBe(false);
+    expect(materialGateLabel({ catchUpDone: true, materialShown: true, kinds: ["knowledge"], lostAtStart: true })).toBe("Material: caught up from general background (not your copy yet)");
+    expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I haven't read it yet, I don't have the packet", shownInChat: false })).toBe("Material: waiting on the readings");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I read both of them" })).toBe("Material: caught up (you read it yourself)");
     expect(materialGateLabel({ catchUpDone: true, materialShown: false, kinds: [], materialAnswer: "I haven't read it yet" })).toBe("Material: waiting on the readings");
     const items = northstarChecklist({ confirmed: true, catchUpDone: true, decided: true, stanceOk: true, materialLabel: "Material: waiting on the readings" });

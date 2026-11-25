@@ -11,8 +11,8 @@ import {
 } from "@/lib/stage1/spark";
 
 describe("speakable text", () => {
-  it("says 'Pow pow', and drops quoted assignment text", () => {
-    expect(speakableSentences("Hi, I'm Pau Pau. Let's go.")).toEqual(["Hi, I'm Pow pow.", "Let's go."]);
+  it("says 'Pow', and drops quoted assignment text", () => {
+    expect(speakableSentences("Hi, I'm Pau. Let's go.")).toEqual(["Hi, I'm Pow.", "Let's go."]);
     const s = speakableSentences(
       "It calls for at least three scholarly sources, including the American Academy of Pediatrics' “School Start Times for Adolescents” (2014). The big question: “Should schools start later?” You'll be writing about sleep.",
     );
@@ -107,7 +107,7 @@ describe("sentence splitting keeps abbreviations together", () => {
 });
 
 describe("what actually reaches speechSynthesis", () => {
-  it("'Pau Pau' is handed to the speech engine as 'Pow pow', one sentence per utterance, in order", async () => {
+  it("'Pau' is handed to the speech engine as 'Pow', one sentence per utterance, in order", async () => {
     const spoken: string[] = [];
     class FakeUtterance {
       text: string;
@@ -132,9 +132,9 @@ describe("what actually reaches speechSynthesis", () => {
     g.window = { speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance };
     g.SpeechSynthesisUtterance = FakeUtterance;
     const { speak, stopSpeech } = await import("@/lib/voice/speech");
-    speak(["Hi, I'm Pau Pau. Pau Pau will ask a few questions."]);
+    speak(["Hi, I'm Pau. Pau will ask a few questions."]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(spoken).toEqual(["Hi, I'm Pow pow.", "Pow pow will ask a few questions."]);
+    expect(spoken).toEqual(["Hi, I'm Pow.", "Pow will ask a few questions."]);
     expect(spoken.join(" ")).not.toContain("Pau");
     stopSpeech();
     delete g.window;

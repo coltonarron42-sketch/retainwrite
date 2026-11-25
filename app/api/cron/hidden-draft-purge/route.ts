@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { purgeHiddenDrafts } from "@/lib/server/readback";
+import { purgeGhostShapes } from "@/lib/server/skeleton/ghost";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const deleted = await purgeHiddenDrafts();
-  console.info("[hidden-draft-purge] ran", { deleted });
-  return NextResponse.json({ ok: true, deleted });
+  const ghostShapes = await purgeGhostShapes();
+  console.info("[hidden-draft-purge] ran", { deleted, ghostShapes });
+  return NextResponse.json({ ok: true, deleted, ghostShapes });
 }

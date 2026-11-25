@@ -1,6 +1,6 @@
 /**
  * A typed description ("a 5 page APA paper on teen sleep, due Friday") is the
- * student's own words, so Pau Pau may say back only what they actually said.
+ * student's own words, so Pau may say back only what they actually said.
  * The model tends to fill gaps ("research paper", "at least four sources");
  * this drops any fact the description doesn't support. Uploaded sheets are
  * not touched.

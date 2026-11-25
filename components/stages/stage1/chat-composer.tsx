@@ -84,7 +84,7 @@ function chipStatus(f: StagedAssignmentFile): string {
 
 export type ChatComposerProps = {
   paperId: string;
-  /** The Pau Pau bubble that asks the question labels the field. */
+  /** The Pau bubble that asks the question labels the field. */
   labelledBy: string;
   value: string;
   onChange: (value: string) => void;
@@ -193,7 +193,7 @@ export function ChatComposer({
   const failed = attachments.some((f) => f.status === "failed");
   const hasContent = Boolean(value.trim()) || attachments.length > 0;
   const blocked = !hasContent || reading || failed || sendBlocked;
-  // Send while Pau Pau is still replying: queue it (visibly) and send when she
+  // Send while Pau is still replying: queue it (visibly) and send when she
   // is done. A send is never dropped (QA 12:25 #4).
   // QA 3:51: while she replies the box stays live. Enter/Send queues the full text (shown as
   // queued) and it goes out the moment she's done, in order. Callers with onQueue keep their own queue.
@@ -348,7 +348,7 @@ export function ChatComposer({
     };
     setMicNote(null);
     recRef.current = rec;
-    // Pau Pau stops talking while the student talks.
+    // Pau stops talking while the student talks.
     stopSpeech();
     try {
       rec.start();
@@ -358,10 +358,10 @@ export function ChatComposer({
     }
   }
 
-  /* ---- Voice call: listen between Pau Pau's turns, send after a pause ---- */
+  /* ---- Voice call: listen between Pau's turns, send after a pause ---- */
   const { voice, micMuted } = useChatPrefs();
   const speaking = useSyncExternalStore(subscribeSpeaking, isSpeaking, () => false);
-  // "Pau Pau is talking" follows real playback (PLAN.md 9), not the queue.
+  // "Pau is talking" follows real playback (PLAN.md 9), not the queue.
   const audible = useSyncExternalStore(subscribeAudible, audibleSentence, () => null) !== null;
   const [callId, setCallId] = useState(0);
   const owner = useSyncExternalStore(subscribeCall, callOwner, () => 0);
@@ -556,9 +556,9 @@ export function ChatComposer({
       }
       return;
     }
-    // A tap on Send unlocks speech on phones, so Pau Pau's answer can play.
+    // A tap on Send unlocks speech on phones, so Pau's answer can play.
     unlockSpeech();
-    // Barge-in: Send while Pau Pau is talking stops her and takes the reply.
+    // Barge-in: Send while Pau is talking stops her and takes the reply.
     if (isSpeaking()) stopSpeech();
     // The sent text is final; nothing heard after this goes back in the box.
     dropRecognizer();
@@ -757,7 +757,7 @@ export function ChatComposer({
               <button
                 type="button"
                 data-barge-in
-                aria-label="Interrupt Pau Pau and talk"
+                aria-label="Interrupt Pau and talk"
                 className="ds-focus flex min-h-[48px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold text-ds-ink hover:bg-ds-page"
                 onClick={() => {
                   unlockSpeech();
@@ -786,7 +786,7 @@ export function ChatComposer({
       {queuedText ? (
         // Floats just above the box, so it never changes the dock's height.
         <p className="pointer-events-none absolute inset-x-0 bottom-full mb-1 rounded-[8px] bg-ds-page/95 px-2 py-1 text-[13px] leading-[1.5] text-ds-muted" role="status" data-send-queued-note data-composer-queued={queuedText}>
-          Queued: “{queuedText.length > 80 ? `${queuedText.slice(0, 77)}…` : queuedText}”. Sends as soon as Pau Pau replies.
+          Queued: “{queuedText.length > 80 ? `${queuedText.slice(0, 77)}…` : queuedText}”. Sends as soon as Pau replies.
         </p>
       ) : null}
 

@@ -114,7 +114,7 @@ export class RealtimeVoice {
   constructor(
     private paperId: string,
     private on: RtEvents,
-    private opts: { welcome: boolean; welcomeIndex: number; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number; stage?: 1 | 2 | 3 },
+    private opts: { welcome: boolean; welcomeIndex: number; welcomeText?: string | null; effort?: "none" | "high"; vad?: "client" | "server"; tuning?: Record<string, string>; gate?: number; stage?: 1 | 2 | 3 },
   ) {}
 
   /** Call inside the tap. */
@@ -187,7 +187,7 @@ export class RealtimeVoice {
       for (const b of this.early.splice(0)) ws.send(b);
       if (!this.started) {
         this.started = true;
-        ws.send(JSON.stringify({ type: "rw.start", welcome: this.opts.welcome, welcomeIndex: this.opts.welcomeIndex }));
+        ws.send(JSON.stringify({ type: "rw.start", welcome: this.opts.welcome, welcomeIndex: this.opts.welcomeIndex, welcomeText: this.opts.welcomeText ?? null }));
       }
       if (this.screenMsg) ws.send(JSON.stringify({ ...this.screenMsg, followUp: false }));
     };

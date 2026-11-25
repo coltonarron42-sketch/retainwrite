@@ -1,5 +1,5 @@
 /**
- * Backstop for the realtime voice: Pau Pau coaches, she never writes the paper.
+ * Backstop for the realtime voice: Pau coaches, she never writes the paper.
  * The relay watches her live transcript and cancels a reply that turns into
  * paper text. The instructions and tools are the main defense; this is the net.
  */

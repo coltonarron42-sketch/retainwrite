@@ -17,13 +17,13 @@ export function PauPauAvatar({ size = "md", alive = false }: { size?: "sm" | "md
   );
 }
 
-// PLAN.md 9 (Nov 22, 2:43): Pau Pau's turns read as plain text beside her
+// PLAN.md 9 (Nov 22, 2:43): Pau's turns read as plain text beside her
 // avatar: no card border, shadow or box.
 const BUBBLE = "inline-block max-w-full pt-1";
 // The student's turns: a light right-aligned block with a thin rule.
 const STUDENT = "max-w-[85%] border-r-2 border-ds-border py-1 pr-3 text-right";
 
-/** Pau Pau's side of the chat: avatar, name on the first turn, plain text (no box). */
+/** Pau's side of the chat: avatar, name on the first turn, plain text (no box). */
 export function PauPauBubble({
   children,
   id,
@@ -68,7 +68,7 @@ export function PauPauBubble({
 }
 
 /**
- * One Pau Pau turn: a single message block, like one chat reply. Items are
+ * One Pau turn: a single message block, like one chat reply. Items are
  * paragraphs inside the same bubble (strings or rich content such as a list
  * of choices); `children` (buttons, captions) sit in the same bubble too.
  * PLAN.md 9: one reply per turn, never stacked bubbles saying one thing.
@@ -242,7 +242,7 @@ function useElapsed(startedAt: number): number {
   return Math.max(0, Math.floor((now - startedAt) / 1000));
 }
 
-/** Pau Pau is reading: three quiet dots (still under reduced motion) plus the status line. */
+/** Pau is reading: three quiet dots (still under reduced motion) plus the status line. */
 export function ReadingBubble({ status, startedAt }: { status: string; startedAt: number }) {
   // QA 3:51 (React #185): callers pass Date.now() on every render. The clock starts once, when the
   // bubble appears; a new prop each render must never restart it (that re-render chain dropped keystrokes).
@@ -408,12 +408,14 @@ export function PickedChip({
   onEdit?: () => void;
   editLabel?: string;
 }) {
+  // QA 1:11 AM minor: one "Picked:" in the page text (the screen-reader copy only when the label is shortened).
+  const same = label.trim() === fullText.trim();
   const body = (
     <>
-      <span aria-hidden className="min-w-0 truncate">
+      <span aria-hidden={same ? undefined : true} className="min-w-0 truncate">
         <span className="text-ds-muted">Picked:</span> <span className="text-ds-ink">{label}</span>
       </span>
-      <span className="sr-only">Picked: {fullText}</span>
+      {same ? null : <span className="sr-only">{fullText}</span>}
     </>
   );
   const cls =

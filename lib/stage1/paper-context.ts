@@ -1,10 +1,10 @@
 /**
- * Paper-level context (Colton t161u, the north star): what Pau Pau knows about this
+ * Paper-level context (Colton t161u, the north star): what Pau knows about this
  * paper across Stages 1-3, so she meets the student where they are and never
  * re-asks what she already knows.
  *
  * Stored condensed in paper_autosaves under PAPER_CONTEXT_FIELD (JSON). Summaries
- * and the read-back are Pau Pau's teaching content: never paper text, never put in
+ * and the read-back are Pau's teaching content: never paper text, never put in
  * an answer box. The student's own words (decision, early take, angle) are kept
  * verbatim.
  * // SOP: coaching only, never generate submission text
@@ -54,7 +54,7 @@ export type PaperContext = {
   /** Where each named reading is legitimately available (outbound links only; no in-app purchase). */
   whereToGet?: { title: string; known: boolean; offers: { seller: string; url: string; price?: string | null }[] }[];
   summaries?: MaterialSummary[];
-  /** The decision question and its 2-3 options (Pau Pau's), and the student's pick + reasoning (verbatim). */
+  /** The decision question and its 2-3 options (Pau's), and the student's pick + reasoning (verbatim). */
   options?: {
     question: string;
     options: DecisionOption[];
@@ -70,7 +70,7 @@ export type PaperContext = {
   leader?: { question: string; pick: string; answer: string; at: number };
   /** The student said they hadn't read / were lost (so later stages can re-offer the summary). */
   lostAtStart?: boolean;
-  /** When Pau Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
+  /** When Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
   materialShownAt?: number;
 };
 
@@ -145,7 +145,7 @@ export function summaryLabel(s: MaterialSummary): string {
   return "General background (not from your readings)";
 }
 
-/** The summary as Pau Pau's chat bubbles: a labeled lead-in, then the points. Teaching content only. */
+/** The summary as Pau's chat bubbles: a labeled lead-in, then the points. Teaching content only. */
 export function summaryParas(s: MaterialSummary): string[] {
   const lead =
     s.kind === "reading"
@@ -197,7 +197,7 @@ export function isPreparedSaying(text: string): boolean {
 
 const tok = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? [];
 
-/** Their answer is mostly Pau Pau's summary or read-back (pasted or echoed back): not their words. */
+/** Their answer is mostly Pau's summary or read-back (pasted or echoed back): not their words. */
 export function overlapsTeaching(answer: string, ctx: PaperContext): boolean {
   const w = tok(answer);
   if (w.length < 8) return false;
@@ -705,3 +705,49 @@ export function decisionLabel(d: { pick?: string | null; answer?: string | null 
   return head;
 }
 
+
+const STYLE_WORDS = ["transformational", "servant", "situational", "transactional", "democratic", "autocratic", "authentic", "laissez-faire", "charismatic", "behavioral", "participative", "adaptive", "path-goal", "coaching", "visionary"];
+
+/**
+ * QA 1:11 AM #7: every style/option they picked, in the order they said them
+ * ("servant and transformational" → ["Servant", "Transformational"]), never just the first.
+ */
+export function pickedStyles(decision: { pick?: string | null; answer?: string | null } | null | undefined, options: DecisionOption[] = []): string[] {
+  if (!decision) return [];
+  const said = `${decision.answer ?? ""}`.toLowerCase();
+  const hits: { at: number; label: string }[] = [];
+  const add = (word: string, label: string) => {
+    const m = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").exec(said);
+    if (m && !hits.some((h) => h.label.toLowerCase() === label.toLowerCase())) hits.push({ at: m.index, label });
+  };
+  for (const o of options) {
+    const head = o.label.split(/[:(–]/)[0]!.trim();
+    // A whole label ("team management"), never one shared word like "team" (QA 6:03 follow-up).
+    if (head.length > 3) add(head.toLowerCase(), head);
+  }
+  for (const w of STYLE_WORDS) add(w, w.charAt(0).toUpperCase() + w.slice(1));
+  hits.sort((a, b) => a.at - b.at);
+  const out = hits.map((h) => h.label);
+  const pick = decision.pick && decision.pick !== "their own" ? decision.pick.split(/[:(–]/)[0]!.trim() : null;
+  if (pick && decision.pick && answerNamesOption(decision.answer ?? "", decision.pick) && !out.some((x) => x.toLowerCase().startsWith(pick.toLowerCase().split(" ")[0]!))) out.unshift(pick);
+  return out.slice(0, 4);
+}
+
+/** Their leader or example person, from the leader pick or named in the decision. */
+export function pickedLeader(ctx: Pick<PaperContext, "leader" | "decision" | "options"> | null | undefined): string | null {
+  if (!ctx) return null;
+  const pick = ctx.leader?.pick && ctx.leader.pick !== "their own" ? ctx.leader.pick : null;
+  if (pick && pick.split(" ").length <= 5) return pick;
+  for (const text of [ctx.leader?.answer, ctx.decision?.answer]) {
+    if (!text) continue;
+    const parsed = parseStance(text, ctx.options?.options ?? [], ctx.options?.people ?? []);
+    if (parsed?.leader) return parsed.leader;
+  }
+  return null;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function andList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}

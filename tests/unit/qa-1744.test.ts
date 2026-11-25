@@ -11,7 +11,7 @@ import { STOCK_POOLS, alreadyAnswered, resumeLine } from "@/components/stages/lo
 import * as S from "@/lib/voice/speech";
 import { setChatPref } from "@/lib/voice/prefs";
 import { SIGNATURE_QUIP, STAGE2_QUIPS, quipFor } from "@/lib/coach/quips";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { fillWelcome, WELCOME_BACK_LINES, WELCOME_BACK_TEMPLATES } from "@/lib/coach/welcome-back";
 import type { LoopLine } from "@/lib/stages/stance-turn";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -146,10 +146,13 @@ describe("QA 5:44 PM: the reopen race", () => {
     S.speak([WELCOME]);
     await wait(400);
     expect(count(sectionIntroLine(body))).toBe(1);
-    expect(count(sectionIntroLine(intro))).toBe(1);
+    // PC-28: a return opens a fresh chat; the locked intro section is not stacked above the current prompt.
+    expect(count(sectionIntroLine(intro))).toBe(0);
     expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("My own outline line.");
     expect(spoken.length).toBeGreaterThan(0);
-    expect(spoken.filter((t) => !WELCOME.includes(t.trim()))).toEqual([]);
+    // PC-28: her opener is one random welcome line naming the real sections.
+    const anyWelcome = [WELCOME, ...WELCOME_BACK_TEMPLATES.map((t) => fillWelcome(t, { done: "outlining the Introduction", next: "the Body" }))].join(" ");
+    expect(spoken.filter((t) => !anyWelcome.includes(t.trim()))).toEqual([]);
   });
 
   it("an intro already in history (by section id) is not said again; the box prefills once", () => {
@@ -213,7 +216,7 @@ describe("QA 5:44 PM: the restore hold", () => {
     S.speak([WELCOME]);
     expect(S.restoreHoldActive()).toBe(true);
     await wait(600);
-    expect(spoken).toEqual(["Welcome back.", "Ready to pick up where we left off?"]);
+    expect(spoken).toEqual(WELCOME.split(/(?<=[.?!])\s+/));
     expect(S.restoreHoldActive()).toBe(false);
     S.beginRestoreHold();
     S.speak(["The turn I tapped."], { interrupt: true, explicit: true });

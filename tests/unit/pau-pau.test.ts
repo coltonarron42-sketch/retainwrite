@@ -14,7 +14,7 @@ function req() {
   return r;
 }
 
-describe("Pau Pau bubble", () => {
+describe("Pau bubble", () => {
   it("says back the assignment conversationally", () => {
     const text = pauPauSummary(req());
     expect(text).toBe(
@@ -85,7 +85,7 @@ describe("Pau Pau bubble", () => {
   });
 });
 
-describe("Pau Pau on a weak (rule fallback) read", () => {
+describe("Pau on a weak (rule fallback) read", () => {
   it("never states low-confidence facts or a fragment topic; asks for the topic", async () => {
     const { capFallbackConfidence } = await import("@/lib/assignment/parse");
     const r = emptyRequirements();

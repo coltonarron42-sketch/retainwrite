@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
 import { DsButton } from "@/components/ui/ds-button";
 import { SaveStatus } from "@/components/stages/save-status";
 import { ComposerDock, EchoBubble, PauPauGroup, PickedChip, ScrollToNewest, StudentBubble } from "@/components/stages/stage1/chat-bubbles";
-import { useWelcomeBack, WelcomeBack } from "@/components/stages/stage1/welcome-back";
+import { FocusOpener, useFocusReturn } from "@/components/stages/stage1/welcome-back";
+import { FocusBar, PastChatPanel, SkeletonPanel, withEarlier, type PastLine, type SkeletonWords } from "@/components/stages/focus-panels";
+import { pastLines } from "@/components/stages/loop/stance-chat";
+import type { SkeletonView } from "@/lib/skeleton/shape";
 import { ChatComposer } from "@/components/stages/stage1/chat-composer";
 import { IntentWarm } from "@/components/stages/loop/stance-chat";
 import { ChatHeader, ReplayButton, SpeakNew, useStopSpeechOnUnmount } from "@/components/stages/stage1/voice";
@@ -19,7 +23,7 @@ import { OUTLINE_FOLLOW_UP, type StanceIntent } from "@/lib/stages/stance-intent
 import { sectionPurpose } from "@/lib/stage1/paper-context";
 import { RealtimeControls, useRealtimeCall, useRealtimeEnabled } from "@/components/stages/loop/realtime-voice";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
-import { WELCOME_BACK_LINES } from "@/lib/coach/welcome-back";
+import { sectionLabel } from "@/lib/coach/welcome-back";
 import { isQuickConfirm } from "@/lib/stage1/confirm-reply";
 import { isControlPhrase, isSaidToCoach } from "@/lib/stage1/voice-turn";
 import { addSpokenLine, outlineChoiceSaid, splitOutlineControl } from "@/lib/stages/outline-voice";
@@ -53,6 +57,10 @@ type Props = {
   voice?: boolean;
   /** Their Stage 1 pick ("Transformational"), so the coaching names it (QA 10:21). */
   pick?: string | null;
+  /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
+  skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
+  /** QA 1:11 AM #8: Stage 1 and Stage 2 for Past chat, so it's there on the first Stage 3 view. */
+  earlier?: PastLine[];
 };
 
 export const OUTLINE_INTRO =
@@ -108,9 +116,9 @@ export function outlineAsk(section: OutlineSectionView, first: boolean, introSai
 }
 
 /**
- * Stage 3 (Outline) as one-at-a-time Pau Pau turns (PLAN.md 9): the three
+ * Stage 3 (Outline) as one-at-a-time Pau turns (PLAN.md 9): the three
  * outline boxes become three questions. The student's outline text is theirs;
- * Pau Pau never writes or rewrites it.
+ * Pau never writes or rewrites it.
  */
 export function OutlineChat(props: Props) {
   const { paperId, sections, done, transcript } = props;
@@ -150,8 +158,19 @@ export function OutlineChat(props: Props) {
     resume: draftPointer({ stage: 3, sectionKey: current?.key ?? null }),
   });
 
+  // PC-28: a return with history opens a clean chat: one welcome line, then the exact section they were on.
+  const lastDone = [...sections].reverse().find((x) => done.includes(x.key));
+  const [openerOpen, setOpenerOpen] = useState(false);
+  const focus = useFocusReturn(paperId, true, transcript.some((l) => l.who !== "pau") || done.length > 0, {
+    done: lastDone ? `outlining ${sectionLabel(lastDone.title)}` : null,
+    next: current ? sectionLabel(current.title) : "moving on to sources",
+  });
+  const welcomeLine = focus.line;
+  const [mountAt] = useState(transcript.length);
+  // When the chat is focused, the earlier intro is off screen: she restates the full prompt.
+  const seen = focus.focused ? transcript.slice(mountAt) : transcript;
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(transcript, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "), props.pick ?? null)
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(seen, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "), props.pick ?? null)
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });
@@ -167,7 +186,8 @@ export function OutlineChat(props: Props) {
   const shown = transcript.slice(0, tail);
   // After an answer she doesn't re-ask the whole opener.
   const ask = asideHere ? [OUTLINE_FOLLOW_UP] : paras;
-  const turnParas = [...trailing, ...asideParas, ...ask];
+  const turnParasAll = [...trailing, ...asideParas, ...ask];
+  const turnParas = openerOpen ? withoutClosingQuestion(turnParasAll) : turnParasAll;
 
   /** A tap keeps the Stance notes (a "Picked" chip); typed words are checked first. */
   async function submit(value: string, tapped: boolean) {
@@ -187,8 +207,7 @@ export function OutlineChat(props: Props) {
     props.onSend(current.key, value, [pau(current.key, askText), tapped ? pick(current.key, notes ? "Keep my notes" : "Skip for now") : you(current.key, value.trim() || "Keep my notes")]);
   }
 
-  // A return to this chat with turns: one welcome-back line (Colton 3:46 PM).
-  const welcomeLine = useWelcomeBack(paperId, true, transcript.some((l) => l.who !== "pau") || done.length > 0);
+  const [panel, setPanel] = useState<"skeleton" | "past" | null>(null);
   // Grok Voice (Colton, Nov 23): same relay as Stages 1-2. Spoken words land in the
   // box word for word; her "move on" sends the box through submit() (same intent
   // check, same saves and gates as typing); a strict yes is the only spoken advance.
@@ -211,12 +230,12 @@ export function OutlineChat(props: Props) {
     },
     welcome: () => ({
       welcome: Boolean(welcomeLine) && transcript.length === mountLen.current,
-      index: Math.max(0, WELCOME_BACK_LINES.indexOf((welcomeLine ?? "") as (typeof WELCOME_BACK_LINES)[number])),
+      index: focus.index,
       text: welcomeLine,
     }),
   });
   const choice = current ? (notes ? "Keep my notes" : "Skip for now") : "Continue to sources";
-  // Their own lines (typed or spoken) are in the box: Keep my notes / Skip would replace them, so Pau Pau isn't told to offer it.
+  // Their own lines (typed or spoken) are in the box: Keep my notes / Skip would replace them, so Pau isn't told to offer it.
   const ownLines = Boolean(current && text.trim() && text.trim() !== notes.trim());
   const rtChoices = current && ownLines ? [] : [choice];
   const screenText = [
@@ -261,7 +280,7 @@ export function OutlineChat(props: Props) {
         await submit(notes, true);
         return moved();
       }
-      // Requests to Pau Pau are answered by her, never saved as their outline.
+      // Requests to Pau are answered by her, never saved as their outline.
       if (isSaidToCoach(spoken)) return "said_to_coach";
       // "That's my outline for this section" / "let's move on" is said to her, not outline content.
       const { line } = splitOutlineControl(spoken);
@@ -291,7 +310,7 @@ export function OutlineChat(props: Props) {
     rt.sayTurn(screenText);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per step
   }, [rtKey, rt.on]);
-  // Typing (or speaking) their own lines takes Keep my notes off what Pau Pau offers.
+  // Typing (or speaking) their own lines takes Keep my notes off what Pau offers.
   useEffect(() => {
     if (rt.on && rtSeen.current === rtKey) rt.setScreen(screenText, rtChoices);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when it flips
@@ -299,6 +318,8 @@ export function OutlineChat(props: Props) {
 
   const speak: SpeakItem[] = rtMode ? [] : [{ key: `s3:${current?.key ?? "done"}:${transcript.length}`, text: turnParas.join(" "), turn: true }];
 
+  const focusFrom = focus.focused ? mountAt : 0;
+  const firstShown = current ? shown.findIndex((l, i) => l.k === current.key && i >= focusFrom) : -1;
   const isLastPick = (i: number) => {
     const line = transcript[i]!;
     return done.includes(line.k) && !transcript.slice(i + 1).some((l) => l.k === line.k && (l.who === "you" || l.who === "pick"));
@@ -309,8 +330,14 @@ export function OutlineChat(props: Props) {
       <SpeakNew scope={`${paperId}:stage3`} items={speak} />
       <ChatHeader eyebrow="Stage 3 · Outline" eyebrowClassName={dsEyebrow} hideVoice={rtMode} />
       {/* QA 7:11 AM: the mapped outline, visible and editable: each section, its purpose, their points in their words. */}
-      <section className="mt-4 rounded-md border border-ds-border p-4" aria-label="Your outline" data-outline-map>
-        <h2 className={dsEyebrow}>Your outline</h2>
+      <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={transcript.length > 0 || Boolean(props.earlier?.length)} />
+      {panel === "skeleton" ? (
+        <SkeletonPanel view={props.skeleton?.view ?? null} words={props.skeleton?.words ?? {}} direction={props.skeleton?.direction} onClose={() => setPanel(null)} />
+      ) : null}
+      {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 3 · Outline")} onClose={() => setPanel(null)} /> : null}
+      {/* PC-28: the outline so far stays one tap away (collapsed), never stacked above the prompt. */}
+      <details className="mt-4 rounded-md border border-ds-border p-4" aria-label="Your outline" data-outline-map>
+        <summary className={`ds-focus cursor-pointer ${dsEyebrow}`}>Your outline so far ({done.length} of {sections.length})</summary>
         <ol className="mt-2 space-y-3">
           {outlineMap(sections, done, current ? { key: current.key, text } : null).map((row) => (
             <li key={row.key} data-outline-row={row.key}>
@@ -346,10 +373,13 @@ export function OutlineChat(props: Props) {
             </li>
           ))}
         </ol>
-      </section>
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau Pau">
+      </details>
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
+        <FocusOpener line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} onProgress={() => setPanel("skeleton")} onOpen={setOpenerOpen} />
         {shown.map((line, i) => {
-          const head = i === 0 || transcript[i - 1]!.k !== line.k ? sections.find((s) => s.key === line.k)?.title : null;
+          // PC-28 one section at a time: only this section's turns, and on a return only what's said since.
+          if (!current || line.k !== current.key || i < focusFrom) return null;
+          const head = i === firstShown ? sections.find((s) => s.key === line.k)?.title : null;
           const isLastAnswer = line.who === "you" && isLastPick(i);
           return (
             <div key={i} className="space-y-4">
@@ -360,7 +390,7 @@ export function OutlineChat(props: Props) {
                 </p>
               ) : null}
               {line.who === "pau" ? (
-                <PauPauGroup bubbles={[line.text]} showName={i === 0} />
+                <PauPauGroup bubbles={[line.text]} showName={i === 0 && !focus.focused} />
               ) : line.who === "pick" ? (
                 <PickedChip
                   label={line.text}
@@ -382,7 +412,7 @@ export function OutlineChat(props: Props) {
         })}
 
         <PauPauGroup
-          showName={shown.length === 0}
+          showName={firstShown < 0 && !focus.focused}
           bubbles={turnParas}
           headingIndex={turnParas.length - 1}
           headingId="outline-question"
@@ -432,7 +462,6 @@ export function OutlineChat(props: Props) {
           ) : null}
           <ReplayButton texts={[turnParas.join(" ")]} className="-ml-2" />
         </PauPauGroup>
-        <WelcomeBack line={welcomeLine} scope={`${paperId}:stage3`} signal={`${transcript.length}:${done.length}`} silent={rtMode} />
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${current?.key ?? "done"}:${props.error ?? ""}`} />
         <IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")} classify={props.classify} />

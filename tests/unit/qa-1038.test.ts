@@ -67,12 +67,12 @@ function stance(over: Record<string, unknown> = {}) {
 const turns = (html: string) => (html.match(/data-pau-turn/g) ?? []).length;
 
 describe("#1 Stage 2 opener is ONE reply", () => {
-  it("question + 'one section at a time' + prompt type + chips + the first ask are one Pau Pau turn", () => {
+  it("question + 'one section at a time' + prompt type + chips + the first ask are one Pau turn", () => {
     const html = stance();
     expect(turns(html)).toBe(1);
     expect(html).toContain("one section at a time");
     expect(html).toContain("Prompt type");
-    expect(html).toMatch(/Got an idea for how this section goes/);
+    expect(html).toMatch(/What(?:'|&#x27;|&#39;)s your idea for this section/);
   });
   it("after a reload with history, the opener is still inside the first reply", () => {
     const transcript: LoopLine[] = [
@@ -106,7 +106,7 @@ describe("#2 taps are 'Picked' chips, never student bubbles", () => {
   });
 });
 
-describe("#3 requests and questions to Pau Pau are never saved as notes", () => {
+describe("#3 requests and questions to Pau are never saved as notes", () => {
   it("rules: requests, questions and content", () => {
     expect(rulesStanceIntent("Ask me some probing questions please.")).toBe("request_probe");
     expect(rulesStanceIntent("can you ask me questions")).toBe("request_probe");
@@ -132,8 +132,10 @@ describe("#3 requests and questions to Pau Pau are never saved as notes", () => 
   });
   it("her reply gives coaching questions, never paper text, and never echoes the student", () => {
     const reply = intentReply("request_probe", { turn: "probe", section: { title: "Introduction" } }).join(" ");
-    expect(reply).toMatch(/^Sure\. A few questions for your introduction/);
-    expect((reply.match(/\?/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    // QA 1:11 AM #5: one question per turn, never a numbered list.
+    expect(reply).toMatch(/^Sure\. Let's start with one for your introduction/);
+    expect((reply.match(/\?/g) ?? []).length).toBe(1);
+    expect(reply).not.toMatch(/\b1\. /);
     expect(intentReply("question", { turn: "probe", section: { title: "Body" } })[0]).toMatch(/^I'm asking what you want your body to say/);
   });
   it("Stage 2 and Stage 3 check typed words before saving; the aside is not a note", () => {

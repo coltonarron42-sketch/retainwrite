@@ -1,5 +1,5 @@
 /**
- * Pau Pau's written tone rules (Colton, Nov 22 4:00 PM): casual contractions,
+ * Pau's written tone rules (Colton, Nov 22 4:00 PM): casual contractions,
  * short sentences, a relaxed rhythm, never stiff or polished. Used by the unit
  * tests that lock the template copy, and safe to run on any of her lines.
  */

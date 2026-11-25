@@ -144,8 +144,8 @@ describe("#4 a send during a reply is never dropped, and never sent twice (QA 9:
 describe("presence: face, glance/blink, speaking waves", () => {
   it("matches the bubble being read (start event sentence)", async () => {
     const { bubbleIsSpeaking } = await import("@/lib/voice/presence");
-    const bubble = "Nice. Pau Pau thinks that's a strong start. What would you say to someone who disagrees?";
-    expect(bubbleIsSpeaking(bubble, "Pow pow thinks that's a strong start.")).toBe(true);
+    const bubble = "Nice. Pau thinks that's a strong start. What would you say to someone who disagrees?";
+    expect(bubbleIsSpeaking(bubble, "Pow thinks that's a strong start.")).toBe(true);
     expect(bubbleIsSpeaking(bubble, "What would you say to someone who disagrees?")).toBe(true);
     expect(bubbleIsSpeaking(bubble, "Which source will you check first?")).toBe(false);
     expect(bubbleIsSpeaking(bubble, null)).toBe(false);
@@ -169,7 +169,7 @@ describe("presence: face, glance/blink, speaking waves", () => {
   });
   it("motion is CSS-only and off under reduced motion", () => {
     const css = read("app/globals.css");
-    const block = css.slice(css.indexOf("Pau Pau presence"));
+    const block = css.slice(css.indexOf("Pau presence"));
     expect(block).toMatch(/@media \(prefers-reduced-motion: no-preference\) \{\s*\.pp-blink/);
     expect(block).toMatch(/@keyframes pp-glance/);
     expect(block).toMatch(/@keyframes pp-blink/);

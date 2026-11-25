@@ -7,7 +7,7 @@ import { useChatPrefs } from "@/lib/voice/prefs";
 import { audibleEndedForGood, audibleSentence, subscribeAudible } from "@/lib/voice/speech";
 
 /**
- * The official Pau Pau (PLAN.md 9, locked by Colton): a soft light-brown blob
+ * The official Pau (PLAN.md 9, locked by Colton): a soft light-brown blob
  * head on cream, pink cat-eye glasses floating on it, simple dark eyes that
  * fill the frames, a tiny smile. Flat, inline SVG. `alive` adds an occasional
  * blink and a glance (the eyes move inside the frames; pure CSS, none under
@@ -123,7 +123,7 @@ export function useBubbleSpeaking(text: string): boolean {
 }
 
 /**
- * Soft wavy lines along the top and bottom edge of the bubble while Pau Pau's
+ * Soft wavy lines along the top and bottom edge of the bubble while Pau's
  * voice is playing. Absolutely positioned: never moves the layout or the input.
  */
 export function SpeakingWaves({ active }: { active: boolean }) {

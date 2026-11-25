@@ -115,7 +115,7 @@ describe("#3 history is append-only; the opener never re-asks", () => {
   ];
   it("her probing questions stay after the next turn (and after a reload: they're in the saved transcript)", () => {
     const html = stance({ transcript: t2, aside: { k: "intro", at: t2.length, paras: [], intent: "question" } });
-    expect(html).toContain("Sure. A few questions for your introduction.");
+    expect(html).toContain("Sure. Let&#x27;s start with one for your introduction:");
     expect(html).toMatch(/I(&#x27;|')m asking what you want your introduction to say/);
     expect(html.split("or do you want me to ask some probing questions").length - 1).toBe(1);
     const current = html.slice(html.lastIndexOf("data-pau-turn"));

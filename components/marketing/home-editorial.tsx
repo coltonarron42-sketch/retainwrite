@@ -127,8 +127,8 @@ export function HomeEditorial({ startHref }: { startHref: string }) {
           How it works
         </h2>
         <p className="mt-4 text-[16px] leading-[1.6] text-ds-muted">
-          Your coach, Pau Pau, reads the assignment with you, catches you up on the material, and
-          helps you pick a direction. Then you build the paper sentence by sentence while Pau Pau
+          Your coach, Pau, reads the assignment with you, catches you up on the material, and
+          helps you pick a direction. Then you build the paper sentence by sentence while Pau
           asks the questions. You drive.
         </p>
         <ul className="mt-8 rounded-[12px] border border-ds-border bg-ds-surface p-8 shadow-ds-card">

@@ -45,6 +45,7 @@ import {
   finalizeLogicCheck,
   LOGIC_STRONG_HEADLINE,
   logicCheckFromNotes,
+  notesOnPrompt,
   type FinalizedLogic,
 } from "@/lib/coaching/logicCheck";
 import { highlightReelFor, seedLeadFromHighlight } from "@/lib/coaching/highlightReel";
@@ -93,6 +94,8 @@ import { keptIdeas, probeForThinNote } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
 import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-chat";
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
+import type { SkeletonWords } from "@/components/stages/focus-panels";
+import { useSkeleton } from "@/lib/skeleton/use-skeleton";
 import {
   afterMirror,
   afterProbe,
@@ -105,6 +108,9 @@ import {
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
 import { decisionLabel, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
+import { pastLines } from "@/components/stages/loop/stance-chat";
+import { assignmentQuestion } from "@/lib/copy/sentences";
 
 /** Key points from the material, labeled by where they came from (shown under a disclosure). */
 function materialList(b: { summary: MaterialSummary | null; summaries?: MaterialSummary[] } | null): { label: string; points: string[] }[] {
@@ -163,7 +169,7 @@ type Session = {
   outlineDone?: string[];
   outlineTranscript?: LoopLine[];
   /**
-   * Pau Pau's answer to a request or question ("ask me questions", "what do
+   * Pau's answer to a request or question ("ask me questions", "what do
    * you mean?"). It shows inside her current turn while nothing new has been
    * said (transcript length === at), so it never becomes its own bubble.
    */
@@ -298,6 +304,26 @@ export function CoachingLoop({
       live = false;
     };
   }, [paperId, persist, stage]);
+  // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
+  const skelSections = session?.sections ?? [];
+  const skelWords: SkeletonWords = {};
+  for (const item of skelSections) {
+    const g = item.kind === "intro" ? "intro" : item.kind === "conclusion" ? "conclusion" : "body";
+    skelWords[g] = { locked: item.status === "confirmed" || (session?.outlineDone ?? []).includes(item.key), notes: keptIdeas(item.ideas) };
+  }
+  const skeletonView = useSkeleton(paperId, {
+    enabled: stage >= 2 && stage <= 3,
+    fallbackText: session?.assignmentText ?? "",
+    refreshKey: skelSections.map((item) => `${item.key}:${item.status}:${item.ideas.length}`).join("|"),
+    outline:
+      persist && skelWords.body?.locked
+        ? { choices: [pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].filter(Boolean), bodyNotes: skelWords.body.notes }
+        : null,
+  });
+  const skeleton = { view: skeletonView, words: skelWords, direction: pctx?.decision?.answer ?? null };
+  // QA 1:11 AM #6/#8: Past chat reaches back to Stage 1 (and Stage 2 from Stage 3).
+  const stage1Past = useStage1Past(paperId, persist);
+  const stage2Past = withEarlier(stage1Past, pastLines(session?.transcript ?? [], session?.sections ?? []), "Stage 2 · Stance");
   const [idea, setIdea] = useState("");
   // Clear only the text that was sent: words typed while a reply was loading
   // stay in the box (QA 12:25 #4: a send was silently lost).
@@ -470,7 +496,9 @@ export function CoachingLoop({
   // for ALL sections in one call as soon as Stage 2 loads and cached per paper
   // (QA 3:35 C), so the leads show their final terms with no visible swap. The
   // keyword builder fills in only if the model can't answer in time.
-  const termTopic = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+  // QA 3:26 AM #1: the assignment's real question for every prompt check (never a stored sources line).
+  const realQuestion = assignmentQuestion({ prompt: confirmedPrompt, raw: session?.assignmentText ?? "", topic: confirmedTopic });
+  const termTopic = realQuestion || confirmedTopic?.trim() || "";
   const termSections = useMemo(
     () => (session?.sections ?? []).map((s) => ({ key: s.key, title: s.title, needs: s.needs })),
     [session?.sections],
@@ -530,7 +558,7 @@ export function CoachingLoop({
     if (!sessionLoaded) {
       return (
         <p className="text-sm text-rw-ink/70" role="status">
-          Pau Pau is pulling up your confirmed assignment…
+          Pau is pulling up your confirmed assignment…
         </p>
       );
     }
@@ -548,7 +576,7 @@ export function CoachingLoop({
   const lesson = session.extraction.lesson;
   const subject = coachingSubject({
     confirmedTopic,
-    confirmedPrompt,
+    confirmedPrompt: realQuestion || confirmedPrompt,
     concept: lesson.concepts[0]?.term,
     assignmentText: session.assignmentText,
   });
@@ -718,7 +746,7 @@ export function CoachingLoop({
   const withLines = (more: LoopLine[]) => appendLines(session?.transcript, more);
 
   /**
-   * Content, or a request/question to Pau Pau? Model first, rules if it fails.
+   * Content, or a request/question to Pau? Model first, rules if it fails.
    * Same words + same ask reuse the check already started while typing (QA 8:08 PM).
    */
   function classifyIntent(text: string, ask: string): Promise<StanceIntent> {
@@ -995,7 +1023,7 @@ export function CoachingLoop({
 
   /** The model's relevance verdict for a note (null: it didn't answer, rules decide). */
   function fetchRelevance(notes: string, title: string): Promise<boolean | null> {
-    const prompt = confirmedPrompt?.trim() || confirmedTopic?.trim() || "";
+    const prompt = realQuestion;
     if (!prompt || !notes.trim()) return Promise.resolve(null);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
@@ -1028,7 +1056,7 @@ export function CoachingLoop({
       assignmentText: session?.assignmentText ?? "",
       rubricRef: target.rubricRef,
       mode: target.mode,
-      confirmedPrompt,
+      confirmedPrompt: realQuestion || confirmedPrompt,
       confirmedTopic,
       onPrompt,
     });
@@ -1303,6 +1331,8 @@ export function CoachingLoop({
 
       {stage === 2 && section ? (
         <StanceChat
+          skeleton={skeleton}
+          earlier={stage1Past}
           paperId={paperId}
           intro={{
             ...stage2IntroText(pctx?.readback, {
@@ -1317,7 +1347,7 @@ export function CoachingLoop({
                       : assignmentPurposeLine(subject),
             }),
             purpose: STAGE_PURPOSE[2],
-            earlier: stage2Earlier(pctx?.decision, pctx?.leader),
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []),
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
@@ -1426,6 +1456,8 @@ export function CoachingLoop({
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
+          skeleton={skeleton}
+          earlier={stage2Past}
           pick={pctx?.decision ? decisionLabel(pctx.decision) : null}
           paperId={paperId}
           persist={persist}
@@ -1439,6 +1471,13 @@ export function CoachingLoop({
           flags={Object.fromEntries(
             session.sections
               .filter((item) => item.continued && item.logic && item.logic.result.tier !== "pass")
+              // QA 1:11 AM #2: an off-prompt flag from the old question extraction (sources line read as the
+              // question) doesn't carry into Stage 3 when the notes do answer the real question.
+              .filter(
+                (item) =>
+                  !(item.logic!.result.citedTerm?.rubricRef === "prompt" || /doesn't answer the question your prompt asks/i.test(item.logic!.result.reason ?? "")) ||
+                  !notesOnPrompt(keptIdeas(item.ideas).join(" "), realQuestion, session.assignmentText ?? ""),
+              )
               .map((item) => [item.key, item.logic!.result.reason || LOGIC_STRONG_HEADLINE]),
           )}
           saving={outlineSaving || moving}

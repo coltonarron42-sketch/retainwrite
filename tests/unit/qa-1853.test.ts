@@ -72,7 +72,9 @@ describe("welcome once per return (QA 6:53 #2)", () => {
   });
   it("the hook claims the return before picking a line", () => {
     const src = readFileSync("components/stages/stage1/welcome-back.tsx", "utf8");
-    expect(src).toMatch(/if \(!hasHistory \|\| !claimReturn\(paperId\)\) return;/);
+    // PC-28: the focus decision is made once; the line is only picked when the return is claimed.
+    expect(src).toMatch(/const returning = claimReturn\(paperId\);/);
+    expect(src.indexOf("claimReturn(paperId)")).toBeLessThan(src.indexOf("welcomeBackLine(fillRef.current"));
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * E (PLAN.md 9): Stages 2 and 3 became Pau Pau chat turns. These tests pin the
+ * E (PLAN.md 9): Stages 2 and 3 became Pau chat turns. These tests pin the
  * advancement criteria to the old panels (tests/fixtures/coaching-loop-legacy.tsx.txt
  * is the pre-chat component, kept for reference).
  */
@@ -47,7 +47,7 @@ function legacyPanels(s: {
   return shown;
 }
 
-describe("E gate parity: one old panel ⇔ one Pau Pau turn", () => {
+describe("E gate parity: one old panel ⇔ one Pau turn", () => {
   it("the legacy fixture is the real old component", () => {
     expect(legacy).toContain('inStance && section.loopStep === "search" && !examples?.personalized');
     expect(legacy).toContain('inStance && section.loopStep === "logic_check" && section.logic && !section.logicRevealed');
@@ -148,7 +148,7 @@ describe("E gate parity: transitions are the old ones", () => {
 });
 
 describe("E: chat model, persistence and the student's words", () => {
-  it("Stage 2 and 3 render as Pau Pau chats with the shared composer, voice header and slim row", () => {
+  it("Stage 2 and 3 render as Pau chats with the shared composer, voice header and slim row", () => {
     expect(loop).toContain("<StanceChat");
     expect(loop).toContain("<OutlineChat");
     for (const src of [stance, outline]) {
@@ -170,12 +170,12 @@ describe("E: chat model, persistence and the student's words", () => {
     const ask = outlineAsk({ key: "intro", title: "Introduction", needs: "Introduce the work", ideas: ["My own note"] }, true).join(" ");
     expect(ask).not.toContain("My own note");
   });
-  it("Pau Pau never fills the box with her own text (only the student's notes)", () => {
+  it("Pau never fills the box with her own text (only the student's notes)", () => {
     const sets = [...loop.matchAll(/setIdea\((.*)\);/g)].map((m) => m[1]);
     expect(sets.length).toBeGreaterThan(3);
     for (const arg of sets) expect(arg).toMatch(/^(""|value|\(cur\) => \(cur\.trim\(\) === sent\.trim\(\) \? "" : cur\)|\(cur\) => \(cur\.trim\(\) \? cur : sent\)|\(cur\) => \(cur\.trim\(\) \? cur : unsent\)|keptIdeas\(section\.ideas\)\.at\(-1\) \?\? ""|revisionPrefill\(section\.ideas\))$/);
   });
-  it("voice reads only Pau Pau's words (lead names and the student's notes are not spoken)", () => {
+  it("voice reads only Pau's words (lead names and the student's notes are not spoken)", () => {
     const section = { key: "body", title: "Body", needs: "x", mode: "lesson" as const, status: "open", concept: null, teachAspect: null, chosenLead: "Dr. Mary Carskadon", logic: null };
     const lead = stanceTurnParas("pick_lead", { section, card: null, mirrorAsk: "", activeTrigger: null }).join(" ");
     const confirm = stanceTurnParas("confirm", { section, card: null, mirrorAsk: "", activeTrigger: null }).join(" ");

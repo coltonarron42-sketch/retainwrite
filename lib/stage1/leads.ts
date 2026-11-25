@@ -61,7 +61,7 @@ export function assertLeadDefaults(lead: ResearchLeadDraft): void {
 }
 
 /**
- * Pau Pau introduces research leads in her own voice (PLAN.md 9), then shows
+ * Pau introduces research leads in her own voice (PLAN.md 9), then shows
  * links the student can open. Voice reads only this intro, never the links.
  */
 export const LEADS_INTRO =
@@ -120,7 +120,7 @@ function titleCase(text: string): string {
 }
 
 /**
- * How Pau Pau names the student's interest. A show, book or game title reads
+ * How Pau names the student's interest. A show, book or game title reads
  * "something from Bluey" (capitalized); an activity stays plain ("soccer").
  */
 export function interestDisplay(tag: string, answers: string[] = []): { name: string; phrase: string; media: boolean } {

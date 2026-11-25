@@ -111,6 +111,22 @@ export async function loadContextExtras(supabase: SupabaseClient, paperId: strin
 }
 
 export async function loadPaperContextBlock(supabase: SupabaseClient, paperId: string): Promise<{ ctx: PaperContext; block: string }> {
-  const [ctx, extras] = await Promise.all([readPaperContext(supabase, paperId), loadContextExtras(supabase, paperId)]);
-  return { ctx, block: paperContextBlock(ctx, extras) };
+  const [ctx, extras, shape] = await Promise.all([
+    readPaperContext(supabase, paperId),
+    loadContextExtras(supabase, paperId),
+    // PC-28: ghost paper #1 tells her the paper's shape and which decisions are still needed.
+    readShapeBlock(paperId),
+  ]);
+  const block = paperContextBlock(ctx, extras);
+  return { ctx, block: shape ? `${block}\n${shape}` : block };
+}
+
+async function readShapeBlock(paperId: string): Promise<string> {
+  try {
+    const { readGhost, shapeDecisionsBlock } = await import("@/lib/server/skeleton/ghost");
+    const row = await readGhost(paperId);
+    return shapeDecisionsBlock(row?.shape ?? null);
+  } catch {
+    return "";
+  }
 }

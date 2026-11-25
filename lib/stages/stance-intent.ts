@@ -2,7 +2,7 @@
  * Is the student's message content for their paper, or something said TO the
  * coach? (QA 10:38: "Ask me some probing questions please." was saved as a
  * stance note, passed the logic check and was prefilled into Stage 3.)
- * A request or a question to Pau Pau is answered and is NEVER saved as a note.
+ * A request or a question to Pau is answered and is NEVER saved as a note.
  * The model decides when it can; these rules are the fallback and the fast path.
  * // SOP: coaching only, never generate submission text
  */
@@ -115,7 +115,7 @@ export function probingQuestions(section: { title: string; needs?: string | null
 }
 
 /** Her ask under the probing questions she just gave (replaces the opening ask, so it isn't repeated). */
-export const ASIDE_FOLLOW_UP = "Answer one of those in your own words, or tell me the idea you already have.";
+export const ASIDE_FOLLOW_UP = "Answer that in your own words, or tell me the idea you already have.";
 
 /** Stage 3: her ask after an answer (the opener isn't repeated). */
 export const OUTLINE_FOLLOW_UP = "When you're ready, put your notes into short outline lines in the box, or tap Keep my notes.";
@@ -126,19 +126,20 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
   return `When you're ready, tell me your idea for your ${sectionTitle.toLowerCase()} in your own words.`;
 }
 
-/** Pau Pau's reply to a request or question. It rides inside her current turn. */
+/** Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
   if (ctx.text && isWriteRequest(ctx.text)) {
     const part = ctx.section.title.toLowerCase();
     return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
   }
   const qs = probingQuestions(ctx.section);
-  const list = qs.map((q, i) => `${i + 1}. ${q}`).join(" ");
+  // QA 1:11 AM #5: one question per turn (never a numbered list of three); another comes on request.
+  const one = qs[0] ?? "What's the one thing this part needs to say?";
   switch (intent) {
     case "request_probe":
-      return [`Sure. A few questions for your ${ctx.section.title.toLowerCase()}. Pick any one and answer it in your own words: ${list}`];
+      return [`Sure. Let's start with one for your ${ctx.section.title.toLowerCase()}: ${one}`];
     case "request_help":
-      return [`Happy to help. Start small: you don't need the whole section, just one idea. Try one of these: ${list}`];
+      return [`Happy to help. Start small: you don't need the whole section, just one idea. ${one}`];
     case "question": {
       const what =
         ctx.turn === "name_lead" || ctx.turn === "pick_lead"

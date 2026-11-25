@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createLead, LEADS_INTRO, leadLinks, leadSearchTerms } from "@/lib/stage1/leads";
 
-describe("F: Pau Pau introduces leads in her own voice, then links", () => {
+describe("F: Pau introduces leads in her own voice, then links", () => {
   it("links are real search links (articles, news, videos), never made-up articles", () => {
     const lead = createLead({ name: "A practitioner voice", whyAssignment: "x", searchTerms: leadSearchTerms("Should high schools start later?") });
     const links = leadLinks(lead);
@@ -15,7 +15,7 @@ describe("F: Pau Pau introduces leads in her own voice, then links", () => {
     const old = createLead({ name: "Old lead", whyAssignment: "x" });
     expect(leadLinks(old, "teen sleep")[0]!.href).toContain("q=teen%20sleep");
   });
-  it("the intro is in Pau Pau's voice and is the only thing spoken", () => {
+  it("the intro is in Pau's voice and is the only thing spoken", () => {
     expect(LEADS_INTRO).toMatch(/^I pulled together/);
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(src).toContain('[{ key: "leads:intro", text: LEADS_INTRO }]');

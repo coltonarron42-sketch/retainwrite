@@ -28,7 +28,7 @@ function card() {
   return req;
 }
 
-describe("A: one Pau Pau reply per turn", () => {
+describe("A: one Pau reply per turn", () => {
   it("PauPauGroup renders every paragraph inside ONE bubble", () => {
     const src = read("components/stages/stage1/chat-bubbles.tsx");
     const group = src.slice(src.indexOf("export function PauPauGroup"), src.indexOf("export type SentAttachment"));
@@ -103,7 +103,7 @@ describe("C: natural replies instead of Fix something", () => {
     expect(parseModelResult({ intent: "nope", reply: "x", updates: {} })).toBeNull();
     expect(parseModelResult({ intent: "question", reply: "Sure!", updates: {}, keepAsNote: false, skipAsk: false })!.reply).toBe("Sure.");
   });
-  it("corrections land on the card as student-confirmed values and Pau Pau re-confirms", () => {
+  it("corrections land on the card as student-confirmed values and Pau re-confirms", () => {
     const next = applyConfirmUpdates(card(), { ...emptyUpdates(), wordsMin: 1500, dueDate: "Dec 3" });
     expect(next.length.value?.wordsMin).toBe(1500);
     expect(next.length.confirmed).toBe(true);
@@ -181,18 +181,18 @@ describe("D: mobile voice", () => {
     return spoken;
   }
 
-  it("holds Pau Pau's words until the first tap on phones, then plays them", async () => {
+  it("holds Pau's words until the first tap on phones, then plays them", async () => {
     const spoken = fakeSynth();
     vi.stubGlobal("navigator", { userActivation: { hasBeenActive: false } });
     const mod = await import("@/lib/voice/speech");
     mod.__resetSpeech();
-    mod.speak(["Hi, I'm Pau Pau."]);
+    mod.speak(["Hi, I'm Pau."]);
     await new Promise((r) => setTimeout(r, 20));
     expect(spoken).toEqual([]);
     mod.unlockSpeech();
     await new Promise((r) => setTimeout(r, 120));
     expect(spoken[0]).toBe(" "); // the silent unlock utterance, inside the tap
-    expect(spoken).toContain("Hi, I'm Pow pow.");
+    expect(spoken).toContain("Hi, I'm Pow.");
     mod.stopSpeech();
   });
 
@@ -226,7 +226,7 @@ describe("D: mobile voice", () => {
     expect(callStatusText("blocked")).toMatch(/blocked/);
   });
 
-  it("voice call: listens between turns, pauses while Pau Pau talks, auto-sends, mute persists", () => {
+  it("voice call: listens between turns, pauses while Pau talks, auto-sends, mute persists", () => {
     const src = read("components/stages/stage1/chat-composer.tsx");
     expect(src).toMatch(/const wantListen =\s*callOn && !micMuted && !speaking && !sending/);
     expect(src).toContain("SILENCE_SEND_MS");
@@ -240,7 +240,7 @@ describe("D: mobile voice", () => {
   });
 });
 
-describe("C: Pau Pau doesn't nag", () => {
+describe("C: Pau doesn't nag", () => {
   it("an ask (sources/length) is made once; after that the re-confirm asks 'does that look right now?'", () => {
     const src = read("components/stages/stage1/pau-pau-confirm.tsx");
     expect(src).toContain("function askedBefore()");

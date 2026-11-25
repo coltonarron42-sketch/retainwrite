@@ -47,7 +47,7 @@ export function autosaveResumeAllowed(resumeStage: number, serverStage: number):
 /**
  * How a /stage/N page opens (Colton, Nov 23): past stages are viewable (read-only
  * review), the paper's own stage is live, and a later stage is a soft gate (a
- * friendly message and a look, inputs and Pau Pau inactive, nothing written).
+ * friendly message and a look, inputs and Pau inactive, nothing written).
  * Data gates stay hard on the server (progress route, autosave, intake complete).
  */
 export type StageView = "current" | "review" | "ahead";

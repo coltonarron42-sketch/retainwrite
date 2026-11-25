@@ -75,7 +75,7 @@ export function saveSparks(paperId: string, sparks: Record<string, SparkTurn>) {
 }
 
 /**
- * The spark exchange as Pau Pau's bubbles only. The student's tap is not shown
+ * The spark exchange as Pau's bubbles only. The student's tap is not shown
  * as a speech bubble (they didn't write it); the buttons simply go away.
  */
 export function SparkExchange({
@@ -94,7 +94,7 @@ export function SparkExchange({
   /** Rendered inside the current question's bubble as a soft last paragraph (never its own bubble). */
   inline?: boolean;
 }) {
-  // One reply (PLAN.md 9): the offer, its choices, and Pau Pau's answer to the
+  // One reply (PLAN.md 9): the offer, its choices, and Pau's answer to the
   // choice all live in the same message block.
   const reply =
     turn.status === "loading" ? (

@@ -1,13 +1,13 @@
 /**
- * Stages 2 and 3 as Pau Pau chat turns (PLAN.md 9). Pure helpers, so the
+ * Stages 2 and 3 as Pau chat turns (PLAN.md 9). Pure helpers, so the
  * gates stay exactly what the old panels enforced:
  *
- * - `stanceTurnFor` decides which ONE turn Pau Pau is on, from the same
+ * - `stanceTurnFor` decides which ONE turn Pau is on, from the same
  *   section state the old panels were shown from (one panel ⇔ one turn).
  * - `afterProbe` / `afterMirror` / `outlineSectionsForContinue` are the old
  *   inline transitions, lifted out unchanged.
  *
- * Pau Pau only asks and reflects. Every note, outline line, and lead name in
+ * Pau only asks and reflects. Every note, outline line, and lead name in
  * the session is the student's own text.
  */
 import { keptIdeas } from "@/lib/coaching/thin";

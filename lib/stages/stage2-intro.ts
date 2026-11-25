@@ -6,7 +6,7 @@ import { dropHedges } from "@/lib/copy/tidy";
  * // SOP: coaching only, never generate submission text
  */
 import { clipWords } from "@/lib/copy/clip";
-import { answerNamesOption, decisionHasReason, decisionLabel, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { andList, answerNamesOption, decisionHasReason, decisionLabel, pickedStyles, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
 /** "I think my team…" → "you think your team…": the student's reason, in second person. */
 export function toSecondPerson(text: string): string {
@@ -36,10 +36,17 @@ const REASON_RE = /\b(because|since|bc|cuz|'cause|so that|as it|it fits|it shows
  * QA 7:02 AM: Stage 2 paraphrases the Stage 1 decision ("Earlier you picked X with Y as your
  * example, because …") instead of quoting the raw answer.
  */
-export function stage2Earlier(decision: PaperContext["decision"] | null | undefined, leader?: PaperContext["leader"] | null): string | null {
+export function stage2Earlier(decision: PaperContext["decision"] | null | undefined, leader?: PaperContext["leader"] | null, options: DecisionOption[] = []): string | null {
   if (!decision || !decisionHasReason(decision.answer)) return null;
   const said = decision.answer.replace(/\s+/g, " ").trim();
-  const pick = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
+  // QA 1:11 AM #7: both picks when they named two ("servant and transformational").
+  const styles = pickedStyles(decision, options);
+  const pick =
+    styles.length > 1
+      ? andList(styles)
+      : decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick)
+        ? decision.pick
+        : null;
   const who = leader?.pick && leader.pick !== "their own" ? leader.pick : null;
   const m = said.match(REASON_RE);
   const tidy = (t: string) => clipWords(toSecondPerson(smoothCause(t)).replace(/[\s.!,;:]+$/, ""), 220);

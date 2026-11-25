@@ -30,7 +30,7 @@ async function owner(paperId: string) {
 }
 
 /**
- * Sources the student gives Pau Pau after the read: check that a link opens,
+ * Sources the student gives Pau after the read: check that a link opens,
  * and keep the list on the saved assignment so a reload doesn't ask again.
  */
 export async function POST(request: Request, ctx: Ctx) {

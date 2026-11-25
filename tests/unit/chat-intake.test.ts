@@ -7,7 +7,7 @@ const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf
 const route = readFileSync("app/api/papers/[paperId]/assignment/parse/route.ts", "utf8");
 
 describe("Stage 1 chat-style assignment input", () => {
-  it("asks the question as a Pau Pau bubble with one field and the soft placeholder", () => {
+  it("asks the question as a Pau bubble with one field and the soft placeholder", () => {
     expect(intake).toContain("ASSIGNMENT_ASK,");
     expect(intake).toContain('placeholder="Upload a photo, PDF, or Word file, or just tell me about it…"');
     expect(intake).toContain('labelledBy="assignment-ask"');

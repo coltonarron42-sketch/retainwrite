@@ -1,10 +1,10 @@
 import { oneQuip } from "@/lib/coach/quips";
 import { PAU_PERSONALITY } from "@/lib/coach/personality";
 /**
- * The student's natural reply to Pau Pau's read-back (PLAN.md 9): no "Fix
+ * The student's natural reply to Pau's read-back (PLAN.md 9): no "Fix
  * something" button. Each reply is classified as confirm, question,
- * correction, extra info, or ambiguous. Pau Pau only moves on after a clear
- * confirm. Corrections update the extracted fields and Pau Pau re-confirms.
+ * correction, extra info, or ambiguous. Pau only moves on after a clear
+ * confirm. Corrections update the extracted fields and Pau re-confirms.
  * SOP: coaching only. Replies talk about the assignment sheet, never the paper.
  */
 import { withYear } from "@/lib/copy/due-date";
@@ -32,12 +32,12 @@ export type ConfirmUpdates = {
 
 export type ConfirmResult = {
   intent: ConfirmIntent;
-  /** Pau Pau's short answer in her own voice. */
+  /** Pau's short answer in her own voice. */
   reply: string;
   updates: ConfirmUpdates;
   /** Keep the student's message, verbatim, as an extra note on the assignment. */
   keepAsNote: boolean;
-  /** The student says they don't have / don't want to give the thing Pau Pau asked for. */
+  /** The student says they don't have / don't want to give the thing Pau asked for. */
   skipAsk: boolean;
   /** A question answered in place before the confirm (QA 6:03 AM): the catch-up, the options, or a plain explanation. */
   route?: PreConfirmRoute;
@@ -161,7 +161,7 @@ export function linkIn(text: string): string | null {
 
 /**
  * Rule-based reading when the model is unavailable. Conservative: anything it
- * can't place is "ambiguous", so Pau Pau asks instead of moving on.
+ * can't place is "ambiguous", so Pau asks instead of moving on.
  */
 export function rulesClassify(text: string, pendingAsk: PauPauAsk | null): ConfirmResult {
   const t = text.replace(/\s+/g, " ").trim();
@@ -223,7 +223,7 @@ export function clarifyingAsk(pendingAsk: PauPauAsk | null): string {
   if (pendingAsk === "topic") {
     return "No worries. What's the paper about, in a few words? If you haven't picked a topic yet, just say so.";
   }
-  return "No worries. Does anything in there look off, like the length, due date or sources? Or tell me \u201clooks good\u201d and we'll start.";
+  return "No worries. Does anything in there look off, like the length, due date or sources? If it all looks right, tell me \u201clooks good\u201d and we'll start.";
 }
 
 /**
@@ -312,7 +312,7 @@ export function appendStudentNote(req: AssignmentRequirements, text: string): As
   return { ...req, otherInstructions: markFieldConfirmed(req.otherInstructions, { value }) };
 }
 
-export const CONFIRM_REPLY_SYSTEM = `You are Pau Pau, a warm writing coach for students. You just read back a student's assignment sheet to them and asked if you got it right. Now classify the student's reply and answer it.
+export const CONFIRM_REPLY_SYSTEM = `You are Pau, a warm writing coach for students. You just read back a student's assignment sheet to them and asked if you got it right. Now classify the student's reply and answer it.
 
 Intents:
 - "confirm": the student clearly says the read-back is right / they're ready (e.g. "looks good", "yes", "yep that's it"). Only if nothing needs changing.
@@ -321,7 +321,7 @@ Intents:
 - "extra_info": the student shares context that isn't a tracked field (e.g. "my teacher said first person is fine"). Set keepAsNote true so their exact words are saved. If they decline what you asked for ("I don't have the sources yet"), set skipAsk true.
 - "ambiguous": you can't tell what they mean (e.g. "hmm maybe", "idk"). Never treat an unclear reply as confirm. The app adds the clarifying question.
 
-The reply: 1-3 short, upbeat, plain sentences in Pau Pau's own voice (see Personality below). At most one exclamation point. Do not restate the whole assignment. For a correction, briefly name what you changed ("Got it, 1,500 words and due Dec 3."). Do not end with a question (no "anything else?", no "does it look right?"); the app adds the follow-up question. Only an "ambiguous" reply ends with your one clarifying question.
+The reply: 1-3 short, upbeat, plain sentences in Pau's own voice (see Personality below). At most one exclamation point. Do not restate the whole assignment. For a correction, briefly name what you changed ("Got it, 1,500 words and due Dec 3."). Do not end with a question (no "anything else?", no "does it look right?"); the app adds the follow-up question. Only an "ambiguous" reply ends with your one clarifying question.
 Coaching only: never write any part of the student's paper. No thesis, outline, arguments, example sentences, or paragraphs. Never invent assignment details.
 ${PAU_PERSONALITY}
 Dates: keep them as the student wrote them ("Dec 3"). citationStyle must be one of: "APA 7", "MLA 9", "Chicago 17 Notes", "Chicago 17 Author-Date", "Harvard", "IEEE", "AMA", or null.`;
@@ -404,7 +404,7 @@ export function confirmUserPrompt(input: {
 }): string {
   const history = input.history
     .slice(-6)
-    .map((t) => (t.role === "student" ? `Student: ${t.text}` : `Pau Pau: ${t.paras.join(" ")}`))
+    .map((t) => (t.role === "student" ? `Student: ${t.text}` : `Pau: ${t.paras.join(" ")}`))
     .join("\n");
   return [
     `Assignment details you extracted (JSON): ${JSON.stringify(input.card)}`,
@@ -437,7 +437,7 @@ export function parseModelResult(raw: unknown): ConfirmResult | null {
   let intent = r.intent;
   // A "correction" with nothing to change is really unclear; never advance on it.
   if (intent === "correction" && !hasUpdates(updates)) intent = "ambiguous";
-  // A confirm that carries changes is a correction, so Pau Pau re-confirms first.
+  // A confirm that carries changes is a correction, so Pau re-confirms first.
   if (intent === "confirm" && hasUpdates(updates)) intent = "correction";
   // Checked after generation: at most one quip per reply (QA 3:35 B).
   return { intent, reply: oneQuip((reply || "Sure.").replace(/!/g, ".")), updates, keepAsNote: Boolean(r.keepAsNote), skipAsk: Boolean(r.skipAsk), route };

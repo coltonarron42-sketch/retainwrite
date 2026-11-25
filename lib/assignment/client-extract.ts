@@ -445,7 +445,7 @@ async function readPhoto(paperId: string, file: Blob, kind: FileKind): Promise<C
     return {
       ok: false,
       kind,
-      error: "This photo looks blank, with no writing on it. Retake it with the whole page in view, or tell Pau Pau about the assignment.",
+      error: "This photo looks blank, with no writing on it. Retake it with the whole page in view, or tell Pau about the assignment.",
     };
   }
   const ocr = await ocrImages(paperId, jpeg.tiles);

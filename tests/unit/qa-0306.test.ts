@@ -38,10 +38,10 @@ describe("QA 3:06 #2: rapid sends never lose text", () => {
     expect(intake).toContain("const went = latestSendNow.current?.(merged, true);");
   });
   it("a short early take keeps what was already sent and adds the next line", () => {
-    expect(intake).toContain("const prevShort = error && shortEcho ? shortEcho : \"\";");
-    expect(intake).toContain("if (fromBox && rejectedRef.current && text && !stanceMode) setDraftAnswer(");
+    expect(intake).toContain("const prevShort = withoutFiller(error && shortEcho ? shortEcho : \"\");");
+    expect(intake).toContain("if (fromBox && rejectedRef.current && text && withoutFiller(text) && !stanceMode) setDraftAnswer(");
   });
-  it("the typing hint never stands in for Pau Pau's reply", () => {
+  it("the typing hint never stands in for Pau's reply", () => {
     expect(intake).toContain("const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);");
   });
 });

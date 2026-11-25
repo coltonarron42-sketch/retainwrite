@@ -13,11 +13,11 @@ export const runtime = "nodejs";
 const bodySchema = z.object({ text: z.string().min(1).max(TTS_MAX_CHARS), voice: z.string().max(40).optional() });
 
 /**
- * Pau Pau's voice (PLAN.md 9): one sentence of her own words in, MP3 out,
+ * Pau's voice (PLAN.md 9): one sentence of her own words in, MP3 out,
  * via xAI text to speech (POST https://api.x.ai/v1/tts) with the same xAI key
  * the app already uses. Signed-in students (or the demo) only. 503 means "no
  * server voice": the browser falls back to Web Speech.
- * // SOP: coaching only — reads Pau Pau's own words aloud, never the student's
+ * // SOP: coaching only — reads Pau's own words aloud, never the student's
  */
 export async function POST(request: Request) {
   // The old voice is stopped (lib/voice/legacy.ts): no read-aloud audio.
