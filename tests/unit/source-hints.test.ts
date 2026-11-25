@@ -1,7 +1,7 @@
 /** P3: stored sources placed per section, shown at the section's first prompt (Stages 2–3). */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { placeSources, sourceHintLead, sourceHintsFor, storedSources } from "@/lib/coaching/source-hints";
+import { placeSources, sameWork, sourceHintLead, sourceHintsFor, storedSources } from "@/lib/coaching/source-hints";
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
 
 const S = (kind: MaterialSummary["kind"], title: string, points: string[], url?: string): MaterialSummary => ({ kind, title, points, sources: url ? [{ title, url }] : [], at: 1 });
@@ -16,10 +16,26 @@ const SECTIONS = [
 ];
 
 describe("stored sources", () => {
-  it("only their readings and pages Pau found (never her own knowledge), one per work, their copy first", () => {
-    const list = storedSources([KNOW, GOLEMAN, NORTHOUSE, S("found", "Northouse, Chapter 4", ["x"])]);
-    expect(list.map((x) => x.title)).toEqual(["What Makes a Leader? (Goleman, HBR)", "Northouse, Chapter 4"]);
-    expect(list[1]!.kind).toBe("reading");
+  it("their readings, pages Pau found and her summaries of the assigned readings, one per work, their copy first", () => {
+    const list = storedSources([KNOW, GOLEMAN, NORTHOUSE, S("found", "Northouse, Chapter 4", ["x"]), S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["y"]), S("knowledge", "Goleman's “What Makes a Leader?”", ["z"])]);
+    expect(list.map((x) => x.title)).toEqual(["Leadership styles", "What Makes a Leader? (Goleman, HBR)", "Northouse, Chapter 4"]);
+    expect(list[2]!.kind).toBe("reading");
+    expect(list[1]!.kind).toBe("found");
+  });
+  it("same work across titles, but a shared topic word never merges two works", () => {
+    expect(sameWork("Northouse, Chapter 4", "Northouse's Leadership: Theory and Practice (the book overall)")).toBe(true);
+    expect(sameWork("What Makes a Leader? (Goleman, HBR)", "Goleman's “What Makes a Leader?”")).toBe(true);
+    expect(sameWork("Leadership That Gets Results (Goleman)", "What Makes a Leader? (Goleman)")).toBe(false);
+    expect(sameWork("Leadership styles", "Northouse's Leadership: Theory and Practice")).toBe(false);
+  });
+  it("the default flow (no upload): her labelled summaries of the assigned readings are hinted, without a link", () => {
+    const NK = S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["Servant leaders put followers' needs first.", "Situational leadership matches style to readiness."]);
+    const GK = S("knowledge", "Goleman's “What Makes a Leader?”", ["Emotional intelligence: empathy and social skill matter during change."]);
+    expect(storedSources([NK, GK])).toHaveLength(2);
+    const h = sourceHintsFor(SECTIONS[2]!, SECTIONS, [NK, GK]);
+    expect(h.map((x) => x.title)).toEqual(["Goleman's “What Makes a Leader?”"]);
+    expect(h[0]!.url).toBeNull();
+    expect(h[0]!.from).toMatch(/check it against your copy/);
   });
   it("each source goes to the one section it fits best (where to reference it)", () => {
     const placed = placeSources(SECTIONS, [GOLEMAN, NORTHOUSE]);
