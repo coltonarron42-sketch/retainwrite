@@ -96,7 +96,7 @@ import { StanceChat, type LogicChoice } from "@/components/stages/loop/stance-ch
 import { OutlineChat } from "@/components/stages/loop/outline-chat";
 import type { SkeletonWords } from "@/components/stages/focus-panels";
 import { useSkeleton } from "@/lib/skeleton/use-skeleton";
-import { skeletonWordsFromSession } from "@/lib/skeleton/sections";
+import { pendingSectionStorageKey, skeletonWordsFromSession, withoutSectionQuery } from "@/lib/skeleton/sections";
 import { revealSection, usePublishSkeleton, useSectionRequests } from "@/lib/skeleton/live";
 import {
   afterMirror,
@@ -109,7 +109,7 @@ import {
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
-import { pickPhrase, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
+import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
 import { pastLines } from "@/components/stages/loop/stance-chat";
 import { assignmentQuestion } from "@/lib/copy/sentences";
@@ -391,16 +391,33 @@ export function CoachingLoop({
   // PC-30: a section picked in The Skeleton. From another page it arrives as ?section=key (read
   // once, then dropped from the URL); on this page as a request. Stage 2 opens that section (the
   // same as the section buttons); both stages then scroll to it and put the cursor in the box.
-  const skeletonAsk = useRef<string | null>(typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("section"));
+  const skeletonAsk = useRef<string | null>(null);
+  // Clear ?section as soon as it appears (including a Stage 2 → 3 jump). Persist the key in
+  // sessionStorage so a remount after the URL is already clean still opens that section.
   useEffect(() => {
-    if (!sessionLoaded || !skeletonAsk.current) return;
-    const key = skeletonAsk.current;
+    if (typeof window === "undefined") return;
+    const storeKey = pendingSectionStorageKey(paperId);
+    const fromUrl = new URLSearchParams(window.location.search).get("section");
+    const key = fromUrl || skeletonAsk.current || sessionStorage.getItem(storeKey);
+    if (!key) return;
+    skeletonAsk.current = key;
+    sessionStorage.setItem(storeKey, key);
+    if (fromUrl) window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+  }, [stage, paperId]);
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    const storeKey = pendingSectionStorageKey(paperId);
+    const key = skeletonAsk.current || (typeof window !== "undefined" ? sessionStorage.getItem(storeKey) : null);
+    if (!key) return;
     skeletonAsk.current = null;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("section");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(storeKey);
+      if (new URLSearchParams(window.location.search).has("section")) {
+        window.history.replaceState(window.history.state, "", withoutSectionQuery(window.location.href));
+      }
+    }
     revealSection(stage, key);
-  }, [sessionLoaded, stage]);
+  }, [sessionLoaded, stage, paperId]);
   useSectionRequests(stage, (req) => {
     if (!session || stage !== 2) return;
     const index = session.sections.findIndex((item) => item.key === req.section);
@@ -471,7 +488,8 @@ export function CoachingLoop({
       unsentDrafts.current = {};
       for (const d of drafts) if (/^stance:.+:draft$/.test(d.fieldKey)) unsentDrafts.current[d.fieldKey] = { text: d.text, updatedAt: d.updatedAt ?? null };
       // PC-30: The Skeleton sent them here for one section (?section=key): that one opens.
-      const asked = skeletonAsk.current;
+      const asked = skeletonAsk.current ?? (typeof window !== "undefined" ? sessionStorage.getItem(pendingSectionStorageKey(paperId)) : null);
+      if (asked && !skeletonAsk.current) skeletonAsk.current = asked;
       if (asked && stage === 2 && base.sections.some((item) => item.key === asked)) sectionKey = asked;
       let index = sectionKey ? base.sections.findIndex((item) => item.key === sectionKey) : base.activeIndex ?? 0;
       // The resume pointer belongs to another stage (e.g. Stage 3 after a trip
@@ -1502,6 +1520,7 @@ export function CoachingLoop({
           skeleton={skeleton}
           earlier={stage2Past}
           pick={pctx?.decision ? pickPhrase(pctx.decision, pctx.options?.options ?? []) : null}
+          leader={pickedLeader(pctx ? { leader: pctx.leader ?? undefined, decision: pctx.decision ?? undefined, options: pctx.options ?? undefined } : null)}
           paperId={paperId}
           persist={persist}
           voice={persist && paperStage === 3}

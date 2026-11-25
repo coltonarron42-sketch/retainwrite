@@ -56,16 +56,35 @@ type Props = {
   onGoBack: (key: string) => void;
   /** Grok Voice on Stage 3: only while the paper is in Stage 3 (not a read-only past stage). */
   voice?: boolean;
-  /** Their Stage 1 pick ("Transformational"), so the coaching names it (QA 10:21). */
+  /** Their Stage 1 pick ("servant and transformational leadership"), so the coaching names it (QA 10:21). */
   pick?: string | null;
+  /** Their saved leader, when they named one. Never invent a name if this is empty. */
+  leader?: string | null;
   /** PC-28: the paper's skeleton (labels/titles) and the student's own words for it. */
   skeleton?: { view: SkeletonView | null; words: SkeletonWords; direction?: string | null };
   /** QA 1:11 AM #8: Stage 1 and Stage 2 for Past chat, so it's there on the first Stage 3 view. */
   earlier?: PastLine[];
 };
 
-export const OUTLINE_INTRO =
-  "I pulled in your notes from Stance. We'll shape one section at a time into a short outline in your own words: one line per point, your main claim first, then the example that shows it.";
+const OUTLINE_INTRO_REST =
+  "We'll shape one section at a time into a short outline in your own words: one line per point, your main claim first, then the example that shows it.";
+
+export const OUTLINE_INTRO = `I pulled in your notes from Stance. ${OUTLINE_INTRO_REST}`;
+
+/**
+ * Stage 3 opener: names the styles and leader they already saved, and only those.
+ * With neither, the generic line stays as it was.
+ */
+export function outlineIntroLine(pick: string | null = null, leader: string | null = null): string {
+  const styles = pick?.trim() || "";
+  const who = leader?.trim() || "";
+  if (!styles && !who) return OUTLINE_INTRO;
+  if (styles && who) {
+    return `I pulled in your notes from Stance. You picked ${styles}, with ${who} as your leader. ${OUTLINE_INTRO_REST}`;
+  }
+  if (styles) return `I pulled in your notes from Stance. You picked ${styles}. ${OUTLINE_INTRO_REST}`;
+  return `I pulled in your notes from Stance, using ${who} as your example. ${OUTLINE_INTRO_REST}`;
+}
 
 /** The section intro line (once per section in the conversation). */
 export function sectionIntroLine(section: OutlineSectionView): string {
@@ -103,11 +122,11 @@ function doneLine(title: string, ideas: string[]): string {
   return `Your ${title.toLowerCase()} already has what it needs, starting with “${cut}”.`;
 }
 
-export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null, pick: string | null = null): string[] {
+export function outlineAsk(section: OutlineSectionView, first: boolean, introSaid = false, thesis: string | null = null, allNotes: string | null = null, pick: string | null = null, leader: string | null = null): string[] {
   const notes = keptIdeas(section.ideas).join(" ");
   const gap = notes ? outlineGap(section.title, outlinePoints(keptIdeas(section.ideas).join("\n")), thesis, allNotes, pick) : null;
   return [
-    ...(first && !introSaid ? [OUTLINE_INTRO] : []),
+    ...(first && !introSaid ? [outlineIntroLine(pick, leader)] : []),
     introSaid ? `Back to your ${section.title.toLowerCase()}.` : `${sectionIntroLine(section)} ${sectionTeachLine(section)}`,
     notes
       ? // QA 7:11 AM: she coaches the gap she sees in their outline for this section.
@@ -171,7 +190,7 @@ export function OutlineChat(props: Props) {
   // When the chat is focused, the earlier intro is off screen: she restates the full prompt.
   const seen = focus.focused ? transcript.slice(mountAt) : transcript;
   const paras = current
-    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(seen, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "), props.pick ?? null)
+    ? outlineAsk(current, done.length === 0 && transcript.length === 0, introInHistory(seen, current), thesisFrom(sections), sections.map((x) => keptIdeas(x.ideas).join(" ")).join(" "), props.pick ?? null, props.leader ?? null)
     : ["That's every section outlined. Ready to move on to sources?"];
   const pau = (k: string, t: string): LoopLine => ({ k, who: "pau", text: t });
   const you = (k: string, t: string): LoopLine => ({ k, who: "you", text: t });

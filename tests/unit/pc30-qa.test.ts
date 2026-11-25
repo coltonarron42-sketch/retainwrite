@@ -87,6 +87,22 @@ describe("PC-30 QA #6: Space opens a focused section, same as Enter", () => {
   });
 });
 
+describe("PC-30 follow-up: Escape closes no matter where focus is", () => {
+  it("closes after clicking a non-interactive title (focus is not in the dialog)", () => {
+    const onClose = vi.fn();
+    act(() => {
+      root.render(createElement(SkeletonOverlay, { sections, waiting: null, direction: null, interactive: () => false, onOpen: vi.fn(), onClose, returnFocus: () => null }));
+    });
+    const title = document.querySelector<HTMLElement>("[data-skeleton-title]")!;
+    act(() => {
+      title.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("PC-30 QA #1/#4: welcome-back on a finished (read-only) stage", () => {
   const render = (review: boolean) =>
     act(() => {
@@ -153,5 +169,23 @@ describe("PC-30 QA: the Stage 2 quick lesson names every picked style", () => {
     const card = contextTeachCard({ summary: null, options: null, decision: { pick: "Transformational", answer: "transformational because of the vision" } }, "r")!;
     expect(card.ask).toBe("You picked Transformational. Which moment shows it best?");
     expect(card.definition).toMatch(/^Transformational is the idea/);
+  });
+  // The Body chip actually renders conceptTeachCard first (STYLE_LESSONS.find used to keep only transformational).
+  it("conceptTeachCard names every picked style, in the student's order", async () => {
+    const { conceptTeachCard, guardTeachCard } = await import("@/lib/coaching/teach");
+    const card = conceptTeachCard({ decision: { pick: "Transformational", answer: "servant and transformational, because Walton put associates first" }, leader: { pick: "Sam Walton" } }, "r")!;
+    expect(guardTeachCard(card).ok).toBe(true);
+    expect(card.concept).toBe("servant and transformational leadership");
+    expect(card.definition.toLowerCase()).toMatch(/servant/);
+    expect(card.definition.toLowerCase()).toMatch(/transformational/);
+    expect(card.definition).not.toMatch(/^Leading by inspiring/);
+    expect(card.ask).toContain("Sam Walton");
+  });
+  it("conceptTeachCard with one pick is unchanged", async () => {
+    const { conceptTeachCard } = await import("@/lib/coaching/teach");
+    const card = conceptTeachCard({ decision: { pick: "Transformational", answer: "I'd pick transformational because…" }, leader: { pick: "Satya Nadella" } }, "r")!;
+    expect(card.concept).toBe("transformational leadership");
+    expect(card.definition).toMatch(/shared vision/);
+    expect(card.ask).toContain("Satya Nadella");
   });
 });
