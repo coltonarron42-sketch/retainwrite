@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { isServerOnlyField } from "@/lib/ghost/script";
 import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -80,7 +81,8 @@ export async function GET(_request: Request, ctx: Ctx) {
   }
   return NextResponse.json({
     drafts: rows
-      .filter((row) => row.field_key !== "loop_session")
+      // Server-only rows (the ghost script) never reach the browser (Colton t221u).
+      .filter((row) => row.field_key !== "loop_session" && !isServerOnlyField(row.field_key))
       .map((row) => ({
         fieldKey: row.field_key,
         text: row.draft_text,
@@ -102,6 +104,8 @@ export async function POST(request: Request, ctx: Ctx) {
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
+  // Reserved server-only keys can't be written (or overwritten) from the browser.
+  if (isServerOnlyField(body.fieldKey)) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   const now = new Date().toISOString();
   // The draft row, the session row and the resume pointer are independent
   // writes, so run them together instead of one after another. Any failure
