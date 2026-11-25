@@ -42,6 +42,7 @@ describe("t204u (b)/(c): his follow-ups", () => {
     expect(src).toMatch(/await storyTurn\(\{ id: "stance_early"/);
     expect(src).toContain("await catchUpNow(qn.id);");
     expect(src).toContain("is a real example of the ${r.style} side of it. Want to run with that direction?");
+    expect(src).toContain('q.kind !== "interest" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))');
     // One ask per turn: the plan's question is off screen while her story reply is the open ask.
     expect(src).toContain('{q && !(decisionSaving && q.id === "decision_pick") && !storyAsk ? (');
     // Yes: the story is their answer, decision and early take; no "early take" ask, no "Which direction…?".

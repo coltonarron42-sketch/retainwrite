@@ -2221,9 +2221,18 @@ export function AssignmentIntake({
       const r = story0 ? reflectStory(story0, { tentative: true }) : null;
       if (story0 && r) {
         setStoryProposal({ id: Date.now(), qid: qn.id, story: story0, reflect: r });
-        setStoryTieBack({ qid: qn.id, paras: [`That's the background. Your story about ${r.who} is a real example of the ${r.style} side of it. Want to run with that direction?`] });
+        // One ask per turn: when her catch-up already asks for their pages, the tie-back is a statement (the chip is the yes).
+        const asked = Boolean((briefRef.current ?? brief)?.missingAsk);
+        setStoryTieBack({
+          qid: qn.id,
+          paras: [
+            asked
+              ? `That's the background. Your story about ${r.who} is a real example of the ${r.style} side of it, so it's a solid direction whenever you're ready.`
+              : `That's the background. Your story about ${r.who} is a real example of the ${r.style} side of it. Want to run with that direction?`,
+          ],
+        });
       } else {
-        setStoryTieBack({ qid: qn.id, paras: ["That's the background. Which of those ideas fits something you've seen yourself?"] });
+        setStoryTieBack({ qid: qn.id, paras: [(briefRef.current ?? brief)?.missingAsk ? "That's the background. Once you've looked it over, tell me which idea fits something you've seen yourself." : "That's the background. Which of those ideas fits something you've seen yourself?"] });
       }
       return true;
     }
@@ -2348,7 +2357,7 @@ export function AssignmentIntake({
     const sentBox = (opts?.text ?? draftAnswer).trim();
     let offerAnswered = false;
     // t204u: their own story (or a request to build on it / be interviewed / be caught up) comes first.
-    if (typed && !opts?.skip && q.kind !== "background" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))) return;
+    if (typed && !opts?.skip && q.kind !== "interest" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))) return;
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
     if (typed && brief?.northstar && isGetToKnowSkip(typed)) {
       setError(null);
