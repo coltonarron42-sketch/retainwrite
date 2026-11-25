@@ -2155,7 +2155,8 @@ export function AssignmentIntake({
       // One ask: everything up to the first question mark.
       const q1 = text.match(/^[^?]*\?/)?.[0]?.trim();
       // QA 12:48 #2: the interview says their name ("Mandy"), never "them".
-      if (q1 && who && /\b(them|they|this person|that person|your leader)\b/i.test(q1)) return fallback;
+      // QA round 5 minor: every interview question names them (a question without the name uses the plain one that does).
+      if (q1 && who && (/\b(them|they|this person|that person|your leader)\b/i.test(q1) || !q1.includes(who.replace(/^your\s+/, "")))) return fallback;
       return q1 && q1.split(/\s+/).length <= 40 ? q1 : fallback;
     } catch {
       return fallback;

@@ -91,5 +91,6 @@ describe("minor", () => {
     expect(src).toContain("`What changed for you or the team after ${who ?? \"they\"} did that?`");
     expect(src).toContain("{interviewDone.current ? null : (");
     expect(src).toContain("interviewDone.current = true;");
+    expect(src).toContain('!q1.includes(who.replace(/^your\\s+/, ""))');
   });
 });
