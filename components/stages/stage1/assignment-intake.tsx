@@ -1025,11 +1025,6 @@ export function AssignmentIntake({
     [brief?.leader?.pick && brief.leader.pick !== "their own" ? brief.leader.pick : null, brief?.leader?.answer, brief?.decision?.answer, ...answers.map((a) => a.answerText)],
     rawText ?? "",
   );
-  // QA (#78 gate): search links are built from their leader, their styles and the topic's keywords.
-  const searchPicks = () => ({
-    leader: leaderAlready,
-    styles: chosenStyles([brief?.decision?.answer, ...answers.map((a) => a.answerText)]),
-  });
   const coachingPlan = useMemo(() => {
     if (!requirements || !briefLoaded) return [] as { id: string; kind: IntakeAnswer["kind"]; text: string }[];
     // QA 11:08 (root cause of the hobbies line): a new paper's first brief comes before the read-back
@@ -1179,6 +1174,11 @@ export function AssignmentIntake({
   // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
   const curQId = useRef<string | null>(null);
   const [recovering, setRecovering] = useState(false);
+  // QA (#78 gate): search links are built from their leader, their styles and the topic's keywords.
+  const searchPicks = () => ({
+    leader: leaderAlready,
+    styles: chosenStyles([brief?.decision?.answer, ...answers.map((a) => a.answerText)]),
+  });
   // North star (Colton 11:41): there is no extra voice question at all.
   const fallbackOff = Boolean(brief?.northstar);
 
