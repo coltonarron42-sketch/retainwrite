@@ -1,3 +1,4 @@
+import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * Paper-level context (Colton t161u, the north star): what Pau knows about this
@@ -257,6 +258,8 @@ export function answerNamesOption(answer: string, label: string): boolean {
   const distinct = words.filter((x) => !GENERIC_PICK_WORD.test(x));
   const use = distinct.length ? distinct : words;
   if (!use.length) return false;
+  // QA prod smoke (64a5b2bd): an option named only to set it aside ("not transformational") isn't named as their pick.
+  if (use.every((x) => !a.includes(x) || rejectsStyle(a, x))) return false;
   const named = namedPickWord(answer);
   if (named && !GENERIC_PICK_WORD.test(named) && !words.some((w) => w.startsWith(named.slice(0, 5)) || named.startsWith(w.slice(0, 5)))) return false;
   return use.filter((x) => a.includes(x)).length / use.length >= 0.5;
@@ -717,13 +720,16 @@ const STYLE_WORDS = ["transformational", "servant", "situational", "transactiona
  * QA 1:11 AM #7: every style/option they picked, in the order they said them
  * ("servant and transformational" → ["Servant", "Transformational"]), never just the first.
  */
+// "Servant leadership" (an option) and "Servant" (a style word) are one pick, never listed twice.
+const firstWord = (x: string) => x.toLowerCase().split(/\s+/)[0] ?? "";
 export function pickedStyles(decision: { pick?: string | null; answer?: string | null } | null | undefined, options: DecisionOption[] = []): string[] {
   if (!decision) return [];
   const said = `${decision.answer ?? ""}`.toLowerCase();
   const hits: { at: number; label: string }[] = [];
   const add = (word: string, label: string) => {
     const m = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").exec(said);
-    if (m && !hits.some((h) => h.label.toLowerCase() === label.toLowerCase())) hits.push({ at: m.index, label });
+    // QA prod smoke (64a5b2bd): "Servant, not transformational" picks servant only.
+    if (m && affirmsStyle(said, word) && !hits.some((h) => h.label.toLowerCase() === label.toLowerCase() || firstWord(h.label) === firstWord(label))) hits.push({ at: m.index, label });
   };
   for (const o of options) {
     const head = o.label.split(/[:(–]/)[0]!.trim();
