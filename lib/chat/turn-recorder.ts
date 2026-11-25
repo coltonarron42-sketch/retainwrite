@@ -124,7 +124,9 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
     // The screen redraws its history after a reload (some of it only once the brief loads):
     // that's not new turns. It ends at the student's first key or tap, or after 20 s.
     restoreUntil.current = Date.now() + 20000;
-    const end = () => {
+    const end = (e: Event) => {
+      // Opening Past chat or the skeleton is reading, not a new turn.
+      if ((e.target as Element | null)?.closest?.("[data-past-chat], [data-past-chat-open], [data-skeleton-panel], [data-skeleton-open]")) return;
       restoreUntil.current = 0;
       document.removeEventListener("keydown", end, true);
       document.removeEventListener("pointerdown", end, true);
