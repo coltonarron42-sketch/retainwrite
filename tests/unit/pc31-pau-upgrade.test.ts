@@ -151,7 +151,7 @@ describe("PC-31 research plumbing", () => {
     };
     expect(extractSources(resp)).toEqual([{ url: "https://hbr.org/x", title: "HBR" }]);
     expect(researchText(resp)).toBe("• Kelleher put staff first.");
-    expect(sourcesLine([{ title: "Why servant leaders win", url: "https://www.hbr.org/x" }])).toBe("Sources: Why servant leaders win (hbr.org)");
+    expect(sourcesLine([{ title: "Why servant leaders win", url: "https://www.hbr.org/x" }])).toBe("Sources: [Why servant leaders win (hbr.org)](https://www.hbr.org/x)");
   });
   it("signs the spoken answer for one paper only", () => {
     const t = spokenFrom(["• One idea.", "• Two idea", "Which fits?", "Sources: X (x.com)"]);
@@ -166,8 +166,8 @@ describe("PC-31 research plumbing", () => {
 describe("PC-31 sources line", () => {
   it("names sites, not raw links, when the citation has no title", async () => {
     const { sourcesLine } = await import("@/lib/coach/sources-line");
-    expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: strategypunk.com · blanchard.com");
-    expect(sourcesLine([{ title: "Servant leadership examples", url: "https://oakcover.com/a" }])).toBe("Sources: Servant leadership examples (oakcover.com)");
+    expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: [strategypunk.com](https://www.strategypunk.com/top-servant-leadership) · [blanchard.com](https://blanchard.com/x)");
+    expect(sourcesLine([{ title: "Servant leadership examples", url: "https://oakcover.com/a" }])).toBe("Sources: [Servant leadership examples (oakcover.com)](https://oakcover.com/a)");
   });
 });
 

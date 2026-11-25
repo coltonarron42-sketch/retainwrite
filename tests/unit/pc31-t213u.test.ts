@@ -43,7 +43,8 @@ describe("t213u #1: dev/test search cache", () => {
 describe("t213u #3: live thinking status", () => {
   it("turns real steps into short lines", () => {
     expect(searchingLine('servant leadership examples site:hbr.org "business"')).toBe("Searching for servant leadership examples business…");
-    expect(readingLine("https://www.strategypunk.com/top")).toBe("Reading strategypunk.com…");
+    expect(readingLine("https://hbr.org/top")).toBe("Reading hbr.org…");
+    expect(readingLine("https://www.strategypunk.com/top")).toBeNull();
     const seen = { writing: false, hosts: new Set<string>() };
     expect(statusFromEvent({ type: "response.output_item.added", item: { type: "web_search_call", action: { query: "servant leadership in business" } } }, seen)).toEqual(["Searching for servant leadership in business…"]);
     expect(statusFromEvent({ type: "response.output_text.annotation.added", annotation: { type: "url_citation", url: "https://online.ben.edu/x" } }, seen)).toEqual(["Reading online.ben.edu…"]);
