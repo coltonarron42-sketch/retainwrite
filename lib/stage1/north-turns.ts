@@ -61,6 +61,19 @@ export function withoutFiller(text: string): string {
   return lines.join("\n").trim();
 }
 
+/**
+ * QA 2:12 PM #1: messages sent back to back are one turn. The real answer is what Pau answers;
+ * a trailing (or leading) filler ("ok", "hmm") never turns it into a non-answer.
+ */
+export function keepSubstance(parts: string[]): string {
+  const all = parts.map((p) => p.trim()).filter(Boolean);
+  const real = all.filter((p) => withoutFiller(p) !== "" && !/^(?:h+m+|u+h+|u+m+|e+r+m*|mm+)[.!?,\s]*$/i.test(p));
+  // A bare "ok" after the answer is a sign-off, not a reply to the offer (a leading "ok" may be one, so it stays).
+  const SIGN_OFF = /^(?:ok(?:ay)?|k+|kk|alright|all right|cool|got it|that'?s it|done)[.!\s]*$/i;
+  while (real.length > 1 && SIGN_OFF.test(real[real.length - 1]!)) real.pop();
+  return (real.length ? real : all).join("\n");
+}
+
 /** The gentle re-ask after a non-answer: one short line, then the same question (QA 1:11 AM #4). */
 export function fillerNudge(qid: string): string {
   switch (qid) {

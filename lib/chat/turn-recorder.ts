@@ -228,6 +228,8 @@ export function screenLines(recs: Rec[], onScreen: { el: Element; who: PastLine[
   // kept where it happened (a screen that hides history for a moment never shortens Past chat).
   // Covered: most of its words (by sentence) are on screen in one bubble, or it holds a whole bubble's words.
   const covered = (r: Rec) => {
+    // QA 2:12 PM: a short line ("ok", "hmm") is inside almost any bubble's words; only the same bubble covers it.
+    if (norm(r.text).length < 20) return screenText.includes(norm(r.text));
     const parts = norm(r.text).split(/(?<=[.!?])\s+/).filter(Boolean);
     const total = parts.reduce((n, p) => n + p.length, 0) || 1;
     return (
@@ -298,11 +300,14 @@ export function useTurnRecorder(opts: { enabled: boolean; saved: PastLine[]; onC
     let raf = 0;
     const scan = () => {
       raf = 0;
-      const onScreen = [...document.querySelectorAll("[data-chat-line]")]
-        .filter((el) => !el.closest(SKIP) && !el.parentElement?.closest("[data-chat-line]"))
-        .flatMap((el) => {
-          const who = (el.getAttribute("data-chat-line") as PastLine["who"]) || "pau";
-          return [{ el, who, text: chatLineText(el) }, ...[...el.querySelectorAll("[data-chat-part]")].map((part) => ({ el: part, who, text: chatLineText(part) }))];
+      // In screen order: each bubble, then its parts (the spark offer) as their own lines. QA 2:12 PM:
+      // a part drawn outside any bubble (the spark under the current question) is a Pau line too.
+      const onScreen = [...document.querySelectorAll("[data-chat-line], [data-chat-part]")]
+        .filter((el) => !el.closest(SKIP) && (el.hasAttribute("data-chat-part") || !el.parentElement?.closest("[data-chat-line]")))
+        .map((el) => {
+          const host = el.hasAttribute("data-chat-line") ? el : el.closest("[data-chat-line]");
+          const who = ((host?.getAttribute("data-chat-line") as PastLine["who"]) || "pau");
+          return { el, who, text: chatLineText(el) };
         });
       const now = Date.now();
       foldLines(recs.current, onScreen, (el) => el.isConnected, now, now < restoreUntil.current);
