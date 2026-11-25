@@ -3,7 +3,7 @@ import { PauPauAvatar } from "@/components/stages/stage1/pau-pau-confirm";
 import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { cn } from "@/lib/utils";
 
-/** "Pau Pau · {label}" with the small avatar, in place of a plain eyebrow. */
+/** "Pau · {label}" with the small avatar, in place of a plain eyebrow. */
 export function CoachEyebrow({ label, className }: { label?: string; className?: string }) {
   return (
     <p className={cn("flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-ds-muted", className)}>
@@ -16,7 +16,7 @@ export function CoachEyebrow({ label, className }: { label?: string; className?:
   );
 }
 
-/** A line in Pau Pau's voice: avatar plus a speech bubble. */
+/** A line in Pau's voice: avatar plus a speech bubble. */
 export function CoachSays({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn("flex items-start gap-2 sm:gap-3", className)}>

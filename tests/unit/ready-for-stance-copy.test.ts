@@ -5,7 +5,7 @@ describe("ready for stance copy", () => {
   it("does not show a grade level or sentence-length score", () => {
     const source = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     const voice = readFileSync("lib/stage1/voice.ts", "utf8");
-    expect(voice).toContain("Pau Pau has enough of your voice to coach you.");
+    expect(voice).toContain("Pau has enough of your voice to coach you.");
     expect(source).toContain("readyVoiceLine");
     expect(source).toContain("Starting the stance interview…");
     expect(source).toContain("Somewhat comfortable");

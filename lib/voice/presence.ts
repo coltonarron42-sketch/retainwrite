@@ -1,12 +1,12 @@
 /**
- * Which Pau Pau bubble is being read aloud right now? The speech queue says
+ * Which Pau bubble is being read aloud right now? The speech queue says
  * the exact sentence (from the utterance's start event); a bubble matches when
  * that sentence's first words are in its text. Pure, so it is unit-tested.
  */
 function words(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/\bpow pow\b/g, "pau pau")
+    .replace(/\bpow\b/g, "pau")
     .replace(/[’']/g, "")
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
