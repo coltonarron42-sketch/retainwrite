@@ -1,5 +1,8 @@
 "use client";
 
+import { SourceHintCard } from "@/components/stages/source-hint";
+import { sourceHintsFor } from "@/lib/coaching/source-hints";
+import type { MaterialSummary } from "@/lib/stage1/paper-context";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { DsButton } from "@/components/ui/ds-button";
@@ -111,6 +114,8 @@ export type StanceHandlers = {
 
 type Props = {
   paperId: string;
+  /** P3: the paper's stored sources (readings they gave us, pages Pau found), placed per section. */
+  sources?: MaterialSummary[];
   intro: {
     heading: string;
     body: string;
@@ -719,6 +724,10 @@ export function StanceChat(props: Props) {
           <p className={dsCaption} data-section-step data-section-key={section.key}>
             Section {active + 1} of {sections.length} · {section.title}: {section.needs}
           </p>
+          {/* P3: at the section's first prompt, the source that belongs here (when and where to reference it). */}
+          {!transcript.some((l) => l.who !== "pau" && l.k === section.key) ? (
+            <SourceHintCard stage={2} sectionTitle={section.title} hints={sourceHintsFor(section, sections, props.sources)} />
+          ) : null}
 
           {asideHere && props.asideChips?.length ? (
             <Choices label="Options from earlier">

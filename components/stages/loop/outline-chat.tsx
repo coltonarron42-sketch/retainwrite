@@ -1,5 +1,8 @@
 "use client";
 
+import { SourceHintCard } from "@/components/stages/source-hint";
+import { sourceHintsFor } from "@/lib/coaching/source-hints";
+import type { MaterialSummary } from "@/lib/stage1/paper-context";
 import { useEffect, useRef, useState } from "react";
 import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { readScoped, writeScoped } from "@/lib/local/user-scope";
@@ -34,6 +37,8 @@ export type OutlineSectionView = { key: string; title: string; needs: string; id
 
 type Props = {
   paperId: string;
+  /** P3: the paper's stored sources, placed per section. */
+  sources?: MaterialSummary[];
   persist: boolean;
   sections: OutlineSectionView[];
   done: string[];
@@ -421,6 +426,10 @@ export function OutlineChat(props: Props) {
               <p className={dsCaption} data-section-step data-section-key={current.key} data-outline-current={current.key}>
                 Section {index + 1} of {sections.length} · {current.title}
               </p>
+              {/* P3: at the section's first outline prompt, the source to cite on this line. */}
+              {!transcript.some((l) => l.who !== "pau" && l.k === current.key) ? (
+                <SourceHintCard stage={3} sectionTitle={current.title} hints={sourceHintsFor(current, sections, props.sources)} />
+              ) : null}
               {flag ? (
                 <p className="border-l-2 border-ds-accent pl-3 text-[16px]" data-flag>
                   Flagged in Stance: {flag} You chose to keep going, so give this section another look as you outline it.
