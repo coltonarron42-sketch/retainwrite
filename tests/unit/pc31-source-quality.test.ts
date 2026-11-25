@@ -102,3 +102,16 @@ describe("QA 3:46: one Sources line with linked titles", () => {
     expect(s).toBe("Bachelder rebuilt Popeyes. Kelleher put people first. I found those in Harvard Business Review and Reuters.");
   });
 });
+
+describe("QA 3:46 walk: readable Sources titles", () => {
+  it("uses the page slug when the title is a URL, never repeats a bare host", async () => {
+    const { sourcesLine, slugTitle } = await import("@/lib/coach/sources-line");
+    expect(slugTitle("https://hbr.org/2023/05/6-key-levers-of-a-successful-organizational-transformation?ab=x")).toBe("6 key levers of a successful organizational transformation");
+    const line = sourcesLine([
+      { title: "https://www.emerald.com/lodj/article/25/7/600/264455/Servant-leadership-at-Heritage-Bible-College-a", url: "https://www.emerald.com/lodj/article/25/7/600/264455/Servant-leadership-at-Heritage-Bible-College-a" },
+      { title: "emerald.com", url: "https://www.emerald.com/jole/article/21/1/184/1273277/Using-a-Case-Study-to-Teach-Leaders-How-to-Enact" },
+    ])!;
+    expect(line).toContain("[Servant leadership at Heritage Bible College a (emerald.com)]");
+    expect(line).toContain("[Using a Case Study to Teach Leaders How to Enact (emerald.com)]");
+  });
+});

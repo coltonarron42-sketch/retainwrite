@@ -59,6 +59,7 @@ export const SOURCE_QUALITY = {
     "ft.com": "the Financial Times", "economist.com": "The Economist", "reuters.com": "Reuters", "apnews.com": "AP News", "bbc.com": "BBC",
     "npr.org": "NPR", "theguardian.com": "The Guardian", "washingtonpost.com": "The Washington Post", "bloomberg.com": "Bloomberg",
     "cnbc.com": "CNBC", "fortune.com": "Fortune", "forbes.com": "Forbes", "greenleaf.org": "the Greenleaf Center", "shrm.org": "SHRM",
-    "britannica.com": "Britannica", "apa.org": "the APA",
+    "britannica.com": "Britannica", "apa.org": "the APA", "emerald.com": "Emerald",
+    "frontiersin.org": "Frontiers", "mdpi.com": "MDPI", "academic.oup.com": "Oxford Academic", "cambridge.org": "Cambridge",
   } as Record<string, string>,
 } as const;

@@ -166,7 +166,7 @@ describe("PC-31 research plumbing", () => {
 describe("PC-31 sources line", () => {
   it("names sites, not raw links, when the citation has no title", async () => {
     const { sourcesLine } = await import("@/lib/coach/sources-line");
-    expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: [strategypunk.com](https://www.strategypunk.com/top-servant-leadership) · [blanchard.com](https://blanchard.com/x)");
+    expect(sourcesLine([{ title: "https://www.strategypunk.com/top-servant-leadership", url: "https://www.strategypunk.com/top-servant-leadership" }, { title: "", url: "https://blanchard.com/x" }])).toBe("Sources: [Top servant leadership (strategypunk.com)](https://www.strategypunk.com/top-servant-leadership) · [blanchard.com](https://blanchard.com/x)");
     expect(sourcesLine([{ title: "Servant leadership examples", url: "https://oakcover.com/a" }])).toBe("Sources: [Servant leadership examples (oakcover.com)](https://oakcover.com/a)");
   });
 });
