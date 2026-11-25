@@ -57,30 +57,70 @@ export function skeletonWordsFromSession(
   return out;
 }
 
+const STYLE_WORD = /\b(servant|transformational|transactional|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting|behavioral)\b/gi;
+const stylesOf = (t: string | null | undefined) => [...new Set([...String(t ?? "").matchAll(STYLE_WORD)].map((m) => m[1]!.toLowerCase()))];
+
+/**
+ * QA prod quick-lock (41e4b81, paper 13ccbcdb): where each Body note goes, the same on every
+ * device and every refresh. Ghost #2's model matched notes against the shape's private focus
+ * lines ("the leader's change story"), not the titles on screen ("Sam Walton, servant
+ * leadership"), so the same two answers landed in Body 3 and 4 on prod and Body 1 and 2 on the
+ * preview. Rules, in order:
+ *  1. A note that names exactly one style goes to the paragraph titled with that style.
+ *  2. When paragraphs are titled from their picked styles, the model's placement is not used
+ *     (the titles are the plan); the other notes fill those paragraphs first, in the order the
+ *     student wrote them, then the remaining empty paragraphs.
+ *  3. With no style titles, the model's placement (ideaRefs) still applies, then the order rule.
+ * Extra notes stay in the last paragraph they reached. Each note shows once; none is dropped.
+ * Returns note indexes per body block key.
+ */
+export function placeBodyNotes(bodyBlocks: Block[], notes: string[]): Record<string, number[]> {
+  const out: Record<string, number[]> = Object.fromEntries(bodyBlocks.map((b) => [b.key, [] as number[]]));
+  if (!bodyBlocks.length) return out;
+  const titled = bodyBlocks.map((b) => stylesOf(b.title));
+  const styleTitled = titled.some((t) => t.length > 0);
+  const placed = new Set<number>();
+  notes.forEach((n, j) => {
+    const st = stylesOf(n);
+    if (st.length !== 1) return;
+    const i = titled.findIndex((ts) => ts.includes(st[0]!));
+    if (i < 0) return;
+    out[bodyBlocks[i]!.key]!.push(j);
+    placed.add(j);
+  });
+  if (!styleTitled) {
+    for (const b of bodyBlocks) {
+      for (const r of b.ideaRefs) {
+        if (r < 0 || r >= notes.length || placed.has(r)) continue;
+        out[b.key]!.push(r);
+        placed.add(r);
+      }
+    }
+  }
+  const free = notes.map((_, j) => j).filter((j) => !placed.has(j));
+  if (free.length) {
+    const empty = bodyBlocks.filter((b) => !out[b.key]!.length && (styleTitled || !b.ideaRefs.length));
+    const homes = styleTitled
+      ? [...empty.filter((b) => stylesOf(b.title).length), ...empty.filter((b) => !stylesOf(b.title).length)]
+      : empty;
+    const to = homes.length ? homes : [bodyBlocks[bodyBlocks.length - 1]!];
+    free.forEach((j, k) => out[to[Math.min(k, to.length - 1)]!.key]!.push(j));
+  }
+  for (const k of Object.keys(out)) out[k]!.sort((x, y) => x - y);
+  return out;
+}
+
 /** Which of the student's own words belong to a block. */
 export function wordsForBlock(block: Block, bodyBlocks: Block[], words: SkeletonWords): string[] {
   const w = words[block.group];
   if (!w) return [];
   if (block.group !== "body") return [...w.notes, ...(w.outline ?? [])];
   const i = bodyBlocks.findIndex((b) => b.key === block.key);
-  if (bodyBlocks.some((b) => b.ideaRefs.length)) {
-    // Ghost #2 placed the notes: a note shows once, in the first paragraph that uses it; notes it
-    // didn't place spread over the paragraphs it left empty (never doubled up with a placed one).
-    if (block.ideaRefs.length) {
-      const taken = new Set(bodyBlocks.slice(0, Math.max(0, i)).flatMap((b) => b.ideaRefs));
-      return block.ideaRefs.filter((r) => !taken.has(r)).map((r) => w.notes[r]).filter((x): x is string => Boolean(x));
-    }
-    const claimed = new Set(bodyBlocks.flatMap((b) => b.ideaRefs));
-    const free = w.notes.filter((_, j) => !claimed.has(j));
-    const open = bodyBlocks.filter((b) => !b.ideaRefs.length);
-    const k = open.findIndex((b) => b.key === block.key);
-    if (k < 0) return [];
-    return free.filter((_, j) => Math.min(j, open.length - 1) === k);
-  }
   if (i < 0) return [];
+  const own = (placeBodyNotes(bodyBlocks, w.notes)[block.key] ?? []).map((j) => w.notes[j]!).filter(Boolean);
+  // Without the model's placement the outline lines follow the notes in the last paragraph (as before).
   const last = i === bodyBlocks.length - 1;
-  const own = w.notes.filter((_, j) => Math.min(j, bodyBlocks.length - 1) === i);
-  return last ? [...own, ...(w.outline ?? [])] : own;
+  return last && !bodyBlocks.some((b) => b.ideaRefs.length) ? [...own, ...(w.outline ?? [])] : own;
 }
 
 /** Does the assignment call for a title page? (formatting rules, wording, or APA). */

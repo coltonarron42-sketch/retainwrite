@@ -20,6 +20,7 @@ import {
   pressureTestLine,
 } from "@/lib/stages/explore-intent";
 import { isUnquotableLeadIdea } from "@/lib/coaching/exampleLeads";
+import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
 import { stanceTurnFor } from "@/lib/stages/stance-turn";
 import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { keptIdeas } from "@/lib/coaching/thin";
@@ -365,5 +366,40 @@ describe("PC-33: lead cards and confirm chrome stay real", () => {
     expect(src).toMatch(/your lead\|your angle/);
     expect(readFileSync("components/stages/loop/coaching-loop.tsx", "utf8")).toContain("listeningClaim");
     expect(src).toContain("fetchListenReply");
+  });
+});
+
+describe("PC-33: default Intro and Body direction flow is one option set", () => {
+  it("never shows direction cards plus a stretch on Intro or Body, even outside listening", () => {
+    const sheet = "Prompt: Which leadership style is most effective? Write an argument essay.";
+    for (const section of [
+      { key: "intro", title: "Introduction" },
+      { key: "body", title: "Body" },
+    ]) {
+      const examples = exampleLeadBatch({
+        concept: "servant leadership",
+        assignmentText: sheet,
+        studentIdea: "Sam Walton put associates first.",
+        rubricRef: "prompt",
+        section,
+      });
+      expect(examples.candidates.length).toBeGreaterThan(0);
+      const assembled = assembleLeadBatch({
+        candidates: examples.candidates,
+        wildcard: examples.wildcard,
+        aiSuggestedSoFar: 0,
+        under18: false,
+      });
+      const visible = oneOptionLeadBatch(assembled);
+      expect(visible.ranked.length, section.title).toBeGreaterThan(0);
+      expect(visible.ranked.length, section.title).toBeLessThanOrEqual(3);
+      expect(visible.wildcard, section.title).toBeNull();
+    }
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    expect(loop).toContain("oneOptionLeadBatch");
+    expect(chat).toContain("visibleBatch");
+    expect(chat).toMatch(/visibleBatch\.wildcard \?/);
+    expect(chat).not.toMatch(/props\.batch\.wildcard/);
   });
 });

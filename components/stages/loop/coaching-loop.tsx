@@ -109,7 +109,7 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
-import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, type ListeningState } from "@/lib/stages/explore-intent";
+import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, oneOptionLeadBatch, type ListeningState } from "@/lib/stages/explore-intent";
 import { fetchListenClaim } from "@/lib/stages/listen-client";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
@@ -1518,7 +1518,7 @@ export function CoachingLoop({
           leadsPending={Boolean(termCacheKey) && termsWait === termCacheKey && !(searchTerms.key === termCacheKey && searchTerms.map[section.key])}
           batch={
             batch
-              ? {
+              ? oneOptionLeadBatch({
                   ranked: batch.ranked,
                   wildcard: batch.wildcard,
                   capReached: batch.capReached,
@@ -1529,7 +1529,7 @@ export function CoachingLoop({
                         storyAngle: lesson.statement,
                       })
                     : null,
-                }
+                })
               : null
           }
           transcript={session.transcript ?? []}
@@ -1775,7 +1775,7 @@ function AssignmentSeed({ paperId, onUse }: { paperId: string; onUse: (text: str
     <div className="mx-auto max-w-xl">
       <h1 className="font-display text-3xl text-rw-ink">Your assignment</h1>
       <p className="mt-2 text-sm text-rw-ink/70">
-        We couldn&apos;t find the assignment text from Stage 1. Paste it here and coaching starts
+        We couldn't find the assignment text from Stage 1. Paste it here and coaching starts
         from that text, or{" "}
         <a href={`/app/papers/${paperId}/stage/1`} className="font-semibold text-rw-teal">
           go back to Stage 1
@@ -1925,7 +1925,7 @@ function StageFive({
       {sections.map((section) => (
         <article key={section.key} className="rounded-xl bg-white p-4 text-sm">
           <h3 className="font-medium">{section.title}</h3>
-          {section.concept ? <p>You&apos;re showing {section.concept}.</p> : null}
+          {section.concept ? <p>You're showing {section.concept}.</p> : null}
           {section.ideas.map((item) => (
             <p key={item}>Idea: {item}</p>
           ))}
