@@ -1,3 +1,4 @@
+import { affirmsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * QA 11:40 (preview retest): typed read-question replies, vague-pick escalation,
@@ -244,8 +245,6 @@ export function chosenStyles(texts: (string | null | undefined)[]): string[] {
     if (!text.trim()) continue;
     for (const x of stylesIn(text)) {
       if (!GATE_STYLE.test(x) || out.includes(x)) continue;
-      const against = new RegExp(`\\b(?:not|isn'?t|aren'?t|wasn'?t|instead of|rather than|than|over|against)\\s+(?:\\w+\\s+){0,2}${x}\\b`, "i");
-      if (against.test(text)) continue;
       out.push(x);
     }
   }
@@ -289,7 +288,8 @@ export function stylesIn(text: string): string[] {
     const x = m[1]!.toLowerCase();
     if (!out.includes(x)) out.push(x);
   }
-  return out;
+  // QA prod smoke (64a5b2bd): "Servant, not transformational" is one style; a style only set aside never counts.
+  return out.filter((x) => affirmsStyle(text, x));
 }
 const KNOWN_STYLE = /\b(transformational|transactional|servant|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting)\b(?!\s+(?:leadership|styles?)\b)/gi;
 
@@ -324,6 +324,13 @@ export function lockedPicks(stance: string, leader: string | null, styles: strin
   return [who, how].filter(Boolean).join(", ");
 }
 
+/** "I read it", "I've already read both": an explicit statement that they read it (never a mention of the author). */
+export function saidReadIt(text: string): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!/\b(?:i(?:'ve| have)?\s+(?:already\s+|actually\s+|just\s+)?read|i did read|i(?:'ve| have)? (?:gone|went) through|i finished (?:it|them|the|reading)|already read)\b/.test(t)) return false;
+  return !/\b(?:haven'?t|have not|didn'?t|did not|not yet|never)\s+(?:\w+\s+){0,2}read\b/.test(t);
+}
+
 /** The assignment's requirements as checklist lines: ✓ covered by what they said, ○ still to do. */
 export function requirementLines(
   stance: string,
@@ -345,6 +352,11 @@ export function requirementLines(
     const format = /\b(words?|APA|MLA|Chicago|format|pages?|double|font|due)\b/i.test(item);
     if (/\b(own life|personal|your life|your experience|from your)\b/i.test(item) && personal) {
       lines.push(`✓ ${item}: you've got one.`);
+      continue;
+    }
+    // QA full prod walk (8979326a): "Goleman's empathy stuff" is a mention, not "I read it". ✓ only when they said they read it.
+    if (covered && !format && !saidReadIt(stance)) {
+      lines.push(`○ ${item}. You brought it up; I'll help you use it.`);
       continue;
     }
     lines.push(covered ? `✓ ${item}: you've read it.` : format ? `○ ${item}. We'll handle it when you draft.` : `○ ${item}. I'll help you with this one.`);
