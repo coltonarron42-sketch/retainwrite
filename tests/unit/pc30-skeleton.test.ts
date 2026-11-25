@@ -131,3 +131,14 @@ describe("PC-30 a note shows in one card only", () => {
     expect(rows[3]!.preview).toEqual(["second"]);
   });
 });
+
+describe("PC-30 placed and unplaced notes", () => {
+  it("a note ghost #2 placed in paragraph 4 is not also shown in paragraph 1", () => {
+    const v = viewFor(1500);
+    const body = v.blocks.filter((b) => b.group === "body");
+    body[3]!.ideaRefs = [0];
+    const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["listen to the team", "free note"] } }));
+    const rows = paperSections({ view: v, words }).filter((r) => r.group === "body");
+    expect(rows.map((r) => r.preview)).toEqual([["free note"], [], [], ["listen to the team"], []]);
+  });
+});

@@ -60,10 +60,19 @@ export function wordsForBlock(block: Block, bodyBlocks: Block[], words: Skeleton
   if (!w) return [];
   if (block.group !== "body") return [...w.notes, ...(w.outline ?? [])];
   const i = bodyBlocks.findIndex((b) => b.key === block.key);
-  if (block.ideaRefs.length) {
-    // A note shows once: in the first paragraph that uses it.
-    const taken = new Set(bodyBlocks.slice(0, Math.max(0, i)).flatMap((b) => b.ideaRefs));
-    return block.ideaRefs.filter((r) => !taken.has(r)).map((r) => w.notes[r]).filter((x): x is string => Boolean(x));
+  if (bodyBlocks.some((b) => b.ideaRefs.length)) {
+    // Ghost #2 placed the notes: a note shows once, in the first paragraph that uses it; notes it
+    // didn't place spread over the paragraphs it left empty (never doubled up with a placed one).
+    if (block.ideaRefs.length) {
+      const taken = new Set(bodyBlocks.slice(0, Math.max(0, i)).flatMap((b) => b.ideaRefs));
+      return block.ideaRefs.filter((r) => !taken.has(r)).map((r) => w.notes[r]).filter((x): x is string => Boolean(x));
+    }
+    const claimed = new Set(bodyBlocks.flatMap((b) => b.ideaRefs));
+    const free = w.notes.filter((_, j) => !claimed.has(j));
+    const open = bodyBlocks.filter((b) => !b.ideaRefs.length);
+    const k = open.findIndex((b) => b.key === block.key);
+    if (k < 0) return [];
+    return free.filter((_, j) => Math.min(j, open.length - 1) === k);
   }
   if (i < 0) return [];
   const last = i === bodyBlocks.length - 1;
