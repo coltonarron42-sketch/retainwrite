@@ -86,7 +86,7 @@ export function stanceStartBlockers(input: {
 /** Gentle note when the voice sample is short. The student can still continue. */
 export function voiceShortNote(input: { voiceOk: boolean }): string | null {
   if (input.voiceOk) return null;
-  return "Your answers are on the short side, so the coach has less of your voice to match. You can keep going now, or reopen an earlier answer and add a few sentences.";
+  return "Your answers are on the short side, so I have less of your voice to match. You can keep going now, or reopen an earlier answer and add a few sentences.";
 }
 
 /**
@@ -149,10 +149,13 @@ export function materialGateLabel(input: { catchUpDone: boolean; materialShown: 
 }
 
 /** The Stage 1 gate checklist on north-star papers. */
-export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean; earlyFromStory?: boolean; materialLabel?: string; style?: string | null; leader?: string | null }): { label: string; done: boolean }[] {
+export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boolean; decided: boolean; stanceOk: boolean; earlyFromStory?: boolean; materialLabel?: string; style?: string | null; styles?: string[]; leader?: string | null }): { label: string; done: boolean }[] {
   // QA round 5 (4): the gate says what they decided ("Your style: servant, with Walton"), not only that they did.
-  const what = input.decided && (input.style || input.leader)
-    ? `: ${[input.style ? `your style: ${input.style.toLowerCase()}` : null, input.leader ? `your leader: ${input.leader}` : null].filter(Boolean).join(", ")}`
+  // QA prod smoke (5d7aca1): every chosen style ("your styles: servant and transformational"), never only the first.
+  const styles = [...new Set((input.styles?.length ? input.styles : input.style ? [input.style] : []).map((x) => x.trim().toLowerCase()).filter(Boolean))];
+  const styleText = styles.length <= 1 ? styles.join("") : `${styles.slice(0, -1).join(", ")} and ${styles.at(-1)}`;
+  const what = input.decided && (styles.length || input.leader)
+    ? `: ${[styles.length ? `your style${styles.length > 1 ? "s" : ""}: ${styleText}` : null, input.leader ? `your leader: ${input.leader}` : null].filter(Boolean).join(", ")}`
     : "";
   return [
     { label: "Assignment confirmed", done: input.confirmed },

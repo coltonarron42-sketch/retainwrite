@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { chosenStyles, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -4241,7 +4241,11 @@ export function AssignmentIntake({
                       earlyFromStory:
                         Boolean(stanceViaStory) ||
                         Boolean(brief?.decision?.answer && answers.find((a) => a.questionId === "stance_early")?.answerText.trim() === brief.decision.answer.trim()),
-                      style: stylesIn(brief?.decision?.answer ?? "").find((x) => /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral)$/i.test(x)) ?? storyStyle,
+                      // QA prod smoke (5d7aca1): every style they chose, as the "✓ Your styles" line lists them.
+                      styles: (() => {
+                        const all = chosenStyles([brief?.decision?.answer, ...["material_check", "decision_pick", "decision_why", "stance_early"].flatMap((id) => answers.filter((a) => a.questionId === id).map((a) => a.answerText))]);
+                        return all.length ? all : storyStyle ? [storyStyle] : [];
+                      })(),
                       leader: brief?.leader?.pick && brief.leader.pick !== "their own" && brief.leader.pick.length <= 40 ? brief.leader.pick : null,
                       materialLabel: materialGateLabel({
                         catchUpDone: northstarGate.catchUpDone,
@@ -4264,7 +4268,7 @@ export function AssignmentIntake({
                   <li>
                     {voiceWordsMet
                       ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps Pau match your voice (optional)"}
+                      : "· Voice sample: a good start. More of your own writing helps me match your voice (optional)"}
                     <span className="sr-only">
                       {` (${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words)`}
                     </span>

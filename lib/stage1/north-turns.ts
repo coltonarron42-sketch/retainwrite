@@ -231,6 +231,27 @@ export function namedPerson(text: string): string | null {
 
 const IDEA_CUE =
   /\b(?:i want|i'?d like|i think|i'?m thinking|i was thinking|my idea|i plan|i'?m planning|i'?m going|i have (?:an idea|a few ideas|some ideas)|i'?d (?:use|argue|pick|go with|write)|i'?ll (?:use|argue|write)|i (?:could|would) (?:use|argue|write)|argue|my example|using)\b/i;
+const GATE_STYLE = /^(servant|transformational|situational|authentic|democratic|transactional|charismatic|autocratic|adaptive|participative|visionary|coaching|behavioral|laissez-faire|affiliative|pacesetting)$/i;
+/**
+ * QA prod smoke (5d7aca1): every style they chose, from everything they said about their pick, in
+ * order ("servant and transformational"), never only the first. A style they argue against
+ * ("not transformational", "rather than servant") isn't one they chose.
+ */
+export function chosenStyles(texts: (string | null | undefined)[]): string[] {
+  const out: string[] = [];
+  for (const t of texts) {
+    const text = String(t ?? "");
+    if (!text.trim()) continue;
+    for (const x of stylesIn(text)) {
+      if (!GATE_STYLE.test(x) || out.includes(x)) continue;
+      const against = new RegExp(`\\b(?:not|isn'?t|aren'?t|wasn'?t|instead of|rather than|than|over|against)\\s+(?:\\w+\\s+){0,2}${x}\\b`, "i");
+      if (against.test(text)) continue;
+      out.push(x);
+    }
+  }
+  return out;
+}
+
 /**
  * INFORMED (Colton 12:08): they already have ideas (a leader, a style, an example, a flow).
  * Their words are kept word for word; the leader is pulled out when there is one.
