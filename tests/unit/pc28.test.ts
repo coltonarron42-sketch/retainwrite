@@ -114,14 +114,14 @@ describe("PC-28: ghost #2 titles and the client view", () => {
     expect(titleSafe('"Legere, winners circle, culture change, and a whole lot more words here too."').split(" ").length).toBeLessThanOrEqual(10);
     const o = outlineFromModel({ titles: [{ title: "Legere, winners circle, culture change", ideas: [0, 9] }] }, shape, 2)!;
     expect(o.titles[0]).toEqual({ key: "body-1", title: "Legere, winners circle, culture change", ideaRefs: [0] });
-    expect(ruleOutline(shape, ["Legere changed the culture at T-Mobile fast. More."]).titles[0]!.title).toBe("Legere changed the culture at T-Mobile fast");
+    expect(ruleOutline(shape, { leader: "John Legere", styles: ["Transformational"] }).titles[0]!.title).toBe("John Legere, transformational leadership");
   });
   it("projection carries only labels, subheadings and titles (no shape internals)", () => {
-    const v = projectSkeleton({ ...shape, decisions: ["SECRET decision"] }, ruleOutline(shape, ["Legere culture change"]));
+    const v = projectSkeleton({ ...shape, decisions: ["SECRET decision"] }, ruleOutline(shape, { leader: "Legere", styles: [] }));
     const json = JSON.stringify(v);
     expect(json).not.toMatch(/SECRET|decisions|examples|theories/);
     expect(Object.keys(v.blocks[0]!).sort()).toEqual(["group", "ideaRefs", "key", "label", "sub", "title"]);
-    expect(v.blocks[1]!.title).toBe("Legere culture change");
+    expect(v.blocks[1]!.title).toMatch(/^Legere, /);
     expect(v.transitions.length).toBeGreaterThan(0);
   });
   it("locked blocks open the student's own words", () => {
@@ -171,5 +171,91 @@ describe("t187u: the coach is just 'Pau'", () => {
     const files = ["lib/coach/personality.ts", "lib/voice/realtime/persona.ts", "lib/stage1/chat-copy.ts", "lib/stage1/pau-pau.ts", "lib/voice/speakable.ts", "lib/voice/realtime/relay.ts", "components/marketing/home-editorial.tsx"];
     for (const f of files) expect(readFileSync(f, "utf8")).not.toMatch(new RegExp("Pau" + " Pau"));
     expect(readFileSync("lib/voice/realtime/relay.ts", "utf8")).toMatch(/replace: \{ "Pau": "Pow" \}/);
+  });
+});
+
+import { cleanTitle } from "@/lib/skeleton/shape";
+import { andList, pickedLeader, pickedStyles } from "@/lib/stage1/paper-context";
+import { stage2Earlier } from "@/lib/stages/stage2-intro";
+import { balanceQuotes, questionOf } from "@/lib/copy/sentences";
+
+describe("QA 1:11 AM #1: ghost shapes drive the skeleton", () => {
+  const opts = [{ label: "Transformational", why: "" }, { label: "Situational", why: "" }, { label: "Servant", why: "" }];
+  const decision = { question: "", pick: "Transformational", answer: "I want to use Sam Walton. I think he shows servant and transformational leadership because he listened to workers.", at: 0 };
+  it("a slightly-off model shape is trimmed, not dropped to the generic fallback", () => {
+    const long = shapeFromModel({ body: Array.from({ length: 5 }, (_, i) => ({ focus: `Sam Walton style ${i} `.repeat(12), kind: "example-and-analysis-of-the-leader-in-detail" })), decisions: Array.from({ length: 9 }, () => "q".repeat(300)), transitions: 3.6 });
+    expect(long).not.toBeNull();
+    expect(long!.source).toBe("model");
+  });
+  it("picks every style and the leader", () => {
+    expect(pickedStyles(decision, opts)).toEqual(["Servant", "Transformational"]);
+    expect(pickedLeader({ decision, options: { question: "", options: opts } })).toBe("Sam Walton");
+    expect(andList(["Servant", "Transformational"])).toBe("Servant and Transformational");
+  });
+  it("rules titles come from the choices, never cut mid-phrase", () => {
+    const shape = ruleShape({ text: "Analyze a leader. 1050 words." });
+    const o = ruleOutline(shape, { leader: "Sam Walton", styles: ["Servant", "Transformational"] });
+    expect(o.titles[0]!.title).toBe("Sam Walton, servant leadership");
+    expect(o.titles[1]!.title).toBe("Sam Walton, transformational leadership");
+    for (const t of o.titles) expect(t.title).not.toMatch(/\b(of|the|a|to)$/);
+  });
+  it("model titles that end mid-phrase are rejected for the rules title", () => {
+    expect(cleanTitle("He talked up a big vision of")).toBe("");
+    expect(cleanTitle("Sam Walton, transformational vision")).toBe("Sam Walton, transformational vision");
+    expect(cleanTitle("Sam Walton, servant leadership, listening to associates every single morning at stores")).toBe("Sam Walton, servant leadership");
+    const shape = ruleShape({ text: "Analyze a leader. 1050 words." });
+    const o = outlineFromModel({ titles: [{ title: "He talked up a big vision of" }] }, shape, 0, { leader: "Sam Walton", styles: ["Transformational"] })!;
+    expect(o.titles[0]!.title).toBe("Sam Walton, transformational leadership");
+  });
+});
+
+describe("QA 1:11 AM #7: Stance recap lists both picks", () => {
+  it("names servant and transformational", () => {
+    const opts = [{ label: "Transformational", why: "" }, { label: "Servant", why: "" }];
+    const line = stage2Earlier({ question: "", pick: "Transformational", answer: "I think Sam Walton shows servant and transformational leadership because he listened to his workers.", at: 0 }, null, opts)!;
+    expect(line).toMatch(/Servant and Transformational/);
+  });
+});
+
+describe("QA 1:11 AM #2: the logic check quotes the real question", () => {
+  const sheet = "BUS 210 Leadership Paper. Using Northouse and Goleman from our readings, write 1000 words on which leadership style is most effective for leading a team through change. Use APA format, 12pt font.";
+  it("skips the sources and format sentences", () => {
+    expect(questionOf(sheet)).toBe("which leadership style is most effective for leading a team through change");
+    expect(questionOf("Should U.S. high schools start later?")).toBe("Should U.S. high schools start later?");
+  });
+  it("never leaves a quote unclosed", () => {
+    expect(balanceQuotes("Read “The Lottery and answer")).not.toMatch(/“[^”]*$/);
+  });
+});
+
+import { fillerNudge, isFillerSaying } from "@/lib/stage1/north-turns";
+describe("QA 1:11 AM #4: filler is not an answer", () => {
+  it("flags non-answers, keeps real short answers", () => {
+    for (const t of ["first quick message", "test", "testing 123", "hi", "asdf", "...", "just a quick message", "lol"]) expect(isFillerSaying(t), t).toBe(true);
+    for (const t of ["ok", "sure", "yes", "no", "I read both", "servant", "Sam Walton", "idk which one", "transformational because it helps"]) expect(isFillerSaying(t), t).toBe(false);
+    expect(fillerNudge("decision_why")).toMatch(/\?$/);
+    expect(fillerNudge("decision_why").match(/\?/g)).toHaveLength(1);
+  });
+});
+
+import { withoutClosingQuestion } from "@/lib/copy/sentences";
+import { stage1PastLines, withEarlier } from "@/components/stages/focus-panels";
+import { visibleSourceLead } from "@/lib/coaching/exampleLeads";
+describe("QA 1:11 AM #5/#6/#8", () => {
+  it("the turn under the return opener holds its own question", () => {
+    expect(withoutClosingQuestion(["Picked: Sam Walton.", "Ready to run with it?"])).toEqual(["Picked: Sam Walton."]);
+    expect(withoutClosingQuestion(["Nice pick. Ready to run with it?"])).toEqual(["Nice pick."]);
+    expect(withoutClosingQuestion(["Ready to run with it?"])).toEqual(["Ready to run with it?"]);
+    expect(withoutClosingQuestion(["A statement."])).toEqual(["A statement."]);
+  });
+  it("Past chat starts with Stage 1, under its own heading", () => {
+    const s1 = stage1PastLines([{ questionText: "Where are you with it?", answerText: "I read both." }, { questionText: "Skipped", answerText: "" }]);
+    expect(s1).toEqual([{ who: "pau", text: "Where are you with it?", heading: "Stage 1 · Getting started" }, { who: "you", text: "I read both.", heading: null }]);
+    const all = withEarlier(s1, [{ who: "pau", text: "Intro time.", heading: "Introduction" }], "Stage 2 · Stance");
+    expect(all[2]!.heading).toBe("Stage 2 · Stance · Introduction");
+  });
+  it("a coaching question is never a Look up line", () => {
+    expect(visibleSourceLead("You wrote “Walton listened” — what bigger stakes could your conclusion draw from your point?")).toBeNull();
+    expect(visibleSourceLead("Sam Walton's Made in America")).toBe("Sam Walton's Made in America");
   });
 });

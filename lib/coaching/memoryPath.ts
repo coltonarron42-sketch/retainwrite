@@ -10,10 +10,10 @@ export function mirrorQuestion(emotionalTerms: string[], assignmentText: string)
 }
 
 export const MEMORY_PROBE_OPENER =
-  "Got a moment in mind for this section already? Or want me to ask a few questions to jog your memory?";
+  "Got a moment in mind for this section, or want a few questions to jog your memory?";
 
 export const LESSON_PROBE_OPENER =
-  "Got an idea for how this section goes? Or want me to ask some probing questions so we can start digging up research?";
+  "Got an idea for this section, or want some probing questions to dig up research?";
 
 export const MEMORY_CONFIRM = "Feel good going with this moment?";
 
