@@ -123,7 +123,7 @@ describe("QA 3:51 Myers path and nits", () => {
     );
   });
   it("a 15+ word reason with a causal link counts as the early take, joined with their pick", () => {
-    expect(intake).toContain("if (!(isSolidReason(t) || (wordCount(t) >= 15 && CAUSAL_LINK.test(t)))) return null;");
+    expect(intake).toContain("if (!(isSolidReason(t) || fullSentence || (wordCount(t) >= 15 && CAUSAL_LINK.test(t)))) return null;");
   });
 });
 

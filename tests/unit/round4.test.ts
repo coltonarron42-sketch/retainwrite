@@ -208,7 +208,7 @@ describe("QA 11:26: an in-between Pau bubble is never a Past chat line", () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(src).toMatch(/setStoryAngle\(\{ text: decided, source: "student" \}\);\s*setStoryFromDecision\(true\)/);
-    expect(src).toContain("{storyAngle && screen !== \"story\" && !storyFromDecision &&");
+    expect(src).toContain("{storyAngle && screen !== \"story\" && !storyFromDecision && brief && brief.northstarSet !== false &&");
   });
 });
 
@@ -271,5 +271,21 @@ describe("QA 11:26: a quickly answered question is not overwritten by the next a
       "I'd pick Servant because Walton put associates first",
       "What's your main reason for that pick?",
     ]);
+  });
+});
+
+describe("QA 11:51 (b): a full-sentence early take", () => {
+  it("is accepted when it joins their earlier words; otherwise one ask, never 'one plain sentence'", async () => {
+    const t = "Walton visited stores and listened to his associates while Walmart was growing fast.";
+    const n = moreWordsNote(13, 25, "Your early take", t, 0);
+    expect(n).not.toMatch(/one plain sentence|couple more sentences/);
+    expect((n.match(/\?/g) ?? []).length).toBe(1);
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(src).toContain("const fullSentence = wordCount(t) >= 8");
+    // Each short send and its nudge are their own turns; the spark offer never interrupts a take in progress; voice says only the nudge.
+    expect(src).toContain("setStanceTries((prev) => [...prev, { id: Date.now(), said: fresh || joined, nudge }]");
+    expect(src).toContain('!(hesitationKey === "stance_early" && (shortEcho || stanceTries.length))');
+    expect(src).toContain('voiceLineRef.current = (screen === "coaching" && error) ? error : [');
   });
 });
