@@ -167,7 +167,12 @@ export async function ensureOutline(input: {
     const raw = await askJson(
       OUTLINE_SYSTEM,
       JSON.stringify({
-        body_paragraphs: input.shape.blocks.filter((b) => b.group === "body").map((b) => b.sub),
+        // QA prod quick-lock (13ccbcdb): match notes to the paragraphs as the student sees them (the
+        // title on screen), not only the private focus line, so "servant…" can't drift to Body 3.
+        body_paragraphs: input.shape.blocks.filter((b) => b.group === "body").map((b) => {
+          const shownTitle = input.shown?.titles.find((t) => t.key === b.key)?.title;
+          return shownTitle ? `${shownTitle} (${b.sub})` : b.sub;
+        }),
         leader: input.facts.leader,
         styles: input.facts.styles,
         student_choices: input.choices.map((c) => c.slice(0, 600)),
