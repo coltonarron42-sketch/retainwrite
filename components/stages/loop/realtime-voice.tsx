@@ -7,6 +7,16 @@ import { cn } from "@/lib/utils";
 
 export type LiveTurn = { id: string; who: "you" | "pau"; text: string; cancelled?: boolean; saved?: boolean; sources?: { title: string; url: string; why?: string }[] };
 
+/** An earlier Pau row whose words the newest row repeats (its whole text, at its end) is dropped. */
+export function dedupePau(rows: LiveTurn[], id: string): LiveTurn[] {
+  const cur = rows.find((r) => r.id === id);
+  const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const a = cur ? key(cur.text) : "";
+  if (!a) return rows;
+  const out = rows.filter((r) => r === cur || r.who !== "pau" || key(r.text).length < 12 || !a.endsWith(key(r.text)));
+  return out.length === rows.length ? rows : out;
+}
+
 /** Is the Grok Voice realtime PoC on for this student and paper? (server flag) */
 /** Voice on for this tab (kept across stage pages): a soft gate speaks its line only then. */
 const RT_ON_KEY = "rw:rt:on";
@@ -60,19 +70,24 @@ export function useGateVoice(paperId: string, stage: number, enabled: boolean) {
   return phase;
 }
 
-export function useRealtimeEnabled(paperId: string): boolean {
-  const [on, setOn] = useState(false);
+/** Grok Voice for this paper: null while the server flag is still loading. */
+export function useRealtimeFlag(paperId: string): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
     fetch(`/api/voice/realtime?paperId=${encodeURIComponent(paperId)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { enabled: false }))
       .then((j: { enabled?: boolean }) => live && setOn(j.enabled === true))
-      .catch(() => undefined);
+      .catch(() => live && setOn(false));
     return () => {
       live = false;
     };
   }, [paperId]);
   return on;
+}
+
+export function useRealtimeEnabled(paperId: string): boolean {
+  return useRealtimeFlag(paperId) === true;
 }
 
 export type RealtimeCall = ReturnType<typeof useRealtimeCall>;
@@ -121,6 +136,8 @@ export function useRealtimeCall(opts: {
       const v = params?.get(`rt_${k}`);
       if (v) tuning[k] = v;
     }
+    // A fresh call starts a fresh live transcript (the chat history keeps what was saved).
+    setLive([]);
     const voice = new RealtimeVoice(
       optsRef.current.paperId,
       {
@@ -130,6 +147,8 @@ export function useRealtimeCall(opts: {
         pauDelta: (rid, d) => {
           lastPau.current = rid;
           upsert(`p:${rid}`, "pau", (c) => c + d);
+          // PC-29 QA round 3 minor: the same prompt said again (voice back on, a re-said step) shows once.
+          setLive((rows) => dedupePau(rows, `p:${rid}`));
           // The welcome-back line already shows once at the top of the return; no copy below.
           const wt = welcomeText.current;
           if (wt)

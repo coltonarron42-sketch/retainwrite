@@ -286,10 +286,14 @@ export function CoachingLoop({
   const [sessionLoaded, setSessionLoaded] = useState(false);
   // North star D: what Stage 1 learned (read-back, material key points, decision), for Stages 2-3.
   const [pctx, setPctx] = useState<PaperBrief | null>(null);
+  // PC-29 QA round 3: the Stage 2 opener (the plain-words assignment, "Earlier you picked …") waits
+  // for the paper context instead of showing (and saying) the parsed-topic fallback first.
+  const [pctxSettled, setPctxSettled] = useState(false);
   const [asideChips, setAsideChips] = useState<string[]>([]);
   useEffect(() => {
     if (!persist || stage < 2 || stage > 3) return;
     let live = true;
+    const cap = setTimeout(() => live && setPctxSettled(true), 5_000);
     void fetch(`/api/papers/${paperId}/intake/brief`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -299,11 +303,17 @@ export function CoachingLoop({
       .then((d) => {
         if (live && d?.ok) setPctx(d);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(cap);
+        if (live) setPctxSettled(true);
+      });
     return () => {
       live = false;
+      clearTimeout(cap);
     };
   }, [paperId, persist, stage]);
+  const introReady = !persist || pctxSettled;
   // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
   const skelSections = session?.sections ?? [];
   const skelWords: SkeletonWords = {};
@@ -1329,7 +1339,12 @@ export function CoachingLoop({
         </div>
       ) : null}
 
-      {stage === 2 && section ? (
+      {stage === 2 && section && !introReady ? (
+        <p className="text-sm text-rw-ink" role="status">
+          Opening Stance…
+        </p>
+      ) : null}
+      {stage === 2 && section && introReady ? (
         <StanceChat
           skeleton={skeleton}
           earlier={stage1Past}
