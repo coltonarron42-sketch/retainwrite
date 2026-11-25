@@ -67,7 +67,7 @@ describe("QA 12:48 #3: one ask per turn at the render layer", () => {
   it("once she replied in place, the plan's question isn't re-asked under it and no spark offer joins", () => {
     expect(src).toContain("const asideQ = Boolean(q && !editing && qAsidesNow.length > 0);");
     expect(src).toContain("const sparkHere = q && sparks[q.id] && !asideQ ?");
-    expect(src).toContain("{q && asideQ ? <PauPauGroup bubbles={askedAs.current[q.id] ?? [q.text]} /> : null}");
+    expect(src).toContain('<PauPauGroup bubbles={askedAs.current[q.id] ?? [q.text]} headingIndex={(askedAs.current[q.id] ?? [q.text]).length - 1} headingId="coach-question" />');
     expect(src).toContain("data-ask-chips");
   });
   it("the first interview question is instant and says the name", () => {

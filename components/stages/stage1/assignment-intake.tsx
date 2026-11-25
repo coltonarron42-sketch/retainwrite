@@ -4641,7 +4641,9 @@ export function AssignmentIntake({
           {/* QA 11:08 (lost-path order): her Stage 1 intro came first, so it stays above her replies to the first question. */}
           {introAbove ? <PauPauGroup bubbles={introBubbles} /> : null}
           {/* QA 12:48 #3: the question as it was first asked stays above her in-place replies. */}
-          {q && asideQ ? <PauPauGroup bubbles={askedAs.current[q.id] ?? [q.text]} /> : null}
+          {q && asideQ ? (
+            <PauPauGroup bubbles={askedAs.current[q.id] ?? [q.text]} headingIndex={(askedAs.current[q.id] ?? [q.text]).length - 1} headingId="coach-question" />
+          ) : null}
           {/* Questions and pastes she answered in place for this question (never saved as answers). */}
           {q
             ? qaAsides

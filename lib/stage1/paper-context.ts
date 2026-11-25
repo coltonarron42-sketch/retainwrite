@@ -304,9 +304,12 @@ export function decisionQuestion(opts: NonNullable<PaperContext["options"]>, ctx
   // QA 10:21: a student who has read it gets an open ask; the list is only a nudge.
   if (ctx?.prepared)
     return `${q} You've done the reading, so tell me your pick and your reason. If it helps, the usual contenders are ${few.map((o) => o.label).join(", ")}.`;
+  // QA 12:48 #3: one ask per turn. The opener is already the question, so the close after the list is a statement.
+  const opener = q;
+  const close = /\?\s*$/.test(q.trim()) ? "Pick one, or name something else, and say why." : "Which one would you pick, or something else, and why?";
   if (opts.basis === "general")
-    return `${q} I haven't seen your edition yet, so these are general, well-established options from the field, not your chapter's own list: ${list}. Which one would you pick, or something else, and why?`;
-  return `${q} Here are a few real options: ${list}. Which one would you pick, or something else, and why?`;
+    return `${opener} I haven't seen your edition yet, so these are general, well-established options from the field, not your chapter's own list: ${list}. ${close}`;
+  return `${opener} Here are a few real options: ${list}. ${close}`;
 }
 
 /**
