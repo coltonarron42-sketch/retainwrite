@@ -225,6 +225,12 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
       .trim();
   const back = paras.some((p) => BACK_LINE.test(p.trim()));
   let body = paras.filter((p) => !BACK_LINE.test(p.trim())).map(clean).filter(Boolean).join(" ");
+  // Heading back to the on-screen prompt: one question at a time, so the answer's own question
+  // (still in the bubble) isn't said before "back to your question".
+  if (back) {
+    const kept = (body.match(/[^.!?]+(?:[.!?]+["”’')\]]*|$)/g) ?? []).filter((x) => !/\?["”’')\]]*\s*$/.test(x.trim()));
+    if (kept.join("").trim()) body = kept.join("").replace(/\s+/g, " ").trim();
+  }
   if (body.length > maxChars) {
     const cut = body.slice(0, maxChars);
     const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));

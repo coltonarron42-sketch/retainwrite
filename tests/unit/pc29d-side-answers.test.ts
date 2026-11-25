@@ -23,6 +23,15 @@ describe("side answers are spoken", () => {
       "Servant leadership means the leader's first job is helping the team grow. From general background, not your readings: Robert Greenleaf coined it in 1970. Okay, back to your question.",
     );
     expect(s).not.toContain("whenever you're ready");
+    // Preview run: the answer's own question isn't said before heading back (one question at a time).
+    expect(
+      asideSpoken([
+        "It asks you to pick one style and argue it with one real leader. Northouse, from my own knowledge, covers trait, situational and servant approaches. Which style do you want to argue for?",
+        "Back to my question whenever you're ready.",
+      ]),
+    ).toBe("It asks you to pick one style and argue it with one real leader. Northouse, from my own knowledge, covers trait, situational and servant approaches. Okay, back to your question.");
+    // Without a way back (a pasted reading's own ask), its question stays.
+    expect(asideSpoken(["Here's the gist. Now, in your own words: what do you make of it?"])).toBe("Here's the gist. Now, in your own words: what do you make of it?");
   });
   it("no links or markdown out loud; long answers end on a sentence", () => {
     expect(asideSpoken(["**Key idea:** see https://example.com/x for more.", "- Point one."])).toBe("Key idea: see for more. Point one.");
