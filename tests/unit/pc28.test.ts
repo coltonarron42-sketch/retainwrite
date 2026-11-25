@@ -259,3 +259,91 @@ describe("QA 1:11 AM #5/#6/#8", () => {
     expect(visibleSourceLead("Sam Walton's Made in America")).toBe("Sam Walton's Made in America");
   });
 });
+
+import { logicCheckFromNotes } from "@/lib/coaching/logicCheck";
+import { assignmentQuestion, isSourcesLine } from "@/lib/copy/sentences";
+describe("QA 3:26 AM #1: a stored sources line is never the prompt", () => {
+  const raw = "BUS 210 Leadership essay for Prof. Kim. Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. APA 7. Due Dec 10.";
+  const pq = "Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?";
+  const topic = "which leadership style is most effective for leading a team through change";
+  it("extracts the real question from the bad stored prompt", () => {
+    expect(isSourcesLine(pq)).toBe(true);
+    expect(questionOf(pq)).toBe("");
+    expect(assignmentQuestion({ prompt: pq, raw, topic })).toBe(topic);
+  });
+  it("a valid Body is not flagged off-prompt, and any prompt quote is the real question", () => {
+    const r = logicCheckFromNotes({ notes: "Sam Walton used transformational leadership to lead his team through change at Walmart, sharing a big vision so workers bought in.", assignmentText: raw, rubricRef: "lesson_concept", mode: "lesson", confirmedPrompt: pq, confirmedTopic: topic, thesis: "Transformational leadership is most effective for leading a team through change." });
+    expect(r.basis).not.toBe("contradicts_assignment");
+    expect(r.reason ?? "").not.toMatch(/Using Chapter 4|What Makes a Leader/);
+    const off = logicCheckFromNotes({ notes: "My weekend plans with friends at the mall.", assignmentText: raw, rubricRef: "lesson_concept", mode: "lesson", confirmedPrompt: pq, confirmedTopic: topic });
+    expect(off.reason).toContain(`“${topic}”`);
+    expect(off.reason).not.toMatch(/Using Chapter|Northouse/);
+  });
+});
+
+import { STOCK_POOLS } from "@/components/stages/loop/stance-chat";
+import { MEMORY_PROBE_OPENER, LESSON_PROBE_OPENER } from "@/lib/coaching/memoryPath";
+describe("QA 3:26 AM #2/#6: one question per turn", () => {
+  it("welcome lines ask nothing (the left-off prompt is the question)", () => {
+    for (const t of WELCOME_BACK_TEMPLATES) expect(t).not.toMatch(/\?/);
+  });
+  it("section openers are one question, never either/or", () => {
+    for (const line of [...STOCK_POOLS.lesson_probe, ...STOCK_POOLS.memory_probe, ...STOCK_POOLS.confirm, MEMORY_PROBE_OPENER, LESSON_PROBE_OPENER]) {
+      expect((line.match(/\?/g) ?? []).length, line).toBeLessThanOrEqual(1);
+      expect(line, line).not.toMatch(/, or (?:should|want|do you)\b[^.]*\?/);
+    }
+  });
+});
+
+import { withoutFiller, fillerNudge as fillerNudge326 } from "@/lib/stage1/north-turns";
+import { MORE_WORDS_NOTE as MWN } from "@/lib/stage1/chat-copy";
+describe("QA 3:26 AM #4: filler never stored", () => {
+  it("strips the exact archive QA saw", () => {
+    const out = withoutFiller("first quick message second quick message When Walmart grew fast, Sam Walton led by serving his people.");
+    expect(out).toBe("When Walmart grew fast, Sam Walton led by serving his people.");
+    expect(withoutFiller("first quick message\nsecond quick message")).toBe("");
+    expect(withoutFiller("test")).toBe("");
+    expect(withoutFiller("I think servant leadership works best because people trust it.")).toMatch(/^I think/);
+  });
+  it("the stance filler nudge is its own line, shown as Pau, not 'Closer.'", () => {
+    expect(fillerNudge326("stance_early")).not.toMatch(/Closer|Start with/);
+    expect(MWN.test(fillerNudge326("stance_early"))).toBe(true);
+    expect(MWN.test(fillerNudge326("own_story"))).toBe(true);
+  });
+});
+
+import { mergePast, parsePastLines, stage1PastLines as s1Past } from "@/components/stages/focus-panels";
+describe("QA 3:26 AM #5: Stage 1 Past chat is what was shown", () => {
+  it("never labels the early take with an unasked question", () => {
+    const lines = s1Past([{ questionId: "stance_early", questionText: "What's your early take?", answerText: "Servant leadership works best." }]);
+    expect(lines.map((l) => l.text)).toEqual(["Servant leadership works best."]);
+  });
+  it("a reload keeps the saved asides and re-asks, and adds new lines in order", () => {
+    const saved = [
+      { who: "pau" as const, text: "Q1" },
+      { who: "you" as const, text: "first quick message" },
+      { who: "pau" as const, text: "No rush." },
+      { who: "you" as const, text: "A1" },
+    ];
+    const live = [{ who: "pau" as const, text: "Q1" }, { who: "you" as const, text: "A1" }, { who: "pau" as const, text: "Next up is the change part. Which leader?" }];
+    expect(mergePast(saved, live).map((l) => l.text)).toEqual(["Q1", "first quick message", "No rush.", "A1", "Next up is the change part. Which leader?"]);
+    expect(parsePastLines(JSON.stringify(saved))).toHaveLength(4);
+    expect(parsePastLines("nope")).toEqual([]);
+  });
+});
+
+import { factsKeyOf, keepShownTitles } from "@/lib/skeleton/shape";
+describe("QA 3:26 AM #3: shown body titles stay put", () => {
+  const facts = { leader: "Sam Walton", styles: ["servant leadership"] };
+  const shown = { v: 1 as const, source: "rules" as const, factsKey: factsKeyOf(facts), titles: [{ key: "body1", title: "Sam Walton, servant leadership", ideaRefs: [] }] };
+  const refined = { v: 1 as const, source: "model" as const, titles: [{ key: "body1", title: "Sam Walton, Northouse styles, change", ideaRefs: [0] }, { key: "body2", title: "Goleman, emotional intelligence", ideaRefs: [] }] };
+  it("a refinement never replaces a shown title, only fills blanks", () => {
+    const out = keepShownTitles(shown, refined, factsKeyOf(facts));
+    expect(out.titles.map((t) => t.title)).toEqual(["Sam Walton, servant leadership", "Goleman, emotional intelligence"]);
+  });
+  it("a newly locked choice re-titles", () => {
+    const next = { leader: "Sam Walton", styles: ["transformational"] };
+    const out = keepShownTitles(shown, refined, factsKeyOf(next));
+    expect(out.titles[0]!.title).toBe("Sam Walton, Northouse styles, change");
+  });
+});

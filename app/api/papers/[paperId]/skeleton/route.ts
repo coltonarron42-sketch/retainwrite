@@ -5,7 +5,7 @@ import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { readPaperContext } from "@/lib/server/paper-context/store";
 import { ensureOutline, ensureShape, readGhost, viewFor } from "@/lib/server/skeleton/ghost";
-import { wordsTarget } from "@/lib/skeleton/shape";
+import { factsKeyOf, wordsTarget } from "@/lib/skeleton/shape";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -56,9 +56,11 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const shapeChanged = Boolean(outline && outline.titles.some((t) => !shape.blocks.some((b) => b.key === t.key)));
     const pendingModel = Boolean(existing?.outlineHash?.startsWith("r:"));
     const leaderMissing = Boolean(facts.leader && outline && !outline.titles.some((t) => t.title.toLowerCase().includes(facts.leader!.toLowerCase())));
-    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing) && (facts.leader || facts.styles.length))) {
+    // QA 3:26 AM #3: new locked choices (leader, styles) are the one thing that re-titles.
+    const factsChanged = Boolean(outline && outline.factsKey && outline.factsKey !== factsKeyOf(facts));
+    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing || factsChanged) && (facts.leader || facts.styles.length))) {
       const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
-      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model" });
+      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model", shown: existing?.outline ?? null });
     }
     return NextResponse.json({ view: viewFor(shape, outline) });
   } catch {

@@ -72,7 +72,7 @@ describe("#1 Stage 2 opener is ONE reply", () => {
     expect(turns(html)).toBe(1);
     expect(html).toContain("one section at a time");
     expect(html).toContain("Prompt type");
-    expect(html).toMatch(/Got an idea for this section/);
+    expect(html).toMatch(/What(?:'|&#x27;|&#39;)s your idea for this section/);
   });
   it("after a reload with history, the opener is still inside the first reply", () => {
     const transcript: LoopLine[] = [
