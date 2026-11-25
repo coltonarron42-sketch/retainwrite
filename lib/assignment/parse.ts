@@ -211,7 +211,7 @@ const defaultModel: ModelReader = ({ user, timeoutMs, strong }) =>
 /**
  * Rule-read facts are guesses unless they came off a labeled line ("Length:",
  * "Topic"), which the rules mark 0.8+. Everything else drops below the 0.6 bar
- * Pau Pau uses to say a fact back, so it asks instead of stating it.
+ * Pau uses to say a fact back, so it asks instead of stating it.
  */
 export function capFallbackConfidence(req: AssignmentRequirements): AssignmentRequirements {
   const next = { ...req } as Record<string, unknown>;

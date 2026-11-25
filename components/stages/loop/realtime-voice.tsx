@@ -221,7 +221,7 @@ export function useRealtimeCall(opts: {
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z]+/g, "");
 
 const STATUS: Record<RtPhase, string> = {
-  off: "Talk with Pau Pau",
+  off: "Talk with Pau",
   connecting: "Connecting…",
   listening: "Listening…",
   thinking: "Thinking…",
@@ -266,7 +266,7 @@ export function RealtimeControls({ call }: { call: RealtimeCall }) {
         type="button"
         data-rt-call
         aria-pressed={call.on}
-        aria-label={call.on ? "End voice with Pau Pau" : "Talk with Pau Pau"}
+        aria-label={call.on ? "End voice with Pau" : "Talk with Pau"}
         className={cn(
           "ds-focus flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors duration-150",
           call.on ? "bg-ds-accent text-white" : "text-ds-accent hover:bg-ds-page",
