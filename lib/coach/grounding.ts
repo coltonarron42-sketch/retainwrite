@@ -42,12 +42,26 @@ export function refTokens(titles: string[]): string[] {
   return [...out];
 }
 
+/** ", from general background on Northouse's survey of approaches," / "(general background on X)". */
+const AWKWARD_LABEL = /,?\s*\(?(?:drawing\s+)?(?:from|based on|per)\s+(?:the\s+)?general background(?:\s+(?:on|about|from)\s+[^,.;:()]{1,60})?\)?,?/gi;
+
 export function groundParas(paras: string[], o: GroundOpts): GroundResult {
   const fixedCounts: string[] = [];
   let labeled = 0;
   const refs = refTokens(o.unreadRefs);
   const refRe = refs.length ? new RegExp(`\\b(?:${refs.map((r) => r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:['’]s)?\\b`) : null;
   // One label up front covers the bullets under it (a summary that opens "General background: ...").
+  // t213u #4: "Servant leadership, from general background on Northouse's survey, means…" reads awkwardly;
+  // drop the inline phrase and lead with the natural label once.
+  let prefixed = false;
+  paras = paras.map((p) => {
+    const t = p.replace(AWKWARD_LABEL, (m) => (/^,.*,$/.test(m.trim()) ? "" : " ")).replace(/\s+([,.;:])/g, "$1").replace(/\s{2,}/g, " ").trim();
+    if (t === p.trim()) return p;
+    if (prefixed || paras.slice(0, 2).some((q) => q !== p && GROUNDING.label.test(q))) return t;
+    prefixed = true;
+    const bullet = t.match(/^\s*•\s*/)?.[0] ?? "";
+    return `${bullet}${GROUNDING.prefix} ${t.slice(bullet.length)}`;
+  });
   const leadLabeled = paras.slice(0, 2).some((p) => GROUNDING.label.test(p));
   const out = paras.map((p) => {
     // 1. Requirement counts the assignment doesn't state.

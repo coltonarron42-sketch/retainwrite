@@ -169,3 +169,15 @@ describe("t218u: per-paper search budget", () => {
     expect(gr).toContain("retry without web search");
   });
 });
+
+describe("t213u #4: no 'from general background on <reading>' phrasing (walk8)", () => {
+  it("drops the inline phrase and leads with the natural label", async () => {
+    const { groundParas } = await import("@/lib/coach/grounding");
+    const r = groundParas(
+      ["Servant leadership, from general background on Northouse's survey of approaches, means the leader puts the team's needs first.", "It treats leadership as service."],
+      { source: "BUS 210 essay", unreadRefs: ["Northouse, Leadership: Theory and Practice, Chapter 4"] },
+    );
+    expect(r.paras[0]).toBe("I don't have your copy, so here's the general idea: Servant leadership means the leader puts the team's needs first.");
+    expect(r.paras.join(" ")).not.toMatch(/from general background/i);
+  });
+});
