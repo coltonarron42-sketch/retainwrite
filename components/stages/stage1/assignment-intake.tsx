@@ -2,7 +2,7 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
+import { fillerNudge, isFillerSaying, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -218,6 +218,9 @@ const CITATION_OPTIONS: Array<CitationStyle | ""> = [
 function materialLost(text: string): boolean {
   return isLostSaying(text) || isUnsureReadSaying(text);
 }
+
+/** Stage 1 questions that need their own words (no Skip). */
+const STAGE1_REQUIRED_QS = ["material_check", "decision_pick", "decision_why", "stance_early"];
 
 /** QA 3:51: a message that arrives after Stage 1 wrapped up (sent while her last reply was coming). */
 export const GATE_SAID_REPLY =
@@ -1224,7 +1227,7 @@ export function AssignmentIntake({
     };
   }
   const snap = focus.focused ? focusSnap.current : null;
-  const skeletonView = useSkeleton(paperId, { enabled: checklistConfirmed, fallbackText: rawText, refreshKey: brief?.decision?.answer ?? "" });
+  const skeletonView = useSkeleton(paperId, { enabled: checklistConfirmed, fallbackText: rawText, refreshKey: `${brief?.decision?.answer ?? ""}|${brief?.leader?.answer ?? ""}` });
   const focusTools = (
     <>
       <FocusBar onSkeleton={() => setPanel("skeleton")} onPast={() => setPanel("past")} hasPast={Boolean(sentMessage) || confirmTurns.length > 0 || answers.length > 0} />
@@ -1639,7 +1642,7 @@ export function AssignmentIntake({
       // It's in their bubble now; the box is for the next try.
       setPaste("");
       setError(
-        "Tell me a little more: what's the topic or question, and how long should it be? Or tap + to add the assignment sheet.",
+        "Tell me a little more: what's the topic or question, and how long should it be? You can also tap + to add the assignment sheet.",
       );
       return;
     }
@@ -2076,13 +2079,20 @@ export function AssignmentIntake({
     }
     // A typed "skip" / "n/a" is a skip, never an answer; the gate steps still need their words.
     if (typed && isSkipSaying(typed)) {
-      if (["material_check", "decision_pick", "decision_why", "stance_early"].includes(q.id)) {
+      if (STAGE1_REQUIRED_QS.includes(q.id)) {
         setError("This one counts toward finishing Stage 1, so I need a few words of your own here, even rough ones.");
         return;
       }
       opts = { skip: true };
     }
     let text = opts?.skip ? "" : typed;
+    // QA 1:11 AM #4: a non-answer ("first quick message") is never their answer or reason: a gentle re-ask.
+    if (text && q.id !== "stance_early" && !recPending.current[q.id] && isFillerSaying(text)) {
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [fillerNudge(q.id)] }].slice(-12));
+      dropSent(sentBox);
+      setError(null);
+      return;
+    }
     // QA 7:02 AM: a message that may need a lookup shows "Digging it up…" at send time.
     // The status shows even before the brief has loaded (QA 9:37 AM: "Digging it up…" at 4-5 s).
     const lookup = Boolean(text && (brief?.northstar ?? true) && mayNeedLookup(text));
@@ -3587,6 +3597,7 @@ export function AssignmentIntake({
                         materialShown: Boolean(brief?.materialShown),
                         kinds: (brief?.summaries?.length ? brief.summaries : brief?.summary ? [brief.summary] : []).map((x) => x.kind),
                         materialAnswer: answers.filter((a) => a.questionId === "material_check").at(-1)?.answerText ?? null,
+                        shownInChat: caughtUp,
                       }),
                     }).map((item) => (
                       <li key={item.label}>
@@ -4404,14 +4415,17 @@ export function AssignmentIntake({
                   </button>
                 ) : screen === "coaching" && !stanceMode ? (
                   <>
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      className="ds-focus min-h-[48px] px-2 font-semibold underline-offset-4 hover:underline"
-                      onClick={() => void submitAnswer({ skip: true })}
-                    >
-                      Skip
-                    </button>
+                    {/* QA 1:11 AM minor: no Skip on a question Stage 1 needs (it would only bounce back). */}
+                    {q && STAGE1_REQUIRED_QS.includes(q.id) ? null : (
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        className="ds-focus min-h-[48px] px-2 font-semibold underline-offset-4 hover:underline"
+                        onClick={() => void submitAnswer({ skip: true })}
+                      >
+                        Skip
+                      </button>
+                    )}
                     {isInterest ? (
                       <button
                         type="button"

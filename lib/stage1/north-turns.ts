@@ -21,6 +21,37 @@ export function isAmbiguousReply(text: string): boolean {
   return AMBIG.test(norm(text));
 }
 
+/**
+ * QA 1:11 AM #4: a non-answer ("first quick message", "test", "hi", "asdf") is never saved as
+ * their answer or reason; Pau re-asks gently instead.
+ */
+const FILLER =
+  /^(?:(?:just\s+)?(?:a\s+)?(?:(?:first|quick|test|random|short|little)\s+)+(?:message|msg|reply|note|post|one|try)|(?:just\s+)?(?:a\s+)?test(?:ing)?(?:\s+(?:test(?:ing)?|message|1|123|one two))*|hi+|hey+|hello+|yo|sup|hiya|howdy|asdf\w*|qwer\w*|jkl\w*|blah(?:\s+blah)*|lol+|lmao|idc|nothing|n\/a|na|none|whatever|something|stuff|\.+|\?+|[^a-z0-9]+|(?:just\s+)?(?:typing|checking)(?:\s+(?:something|this|in|it out))?)[.!?\s]*$/i;
+export function isFillerSaying(text: string): boolean {
+  const raw = norm(text);
+  if (!raw) return false;
+  const t = raw.replace(/[.!?,\s]+$/, "");
+  if (!t) return true;
+  if (AMBIG.test(t) || YES.test(t) || NO.test(t)) return false;
+  return FILLER.test(t) || /^(?:([a-z])\1{2,}|[a-z]{1,2})$/i.test(t);
+}
+
+/** The gentle re-ask after a non-answer: one short line, then the same question (QA 1:11 AM #4). */
+export function fillerNudge(qid: string): string {
+  switch (qid) {
+    case "material_check":
+      return "No worries, take your time. In a sentence, where are you with it so far?";
+    case "decision_pick":
+      return "All good. When you're ready, which one would you pick, and why?";
+    case "decision_why":
+      return "No rush. What's your main reason for that pick, even one rough sentence?";
+    case "leader_pick":
+      return "Take your time. Which leader do you want to use as your example?";
+    default:
+      return "No rush. When you're ready, answer in a sentence or two, even roughly.";
+  }
+}
+
 /** "no clue what a leader is supposed to do", "what's the difference?": explicit confusion. */
 const CONFUSED =
   /\b(?:no (?:clue|idea)|(?:don'?t|do not) (?:know|get|understand) (?:what|how|which|the difference|any of)|what(?:'s| is) the difference|what (?:is|are|does) (?:a |an |the )?[\w ]{2,40}(?:supposed to|mean|even)|i'?m (?:so )?(?:lost|confused)|confused|makes no sense|huh)\b/i;

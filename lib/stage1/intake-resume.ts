@@ -1,3 +1,4 @@
+import { isFillerSaying } from "@/lib/stage1/north-turns";
 import { decisionHasReason, isSkipSaying } from "@/lib/stage1/paper-context";
 
 /** First unanswered question, or the plan length when every question is saved. */
@@ -123,15 +124,21 @@ export function northstarGateFrom(input: {
  * QA 9:37 AM: the gate names where the material came from (never "caught up on the
  * readings" when Pau never had them): caught up (and from what), declined, or waiting.
  */
-export function materialGateLabel(input: { catchUpDone: boolean; materialShown: boolean; kinds: string[]; materialAnswer?: string | null }): string {
+export function materialGateLabel(input: { catchUpDone: boolean; materialShown: boolean; kinds: string[]; materialAnswer?: string | null; shownInChat?: boolean }): string {
   const said = (input.materialAnswer ?? "").toLowerCase();
   const readIt = /\b(i(?:'ve| have)? (?:already )?read|i did read|read (?:it|them|both|all)|finished (?:it|them|the reading))\b/.test(said) && !/\b(haven'?t|have not|didn'?t|did not|not yet|never)\b/.test(said);
   const passed = /\b(no thanks|don'?t need|no need|not now|skip|pass)\b/.test(said);
   // In-chat catch-up (QA 9:37): the summary bubbles show right under their answer, so an
   // answer plus summaries means it was shown even when the server flag is pre-confirm only.
-  const shown = input.materialShown || (input.kinds.length > 0 && said.trim().length > 0 && !passed && !readIt);
-  if (shown && input.kinds.includes("reading")) return "Material: caught up from your own reading";
+  const answered = said.trim().length > 0 && !isFillerSaying(said);
+  // The client knows whether the catch-up was really shown in the chat (QA 1:11 AM #3); older callers guess.
+  const shown = input.materialShown || (input.shownInChat ?? (input.kinds.length > 0 && answered && !passed && !readIt));
+  if (!shown && answered && !readIt && !passed && input.shownInChat === false) return "Material: you haven't said yet whether you read it";
   if (readIt) return "Material: caught up (you read it yourself)";
+  // QA 1:11 AM #3: key points shown before the confirm, but they were never asked whether they
+  // read it: say so and keep it unchecked (never "caught up" on an unasked question).
+  if (shown && !answered) return "Material: key points shown (you haven't said yet whether you read it)";
+  if (shown && input.kinds.includes("reading")) return "Material: caught up from your own reading";
   if (shown && input.kinds.includes("found")) return "Material: caught up from the source I found online";
   if (shown && input.kinds.some((k) => k === "knowledge" || k === "overview" || k === "general" || k === "assignment"))
     return "Material: caught up from general background (not your copy yet)";
@@ -145,7 +152,7 @@ export function northstarChecklist(input: { confirmed: boolean; catchUpDone: boo
     { label: "Assignment confirmed", done: input.confirmed },
     {
       label: input.materialLabel ?? (input.catchUpDone ? "Material: caught up" : "Material: waiting on the readings"),
-      done: input.catchUpDone && !/waiting/.test(input.materialLabel ?? ""),
+      done: input.catchUpDone && !/waiting|haven't said/.test(input.materialLabel ?? ""),
     },
     { label: "Decision made, with your reason", done: input.decided },
     { label: "Early take: a few sentences in your own words", done: input.stanceOk },
