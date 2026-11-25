@@ -568,6 +568,10 @@ export function AssignmentIntake({
   const offerSaid = useRef<string | null>(null);
   // A too-short answer still shows as a student bubble above the nudge.
   const [shortEcho, setShortEcho] = useState<string | null>(null);
+  // QA 11:51 (b): each short early-take send and her one nudge, as two turns on screen (never merged into one bubble).
+  const [stanceTries, setStanceTries] = useState<{ id: number; said: string; nudge: string }[]>([]);
+  /** What they sent in the turn that was accepted (the saved take may join earlier words of theirs). */
+  const [stanceSent, setStanceSent] = useState<string | null>(null);
   // Bumps on every edit so read-aloud treats the re-asked question as new.
   const [editSeq, setEditSeq] = useState(0);
   const [aiPolicyAck, setAiPolicyAck] = useState(false);
@@ -1469,7 +1473,7 @@ export function AssignmentIntake({
     questionKey: hesitationKey,
     text: draftAnswer,
     enabled:
-      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]),
+      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]) && !(hesitationKey === "stance_early" && (shortEcho || stanceTries.length)),
     onHesitate: (key) => {
       if (sparksRef.current[key] || chatPrefs.sparkOff) return;
       updateSpark(key, { status: "offer" });
@@ -2700,7 +2704,9 @@ export function AssignmentIntake({
     if (wordCount(t) >= 25) return t;
     // Round 4 #2: a solid reason is accepted: it joins what they already said (their pick, their
     // reading answer), all their own words, so the 25-word early take is met without a re-ask.
-    if (!(isSolidReason(t) || (wordCount(t) >= 15 && CAUSAL_LINK.test(t)))) return null;
+    // QA 11:51 (b): a full sentence of their own ("Walton visited stores and listened…") is a take too.
+    const fullSentence = wordCount(t) >= 8 && /^[A-Z"“]/.test(t) && /[.!]["”]?\s*$/.test(t);
+    if (!(isSolidReason(t) || fullSentence || (wordCount(t) >= 15 && CAUSAL_LINK.test(t)))) return null;
     const said = (id: string) => [...answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText.trim() ?? "";
     const pieces = [lockedInStance || briefRef.current?.decision?.answer || brief?.decision?.answer || "", said("decision_pick"), said("decision_why"), said("material_check")]
       .map((x) => (x ?? "").trim())
@@ -2728,10 +2734,13 @@ export function AssignmentIntake({
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
     const text = earlyTakeFull(joined) ?? joined;
     if (wordCount(text) < 25) {
+      const nudge = moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++);
       setShortEcho(text);
-      setError(moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++));
+      setStanceTries((prev) => [...prev, { id: Date.now(), said: fresh || joined, nudge }].slice(-8));
+      setError(nudge);
       return;
     }
+    setStanceSent(fresh && text !== fresh ? fresh : null);
     if (!demoMode) {
       const saved = await persistField(paperId, {
         fieldKey: "stage1:stance_early",
@@ -4072,7 +4081,8 @@ export function AssignmentIntake({
             ]
           : [];
     // PC-29 QA round 2: what the call says is the copy this turn shows, word for word.
-    voiceLineRef.current = [
+    // QA 11:51 (b): with a nudge or error up, the call says only that, never the whole prompt again.
+    voiceLineRef.current = (screen === "coaching" && error) ? error : [
       error ?? "",
       screen === "story"
         ? informedStory
@@ -4223,7 +4233,7 @@ export function AssignmentIntake({
           })}
 
           {/* North star: their decision above IS the direction (QA 7:02 AM: never a second "Which direction…?"). */}
-          {storyAngle && screen !== "story" && !storyFromDecision && !(brief?.northstar && brief.decision) && !snap?.story ? (
+          {storyAngle && screen !== "story" && !storyFromDecision && brief && brief.northstarSet !== false && !(brief.northstar && brief.decision) && !snap?.story ? (
             <div className="space-y-4">
               <PauPauBubble showName={false}>Which direction do you want to take your paper?</PauPauBubble>
               {storyAngle.source === "student" ? (
@@ -4244,9 +4254,16 @@ export function AssignmentIntake({
           ) : null}
           {stanceAnswer && !(stanceMode && !editing) && !snap?.answered.has("stance_early") ? (
             <div className="space-y-4">
-              <PauPauGroup bubbles={[stanceText]}>{stanceMode ? null : sparkFor("stance_early")}</PauPauGroup>
+              <PauPauGroup bubbles={askedAs.current.stance_early ?? [stanceText]}>{stanceMode ? null : sparkFor("stance_early")}</PauPauGroup>
+              {stanceTries.map((t) => (
+                <div key={t.id} className="space-y-4" data-stance-try>
+                  <StudentBubble message={{ text: t.said, files: [], at: 0 }} />
+                  <PauPauGroup bubbles={[t.nudge]} />
+                </div>
+              ))}
               <EchoBubble
-                text={stanceAnswer}
+                text={stanceSent ?? stanceAnswer}
+                chatText={stanceSent ?? stanceAnswer}
                 editing={stanceMode}
                 onEdit={() => editAnswer("stance")}
                 editLabel="Edit your early take"
@@ -4551,8 +4568,15 @@ export function AssignmentIntake({
             : null}
 
           {rt.on ? <LiveTurns rows={rt.live} /> : null}
-          {error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
-          {error ? (
+          {stanceMode && !editing && stanceTries.length
+            ? stanceTries.map((t) => (
+                <div key={t.id} className="space-y-4" data-stance-try>
+                  <StudentBubble message={{ text: t.said, files: [], at: 0 }} />
+                  <PauPauGroup bubbles={[t.nudge]} />
+                </div>
+              ))
+            : error && shortEcho ? <StudentBubble message={{ text: shortEcho, files: [], at: 0 }} /> : null}
+          {error && !(stanceMode && !editing && stanceTries.at(-1)?.nudge === error) ? (
             <PauPauBubble showName={false} live>
               <span role="alert">{error}</span>
             </PauPauBubble>

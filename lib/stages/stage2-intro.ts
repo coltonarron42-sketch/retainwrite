@@ -65,14 +65,15 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
   const reason = m ? tidy(/^(because|since|bc|cuz|'cause)$/i.test(m[1]) ? m[2] : `${m[1]} ${m[2]}`) : "";
   if (pick) {
     const ex = who ? ` with ${who} as your example` : "";
-    return reason ? `Earlier you picked ${pick}${ex}, because ${reason}.` : `Earlier you picked ${pick}${ex}.`;
+    // QA 11:51: their reason is acknowledged, not just repeated.
+    return reason ? `Earlier you picked ${pick}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you picked ${pick}${ex}.`;
   }
   // QA 9:37 AM: an answer that starts with its reason ("because teams need…") never reads
   // "Earlier you told me because…": the pick in their words, or "your reason:".
   if (m && m.index === 0 && reason) {
     const label = decisionLabel(decision);
     const ex = who ? ` with ${who} as your example` : "";
-    return label ? `Earlier you picked ${label}${ex}, because ${reason}.` : `Earlier you told me your reason: ${reason}.${who ? ` Your example: ${who}.` : ""}`;
+    return label ? `Earlier you picked ${label}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you told me your reason: ${reason}.${who ? ` Your example: ${who}.` : ""}`;
   }
   const headRaw = m && m.index! > 0 ? said.slice(0, m.index).replace(/[\s.!,;:]+$/, "") : said;
   const told0 = tidy(headRaw).replace(/^(yeah|yes|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "");

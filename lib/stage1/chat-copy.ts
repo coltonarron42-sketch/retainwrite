@@ -43,8 +43,12 @@ export function moreWordsNote(_have: number, _need: number, what: string, text =
   const reason = REASON_RE.test(t);
   const example = /\b(for example|for instance|like when|such as|at [A-Z]\w+|[A-Z][a-z]+ [A-Z][a-z]+)\b/.test(t) || /\b(when (he|she|they)|did|led|changed|turned)\b/i.test(t);
   const claim = /\b(i think|i'?d argue|i want to argue|i believe|works? best|is (the )?(best|most)|better|transformational|situational|servant|democratic|task|relationship)\b/i.test(t);
+  // QA 11:51 (b): a full sentence is never told to "start with one plain sentence": one ask, about what it shows.
+  const sentence = t.split(/\s+/).length >= 8 && /[.!]["”]?\s*$/.test(t);
   const need = !claim
-    ? "Start with what you think, in one plain sentence."
+    ? sentence
+      ? "That's a real example. What does it show about which approach works best, and why?"
+      : "Start with what you think, in one plain sentence."
     : !reason
       ? "You've got your pick. Now the why: what makes it the right call for this assignment?"
       : !example
