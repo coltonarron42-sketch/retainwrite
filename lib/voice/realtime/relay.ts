@@ -19,7 +19,7 @@ import {
   XAI_REALTIME_URL,
 } from "./config";
 import { checkLinks, type SourceLink } from "./links";
-import { completeSentences, isNoiseTurn, isRepeat, questionAllowed, realWords, TURN_TUNING } from "./turns";
+import { completeSentences, isNoiseTurn, isRepeat, QGATE_TUNING, questionAllowed, quietCutPoint, realWords, textWithout, TURN_TUNING } from "./turns";
 
 type Json = Record<string, unknown>;
 
@@ -440,77 +440,118 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
     if (responding && currentRid === rid) upSend({ type: "response.cancel" });
     toClient({ type: "rw.drop", response_id: rid, reason: why });
   };
-  /* ---------- PC-29 QA round 2: her own replies never ask a question that isn't on screen ---------- */
-  // Stage 1 model replies stream sentence by sentence: audio is released only up to the end of
-  // the last finished sentence that isn't a stray question (speech rate is ~even, so ms ~ chars);
-  // an off-screen question is cut before it's heard, along with the rest of that reply.
-  type QGate = { q: { ev: Json; ms: number }[]; audioMs: number; relMs: number; text: string; safe: number; shown: number; cutAt: number | null };
+  /* ---------- PC-29 QA round 2 / PC-29c: her own replies never ask a question that isn't on screen ---------- */
+  // Stage 1 model replies stream sentence by sentence: audio is released only up to (a little
+  // behind) the end of the last cleared sentence. An off-screen question is lifted out of the
+  // reply — its words and its audio, cut at real pauses — and the rest of what she was saying
+  // still plays. Only a question at the very end of a reply ends it (and xAI's copy is trimmed).
+  type QSkip = { from: number; to: number; a: number; b: number; aligned: boolean };
+  type QGate = {
+    chunks: Buffer[]; pcm: Buffer | null; tmpl: Json | null; audioMs: number; relMs: number;
+    text: string; safe: number; shown: number; skips: QSkip[]; done: boolean; cutAt: number | null;
+  };
   const qgates = new Map<string, QGate>();
+  const newQGate = (): QGate => ({ chunks: [], pcm: null, tmpl: null, audioMs: 0, relMs: 0, text: "", safe: 0, shown: 0, skips: [], done: false, cutAt: null });
   // Observed speaking rate (ms of audio per transcript character), learned from finished replies.
   let msPerChar = 62;
   const b64Ms = (b64: string) => {
     const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
     return ((Math.floor((b64.length * 3) / 4) - pad) / 2 / REALTIME_RATE) * 1000;
   };
-  const qPump = (rid: string, g: QGate, target: number, slice = false) => {
-    while (g.q.length && g.relMs < target) {
-      const head = g.q[0]!;
-      if (g.relMs + head.ms <= target + 0.5) {
-        g.q.shift();
-        g.relMs += head.ms;
-        emit(rid, head.ev);
-        continue;
-      }
-      if (!slice) break;
-      const buf = Buffer.from(String(head.ev.delta ?? ""), "base64");
-      const bytes = Math.max(0, Math.floor(((target - g.relMs) / 1000) * REALTIME_RATE) * 2);
-      if (bytes > 0) emit(rid, { ...head.ev, delta: buf.subarray(0, bytes).toString("base64") });
-      g.q.shift();
-      g.relMs = target;
-      break;
+  const qPcm = (g: QGate) => {
+    if (g.chunks.length) {
+      g.pcm = Buffer.concat(g.pcm ? [g.pcm, ...g.chunks] : g.chunks);
+      g.chunks = [];
+    }
+    return g.pcm ?? Buffer.alloc(0);
+  };
+  const msToByte = (ms: number) => Math.max(0, Math.floor((ms / 1000) * REALTIME_RATE)) * 2;
+  /** Move each lifted-out stretch's edges onto real pauses once enough audio is in to see them. */
+  const qAlign = (g: QGate) => {
+    for (const k of g.skips) {
+      if (k.aligned) continue;
+      if (!g.done && g.audioMs < k.b + QGATE_TUNING.searchAheadMs) continue;
+      const pcm = qPcm(g);
+      const lo = Math.max(g.relMs, k.a - QGATE_TUNING.searchBackMs);
+      k.a = quietCutPoint(pcm, REALTIME_RATE, Math.max(k.a, g.relMs), lo, k.a + QGATE_TUNING.searchAheadMs);
+      k.b = Math.max(k.a, quietCutPoint(pcm, REALTIME_RATE, k.b, Math.max(k.a, k.b - QGATE_TUNING.searchBackMs), k.b + QGATE_TUNING.searchAheadMs));
+      k.aligned = true;
     }
   };
+  const qPump = (rid: string, g: QGate, target: number) => {
+    qAlign(g);
+    const pcm = qPcm(g);
+    const end = Math.min(target, g.audioMs);
+    while (end - g.relMs > 1e-6) {
+      const k = g.skips.find((s) => s.b > g.relMs);
+      // An unaligned stretch ahead holds release at its estimated start until it can be placed.
+      if (k && !k.aligned && k.a - QGATE_TUNING.searchBackMs <= g.relMs + 0.5) break;
+      if (k && k.aligned && k.a <= g.relMs + 0.5) {
+        g.relMs = Math.min(k.b, g.audioMs);
+        if (g.relMs < k.b) break;
+        continue;
+      }
+      const segEnd = Math.min(end, k ? (k.aligned ? k.a : k.a - QGATE_TUNING.searchBackMs) : end);
+      if (segEnd - g.relMs <= 1e-6) break;
+      const buf = pcm.subarray(msToByte(g.relMs), msToByte(segEnd));
+      if (buf.length && g.tmpl) emit(rid, { ...g.tmpl, delta: buf.toString("base64") });
+      g.relMs = segEnd;
+    }
+  };
+  /** Show her words up to `upto`, minus anything lifted out. */
   const qShow = (rid: string, g: QGate, upto: number) => {
     if (upto <= g.shown) return;
-    emit(rid, { type: "response.output_audio_transcript.delta", response_id: rid, delta: g.text.slice(g.shown, upto) });
+    let piece = "";
+    let at = g.shown;
+    for (const k of g.skips) {
+      if (k.to <= at || k.from >= upto) continue;
+      piece += g.text.slice(at, Math.max(at, k.from));
+      at = Math.max(at, k.to);
+    }
+    if (at < upto) piece += g.text.slice(at, upto);
+    if (piece) emit(rid, { type: "response.output_audio_transcript.delta", response_id: rid, delta: piece });
     g.shown = upto;
   };
-  const qCut = (rid: string, g: QGate, at: number, question: string) => {
-    g.cutAt = at;
+  const qSpoken = (g: QGate) => textWithout(g.text, g.skips);
+  const qSkip = (g: QGate, sn: { start: number; end: number }, question: string) => {
     m.questionsCut++;
-    const target = Math.min(g.audioMs, at * msPerChar);
-    qShow(rid, g, at);
-    qPump(rid, g, target, true);
-    g.q = [];
-    replyText.set(rid, g.text.slice(0, at).trim());
-    // Not cancelled upstream: a submit_answer in the same reply still runs. The rest is never
-    // forwarded, and at response.done xAI's copy is truncated to what was heard.
+    g.skips.push({ from: sn.start, to: sn.end, a: sn.start * msPerChar, b: sn.end * msPerChar, aligned: false });
     console.log(JSON.stringify({ evt: "pau_realtime_question_cut", sid, words: question.split(/\s+/).length }));
   };
   const qScan = (rid: string, g: QGate, final: boolean) => {
-    if (g.cutAt !== null) return;
     for (const sn of completeSentences(g.text, g.safe, final)) {
       const t = sn.text.trim();
-      if (/\?["”’')\]]*$/.test(t) && !questionAllowed(t, screen.spoken)) return qCut(rid, g, sn.start, t);
+      if (/\?["”’')\]]*$/.test(t) && !questionAllowed(t, screen.spoken)) qSkip(g, sn, t);
       g.safe = sn.end;
     }
     qShow(rid, g, g.safe);
-    qPump(rid, g, g.safe * msPerChar);
+    qPump(rid, g, g.safe * msPerChar - QGATE_TUNING.holdbackMs);
   };
-  /** The reply finished without a stray question: everything left goes out. */
+  /** The reply finished: everything that wasn't lifted out goes out, cut at pauses. */
   const qFinish = (rid: string) => {
     const g = qgates.get(rid);
-    if (!g) return;
+    if (!g || g.done) return;
     qScan(rid, g, true);
-    if (g.cutAt === null) {
-      g.safe = g.text.length;
-      qShow(rid, g, g.text.length);
-      qPump(rid, g, Number.POSITIVE_INFINITY);
-      const chars = g.text.trim().length;
-      if (chars >= 20 && g.audioMs > 500) msPerChar = Math.max(35, Math.min(110, msPerChar * 0.7 + (g.audioMs / chars) * 0.3));
+    g.done = true;
+    // A lifted-out question at the very end runs to the end of her audio.
+    const last = g.skips[g.skips.length - 1];
+    if (last && !g.text.slice(last.to).trim()) {
+      last.to = g.text.length;
+      last.b = Number.POSITIVE_INFINITY;
     }
+    // Speech rate from the audio vs. the words actually spoken (estimate before alignment).
+    const chars = g.text.trim().length;
+    if (chars >= 20 && g.audioMs > 500) msPerChar = Math.max(35, Math.min(110, msPerChar * 0.7 + (g.audioMs / chars) * 0.3));
+    qShow(rid, g, g.text.length);
+    if (last && last.b === Number.POSITIVE_INFINITY && !last.aligned) {
+      const pcm = qPcm(g);
+      last.a = quietCutPoint(pcm, REALTIME_RATE, Math.max(last.a, g.relMs), Math.max(g.relMs, last.a - QGATE_TUNING.searchBackMs), last.a + QGATE_TUNING.searchAheadMs);
+      last.aligned = true;
+    }
+    qPump(rid, g, Number.POSITIVE_INFINITY);
+    if (last && last.b === Number.POSITIVE_INFINITY) g.cutAt = last.a;
+    replyText.set(rid, qSpoken(g));
   };
-  /** Tell xAI how much of her line was actually heard, so its context matches the student's. */
   const truncateHer = (rid: string | null, playedMs: number, totalMs: number) => {
     if (!rid) return;
     const itemId = ridItem.get(rid);
@@ -1030,7 +1071,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             toClient(e);
             return;
           }
-          if (verbatim) qgates.set(rid, { q: [], audioMs: 0, relMs: 0, text: "", safe: 0, shown: 0, cutAt: null });
+          if (verbatim) qgates.set(rid, newQGate());
           if (!ours && after) {
             const t = said.find((x) => x.id === after)?.text ?? "";
             // A turn typed over (they were typing when it ended): their words go to the box, no spoken reply.
@@ -1072,11 +1113,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         }
         const g = qgates.get(rid);
         if (g) {
-          if (g.cutAt !== null) return;
-          const ms = b64Ms(d);
-          g.audioMs += ms;
-          g.q.push({ ev: e, ms });
-          qPump(rid, g, g.safe * msPerChar);
+          g.audioMs += b64Ms(d);
+          g.chunks.push(Buffer.from(d, "base64"));
+          if (!g.tmpl) g.tmpl = { ...e, delta: "" };
+          qPump(rid, g, g.done ? Number.POSITIVE_INFINITY : g.safe * msPerChar - QGATE_TUNING.holdbackMs);
           return;
         }
         emit(rid, e);
@@ -1112,10 +1152,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         }
         const g = qgates.get(rid);
         if (g) {
-          if (g.cutAt !== null) return;
+          if (g.done) return;
           g.text = so;
           qScan(rid, g, false);
-          if (g.cutAt !== null) replyText.set(rid, g.text.slice(0, g.cutAt).trim());
           return;
         }
         emit(rid, e);
@@ -1126,12 +1165,9 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
         if (guarded.has(rid)) return;
         const g = qgates.get(rid);
         if (g) {
-          if (g.cutAt === null && typeof e.transcript === "string" && e.transcript.length >= g.text.length) {
-            g.text = e.transcript;
-            replyText.set(rid, g.text);
-          }
+          if (!g.done && typeof e.transcript === "string" && e.transcript.length >= g.text.length) g.text = e.transcript;
           qFinish(rid);
-          emit(rid, { ...e, transcript: g.cutAt !== null ? g.text.slice(0, g.cutAt).trim() : g.text });
+          emit(rid, { ...e, transcript: qSpoken(g) });
           return;
         }
         emit(rid, e);
@@ -1168,7 +1204,7 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
           const g = qgates.get(r.id)!;
           qgates.delete(r.id);
           // Her stray question never happened as far as xAI knows: keep only what was heard.
-          if (g.cutAt !== null) truncateHer(r.id, g.relMs, Number.POSITIVE_INFINITY);
+          if (g.cutAt !== null) truncateHer(r.id, g.cutAt, Number.POSITIVE_INFINITY);
         }
         const dropped = Boolean(r?.id && guarded.has(r.id));
         if (r?.id) emit(r.id, { type: "response.done", response: { id: r.id, status: r.status } });
