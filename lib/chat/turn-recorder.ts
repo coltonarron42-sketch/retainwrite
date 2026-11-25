@@ -56,46 +56,51 @@ export function foldLines(
 ): boolean {
   let changed = false;
   for (const r of recs) if (r.el && !isAttached(r.el) && r.gone === undefined) r.gone = now;
+  // Pass 1: bubbles already recorded. They update in place, or let go of their line when reused for a new turn.
+  const fresh: typeof onScreen = [];
   for (const s of onScreen) {
     if (!s.text) continue;
     const mine = recs.find((r) => r.el === s.el);
-    if (mine) {
-      if (mine.text === s.text) continue;
-      const grow = sameTurn(mine.text, s.text);
-      if (mine.quiet ? restoring : grow || now - (mine.at ?? 0) < SETTLE_MS) {
-        mine.text = s.text;
-        mine.at = now;
-        if (!mine.quiet) changed = true;
-        // A flash that settles back into the line before it (same bubble, same words): that line, not a second one.
-        const k = recs.indexOf(mine);
-        const prev = recs.slice(0, k).reverse().find((r) => !r.quiet);
-        if (!mine.quiet && prev && prev.who === mine.who && prev.text === mine.text && (!prev.el || !isAttached(prev.el))) {
-          prev.el = mine.el;
-          prev.gone = undefined;
-          recs.splice(k, 1);
-        }
-        continue;
-      }
-      mine.el = null;
-      mine.gone = now;
-      recs.push({ who: s.who, text: s.text, el: s.el, at: now });
-      changed = true;
+    if (!mine) {
+      fresh.push(s);
       continue;
     }
+    if (mine.text === s.text) continue;
+    if (mine.quiet ? restoring : sameTurn(mine.text, s.text) || now - (mine.at ?? 0) < SETTLE_MS) {
+      mine.text = s.text;
+      mine.at = now;
+      if (!mine.quiet) changed = true;
+      // A flash that settles back into the line before it (same bubble, same words): that line, not a second one.
+      const k = recs.indexOf(mine);
+      const prev = recs.slice(0, k).reverse().find((r) => !r.quiet);
+      if (!mine.quiet && prev && prev.who === mine.who && prev.text === mine.text && (!prev.el || !isAttached(prev.el))) {
+        prev.el = mine.el;
+        prev.gone = undefined;
+        recs.splice(k, 1);
+      }
+      continue;
+    }
+    mine.el = null;
+    mine.gone = now;
+    fresh.push(s);
+  }
+  // Pass 2, in screen order: bubbles that are new, or reused for a new turn.
+  for (const s of fresh) {
+    const gone = (r: Rec) => !r.el || !isAttached(r.el);
     const last = [...recs].reverse().find((r) => !r.quiet);
     const again =
       // The newest line drawn again after its bubble went away (however long that took): the same turn.
       // Two identical bubbles on screen together stay two replies.
-      (last && last.who === s.who && last.text === s.text && (!last.el || !isAttached(last.el)) ? last : undefined) ??
-      recs.find((r) => r.who === s.who && r.text === s.text && (!r.el || !isAttached(r.el)) && (r.gone === undefined || now - r.gone < REMOUNT_MS)) ??
+      (last && last.who === s.who && last.text === s.text && gone(last) ? last : undefined) ??
+      recs.find((r) => r.who === s.who && r.text === s.text && gone(r) && (r.gone === undefined || now - r.gone < REMOUNT_MS)) ??
       // Swapped for a fresh bubble that also moved on a little (a checklist ticked as it remounted): still that turn.
-      recs.find((r) => r.who === s.who && r.el && !isAttached(r.el) && r.gone !== undefined && now - r.gone < REMOUNT_MS && sameTurn(r.text, s.text));
-    if (again && again.text !== s.text) {
-      again.text = s.text;
-      again.at = now;
-      if (!again.quiet) changed = true;
-    }
+      recs.find((r) => r.who === s.who && gone(r) && r.gone !== undefined && now - r.gone < REMOUNT_MS && sameTurn(r.text, s.text));
     if (again) {
+      if (again.text !== s.text) {
+        again.text = s.text;
+        again.at = now;
+        if (!again.quiet) changed = true;
+      }
       again.el = s.el;
       again.gone = undefined;
       continue;

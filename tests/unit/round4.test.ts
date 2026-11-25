@@ -80,6 +80,15 @@ describe("Round 4 #3: Past chat records turns as they render", () => {
     foldLines(recs, [{ el: a, who: "pau", text: X }], () => true, 5300);
     expect(linesOf(recs).map((l) => l.text)).toEqual([X]);
   });
+  it("a bubble reused for the next question while its checklist remounts: checklist stays one line, order follows the screen", () => {
+    const recs: Parameters<typeof foldLines>[0] = [];
+    const a = el("a"), b = el("b"), c = el("c");
+    const head = "Stage 1 is about getting clear on what the assignment really asks. ";
+    foldLines(recs, [{ el: a, who: "pau", text: head + "○ Read it ○ Decide" }], (x) => x === a, 0);
+    const att = new Set<Element>([a, b, c]);
+    foldLines(recs, [{ el: b, who: "pau", text: head + "✓ Read it ○ Decide" }, { el: c, who: "you", text: "I've read it" }, { el: a, who: "pau", text: "Which leadership style do you want to argue?" }], (x) => att.has(x), 7000);
+    expect(linesOf(recs).map((l) => l.text)).toEqual([head + "✓ Read it ○ Decide", "I've read it", "Which leadership style do you want to argue?"]);
+  });
   it("after a reload, history the screen re-renders is not added again", () => {
     const x = el("x"), y = el("y");
     const out = seedLines([{ who: "pau", text: "Hi" }], [{ who: "pau", text: "Next up is the change part.", el: y }, { who: "pau", text: "Hi", el: x }]);
