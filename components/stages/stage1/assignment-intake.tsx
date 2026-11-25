@@ -591,7 +591,7 @@ export function AssignmentIntake({
   /** The question where they said they were lost again: the key points are offered there. */
   const [reoffer, setReoffer] = useState<string | null>(null);
   /** Questions and pastes answered in place during the interview (QA 6:03 AM): never saved as answers. */
-  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[] }[]>([]);
+  const [qaAsides, setQaAsides] = useState<{ id: number; qid: string; said: string; paras: string[]; filler?: boolean }[]>([]);
   // QA 3:26 AM #5: the Stage 1 turns as shown, saved so Past chat (here and in later stages) can replay them.
   const [savedPast, setSavedPast] = useState<PastLine[]>([]);
   const recordedPast = useTurnRecorder({ enabled: true, saved: savedPast });
@@ -2114,7 +2114,7 @@ export function AssignmentIntake({
     let text = opts?.skip ? "" : typed;
     // QA 1:11 AM #4: a non-answer ("first quick message") is never their answer or reason: a gentle re-ask.
     if (text && q.id !== "stance_early" && !recPending.current[q.id] && isFillerSaying(text)) {
-      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [fillerNudge(q.id)] }].slice(-12));
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [fillerNudge(q.id)], filler: true }].slice(-12));
       dropSent(sentBox);
       setError(null);
       return;
@@ -4060,7 +4060,14 @@ export function AssignmentIntake({
                       ))
                   : null}
                 <EchoBubble
-                  text={(said && offerReply[item.id]) || said || "Skipped"}
+                  text={
+                    // QA: messages sent before the answer (turned back as "doesn't count yet") stay on
+                    // screen with it, as one turn, instead of vanishing once the answer lands.
+                    said && !offerReply[item.id] && qaAsides.some((x) => x.qid === item.id && x.filler)
+                      ? [...qaAsides.filter((x) => x.qid === item.id && x.filler).map((x) => x.said), said].join("\n")
+                      : (said && offerReply[item.id]) || said || "Skipped"
+                  }
+                  chatText={(said && offerReply[item.id]) || said || "Skipped"}
                   muted={!said}
                   editing={isCurrent}
                   onEdit={() => editAnswer(i)}

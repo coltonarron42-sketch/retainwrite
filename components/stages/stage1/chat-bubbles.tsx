@@ -168,12 +168,15 @@ export function StudentBubble({ message }: { message: SentMessage }) {
  */
 export function EchoBubble({
   text,
+  chatText,
   onEdit,
   editLabel,
   editing = false,
   muted = false,
 }: {
   text: string;
+  /** What Past chat records for this bubble when it differs from what's drawn (earlier sends shown with it were recorded already). */
+  chatText?: string;
   onEdit?: () => void;
   /** Screen-reader name for the edit action, e.g. "Edit your answer: What topics…". */
   editLabel?: string;
@@ -194,7 +197,7 @@ export function EchoBubble({
     </>
   );
   return (
-    <div className="flex flex-col items-end" data-chat-line="you" data-chat-text={text}>
+    <div className="flex flex-col items-end" data-chat-line="you" data-chat-text={chatText ?? text}>
       {onEdit && !editing ? (
         <button
           type="button"
