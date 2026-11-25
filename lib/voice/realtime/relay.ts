@@ -1159,7 +1159,10 @@ export async function runRelay(ctx: RelayContext): Promise<void> {
             release(rid, "repeat");
           }
         }
-        const v = essayGuard(so);
+        // PC-29d QA: the app's own lines (force_message: prompts, side answers, nudges) are app copy,
+        // already composed under the coaching rules. The essay guard is a net for HER words only: on a
+        // two-paragraph side answer its word cap tripped and swapped the answer for a refusal.
+        const v = forcedRids.has(rid) ? ({ block: false } as const) : essayGuard(so);
         if (v.block) {
           guarded.add(rid);
           m.guardTrips++;

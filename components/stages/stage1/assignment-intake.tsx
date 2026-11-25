@@ -12,7 +12,7 @@ import { PauPauConfirm } from "@/components/stages/stage1/pau-pau-confirm";
 import { RealtimeControls, useRealtimeCall, useRealtimeFlag } from "@/components/stages/loop/realtime-voice";
 import { typingArbiter } from "@/lib/voice/realtime/arbiter";
 import { LiveTurns } from "@/components/stages/loop/live-turns";
-import { appendSpoken, asideSpoken, AsideVoice, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
+import { appendSpoken, asideSpoken, AsideVoice, sideAnswerParas, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
 import {
   decisionHasReason,
   decisionQuestion,
@@ -2115,7 +2115,8 @@ export function AssignmentIntake({
     }
     setAsideBusy(null);
     if (!paras.length) paras = ["I couldn't pull that together just now. Ask me again in a sec, or add the reading and I'll work from it."];
-    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: [...paras, "Back to my question whenever you're ready."] }].slice(-12));
+    // PC-29d QA: no trailing coach question of its own, and the same return line voice says.
+    setQaAsides((prev) => [...prev, { id: Date.now(), qid, said, paras: sideAnswerParas(paras) }].slice(-12));
   }
 
   /** A pasted reading paragraph goes in as material, never as their answer or angle. */

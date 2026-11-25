@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runRelay } from "@/lib/voice/realtime/relay";
-import { asideSpoken, AsideVoice, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
+import { asideSpoken, AsideVoice, SIDE_RETURN, sideAnswerParas, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
 import { friendlyStatus, isAssignmentRead, readingFooter } from "@/lib/stage1/reading-status";
 
 describe("side answers are spoken", () => {
@@ -52,6 +52,29 @@ describe("side answers are spoken", () => {
     const b = new AsideVoice();
     expect(b.step(null, true)).toBe(false);
     expect(b.step(3, true)).toBe(true);
+  });
+});
+
+describe("QA must-fix (PR #69): screen and voice say the same side answer", () => {
+  const qa = [
+    "Servant leadership means the leader's main job is serving the team: listening, helping people grow, and putting their needs first so the group does well.",
+    "From general background, not your readings: Satya Nadella is often described this way, because he pushed Microsoft toward listening and learning. Which leadership style from Northouse chapter 4 do you want to argue for?",
+  ];
+  it("the on-screen answer drops its own trailing coach question and ends on the same return line voice says", () => {
+    const paras = sideAnswerParas(qa);
+    expect(paras.at(-1)).toBe(SIDE_RETURN);
+    expect(paras.join(" ")).not.toContain("Which leadership style");
+    expect(paras[1]).toBe("From general background, not your readings: Satya Nadella is often described this way, because he pushed Microsoft toward listening and learning.");
+    // Voice says exactly the screen's words.
+    expect(asideSpoken(paras)).toBe(paras.join(" "));
+    // The first sentence is always there.
+    expect(asideSpoken(paras).startsWith("Servant leadership means")).toBe(true);
+  });
+  it("a paragraph that is only a question goes; a lone question answer stays; no duplicate return line", () => {
+    expect(sideAnswerParas(["It means X.", "Want me to go on?"])).toEqual(["It means X.", SIDE_RETURN]);
+    expect(sideAnswerParas(["Do you mean the reading or the style?"])).toEqual(["Do you mean the reading or the style?", SIDE_RETURN]);
+    expect(sideAnswerParas(["It means X.", "Back to my question whenever you're ready."])).toEqual(["It means X.", SIDE_RETURN]);
+    expect(sideAnswerParas([])).toEqual([]);
   });
 });
 
@@ -179,6 +202,29 @@ describe("relay: a side answer is spoken, the prompt isn't re-read", () => {
     expect(forcedTexts(upstream).slice(before)).toEqual([ASIDE]);
     c.close();
   }, 15_000);
+
+  it("a long side answer (app copy, over the 110-word essay-guard cap) is never swapped for a refusal", async () => {
+    const { c, send, up, got } = await session(PROMPT);
+    const long = `${Array.from({ length: 24 }, (_, i) => `Servant leaders listen first, point ${i}.`).join(" ")} ${SIDE_RETURN}`;
+    send({ type: "rw.turn", text: "Question on screen", spoken: PROMPT, say: long });
+    await wait(60);
+    up({ type: "response.created", response: { id: "rLong" } });
+    for (const w of long.split(" ")) up({ type: "response.output_audio_transcript.delta", response_id: "rLong", delta: `${w} ` });
+    up({ type: "response.output_audio_transcript.done", response_id: "rLong", transcript: long });
+    up({ type: "response.done", response: { id: "rLong", status: "completed" } });
+    await wait(400);
+    expect(got.some((e) => e.type === "rw.guard")).toBe(false);
+    expect(forcedTexts(upstream).join(" ")).not.toMatch(/yours to write|stop myself|Can't write it/);
+    c.close();
+  });
+  it("her OWN long reply is still caught by the guard", async () => {
+    const { c, up, got } = await session(PROMPT);
+    up({ type: "response.created", response: { id: "rHer" } });
+    up({ type: "response.output_audio_transcript.delta", response_id: "rHer", delta: Array.from({ length: 120 }, () => "word").join(" ") });
+    await wait(300);
+    expect(got.some((e) => e.type === "rw.guard" && e.response_id === "rHer")).toBe(true);
+    c.close();
+  });
 
   it("while she's mid-reply the side answer waits for her, then plays", async () => {
     const { c, send, up } = await session(PROMPT);

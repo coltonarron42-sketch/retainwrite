@@ -207,7 +207,38 @@ export function questionsRendered(line: string, pageText: string): boolean {
 
 /* ---------------- PC-29d: side answers are spoken ---------------- */
 
-const BACK_LINE = /^back to my question\b/i;
+/** The one line a side answer ends on, on screen and spoken (PC-29d QA: the two must match). */
+export const SIDE_RETURN = "Okay, back to your question.";
+// The current line, and the older on-screen one ("Back to my question whenever you're ready.").
+const BACK_LINE = /^(?:okay, )?back to (?:my|your) question\b/i;
+
+const sentencesOf = (t: string) => t.match(/[^.!?]+(?:[.!?]+["”’')\]]*|$)/g) ?? [];
+const isQuestion = (x: string) => /\?["”’')\]]*\s*$/.test(x.trim());
+
+/**
+ * The on-screen side answer (PC-29d QA): the coaching answer's own words without a trailing coach
+ * question of its own (one question at a time: the on-screen prompt is the question), then the
+ * same return line voice says.
+ */
+export function sideAnswerParas(paras: string[]): string[] {
+  const out = paras.map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p && !BACK_LINE.test(p));
+  while (out.length) {
+    const last = out[out.length - 1]!;
+    const ss = sentencesOf(last);
+    let n = ss.length;
+    while (n > 0 && isQuestion(ss[n - 1]!)) n--;
+    if (n === ss.length) break;
+    const kept = ss.slice(0, n).join("").trim();
+    if (kept) {
+      out[out.length - 1] = kept;
+      break;
+    }
+    // The whole last paragraph was its question: drop it, unless it's all there is.
+    if (out.length === 1) break;
+    out.pop();
+  }
+  return out.length ? [...out, SIDE_RETURN] : out;
+}
 
 /**
  * What the call says for a side answer (an aside bubble): the answer's own words (the coaching
@@ -228,7 +259,7 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
   // Heading back to the on-screen prompt: one question at a time, so the answer's own question
   // (still in the bubble) isn't said before "back to your question".
   if (back) {
-    const kept = (body.match(/[^.!?]+(?:[.!?]+["”’')\]]*|$)/g) ?? []).filter((x) => !/\?["”’')\]]*\s*$/.test(x.trim()));
+    const kept = sentencesOf(body).filter((x) => !isQuestion(x));
     if (kept.join("").trim()) body = kept.join("").replace(/\s+/g, " ").trim();
   }
   if (body.length > maxChars) {
@@ -237,7 +268,7 @@ export function asideSpoken(paras: string[], maxChars = 1100): string {
     body = end > maxChars / 3 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, "")}…`;
   }
   if (!body) return "";
-  return back ? `${body} Okay, back to your question.` : body;
+  return back ? `${body} ${SIDE_RETURN}` : body;
 }
 
 /** A new aside bubble while voice is on (not ones restored, or already there when voice came on). */
