@@ -114,8 +114,9 @@ describe("3. chapter accuracy", () => {
     expect(src("app/api/papers/[paperId]/intake/brief/route.ts")).toContain("missingAskFor(ctx) ?? chapterAsk(ctx)");
   });
   it("the coach, the voice persona and the confirm reply carry the chapter rule", () => {
-    expect(COACH_ANSWER_SYSTEM).toMatch(/never say what a numbered chapter/i);
-    expect(src("lib/voice/realtime/persona.ts")).toMatch(/never say what a numbered chapter/i);
+    // PC-31: positive wording (chapter contents only from text in the paper context).
+    expect(COACH_ANSWER_SYSTEM).toMatch(/Page numbers, chapter contents and quotes come only from text in the paper context/);
+    expect(src("lib/voice/realtime/persona.ts")).toMatch(/say what a numbered chapter contains only when the paper context has that chapter's actual content/i);
     expect(src("lib/stage1/confirm-reply.ts")).toMatch(/never say what a numbered chapter/i);
   });
 });
@@ -293,7 +294,7 @@ describe("preview walk follow-ups (a85a5e1)", () => {
     expect(src("components/stages/loop/stance-chat.tsx")).toContain("lookupNote && (checking || props.busy)");
   });
   it("no 'from your assignment' attribution for options she knows herself", () => {
-    expect(COACH_ANSWER_SYSTEM).toMatch(/Never say options, styles or ideas come "from your assignment"/);
+    expect(COACH_ANSWER_SYSTEM).toMatch(/say options, styles or ideas come from the assignment or a reading only when its text lists them/);
   });
 });
 
