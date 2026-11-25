@@ -47,6 +47,10 @@ describe("PC-33: explore intent", () => {
     expect(isExploreDone("ok")).toBe(false);
     expect(isExploreDone("ok", "I'm here if you want to keep going, or tell me when that's what you want for now.")).toBe(true);
     expect(isExploreDone("yes", "What's your idea for this section?")).toBe(false);
+    expect(isExploreDone(QA.hearMeOut)).toBe(false);
+    expect(isExploreLock(QA.hearMeOut)).toBe(false);
+    expect(isExploreDone("I'm not ready to lock that in")).toBe(false);
+    expect(isExploreLock("I'm not ready to lock that in")).toBe(false);
   });
 
   it("pulls a topic and only notes real substance, never a bare request", () => {

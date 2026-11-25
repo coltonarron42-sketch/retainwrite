@@ -31,10 +31,16 @@ export function isExploreIntent(text: string): boolean {
   return EXPLORE_CUE.test(t);
 }
 
+/** Still exploring: "not ready to lock" must never count as a done/lock cue. */
+function isExploreHold(text: string): boolean {
+  return /\b(not ready|don'?t lock|before I (lock|commit|decide)|haven'?t (locked|committed|decided)|hear me out|talk through)\b/i.test(text);
+}
+
 /** "Yeah that's what I want for now", "ok lock it", and close cousins. */
 export function isExploreDone(text: string, lastPau = ""): boolean {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return false;
+  if (isExploreHold(t)) return false;
   if (DONE_CUE.test(t)) return true;
   const invited = /\b(what you want for now|whenever you'?re ready|tell me when that'?s)\b/i.test(lastPau);
   if (invited && /^(y(es|ep|eah|up)?|sure|ok(ay)?|that'?s it|go ahead|do it)[.!\s]*$/i.test(t)) return true;
@@ -43,7 +49,9 @@ export function isExploreDone(text: string, lastPau = ""): boolean {
 
 /** A clear "lock this in" said while leaving listening mode. */
 export function isExploreLock(text: string): boolean {
-  return LOCK_CUE.test((text ?? "").replace(/\s+/g, " ").trim());
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || isExploreHold(t)) return false;
+  return LOCK_CUE.test(t);
 }
 
 const TALK_THROUGH =
