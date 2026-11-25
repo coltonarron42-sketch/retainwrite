@@ -192,17 +192,27 @@ export function pickEscalation(input: {
   // QA 11:08: short: the options and one ask. Example leaders only when they're confused and
   // being taught (Colton 12:08), never on a plain "make this easier".
   // QA round 5 minor: a second "make it easier" in a row is short (no second copy of the same list).
-  // QA round 6 minor: after the short version, change approach instead of asking the same thing again:
-  // first an easy yes (Pau picks one for them to try), then a different way in (someone they've seen lead),
-  // then the easy yes in other words. "ok" or "yes" takes the pick.
-  const pencil = [`No problem, I'll pick one for you so we can keep moving: ${rec.label}. You can switch any time. Just say ok, or name a different one.`];
-  const pencil2 = [`Let's go with ${rec.label} for now. Say ok and I'll take it from there, or tell me another one.`];
+  // QA round 6 minor: after the short version, change approach instead of asking the same thing again.
+  // QA ethos should-fix (after #74): Pau never picks FOR them ("nothing advances without the
+  // student's input"). Round 4 narrows to two, one plain line each, and asks for a gut pick, with
+  // the reading one tap away; round 5 is a different way in (someone they've seen lead); after
+  // that, the two again in other words. No "ok" takes a pick here: they name one.
+  const other = opts.find((o) => o.label !== rec.label) ?? null;
+  const two = other ? [rec, other] : [rec];
+  const line2 = (o: DecisionOption) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`;
+  // The reading button sits under the style question (the reading-help row); a leader pick has none.
+  const readFirst = input.kind === "leader" ? "" : " Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.";
+  const names = two.map((o) => o.label).join(" or ");
+  const narrow = [`Let's narrow it to two.`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
+  const narrow2 = [`No wrong answer here. Down to two:`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
   const otherWay = [`Let's come at it from a different side. Forget the labels for a second: think of someone who led a team you were on, at work, in sports, anywhere. What's one thing they did?`];
   if (step >= 1 && !input.confused) {
     const short = [`No rush. Simplest way in: start with ${rec.label}${rec.why ? `, since it ${plain(rec.why).replace(/^lets you\s+/i, "lets you ")}` : ""}.`, ask];
-    const pick = step === 1 ? short : step === 2 ? pencil : step === 3 ? otherWay : pencil2;
-    const paras = pick.join("\n") === input.last ? (pick === pencil ? pencil2 : pencil) : pick;
-    return { paras, recommend: rec, offerCatchUp };
+    const pick = step === 1 ? short : step === 2 ? narrow : step === 3 ? otherWay : narrow2;
+    const paras = pick.join("\n") === input.last ? (pick === narrow ? narrow2 : narrow) : pick;
+    const narrowed = paras === narrow || paras === narrow2;
+    // Narrowed: nothing is recommended (no yes/ok takes a pick), and the reading is offered.
+    return { paras, recommend: narrowed || paras === otherWay ? null : rec, offerCatchUp: narrowed && input.kind !== "leader" ? true : offerCatchUp };
   }
   let paras = [intro, ...lines, ...(exLine && step <= 1 && input.confused ? [exLine] : []), `${recLine} ${ask}`];
   if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...lines, `${recLine} ${ask}`];

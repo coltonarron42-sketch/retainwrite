@@ -138,7 +138,7 @@ export function SparkExchange({
           </div>
         ) : null}
         {turn.status === "shown" && turn.questions?.length && active ? (
-          <p className="text-[13px] leading-[1.6] text-ds-muted">
+          <p className="text-[13px] leading-[1.6] text-ds-muted" data-chat-part>
             No need to answer these. Write whatever comes to you, in your own words.
           </p>
         ) : null}
@@ -148,13 +148,15 @@ export function SparkExchange({
     return (
       <div
         data-spark
-        data-chat-part
         data-spark-status={turn.status}
         className="space-y-2 border-t border-ds-border pt-3 text-ds-text"
         aria-live={active ? "polite" : undefined}
       >
-        <p className="text-ds-muted">{SPARK_OFFER}</p>
-        {reply ? typeof reply === "string" ? <p>{reply}</p> : reply : null}
+        {/* QA: the offer and Pau's answer to the choice ("No problem. Take your time.") are separate Past chat entries. */}
+        <p className="text-ds-muted" data-chat-part data-spark-offer>
+          {SPARK_OFFER}
+        </p>
+        {reply ? typeof reply === "string" ? <p data-chat-part data-spark-reply>{reply}</p> : reply : null}
         {extras}
       </div>
     );
