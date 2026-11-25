@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { assertAssignmentConfirmGate } from "@/lib/assignment/confirm";
 import { assignmentRequirementsSchema } from "@/lib/assignment/schema";
-import {
-  evaluateStage1VoiceMinimum,
-  type VoiceAnswer,
-} from "@/lib/stage1/voice";
 import { computeStyleMetrics } from "@/lib/style/metrics";
+import { buildVoiceCorpus, collectVoicePieces } from "@/lib/style/voice-capture";
+import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { logSessionEvent } from "@/lib/session-events";
@@ -24,13 +22,15 @@ const answerSchema = z.object({
   questionText: z.string(),
   kind: z.string(),
   answerText: z.string(),
-  isVoiceSample: z.boolean(),
+  /** Legacy flag; every answer now feeds the background voice profile. */
+  isVoiceSample: z.boolean().optional(),
 });
 
 const bodySchema = z.object({
   requirements: assignmentRequirementsSchema,
   answers: z.array(answerSchema).min(1),
   leads: z.array(z.record(z.string(), z.unknown())).optional(),
+  /** Legacy; ignored (PC-32). */
   keepBaseline: z.boolean().optional(),
   useInterestProfile: z.boolean().optional(),
   storyAngle: z
@@ -68,17 +68,8 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const requirements = cardGate.requirements;
 
-  const voiceAnswers: VoiceAnswer[] = body.answers.map((a) => ({
-    text: a.answerText,
-    isVoiceSample: a.isVoiceSample,
-    kind: a.kind,
-  }));
-  const voice = evaluateStage1VoiceMinimum({
-    answers: voiceAnswers,
-    keepBaseline: body.keepBaseline,
-  });
-  // A short voice sample is a warning, not a hard stop (PLAN.md). It is
-  // logged below so coaching can lean on fewer voice cues.
+  // PC-32 (Colton t219u, Nov 25): voice is captured in the background from every answer in every
+  // stage. Its size is never a Stage 1 condition; the tally is only a passive log stat.
 
   const stance = body.answers.find((a) => a.questionId === "stance_early");
   if (!stance || wordCount(stance.answerText) < 25) {
@@ -95,10 +86,11 @@ export async function POST(request: Request, ctx: Ctx) {
     );
   }
 
-  const sample = body.answers
-    .filter((a) => a.isVoiceSample)
-    .map((a) => a.answerText)
-    .join("\n");
+  // Every answer they wrote (not only the old "voice sample" questions); the profile itself is
+  // refreshed from everything saved on the paper below.
+  const sample = buildVoiceCorpus(
+    collectVoicePieces({ intake: body.answers.map((a) => ({ questionId: a.questionId, kind: a.kind, text: a.answerText })) }),
+  ).text;
   const metrics = computeStyleMetrics(sample);
 
   await logSessionEvent({
@@ -106,8 +98,8 @@ export async function POST(request: Request, ctx: Ctx) {
     stage: 1,
     event: "stage1_complete",
     detail: {
-      voiceWords: voice.totalWords,
-      voiceShort: !voice.ok,
+      voiceWords: wordCount(sample),
+      background: true,
       leadCount: body.leads?.length ?? 0,
       useInterestProfile: body.useInterestProfile ?? true,
     },
@@ -186,30 +178,10 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const now = new Date().toISOString();
 
-  await supabase.from("style_profiles").upsert({
-    paper_id: paperId,
-    user_id: user.id,
-    raw_sample: sample,
-    word_count: metrics.wordCount,
-    avg_sentence_length: metrics.avgSentenceLength,
-    reading_grade: metrics.readingGrade,
-    formality: metrics.formality,
-    formality_score: metrics.formalityScore,
-    top_content_words: metrics.topContentWords,
-    vocabulary: metrics.vocabulary,
-    sentence_length_variance: metrics.sentenceLengthVariance,
-    scholarly_register_score: metrics.scholarlyRegisterScore,
-    tone_markers: metrics.toneMarkers,
-    source: "stage1_answers",
-  });
-
-  await supabase.from("voice_profiles").upsert({
-    user_id: user.id,
-    sample_text: sample,
-    metrics: metrics,
-    word_count: metrics.wordCount,
-    source: "stage1",
-    updated_at: now,
+  // Background voice capture: style_profiles + voice_profiles from every answer saved so far.
+  await refreshVoiceProfile(supabase, paperId, user.id, {
+    reason: "stage1_complete",
+    extra: body.answers.map((a) => ({ questionId: a.questionId, kind: a.kind, text: a.answerText })),
   });
 
   await supabase

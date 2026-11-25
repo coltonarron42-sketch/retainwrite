@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -160,6 +161,11 @@ export async function POST(request: Request, ctx: Ctx) {
   if (failed?.error) {
     console.error(`[autosave] ${failed.label} failed`, { code: failed.error.code, message: failed.error.message });
     return NextResponse.json({ error: "Could not save." }, { status: 500 });
+  }
+  // PC-32 (Colton t219u): a saved Stage 2/3 session carries the student's newest words; the voice
+  // profile picks them up quietly (throttled, after the response; never part of the save).
+  if (body.session !== undefined) {
+    after(() => refreshVoiceProfile(auth.supabase, paperId, auth.userId, { throttleMs: 60_000, reason: "session_save" }));
   }
   return NextResponse.json({ ok: true });
 }

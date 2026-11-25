@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { tallyVoiceWords } from "@/lib/stage1/voice";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -85,12 +84,5 @@ export async function GET(_request: Request, ctx: Ctx) {
     answers,
     storyAngle,
     resume: paper?.resume ?? null,
-    voiceWords: tallyVoiceWords(
-      answers.map((answer) => ({
-        questionId: answer.questionId,
-        text: answer.answerText,
-        isVoiceSample: answer.isVoiceSample,
-      })),
-    ),
   });
 }
