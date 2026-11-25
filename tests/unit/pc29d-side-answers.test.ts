@@ -107,6 +107,22 @@ describe("a nudge is said alone", () => {
   });
 });
 
+describe("a side answer is said once", () => {
+  it("after it's spoken as itself, the pacer never says it again as the turn's line", () => {
+    const p = new Stage1VoicePacer({ settleMs: 0, maxMs: 0 });
+    const k = "q:0:";
+    p.step({ key: "card:1:", line: "Looks right?", now: 0, busy: false });
+    expect(p.step({ key: k, line: "Where are you with it?", now: 1, busy: false }).say).toBe("Where are you with it?");
+    const aside = `Servant leadership means serving the team first. ${SIDE_RETURN}`;
+    p.markSaid(k, aside);
+    const r = p.step({ key: k, line: aside, now: 2, busy: false });
+    expect(r.say).toBeNull();
+    expect(r.spoken).toBe(aside);
+    // A later new line on the same step is still said.
+    expect(p.step({ key: k, line: "Who fits your pick best?", now: 3, busy: false }).say).toBe("Who fits your pick best?");
+  });
+});
+
 describe("reply wait status", () => {
   it("short, friendly, and no assignment-reading footer after a chat send", () => {
     expect(friendlyStatus("Digging it up…")).toBe("Looking into that…");

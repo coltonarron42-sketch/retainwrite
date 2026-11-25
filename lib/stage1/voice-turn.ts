@@ -151,6 +151,15 @@ export class Stage1VoicePacer {
 
   constructor(private readonly tune: { settleMs: number; maxMs: number } = VOICE_SETTLE) {}
 
+  /**
+   * PC-29d QA: a line the call already said another way (a side answer spoken as itself, which the
+   * intake then also shows as the open turn) is never said again as a prompt.
+   */
+  markSaid(key: string, line: string) {
+    const l = line.replace(/\s+/g, " ").trim();
+    if (l) this.said = { key, line: l, base: l, note: "" };
+  }
+
   /** Voice turned off (or on again): the next look is a fresh start. */
   reset() {
     this.key = null;

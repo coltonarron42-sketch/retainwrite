@@ -1713,7 +1713,10 @@ export function AssignmentIntake({
   useEffect(() => {
     if (!asideVoice.current.step(lastAside?.id ?? null, rtOn) || !lastAside) return;
     const say = asideSpoken(lastAside.paras);
-    if (say) rt.sayTurn(rtScreenRef.current.text, { spoken: paceSpoken.current, say });
+    if (!say) return;
+    // The turn then shows this answer as the open ask: the pacer must not say it a second time.
+    pacer.current.markSaid(rtScreenRef.current.key, lastAside.paras.join(" "));
+    rt.sayTurn(rtScreenRef.current.text, { spoken: paceSpoken.current, say });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAside?.id, rtOn]);
   // PC-29: the assignment is pasted or typed, never spoken: focusing the box pauses the mic.
