@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { groundParas, refTokens } from "@/lib/coach/grounding";
 import { echoShare, findPasteableRuns, gateParas, proseVerdict, reframeQuestion } from "@/lib/coach/prose-gate";
 import { PROSE_GATE } from "@/lib/coach/prose-gate.config";
 import { capOneAsk, countAsks } from "@/lib/coach/one-ask";
@@ -182,5 +183,39 @@ describe("PC-31 gate: read-backs of their own story pass", () => {
       "Mandy exemplified servant leadership by consistently prioritizing the needs and development of her team members. Through weekly one-on-one meetings, she identified growth opportunities and established clear pathways toward promotion. Consequently, her team emerged as the highest-performing unit, which demonstrates that servant leadership ultimately produces superior organizational outcomes during periods of change.";
     expect(echoShare(essay, exact.story)).toBeLessThan(PROSE_GATE.echoShare);
     expect(gateParas([essay], { names: ["Mandy"], echo: exact.story }).blocked).toBe(true);
+  });
+});
+
+describe("PC-31 grounding gate (side answers)", () => {
+  const source = "Assignment: BUS 210 Leadership essay. 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. Readings: Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice); HBR article 'What Makes a Leader?' by Daniel Goleman. APA 7.";
+  const unreadRefs = ["Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice)", "What Makes a Leader? by Daniel Goleman"];
+  it("replaces a requirement count the assignment never set", () => {
+    const g = groundParas(["The essay needs six body paragraphs, plus an intro and a conclusion.", "Which leader are you thinking of?"], { source, unreadRefs });
+    expect(g.fixedCounts).toHaveLength(1);
+    expect(g.paras[0]).toContain("The assignment doesn't set a number of body paragraphs");
+    expect(g.paras[0]).not.toMatch(/six/i);
+  });
+  it("keeps counts the assignment does state", () => {
+    const g = groundParas(["You need one real leader as your example."], { source, unreadRefs });
+    expect(g.fixedCounts).toHaveLength(0);
+    expect(g.paras[0]).toBe("You need one real leader as your example.");
+  });
+  it("labels an unlabeled claim about a reading we don't have", () => {
+    const g = groundParas(["Northouse describes servant leadership as putting followers first.", "Want to go with that?"], { source, unreadRefs });
+    expect(g.labeled).toBe(1);
+    expect(g.paras[0]).toMatch(/^General background, not from your copy: Northouse/);
+    expect(g.paras[1]).toBe("Want to go with that?");
+  });
+  it("leaves labeled lines, and lines once we have the text, alone", () => {
+    expect(groundParas(["From general background: Goleman argues emotional intelligence matters most."], { source, unreadRefs }).labeled).toBe(0);
+    expect(groundParas(["Goleman argues emotional intelligence matters most."], { source, unreadRefs: [] }).labeled).toBe(0);
+    expect(refTokens(unreadRefs)).toEqual(expect.arrayContaining(["Northouse", "Goleman"]));
+  });
+});
+
+describe("PC-31 grounding: attributions", () => {
+  it("labels 'from Northouse chapter 4' in a story reflection", () => {
+    const g = groundParas(["This lines up with servant leadership from Northouse chapter 4, since she put the team's needs first."], { source: "Chapter 4 of our textbook (Northouse)", unreadRefs: ["Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice)"] });
+    expect(g.labeled).toBe(1);
   });
 });
