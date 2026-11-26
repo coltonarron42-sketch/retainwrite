@@ -93,6 +93,7 @@ export async function POST(request: Request, ctx: Ctx) {
   let block = "";
   let paperCtx: PaperContext | null = null;
   let leader: string | null = null;
+  let style: string | null = null;
   let readings: ReadingRef[] = [];
   let ghost: GhostScript | null = null;
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
@@ -109,7 +110,9 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
     block = loaded?.block ?? "";
     paperCtx = loaded?.ctx ?? null;
-    leader = loaded?.ctx ? (fitPairFromContext(loaded.ctx as never)?.leader ?? null) : null;
+    const pair = loaded?.ctx ? fitPairFromContext(loaded.ctx as never) : null;
+    leader = pair?.leader ?? null;
+    style = pair?.style ?? null;
     readings = readingCatalog((loaded?.ctx ?? null) as never);
     ghost = g;
     // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
@@ -384,7 +387,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const baseSys = structured ? `${coachAnswerSystem("answer")}\n\n${COACH_ANSWER_STRUCTURED}` : coachAnswerSystem(mode);
       const chatSys = ghost ? `${baseSys}\n\n${ghostGuidance(ghost)}` : baseSys;
       const chatUser = structured
-        ? JSON.stringify({ ...JSON.parse(userJson), student_leader: askedLeader ?? "", readings: readings.map((r) => ({ id: r.id, title: r.title, author: r.author, key_points: r.points })) })
+        ? JSON.stringify({ ...JSON.parse(userJson), student_leader: askedLeader ?? "", student_style: style ?? "", readings: readings.map((r) => ({ id: r.id, title: r.title, author: r.author, key_points: r.points })) })
         : userJson;
       const schema = structured
         ? {
