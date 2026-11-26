@@ -122,6 +122,12 @@ function lenientShape(raw: unknown): unknown {
   };
 }
 
+/** QA (after #81): the client view with the readings' names in their own case (titles, subs, transitions). */
+export function withNameCaseView(view: SkeletonView, names: string[]): SkeletonView {
+  if (!names.length) return view;
+  return { ...view, blocks: view.blocks.map((b) => ({ ...b, sub: restoreNames(b.sub, names), title: b.title ? restoreNames(b.title, names) : b.title })), transitions: view.transitions.map((t) => restoreNames(t, names)) };
+}
+
 /** QA (after #81): a stored shape's lines with the readings' names in their own case. */
 export function withNameCase(shape: PaperShape, names: string[]): PaperShape {
   if (!names.length) return shape;

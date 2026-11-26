@@ -20,6 +20,7 @@ import {
   SHAPE_SYSTEM,
   shapeFromModel,
   withNameCase,
+  withNameCaseView,
   type OutlineFacts,
   type PaperShape,
   type ShapeOutline,
@@ -215,8 +216,9 @@ export async function ensureOutline(input: {
   return rules;
 }
 
-export function viewFor(shape: PaperShape, outline: ShapeOutline | null): SkeletonView {
-  return projectSkeleton(shape, outline);
+export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = []): SkeletonView {
+  // QA (after #81): bold body titles keep the readings' names too ("Goleman's emotional intelligence link").
+  return withNameCaseView(projectSkeleton(shape, outline), names);
 }
 
 /** Server-side only: the decisions the shape says Pau needs (for her prompts). */

@@ -86,15 +86,27 @@ export function asOnSheet(item: string, sheet: string): string {
 const READING_TYPE = String.raw`(?:(?:[A-Z]{2,6}\s+)?(?:article|chapter|book|textbook|essay|handout|reading|case study|report|excerpt|piece|paper|book chapter|short story|poem|video|podcast))`;
 const NAME = String.raw`(?:[A-Z][\w.'’-]*\s+){0,2}[A-Z][\w'’-]+`;
 
-export type ReadingFields = { type: string | null; title: string | null; author: string | null; chapter: string | null };
+export type ReadingFields = { type: string | null; title: string | null; author: string | null; chapter: string | null; source?: string | null; asWritten?: string | null };
 
 /** Type, title and author out of one assigned-reading item, however the parse worded it. */
 export function readingFields(item: string): ReadingFields | null {
   let t = item.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
   t = t.replace(/^(?:the|a|an|our|your)\s+(?:(?:assigned|required|attached|provided)\s+)?/i, "").replace(/^(?:assigned|required|attached|provided)\s+/i, "");
+  // "The assigned chapter: Chapter 4 of …" / "The assigned article: ‘…’" (already pinned): read past the label.
+  const pinned = /^(chapter|article|reading|handout|book|essay|textbook|report|case study)\s*:\s*/i.exec(t);
+  if (pinned) t = t.slice(pinned[0].length);
+  const tailSrc = /\s+\(([A-Z]{2,6})\)$/.exec(t);
+  if (tailSrc) t = t.slice(0, tailSrc.index);
+  // A chapter keeps the sheet's own wording: "Chapter 4 of Northouse, Leadership: Theory and Practice".
+  const chap = /^(?:[Cc]hapter|[Cc]h\.?)\s*(\d{1,2})\b(.*)$/.exec(t);
+  if (chap) {
+    const rest = chap[2]!.replace(/^\s*\(([^)]*)\)/, " ($1)").trim();
+    const author = /^(?:of|in|from)\s+(?:the\s+|our\s+)?(?:textbook\s+)?\(?([A-Z][\w-]+)(?:,|'s|’s|'|’)/.exec(rest)?.[1] ?? null;
+    return { type: "chapter", chapter: chap[1]!, author, title: null, asWritten: `Chapter ${chap[1]}${rest ? ` ${rest}` : ""}`.replace(/\s+/g, " ").trim() };
+  }
   // Title: the quoted part (straight or curly; a title's own apostrophe or "?" stays in it).
   const q = /(?<=^|[\s(])[“"‘']([^“”"]{3,120}?)[”"’'](?=\s|$|[,.;:)])/.exec(t);
-  let title = q ? q[1]!.trim() : null;
+  const title = q ? q[1]!.trim() : null;
   let rest = q ? `${t.slice(0, q.index)} ${t.slice(q.index + q[0].length)}`.replace(/\s+/g, " ").trim() : t;
   let author: string | null = null;
   const by = new RegExp(String.raw`\bby\s+(${NAME})`).exec(rest);
@@ -107,36 +119,43 @@ export function readingFields(item: string): ReadingFields | null {
     author = poss[1]!.trim();
     rest = rest.slice(poss[0].length).trim();
   }
-  // "Chapter 6 of Myers' Psychology (memory)"
-  const chp = /^(?:[Cc]hapter|[Cc]h\.?)\s*(\d{1,2})\s+(?:of|in|from)\s+(?:the\s+|our\s+)?([A-Z][\w-]+)(?:'s|’s|'|’)\s+([A-Z][^()]*?)(?:\s*\([^)]*\))?$/.exec(rest);
-  if (chp) return { type: "chapter", chapter: chp[1]!, author: author ?? chp[2]!, title: title ?? chp[3]!.trim() };
-  // "Chapter 4 of Northouse, Leadership: Theory and Practice"
-  const ch = /^(?:chapter|ch\.?)\s*(\d{1,2})\s+(?:of|in|from)\s+(?:the\s+|our\s+)?(?:textbook\s+)?\(?([A-Z][\w'’-]+),\s+([^()]+?)\)?$/i.exec(rest);
-  if (ch) return { type: "chapter", chapter: ch[1]!, author: author ?? ch[2]!, title: title ?? ch[3]!.trim() };
-  const type = new RegExp(String.raw`^(${READING_TYPE})\b`, "i").exec(rest)?.[1] ?? null;
-  if (!type && !title) return null;
-  if (!title && type) {
-    const after = rest.slice(type.length).replace(/^\s*(?:on|about|titled|called)\s+/i, "").trim();
-    title = after && after.split(" ").length <= 12 ? after : null;
+  const typed = new RegExp(String.raw`^(${READING_TYPE})\b`, "i").exec(rest)?.[1] ?? (pinned && !/^chapter$/i.test(pinned[1]!) ? pinned[1]! : null);
+  if (!typed && !title) return null;
+  if (!typed && !author) return null;
+  // "HBR article" → the type "article", the source "HBR" (shown after the author).
+  const src = (typed ? /^([A-Z]{2,6})\s+/.exec(typed)?.[1] : null) ?? tailSrc?.[1] ?? null;
+  const type = typed ? typed.replace(/^[A-Z]{2,6}\s+/, "").toLowerCase() : null;
+  let ttl = title;
+  if (!ttl && typed && !pinned) {
+    const after = rest.slice(typed.length).replace(/^\s*(?:on|about|titled|called)\s+/i, "").trim();
+    ttl = after && after.split(" ").length <= 12 ? after : null;
   }
-  if (!type && !author) return null;
-  const typ = type ? type.replace(/^([A-Z]{2,6})\s+/, "$1 ").replace(/(\s|^)([A-Za-z][a-z ]+)$/, (m) => m.toLowerCase()) : null;
-  return { type: typ, title, author, chapter: null };
+  return { type, title: ttl, author, chapter: null, source: src };
 }
 
-/** "The assigned <type> '<title>' by <author>", with graceful gaps; never without "The assigned". */
+/**
+ * QA prod (after #81): "The assigned <type>: …", always. A chapter: "The assigned chapter: Chapter 4
+ * of Northouse, Leadership: Theory and Practice". Anything else: "The assigned article: ‘What Makes a
+ * Leader?’ by Daniel Goleman (HBR)". Gaps fall back gracefully; "The assigned" is never dropped.
+ */
 export function readingLabel(f: ReadingFields): string {
+  if (f.chapter) return `The assigned chapter: ${f.asWritten ?? `Chapter ${f.chapter}`}`;
   const type = f.type ?? "reading";
-  const title = f.title ? `'${f.title.replace(/^['‘“"]|['’”"]$/g, "")}'` : "";
-  if (f.chapter) return `The assigned chapter ${f.chapter} of ${title || "the textbook"}${f.author ? ` by ${f.author}` : ""}`.replace(/\s+/g, " ");
-  return ["The assigned", type, title, f.author ? `by ${f.author}` : ""].filter(Boolean).join(" ");
+  const title = f.title ? `‘${f.title.replace(/^['‘“"]|['’”"]$/g, "")}’` : "";
+  const by = f.author ? `by ${f.author}` : "";
+  const src = f.source ? `(${f.source})` : "";
+  const what = [title, by, src].filter(Boolean).join(" ");
+  if (!what) return `The assigned ${type}`;
+  return title ? `The assigned ${type}: ${what}` : `The assigned ${type} ${what}`;
 }
 
 /**
  * A checklist item: an assigned reading is labeled from its fields (deterministic, whatever the
- * parse's wording); anything else (APA, length, a leader) keeps asOnSheet's rule.
+ * parse's wording); anything else (APA, length, a leader) keeps asOnSheet's rule. Never a leading
+ * lowercase "the".
  */
 export function checklistLabel(item: string, sheet: string): string {
   const f = readingFields(item);
-  return f ? readingLabel(f) : asOnSheet(item, sheet);
+  const out = f ? readingLabel(f) : asOnSheet(item, sheet);
+  return out.replace(/^the\b/, "The");
 }
