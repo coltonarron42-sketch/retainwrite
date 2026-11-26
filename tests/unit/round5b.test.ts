@@ -5,6 +5,7 @@ import { keepSubstance, namedPerson } from "@/lib/stage1/north-turns";
 import { storyAngleText, storyWho, reflectStory } from "@/lib/stage1/story-reflect";
 import { northstarChecklist } from "@/lib/stage1/intake-resume";
 import { screenLines } from "@/lib/chat/turn-recorder";
+import { readyVoiceLine } from "@/lib/stage1/voice";
 import { wordCount } from "@/lib/utils";
 
 const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
@@ -110,7 +111,7 @@ describe("minor copy", () => {
     expect(northstarChecklist({ ...base, earlyFromStory: true }).at(-1)?.label).toBe("Early take: your story counts as your early take");
     expect(northstarChecklist(base).at(-1)?.label).toBe("Early take: a few sentences in your own words");
   });
-  it("PC-32: the gate has no voice-amount line at all", () => {
-    expect(intake).not.toContain("enough of your voice");
+  it("first person: I've got enough of your voice", () => {
+    expect(readyVoiceLine(400)).toBe("I've got enough of your voice to coach you.");
   });
 });

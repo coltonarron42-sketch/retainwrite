@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { IDEAS_CHECK_ASK } from "@/lib/stage1/starting-point";
 import {
   isAmbiguousReply,
   isConfusedSaying,
@@ -47,15 +46,15 @@ describe("QA 11:40 preview retest", () => {
       last = txt;
       if (round >= 2) {
         // QA ethos: from round 4 Pau never recommends one to accept with an "ok" (she narrows, they pick).
-        if (round <= 3) expect(e.recommend).not.toBeNull();
-        else expect(e.recommend).toBeNull();
+        // QA ethos (after #77): no style turn ever recommends one.
+        expect(e.recommend).toBeNull();
         // Round 2 teaches the list; a later "make it easier" is short (QA round 5: no near-identical lists).
-        if (round === 2) expect(txt).toMatch(/A lot of students in your spot start with .+ because/);
-        else if (round === 3) expect(txt).toMatch(/Simplest way in: start with/);
+        if (round === 2) expect(txt).toMatch(/short version of each[\s\S]*Which one sounds most like a leader you know\?$/);
+        else if (round === 3) expect(txt).toMatch(/^Another way in, no wrong answer: which of these sounds closest to how you'd want to be led yourself: .+\?$/);
         // QA round 6: then a change of approach, never the same ask a third time.
         else if (round === 4) expect(txt).toMatch(/Let's narrow it to two/);
         else expect(txt).toMatch(/different side/);
-        if (round <= 3) expect(txt).toMatch(/yes or no/i);
+        expect(txt).not.toMatch(/yes or no|Want to start with|start with|A lot of students/i);
         expect(e.paras.filter((p) => p.startsWith("•")).length).toBeLessThanOrEqual(3);
       }
     }
@@ -68,7 +67,7 @@ describe("QA 11:40 preview retest", () => {
     expect(isConfusedSaying("what's the difference")).toBe(true);
     const e = pickEscalation({ options: OPTS, round: 1, confused: true });
     expect(e.paras[0]).toMatch(/short version/);
-    expect(e.recommend).not.toBeNull();
+    expect(e.recommend).toBeNull();
   });
   it("#4 nothing references unread material", () => {
     expect(refsUnreadMaterial("Who is the leader in the HBR article?")).toBe(true);
@@ -76,13 +75,11 @@ describe("QA 11:40 preview retest", () => {
     expect(refsUnreadMaterial(q), q).toBe(false);
     const e = pickEscalation({ options: OPTS, round: 2, unread: true });
     expect(refsUnreadMaterial(e.paras.join(" ")), e.paras.join(" ")).toBe(false);
-    // PC-32: Stage 1's only question (the ideas check) never references the material at all.
-    expect(refsUnreadMaterial(IDEAS_CHECK_ASK)).toBe(false);
+    expect(intake).toContain("const clean = (t: string) => (unread ? scrubUnreadRefs(t) : t);");
   });
   it("Colton 11:41: no get-to-know questions and a locked composer", () => {
     expect(intake).toContain("if (!northstar && !skippedInterest && !prepared) {");
-    // PC-32: the personal voice question only stays where an older paper already answered it.
-    expect(intake).toContain('if (!northstar && has("personal_1")) plan.push({');
+    expect(intake).toContain('if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({');
     const composer = readFileSync("components/stages/stage1/chat-composer.tsx", "utf8");
     expect(composer).toContain("readOnly={false}");
     expect(composer).not.toMatch(/setQueued\(false\);\s*send\(\);/);

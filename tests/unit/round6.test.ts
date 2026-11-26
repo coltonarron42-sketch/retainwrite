@@ -32,12 +32,12 @@ describe("MINOR: a 4th 'not sure' changes approach", () => {
       last = e.paras.join("\n");
       out.push(last);
     }
-    expect(out[2]).toMatch(/Simplest way in: start with Transformational/);
+    expect(out[2]).toMatch(/^Another way in, no wrong answer/);
     expect(out[3]).toMatch(/Let's narrow it to two/);
     expect(out[3]).not.toMatch(/Want to start with/);
     expect(out[4]).toMatch(/different side/);
     expect(out[5]).toMatch(/Down to two/);
-    expect(out.filter((t) => /Want to start with Transformational\?/.test(t)).length).toBeLessThanOrEqual(2);
+    expect(out.filter((t) => /Want to start with|start with Transformational/i.test(t)).length).toBe(0);
     for (const t of out) expect((t.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
   });
   it("the different way in hands their answer to the boss/coach/teacher path", () => {
