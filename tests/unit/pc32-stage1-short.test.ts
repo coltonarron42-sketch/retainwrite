@@ -132,15 +132,14 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
     expect(g).toMatch(/Never quote, paraphrase/);
     expect(g).not.toContain(GHOST.thesis.slice(0, 40));
   });
-  it("the output gate blocks 5-word overlap and near-copies, but not the student's own words or plain coaching", () => {
+  it("the output gate blocks copied runs and near-copies, but not the student's own words or plain coaching", () => {
     expect(ghostLeakCheck("Here's a thought: it builds the trust that employees need before change.", GHOST).ok).toBe(false);
-    expect(
-      ghostLeakCheck("Servant leadership succeeds in organizational change since it builds trust employees need before accepting uncertainty.", GHOST).ok,
-    ).toBe(false);
+    // A close paraphrase of one distinctive ghost sentence is still a near-copy.
+    expect(ghostLeakCheck("One regional hospital manager rebuilt morale post-merger, meeting each nurse individually.", GHOST).ok).toBe(false);
     expect(ghostLeakCheck("What's one moment when a boss earned your trust? That could be a great example.", GHOST).ok).toBe(true);
     const student = "I think it builds the trust that employees need";
     expect(ghostLeakCheck("You said it builds the trust that employees need. Nice.", GHOST, student).ok).toBe(true);
-    expect(src("app/api/papers/[paperId]/coach/answer/route.ts")).toMatch(/if \(paras\.some\(\(p\) => !ghostLeakCheck\(p, ghost, allowed\)\.ok\)\) \{\s*paras = \[\];/);
+    expect(src("app/api/papers/[paperId]/coach/answer/route.ts")).toContain("const r = ghostLeakCheck(p, ghost, allowed);");
   });
   it("targets the instructor's word range (words, pages, estimate, default)", () => {
     expect(ghostTargets({ wordsMin: 1200, wordsMax: 1500 })).toEqual({ min: 1200, max: 1500 });

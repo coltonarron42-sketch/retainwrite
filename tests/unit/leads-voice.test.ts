@@ -26,7 +26,8 @@ describe("F: Pau introduces leads in her own voice, then links", () => {
     expect(src).toContain("const leadsBubbles = leadsShown ? [LEADS_INTRO, leadsList] : [];");
     expect(src).not.toContain("<PauPauGroup bubbles={[LEADS_INTRO]}>");
     const gate = src.slice(src.indexOf('headingId="gate-ask"') - 1500, src.indexOf('headingId="gate-ask"'));
-    expect(gate).toMatch(/bubbles=\{\[\s*\.\.\.leadsBubbles,\s*"That's everything for Stage 1/);
+    // PC-32: the short Stage 1 wrap-up adds the starting-point acknowledgment before "That's everything".
+    expect(gate).toMatch(/bubbles=\{\[\s*\.\.\.leadsBubbles,\s*\.\.\.\(startingNow \? \[ideasAck\(startingNow\), SHORT_GATE_LINE\]/);
     expect(gate).toContain("headingIndex={leadsBubbles.length}");
     const ask = src.slice(src.lastIndexOf('headingId="coach-question"') - 900, src.lastIndexOf('headingId="coach-question"'));
     expect(ask).toContain("...leadsBubbles,");
