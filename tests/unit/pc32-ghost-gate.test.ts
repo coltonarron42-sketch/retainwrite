@@ -138,7 +138,12 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/ai/grok", async (orig) => ({
   ...(await orig<typeof import("@/lib/ai/grok")>()),
-  grokChatJson: async () => ({ ok: true, model: "m", text: JSON.stringify({ paras: drafts.shift() ?? [] }) }),
+  // QA 6:15 PM: answer mode is structured; the draft's last question is the question, the rest is explain.
+  grokChatJson: async () => {
+    const d = (drafts.shift() ?? []).join(" ");
+    const q = d.match(/[^.?!]*\?\s*$/)?.[0] ?? "";
+    return { ok: true, model: "m", text: JSON.stringify({ explain: d.slice(0, d.length - q.length).trim(), readingPoints: [], leaderFacts: [], question: q.trim() }) };
+  },
 }));
 
 describe("coach/answer: one retry in different words before the fallback", () => {

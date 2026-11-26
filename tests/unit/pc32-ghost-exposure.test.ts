@@ -68,7 +68,7 @@ vi.mock("@/lib/supabase/server", () => ({
 // The model tries to hand the ghost over word for word.
 vi.mock("@/lib/ai/grok", async (orig) => ({
   ...(await orig<typeof import("@/lib/ai/grok")>()),
-  grokChatJson: async () => ({ ok: true, model: "m", text: JSON.stringify({ paras: [`Here's a strong line: ${GHOST_SENTENCES[0]}`], verdict: "unsure" }) }),
+  grokChatJson: async () => ({ ok: true, model: "m", text: JSON.stringify({ paras: [`Here's a strong line: ${GHOST_SENTENCES[0]}`], explain: `Here's a strong line: ${GHOST_SENTENCES[0]}`, readingPoints: [], leaderFacts: [GHOST_SENTENCES[0]], question: "", verdict: "unsure" }) }),
 }));
 
 const ctx = { params: Promise.resolve({ paperId: PAPER_ID }) };
