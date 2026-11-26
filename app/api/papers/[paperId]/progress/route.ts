@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -96,6 +97,11 @@ export async function POST(request: Request, ctx: Ctx) {
       })),
       { onConflict: "paper_id,stage" },
     );
+  }
+  // PC-32: each stage move folds that stage's answers into the background voice profile.
+  if (move.advanced) {
+    const uid = user.id;
+    after(() => refreshVoiceProfile(supabase, paperId, uid, { reason: "stage_move" }));
   }
 
   return NextResponse.json({ ok: true });

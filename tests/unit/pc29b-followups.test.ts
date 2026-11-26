@@ -14,10 +14,10 @@ describe("Stage 2 recap: 'Earlier you picked …' (QA qa6 95b78e8f)", () => {
   const decision = { at: 1, pick: "Transformational", answer, source: "stated" as const, question: "Which leadership style do you want to argue works best here" };
   const leader = { at: 1, pick: "Sam Walton", answer: "", question: "stated" };
   it("an informed pick whose take has no 'because' still names the styles and the leader", () => {
-    expect(stage2Earlier(decision as never, leader as never, [])).toBe("Earlier you picked Servant and Transformational with Sam Walton as your example.");
+    expect(stage2Earlier(decision as never, leader as never, [])).toBe("Earlier you picked servant and transformational leadership with Sam Walton as your example.");
   });
   it("with a reason it keeps the reason (unchanged)", () => {
-    expect(stage2Earlier({ ...decision, answer: `${answer} It's the right call because it shows a style from Chapter 4 working in a real change.` } as never, leader as never, [])).toMatch(/^Earlier you picked Servant and Transformational with Sam Walton as your example, because it shows a style from Chapter 4/);
+    expect(stage2Earlier({ ...decision, answer: `${answer} It's the right call because it shows a style from Chapter 4 working in a real change.` } as never, leader as never, [])).toMatch(/^Earlier you picked servant and transformational leadership with Sam Walton as your example, because it shows a style from Chapter 4/);
   });
   it("a vague answer with no pick still gets no recap", () => {
     expect(stage2Earlier({ ...decision, pick: "Transformational", answer: "idk" } as never, null, [])).toBeNull();

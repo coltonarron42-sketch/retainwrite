@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { z } from "zod";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -88,11 +89,9 @@ export async function POST(request: Request, ctx: Ctx) {
   }
 
   if (body.answer != null && body.questionId && body.questionText && body.questionKind) {
-    const isVoice =
-      body.questionKind === "interest" ||
-      body.questionKind === "coaching" ||
-      body.questionKind === "personal" ||
-      body.questionKind === "fallback_voice";
+    // PC-32 (Colton t219u): every answer the student writes or says feeds the background voice
+    // profile, in any stage. There is no separate voice-sample question or minimum.
+    const isVoice = !body.skipThisQuestion;
 
     await supabase.from("intake_answers").insert({
       paper_id: paperId,
@@ -107,6 +106,11 @@ export async function POST(request: Request, ctx: Ctx) {
       answered_at: new Date().toISOString(),
       decision: body.skipThisQuestion ? "skipped" : "move_on",
     });
+    // Quietly refresh the voice/style profile from everything they've said so far (never blocks the reply).
+    if (isVoice) {
+      const uid = user.id;
+      after(() => refreshVoiceProfile(supabase, paperId, uid, { throttleMs: 20_000, reason: "stage1_answer" }));
+    }
   }
 
   return NextResponse.json({

@@ -53,3 +53,23 @@ export function notAlreadyNamed(items: string[], sentence: string): string[] {
     return hit / content.length < 0.6;
   });
 }
+
+const GRADE_WORDS = /\b(rubric|grad(?:e|ed|ing)|points?|pts|percent|%|criteria|criterion|assess(?:ed|ment)?|evaluat(?:ed|ion)|scor(?:e|ed|ing)|marks?)\b/i;
+const FILLER = new Set(["how", "well", "it", "its", "the", "a", "an", "and", "of", "on", "to", "in", "your", "you", "for", "with", "use", "uses", "using", "is", "are", "be", "clear", "clarity", "quality", "overall", "strong", "good"]);
+const content = (t: string) => t.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !FILLER.has(w));
+const stem = (w: string) => w.replace(/(?:ments?|ing|ed|es|s)$/, "");
+
+/**
+ * QA (Nov 25): the read-back never invents grading criteria ("graded on length… and how well it
+ * argues"). "Graded" lines survive only when the sheet itself talks about grading (a rubric,
+ * points, criteria), and each one's content words must come from the sheet.
+ */
+export function groundedGraded(items: string[], sheet: string, hasRubric: boolean): string[] {
+  if (!hasRubric && !GRADE_WORDS.test(sheet)) return [];
+  const words = new Set(content(sheet).map(stem));
+  return items.filter((item) => {
+    const c = content(item);
+    if (!c.length) return false;
+    return c.filter((w) => words.has(stem(w))).length / c.length >= 0.75;
+  });
+}

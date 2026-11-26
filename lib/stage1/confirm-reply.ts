@@ -7,7 +7,6 @@ import { PAU_PERSONALITY } from "@/lib/coach/personality";
  * confirm. Corrections update the extracted fields and Pau re-confirms.
  * SOP: coaching only. Replies talk about the assignment sheet, never the paper.
  */
-import { withYear } from "@/lib/copy/due-date";
 import { markFieldConfirmed } from "@/lib/assignment/confirm-helpers";
 import { emptyField, type AssignmentRequirements, type CitationStyle } from "@/lib/assignment/schema";
 import { lengthFromAnswer, type PauPauAsk } from "@/lib/stage1/pau-pau";
@@ -277,7 +276,8 @@ export function applyConfirmUpdates(req: AssignmentRequirements, u: ConfirmUpdat
   const type = str(u.paperType, 60);
   if (type) next.paperType = markFieldConfirmed(req.paperType, { value: type });
   const due = str(u.dueDate, 60);
-  if (due) next.dueDate = markFieldConfirmed(req.dueDate, { value: withYear(due) ?? due });
+  // QA (Nov 25): their date as they said it; no assumed year.
+  if (due) next.dueDate = markFieldConfirmed(req.dueDate, { value: due });
   const cite = citationFrom(u.citationStyle);
   if (cite) next.citationStyle = markFieldConfirmed(req.citationStyle, { value: cite });
   const pos = (n: number | null) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.round(n) : undefined);

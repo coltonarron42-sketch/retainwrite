@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { stanceStartBlockers, voiceShortNote } from "@/lib/stage1/intake-resume";
+import * as resumeLib from "@/lib/stage1/intake-resume";
+import { stanceStartBlockers } from "@/lib/stage1/intake-resume";
 
 describe("inline edit fields keep typed spaces", () => {
   it("does not trim or split list fields on every keystroke", () => {
@@ -12,13 +13,12 @@ describe("inline edit fields keep typed spaces", () => {
   });
 });
 
-describe("voice minimum is a warning", () => {
-  it("never blocks Start stance interview on a short voice sample", () => {
+describe("voice is background only (PC-32, Colton t219u)", () => {
+  it("never a Stage 1 condition or note", () => {
     expect(
-      stanceStartBlockers({ checklistConfirmed: true, hasStory: true, voiceOk: false, stanceOk: true }),
+      stanceStartBlockers({ checklistConfirmed: true, hasStory: true, stanceOk: true }),
     ).toEqual([]);
-    expect(voiceShortNote({ voiceOk: false })).toMatch(/keep going/);
-    expect(voiceShortNote({ voiceOk: true })).toBeNull();
+    expect("voiceShortNote" in resumeLib).toBe(false);
     const route = readFileSync("app/api/papers/[paperId]/intake/complete/route.ts", "utf8");
     expect(route).not.toContain("Voice minimum not met");
   });
@@ -30,16 +30,16 @@ describe("voice minimum is a warning", () => {
     // Earlier answers are edited by tapping their bubble in the thread.
     expect(intake).toContain("function editAnswer");
     expect(intake).toContain("Edit your answer to: ${item.text}");
-    expect(intake).toContain("voiceWordsMet && readyVoiceLine");
+    expect(intake).not.toContain("readyVoiceLine");
     expect(intake).toContain("earlyStanceQuestion(");
   });
 });
 
 describe("stage 1 follow-ups", () => {
-  it("keeps line breaks in Other instructions, hides the short note at 200 words, and saves drafts only on real edits", () => {
+  it("keeps line breaks in Other instructions, has no voice short note, and saves drafts only on real edits", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(intake).toContain('key === "otherInstructions" ? (');
-    expect(intake).toContain("voiceShortNote({ voiceOk: voiceWordsMet || longEnough(allStudentWords) })");
+    expect(intake).not.toContain("voiceShortNote");
     const save = readFileSync("lib/papers/use-draft-save.ts", "utf8");
     expect(save).toContain("if (baseline.current.text === input.text) return;");
   });

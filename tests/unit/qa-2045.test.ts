@@ -28,7 +28,7 @@ describe("#1 the canned resume line is said once per section", () => {
   });
   it("Stage 2 uses it and never sends paras[0] undefined", () => {
     const chat = read("components/stages/loop/stance-chat.tsx");
-    expect(chat).toContain("const paras = said ? sectionResume(transcript, section.key, section.title, freeText) : paras0;");
+    expect(chat).toContain("const paras = said ? (endsInQuestion ? [] : sectionResume(transcript, section.key, section.title, freeText)) : paras0;");
     expect(chat).not.toContain("pau(paras[0]!)");
   });
 });

@@ -6,6 +6,8 @@ import {
   type ContextExtras,
   type PaperContext,
 } from "@/lib/stage1/paper-context";
+import { loadVoicePieces } from "@/lib/server/voice/capture";
+import { voiceLineFrom } from "@/lib/style/voice-capture";
 
 /**
  * Server read/write of the paper-level context (RLS: the student's own client).
@@ -102,10 +104,21 @@ export async function loadContextExtras(supabase: SupabaseClient, paperId: strin
     lockedPoints = [];
   }
   const angle = (asg.data?.story_angle as { text?: string } | null)?.text?.trim() || null;
+  // PC-32 (Colton t219u): there is no Stage 1 voice-sample question any more. Older papers keep
+  // their saved answer; everyone else gets a line from the answers captured in the background.
+  const legacyVoice = get("stage1:personal_1") ?? get("stage1:fallback_voice") ?? get("stage1:coaching_take");
+  let voiceSample = legacyVoice;
+  if (!voiceSample) {
+    try {
+      voiceSample = voiceLineFrom(await loadVoicePieces(supabase, paperId));
+    } catch {
+      voiceSample = null;
+    }
+  }
   return {
     earlyTake: get("stage1:stance_early"),
     ownAngle: angle,
-    voiceSample: get("stage1:personal_1") ?? get("stage1:fallback_voice") ?? get("stage1:coaching_take"),
+    voiceSample,
     lockedPoints,
   };
 }
