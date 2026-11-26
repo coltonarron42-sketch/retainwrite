@@ -500,9 +500,9 @@ export function sectionClaimSummary(claim: string, sectionTitle = ""): string {
   const part = (sectionTitle || "this section").toLowerCase();
   const summary = (claim ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
   if (summary && !isClosingPhrase(summary) && !isNoteFragment(summary)) {
-    return `Here's what I have for your ${part}: ${finishSentence(summary)} If that sounds right, we can pressure-test it.`;
+    return `Here's what I have for your ${part}: ${finishSentence(summary)} If that sounds right, we can pressure-test it?`;
   }
-  return `Here's what I have for your ${part} so far. If that sounds right, we can pressure-test it.`;
+  return `Here's what I have for your ${part} so far. If that sounds right, we can pressure-test it?`;
 }
 
 export function officialListenNote(sectionIdeas: string[] | undefined, lastYou = ""): string {

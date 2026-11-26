@@ -702,7 +702,7 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
     const summary = sectionClaimSummary(claim, "Body");
     expect(claim).toBe("Walton visited stores to hear from associates, and he shared profits with them.");
     expect(summary).toBe(
-      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it.",
+      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it?",
     );
     expect(summary).not.toMatch(/\bwhile\b/);
     expect(summary).not.toMatch(/is my body example/i);
@@ -797,7 +797,7 @@ describe("QA #76 re-verify: a clear body decision is locked, no menu, no stacked
     ) ?? "";
     const summary = sectionClaimSummary(claim, "Body");
     expect(summary).toBe(
-      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it.",
+      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it?",
     );
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     const fn = loop.slice(loop.indexOf("function onConfirm"), loop.indexOf("async function onLogicOpener"));
@@ -820,4 +820,14 @@ describe("QA #76 re-verify: a clear body decision is locked, no menu, no stacked
     expect(send).toMatch(/readingCommentAck/);
     expect(send).not.toMatch(/I'd write it for you/);
   });
+
+  it("does not speak a second confirm ask when the last Pau line is already a summary or a decision affirm", () => {
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    expect(chat).toContain("confirmAlreadyAsked");
+    expect(chat).toMatch(/Here's what I have for your \|Got it — that's \(locked in for\|in\) your /);
+    const explore = readFileSync("lib/stages/explore-intent.ts", "utf8");
+    expect(explore).toContain("If that sounds right, we can pressure-test it?");
+    expect(explore).not.toMatch(/If that sounds right, we can pressure-test it\./);
+  });
+
 });

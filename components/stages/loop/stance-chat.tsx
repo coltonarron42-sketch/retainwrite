@@ -462,7 +462,16 @@ export function StanceChat(props: Props) {
   const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror" || kind === "listening";
   // QA 5:51 PM: when her last line already ends in a question, no extra "Back to…" / "When you're ready…" tag.
   const endsInQuestion = lastLineAsks(transcript, section.key);
-  const paras0 = asideHere && freeText ? (endsInQuestion ? [] : [asideFollowUp(props.aside?.intent, section.title)]) : turnParas;
+  const lastPauText = [...transcript].reverse().find((l) => l.who === "pau" && l.k === section.key)?.text ?? "";
+  // Summary or a clear-decision affirm already asked one thing; don't add "Going with it?" / vague confirm on the same turn (QA #76).
+  const confirmAlreadyAsked =
+    kind === "confirm" &&
+    (endsInQuestion || /Here's what I have for your |Got it — that's (locked in for|in) your /i.test(lastPauText));
+  const paras0 = confirmAlreadyAsked
+    ? []
+    : asideHere && freeText
+      ? (endsInQuestion ? [] : [asideFollowUp(props.aside?.intent, section.title)])
+      : turnParas;
   // Idempotent turns (QA 5:44 PM): a turn already said AND answered in the
   // saved history for this section (by section id) is never said again
   // verbatim, whatever re-rendered it (a remount, a late restore, a toggle).
