@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import { BACKGROUND_LABEL, COACH_ANSWER_SYSTEM, oneQuestion, shapeContentAnswer } from "@/lib/coach/answer";
+import { BACKGROUND_LABEL, COACH_ANSWER_STRUCTURED,
+  COACH_ANSWER_SYSTEM, oneQuestion, shapeContentAnswer } from "@/lib/coach/answer";
 import { intentReply, isWriteRequest, rulesStanceIntent, writeRequestReply } from "@/lib/stages/stance-intent";
 import { lastLineAsks } from "@/components/stages/loop/stance-chat";
 import { stage2Earlier, styleText } from "@/lib/stages/stage2-intro";
@@ -77,10 +78,11 @@ describe("MUST-FIX 1: readings and general background stay apart (no invented li
     const r = shapeContentAnswer({ paras: ["Which habit do you want to start with?"], background: ["Walton flew his own plane to visit stores."], block: BLOCK, leader: "Sam Walton" });
     expect(r).toEqual([`${BACKGROUND_LABEL} Walton flew his own plane to visit stores.`, "Which habit do you want to start with?"]);
   });
-  it("the prompt asks for the two parts and the background field", () => {
-    expect(COACH_ANSWER_SYSTEM).toMatch(/two clearly separate parts/);
-    expect(COACH_ANSWER_SYSTEM).toMatch(/never link the student's leader to an author or reading unless/);
-    expect(COACH_ANSWER_SYSTEM).toMatch(/"background"/);
+  it("the prompt asks for the parts apart (QA 6:15 PM: structured readingPoints / leaderFacts / question)", () => {
+    expect(COACH_ANSWER_STRUCTURED).toMatch(/readingPoints/);
+    expect(COACH_ANSWER_STRUCTURED).toMatch(/never tie the student's leader to a reading or author unless/);
+    expect(COACH_ANSWER_STRUCTURED).toMatch(/leaderFacts/);
+    expect(COACH_ANSWER_SYSTEM).toMatch(/Your paper will argue/);
   });
 });
 
