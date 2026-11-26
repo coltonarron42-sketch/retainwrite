@@ -2651,6 +2651,8 @@ export function AssignmentIntake({
             people: brief?.options?.people ?? [],
             recIndex: recNos.current[q.id] ?? 0,
             concept: brief?.options?.concept ?? null,
+            // QA ethos (after #77): the two offered are grounded in what they've said (their words only).
+            said: [materialAnswerNow, ...qaAsides.filter((x) => x.qid === q.id).map((x) => x.said), text].filter(Boolean).join("\n"),
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
       // QA round 6: "think of someone who led a team you were on" is the boss/coach/teacher ask: their answer starts the interview.
@@ -4153,7 +4155,8 @@ export function AssignmentIntake({
               ) : q.id === "decision_pick" && brief?.options?.options.length ? (
                 <div className="space-y-3 pt-1">
                 <div className={cn("flex flex-wrap gap-2", noLeaderAsked.current[q.id] && "hidden")} role="group" aria-label="Options" data-style-chips-hidden={noLeaderAsked.current[q.id] ? "" : undefined}>
-                  {brief.options.options.slice(0, 3).map((o) => (
+                  {/* QA ethos (after #77): after "narrow it to two", the chips are those two. */}
+                  {((two) => (two.length ? brief.options.options.filter((o) => two.includes(o.label)) : brief.options.options.slice(0, 3)))(narrowedTwo(lastProbe.current[q.id] ?? null)).map((o) => (
                     <DsButton
                       key={o.label}
                       type="button"
