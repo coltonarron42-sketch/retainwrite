@@ -154,7 +154,11 @@ export function shapeContentAnswer(input: { paras: string[]; background?: unknow
   // The question goes last, after the labelled background part.
   const flat = oneQuestion(kept);
   const tailQ = flat.length && isQuestion(sentencesOf(flat[flat.length - 1]!).pop() ?? "") ? sentencesOf(flat[flat.length - 1]!).pop()! : null;
-  const lastQ = tailQ ?? (bgQuestion ? oneQuestion([bgQuestion])[0] ?? null : null);
+  // R1: a content answer always ends on exactly one ask about THEIR choice (the model sometimes drops it).
+  const lastQ =
+    tailQ ??
+    (bgQuestion ? oneQuestion([bgQuestion])[0] ?? null : null) ??
+    (aboutLeader ? "Which of those do you want to build on in your paper?" : "Which part of that do you want to use in your paper?");
   const body = tailQ ? [...flat.slice(0, -1), sentencesOf(flat[flat.length - 1]!).slice(0, -1).join(" ")].filter(Boolean) : flat;
   const result = [...body];
   if (bg.length) result.push(`${BACKGROUND_LABEL} ${bg.join(" ")}`);

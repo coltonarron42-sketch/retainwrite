@@ -166,6 +166,7 @@ describe("coach/answer: one retry in different words before the fallback", () =>
   });
   it("a generic answer passes on the first try", async () => {
     drafts.push(["Transformational leaders inspire people with a shared vision of the future, while servant leadership puts the needs of the team first."]);
-    expect((await call()).paras.length).toBe(1);
+    // The answer plus the one ask it always ends on (QA 5:51 PM).
+    expect((await call()).paras.length).toBe(2);
   });
 });

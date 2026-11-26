@@ -56,6 +56,10 @@ describe("MUST-FIX 1: readings and general background stay apart (no invented li
     expect(r[0]).toMatch(/^From general background \(check before citing\): Sam Walton showed servant leadership by regularly visiting stores and listening to associates\. He also introduced profit-sharing/);
     expect(r[1]).toBe("Which of those do you want to use?");
   });
+  it("QA walk f804c567 (bf5ba4f): no question from the model still ends on exactly one ask", () => {
+    const r = shapeContentAnswer({ paras: ["From general background (check before citing): Sam Walton visited stores often."], block: BLOCK, leader: "Sam Walton", message: "How did Sam Walton show servant leadership?" });
+    expect(r).toEqual([`${BACKGROUND_LABEL} Sam Walton visited stores often.`, "Which of those do you want to build on in your paper?"]);
+  });
   it("no reading part when none is relevant: only background and the question", () => {
     const r = shapeContentAnswer({ paras: ["Which habit do you want to start with?"], background: ["Walton flew his own plane to visit stores."], block: BLOCK, leader: "Sam Walton" });
     expect(r).toEqual([`${BACKGROUND_LABEL} Walton flew his own plane to visit stores.`, "Which habit do you want to start with?"]);
