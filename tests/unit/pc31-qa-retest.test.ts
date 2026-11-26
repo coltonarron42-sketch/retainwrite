@@ -119,3 +119,42 @@ describe("QA 5:13 walk: unsupported bullets never show as background", () => {
     expect(needsBackground(d)).toBe(false);
   });
 });
+
+describe("QA 5:32: hosting domains and status order", () => {
+  it("hosting / dev domains never count and never show in 'Reading …'", async () => {
+    const { sourceTier } = await import("@/lib/coach/source-quality");
+    const { readingLine } = await import("@/lib/coach/thinking-status");
+    for (const u of ["https://pilot.digitalocean.com/x", "https://foo.herokuapp.com/", "https://x.vercel.app/a", "https://y.netlify.app/", "https://me.github.io/p", "https://z.pages.dev/"]) {
+      expect(sourceTier(u)).toBe(0);
+      expect(readingLine(u)).toBeNull();
+    }
+  });
+  it("phases: searching < reading < writing", async () => {
+    const { statusPhase } = await import("@/lib/coach/thinking-status");
+    expect(statusPhase("Searching for good examples…")).toBe(1);
+    expect(statusPhase("Reading hbr.org…")).toBe(2);
+    expect(statusPhase("Double-checking the sources…")).toBe(2);
+    expect(statusPhase("Pulling it together…")).toBe(3);
+  });
+  it("a reading line never comes before the first searching line", async () => {
+    const { statusFromEvent } = await import("@/lib/coach/thinking-status");
+    const seen = { hosts: new Set<string>(), topic: "examples of transformational leadership" };
+    const out = statusFromEvent({ type: "response.output_item.done", item: { type: "web_search_call", action: { type: "search", sources: [{ url: "https://hbr.org/x" }] } } }, seen);
+    expect(out[0]).toMatch(/^Searching for examples of transformational leadership…$/);
+    expect(out[1]).toBe("Reading hbr.org…");
+  });
+  it("the client drops a line from an earlier phase", async () => {
+    const { fetchPauAnswer } = await import("@/lib/coach/pau-stream-client");
+    const lines = ["Searching for x…", "Reading hbr.org…", "Searching a bit more on x…", "Pulling it together…", "Double-checking the sources…"].map((t) => JSON.stringify({ type: "status", text: t }));
+    const body = `${lines.join("\n")}\n${JSON.stringify({ type: "done", paras: ["ok"] })}\n`;
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(body, { headers: { "content-type": "application/x-ndjson" } })) as typeof fetch;
+    const shown: string[] = [];
+    try {
+      await fetchPauAnswer("/x", {}, { kind: "research", onStatus: (l) => shown.push(l) });
+    } finally {
+      globalThis.fetch = orig;
+    }
+    expect(shown).toEqual(["Searching for x…", "Reading hbr.org…", "Pulling it together…"]);
+  });
+});
