@@ -46,12 +46,14 @@ describe("QA 11:40 preview retest", () => {
       seen.push(txt);
       last = txt;
       if (round >= 2) {
-        expect(e.recommend).not.toBeNull();
+        // QA ethos: from round 4 Pau never recommends one to accept with an "ok" (she narrows, they pick).
+        if (round <= 3) expect(e.recommend).not.toBeNull();
+        else expect(e.recommend).toBeNull();
         // Round 2 teaches the list; a later "make it easier" is short (QA round 5: no near-identical lists).
         if (round === 2) expect(txt).toMatch(/A lot of students in your spot start with .+ because/);
         else if (round === 3) expect(txt).toMatch(/Simplest way in: start with/);
         // QA round 6: then a change of approach, never the same ask a third time.
-        else if (round === 4) expect(txt).toMatch(/I'll pick one for you so we can keep moving/);
+        else if (round === 4) expect(txt).toMatch(/Let's narrow it to two/);
         else expect(txt).toMatch(/different side/);
         if (round <= 3) expect(txt).toMatch(/yes or no/i);
         expect(e.paras.filter((p) => p.startsWith("•")).length).toBeLessThanOrEqual(3);
