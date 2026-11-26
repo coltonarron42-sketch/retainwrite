@@ -59,7 +59,7 @@ const CALLS = [
   ["PAGE", `/app/papers/${PAPER}/stage/2`],
   ["PAGE", `/app/papers/${PAPER}/stage/3`],
 ];
-const BAD = /server:|rwg1:|ghost_script|ghost_pending|fit_checks/;
+const BAD = /\bserver:|rwg1:|ghost_script|ghost_pending|fit_checks/;
 let fail = 0;
 for (const [m, path, body] of CALLS) {
   const init = m === "POST" ? json(body) : { method: "GET" };
