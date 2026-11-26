@@ -1,3 +1,4 @@
+import { checklistLabel } from "@/lib/stage1/reading-label";
 import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
@@ -519,7 +520,9 @@ export function requirementLines(
   // QA 1:16 (PSY): a personal moment they already gave counts ("my finals week last spring").
   const personal = /\b(my|I)\b/.test(stance) && /\b(when|last|week|year|time|once|summer|spring|fall|winter)\b/i.test(stance);
   for (const raw of ctx.mustInclude.slice(0, 5)) {
-    const item = raw.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
+    // QA prod smoke (after #83, f8df7ccc): every reading label is pinned here, the one place checklist
+    // lines are built, whatever the caller passed ("Northouse, Leadership: Theory and Practice (Chapter 4)").
+    const item = checklistLabel(raw, "").replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
     if (!item || /\b(real leader|one leader|leader as|example)\b/i.test(item) && (ctx.needsPerson || ctx.leader)) continue;
     const marks = (item.match(/\b[A-Z][a-z]{3,}\b/g) ?? []).filter((w) => !/^(Chapter|Theory|Practice|Leadership|What|Makes|Leader|Article|Format)$/.test(w));
     const covered = marks.some((w) => said.includes(w.toLowerCase()));

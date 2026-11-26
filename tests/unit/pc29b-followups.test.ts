@@ -72,10 +72,13 @@ describe("read-back: no invented restriction, a real 'graded on' sentence, no re
     const ask = dropInventedRestriction(ASK_ONLY, SHEET);
     expect(notAlreadyNamed(MUST, ask)).toEqual(["APA 7 format"]);
     const intro = stage2IntroText({ ask, mustInclude: MUST, graded: [], confirmed: true } as never, { heading: "h", body: "b" });
-    expect(intro.body).toBe(`${ask} It has to include: APA 7 format.`);
-    expect(intro.body.match(/Northouse/g)).toHaveLength(1);
-    // Nothing new to list: no list at all.
-    expect(stage2IntroText({ ask, mustInclude: MUST.slice(0, 3), graded: [], confirmed: true } as never, { heading: "h", body: "b" }).body).toBe(ask);
+    // QA #84 (supersedes this list's PC-29b skip for readings): the assigned readings are always
+    // listed, with the checklist's pinned label; other points still skip what the ask names.
+    expect(intro.body).toBe(`${ask} It has to include: The assigned chapter: Chapter 4 of Northouse, Leadership: Theory and Practice; The assigned article: ‘What Makes a Leader?’ by Daniel Goleman (HBR); APA 7 format.`);
+    // The ask names it in passing; the list names it once, pinned.
+    expect(intro.body.slice(ask.length).match(/Northouse/g)).toHaveLength(1);
+    // No reading and nothing new to list: no list at all.
+    expect(stage2IntroText({ ask, mustInclude: MUST.slice(2, 3), graded: [], confirmed: true } as never, { heading: "h", body: "b" }).body).toBe(ask);
     // Sources the sentence doesn't name are still listed.
     expect(notAlreadyNamed(MUST, "You need to write an essay about leadership during change.")).toHaveLength(4);
   });

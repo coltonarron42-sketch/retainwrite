@@ -172,7 +172,7 @@ export function shapeFromModel(raw: unknown, names: string[] = []): PaperShape |
 
 export const SHAPE_SYSTEM = `You plan the SHAPE of a student's paper so a writing coach knows the structure. You never write any part of the paper.
 Return JSON only: {"body":[{"focus":"...","kind":"example|theory|analysis|counter|evidence"}],"transitions":n,"examples":n,"theories":n,"decisions":["..."]}.
-- body: one entry per body paragraph, in order. Use exactly target_bodies entries (target_bodies_with_counter when one of them is a counterargument paragraph); the count is already sized to the assignment's length (about 300 words per body paragraph) or to a paragraph count the assignment states.
+- body: one entry per body paragraph, in order. Use exactly target_bodies entries (target_bodies_with_counter when one of them is a counterargument paragraph); the count is already sized to the assignment's length (about 300 words per body paragraph) or to a paragraph count the assignment states. Every reading the assignment requires gets its own body paragraph or is named in one.
 - focus: 2 to 7 words naming the paragraph's job for THIS assignment, lowercase, e.g. "the leader's change story", "style in action: first example", "tie it to Northouse's styles", "Goleman's emotional intelligence link", "counterargument and reply". You may name the theories, styles and readings the assignment itself names. Never the student's own choices, no claims, no sentences.
 - decisions: up to 5 short questions the student must decide before drafting (e.g. "Which leader will you use?"). Never answer them.`;
 
@@ -279,6 +279,7 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
 export const OUTLINE_SYSTEM = `You label the body paragraphs of a student's paper plan with short titles, using ONLY the student's own choices and notes. You never write any part of the paper.
 Return JSON only: {"titles":[{"title":"...","ideas":[0,2]}]} with one entry per body paragraph, in order.
 - title: 3 to 7 words, comma-separated parts: their leader or example, the style or idea that paragraph shows, and (if their notes give one) the example in 1 to 3 words. E.g. "Sam Walton, transformational vision", "Sam Walton, servant leadership, listening to associates", "Legere, winners circle, culture change". Each part is a complete noun phrase; never end on a word like "of", "the" or "a". No sentences, no claims, no new facts, nothing the student didn't choose or write.
+- A paragraph built on an assigned reading names that reading (its author) in its title. No two titles open the same way or say the same thing.
 - Each title names what THAT paragraph is about (its line in body_paragraphs). A style goes only on a paragraph about the leader using it; a reading or counterargument paragraph keeps its own topic. Name the leader in at most two titles.
 - ideas: indexes of the student's body notes that belong in that paragraph (may be empty).`;
 

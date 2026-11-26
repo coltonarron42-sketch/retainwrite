@@ -1,3 +1,4 @@
+import { checklistLabel, isReadingItem } from "@/lib/stage1/reading-label";
 import { dropHedges } from "@/lib/copy/tidy";
 /**
  * Stage 2 opener and carry-over (QA 6:03 AM): the plain-words assignment from
@@ -137,7 +138,12 @@ export function stage2IntroText(readback: ReadbackPlain | null | undefined, fall
   const ask = readback?.ask?.replace(/\s+/g, " ").trim();
   if (!ask) return fallback;
   // PC-29b: the list skips what the sentence above it already names (its sources, "one real leader").
-  const must = notAlreadyNamed((readback?.mustInclude ?? []).filter(Boolean), ask).slice(0, 3);
+  // QA #84: the assigned readings are always listed, with the checklist's pinned label; the
+  // other points still skip what the sentence above already names.
+  const items = (readback?.mustInclude ?? []).filter(Boolean);
+  const readings = items.filter(isReadingItem).map((x) => checklistLabel(x, "")).slice(0, 3);
+  const others = notAlreadyNamed(items.filter((x) => !isReadingItem(x)), ask);
+  const must = [...readings, ...others].slice(0, Math.max(3, readings.length + 1));
   return {
     heading: "Your assignment, in plain words",
     body: must.length ? `${ask} It has to include: ${must.join("; ")}.` : ask,

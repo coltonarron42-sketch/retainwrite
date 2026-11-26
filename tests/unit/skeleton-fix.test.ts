@@ -44,7 +44,7 @@ describe("QA (after #82) b: body count sized to the paper", () => {
   it("the shape prompt asks for the planned count; every served shape is fitted", () => {
     const ghost = readFileSync("lib/server/skeleton/ghost.ts", "utf8");
     expect(ghost).toContain("target_bodies: plan.bodies, target_bodies_with_counter: plan.withCounter");
-    expect(ghost).toContain("fitBodies(await ensureShapeRaw(input), plan)");
+    expect(ghost).toContain("fitBodies(await ensureShapeRaw(input), plan, readings)");
   });
 });
 

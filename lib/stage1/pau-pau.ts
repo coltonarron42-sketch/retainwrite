@@ -1,3 +1,4 @@
+import { inlineLabel, isReadingItem } from "@/lib/stage1/reading-label";
 import { gradedSentence } from "@/lib/stage1/readback-tidy";
 import { oneQuipParas } from "@/lib/coach/quips";
 /**
@@ -401,7 +402,8 @@ function readBackParasRaw(
     const tidy = (x: string) => x.replace(/\s+/g, " ").replace(/[.;,\s]+$/, "").trim();
     // QA 3:06 minor: only a plain sentence-start word is lowercased; names keep their casing (Northouse, Daniel Goleman).
     const lower = (x: string) => (COMMON_START.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x);
-    const list = (xs: string[]) => joinList(xs.map(tidy).map(lower).filter(Boolean));
+    // QA #84: a reading reads with the checklist's pinned label, here too.
+    const list = (xs: string[]) => joinList(xs.map(tidy).map((x) => (isReadingItem(x) ? inlineLabel(x) : lower(x))).filter(Boolean));
     const facts = body[0] ?? "";
     const plainParas = [
       facts,

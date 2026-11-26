@@ -29,7 +29,7 @@ import {
 } from "@/lib/skeleton/shape";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { readingNames } from "@/lib/copy/name-case";
-import { bodyPlan, fitBodies, varyTitles } from "@/lib/skeleton/tidy";
+import { bodyPlan, coverReadings, fitBodies, fixTitles, requiredReadings, varyTitles } from "@/lib/skeleton/tidy";
 
 type GhostRow = { shape: PaperShape | null; shapeHash: string | null; outline: ShapeOutline | null; outlineHash: string | null };
 
@@ -101,7 +101,10 @@ function once(key: string, later: (task: () => Promise<void>) => void, task: () 
 export async function ensureShape(input: Parameters<typeof ensureShapeRaw>[0]): Promise<PaperShape> {
   // QA (after #82): every shape served is sized to the plan (stored ones too), bodies re-keyed in order.
   const plan = bodyPlan({ text: input.assignmentText, words: input.words });
-  return withNameCase(fitBodies(await ensureShapeRaw(input), plan), readingNames(input.assignmentText));
+  // QA prod smoke (after #83): every required reading gets a body (or is woven into one), after the model.
+  const names = readingNames(input.assignmentText);
+  const readings = requiredReadings(input.assignmentText, names);
+  return withNameCase(coverReadings(fitBodies(await ensureShapeRaw(input), plan, readings), readings), names);
 }
 
 async function ensureShapeRaw(input: {
@@ -223,10 +226,11 @@ export async function ensureOutline(input: {
   return rules;
 }
 
-export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = [], extra: { leader?: string | null; summary?: string | null } = {}): SkeletonView {
+export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = [], extra: { leader?: string | null; summary?: string | null; readings?: string[] } = {}): SkeletonView {
   // QA (after #81): bold body titles keep the readings' names too ("Goleman's emotional intelligence link").
   // QA (after #82): the leader opens at most two titles; the top line is the synthesized summary.
-  const view = withNameCaseView(varyTitles(projectSkeleton(shape, outline), extra.leader), names);
+  // QA prod smoke (after #83): a reading's paragraph names it in its title; no look-alike titles.
+  const view = withNameCaseView(varyTitles(fixTitles(projectSkeleton(shape, outline), extra.readings ?? [], extra.leader), extra.leader), names);
   return { ...view, summary: extra.summary ?? null };
 }
 
