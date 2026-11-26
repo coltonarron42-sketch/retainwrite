@@ -145,7 +145,8 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     const said = (id: string) => [...body.answers].reverse().find((a) => a.questionId === id && a.answerText.trim())?.answerText.trim() ?? null;
     const point = classifyStartingPoint({
-      ideas: said(IDEAS_CHECK_ID) ?? said("decision_pick") ?? said("stance_early"),
+      // QA 6:50 PM: an idea given after the no-ideas nudge is their idea.
+      ideas: ideasSaid(body.answers).ideas ?? said(IDEAS_CHECK_ID) ?? said("decision_pick") ?? said("stance_early"),
       followUp: ideasSaid(body.answers).followUp ?? said("decision_why"),
       lostAtStart: pctx.lostAtStart,
       hasReading: Boolean(pctx.readings?.length),

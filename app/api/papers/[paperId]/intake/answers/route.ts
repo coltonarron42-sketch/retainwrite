@@ -55,7 +55,12 @@ export async function GET(_request: Request, ctx: Ctx) {
   // (in the question's place), so a reload shows what the student last sent.
   const latest = new Map<string, NonNullable<typeof data>[number]>();
   for (const row of data ?? []) {
-    if (!KINDS.has(row.question_kind) || !row.answer_text.trim()) continue;
+    if (!KINDS.has(row.question_kind)) continue;
+    // An empty newer row clears the question (QA 6:50 PM: later ideas turns after an edit).
+    if (!row.answer_text.trim()) {
+      latest.delete(row.question_id);
+      continue;
+    }
     latest.set(row.question_id, row);
   }
   const answers = [...latest.values()]

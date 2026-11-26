@@ -28,6 +28,8 @@ const bodySchema = z.object({
     ])
     .optional(),
   sequence: z.number().int().nonnegative().optional(),
+  /** QA 6:50 PM: an edited ideas answer clears the later ideas turns (an empty row = no answer). */
+  clearQuestionIds: z.array(z.string().min(1).max(80)).max(10).optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -88,6 +90,23 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (body.clearQuestionIds?.length) {
+    await supabase.from("intake_answers").insert(
+      body.clearQuestionIds.map((questionId) => ({
+        paper_id: paperId,
+        user_id: user.id,
+        sequence: body.sequence ?? 0,
+        question_id: questionId,
+        question_text: "(cleared after an edit)",
+        question_kind: "coaching",
+        answer_text: "",
+        word_count: 0,
+        is_voice_sample: false,
+        answered_at: new Date().toISOString(),
+        decision: "move_on",
+      })),
+    );
+  }
   if (body.answer != null && body.questionId && body.questionText && body.questionKind) {
     // PC-32 (Colton t219u): every answer the student writes or says feeds the background voice
     // profile, in any stage. There is no separate voice-sample question or minimum.
