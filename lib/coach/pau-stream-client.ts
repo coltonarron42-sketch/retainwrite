@@ -55,10 +55,12 @@ export async function fetchPauAnswer(
   let shownAt = 0;
   const queue: string[] = [];
   let pump: ReturnType<typeof setTimeout> | null = null;
+  let displayed = "";
   const flush = () => {
     pump = null;
     const next = queue.shift();
     if (!next) return;
+    displayed = next;
     shownAt = Date.now();
     o.onStatus?.(next);
     if (queue.length) pump = setTimeout(flush, MIN_SHOW_MS);
@@ -67,6 +69,7 @@ export async function fetchPauAnswer(
     // QA 5:32: searching → reading → writing, never back to an earlier step.
     const ph = statusPhase(line);
     if (ph && ph < phase) return;
+    if (line === (queue.at(-1) ?? displayed)) return;
     if (ph) phase = ph;
     lastAt = Date.now();
     shown.add(line);
@@ -76,6 +79,20 @@ export async function fetchPauAnswer(
       if (wait === 0) flush();
       else pump = setTimeout(flush, wait);
     }
+  };
+  // QA 6:35 #4: the writing line ("Pulling it together…") is always the last status a research turn shows,
+  // even when it arrived just before the answer (queued lines are otherwise dropped). It stays up briefly.
+  const landOnWriting = async <T,>(m: T): Promise<T> => {
+    const w = queue.find((l) => statusPhase(l) === 3);
+    if (w && displayed !== w) {
+      if (pump) clearTimeout(pump);
+      pump = null;
+      queue.length = 0;
+      displayed = w;
+      o.onStatus?.(w);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return m;
   };
   const rotTimer = setInterval(() => {
     if (Date.now() - lastAt < (o.rotateMs ?? 4_000)) return;
@@ -103,11 +120,11 @@ export async function fetchPauAnswer(
           const i = rotation.indexOf(m.text);
           if (i > rot) rot = i;
           show(m.text);
-        } else if (m.type === "done") return m;
+        } else if (m.type === "done") return await landOnWriting(m);
       }
     }
     const tail = ndjsonLines(`${buf}\n`).lines.find((l) => (l as { type?: string }).type === "done") as PauAnswer | undefined;
-    return tail ?? null;
+    return tail ? await landOnWriting(tail) : null;
   } catch {
     return null;
   } finally {

@@ -32,6 +32,15 @@ export const SOURCE_QUALITY = {
     "geekwire.com", "fastcompany.com", "inc.com", "cnn.com", "wired.com", "techcrunch.com", "theverge.com", "qz.com",
     "marketwatch.com", "barrons.com", "seattletimes.com", "chicagotribune.com", "iveypublishing.ca", "thecasecentre.org", "imd.org",
   ],
+  /** QA 6:35: predatory or low-quality journal hosts and self-upload sites: never cited (tier 1), even for "a company's own site". */
+  weak: [
+    "corejournals.org", "omicsonline.org", "scirp.org", "iiste.org", "ijsr.net", "ijert.org", "ijsrp.org", "ijrar.org", "jetir.org",
+    "ijcrt.org", "ijariie.com", "ijtsrd.com", "iosrjournals.org", "eajournals.org", "academicjournals.org", "sciencepublishinggroup.com",
+    "ijmra.us", "granthaalayahpublication.org", "gssrr.org", "researchleap.com", "ijbmi.org", "ijhssi.org", "researchgate.net",
+    "semanticscholar.org", "ssrn.com",
+  ],
+  /** Unlisted journal-style hosts ("ijbm.org", "xyzjournals.org", "journalofleadership.com") are weak too. */
+  weakJournalLabel: /^(?:ij[a-z]{2,8}|[a-z]*journals?[a-z]*|[a-z]*publish(?:ing|ers?)?[a-z]*)$/i,
   blocked: [
     // QA 5:32: hosting, app and dev domains (anyone's demo or side project, never a source)
     "digitalocean.com", "digitaloceanspaces.com", "ondigitalocean.app", "herokuapp.com", "vercel.app", "netlify.app", "netlify.com",

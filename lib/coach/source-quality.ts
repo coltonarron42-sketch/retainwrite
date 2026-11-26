@@ -34,6 +34,7 @@ export function sourceTier(urlOrHost: string, about = ""): Tier {
   if (pdf && !strong && Q.libraryHost.test(host)) return 0;
   if (strong) return 3;
   if (Q.fine.some((d) => under(host, d))) return 2;
+  if (Q.weak.some((d) => under(host, d)) || Q.weakJournalLabel.test(host.split(".").slice(-2, -1)[0] ?? "")) return 1;
   const academic = /\.(?:edu|gov)$|\.(?:edu|ac|gov)\.[a-z]{2}$|\.ac\.uk$|\.gc\.ca$|\.gov\.uk$/.test(host);
   if (academic) {
     if (pdf && !/\.(?:edu|gov)$/.test(host)) return 1; // a textbook PDF on a foreign university server
