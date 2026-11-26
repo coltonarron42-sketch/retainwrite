@@ -13,6 +13,7 @@ import {
   afterMirror,
   afterProbe,
   appendLines,
+  isConfirmOnly,
   isPlainYes,
   nextOutlineIndex,
   outlineSectionsForContinue,
@@ -82,14 +83,19 @@ describe("E gate parity: transitions are the old ones", () => {
       for (const replacing of [true, false])
         for (const searchStatus of ["required", "not_needed"] as const) {
           const section = { ...base, searchStatus };
-          const oldIdeas = replacing ? replaceClaim(section.ideas, idea) : [...keptIdeas(section.ideas), idea];
+          const oldIdeas = isConfirmOnly(idea)
+            ? keptIdeas(section.ideas)
+            : replacing
+              ? replaceClaim(section.ideas, idea)
+              : [...keptIdeas(section.ideas), idea];
           const oldStep = section.searchStatus === "not_needed" ? "summarize" : "search";
           expect(afterProbe(section, idea, replacing)).toEqual({ ideas: oldIdeas, loopStep: oldStep });
         }
   });
   it("mirror save: same ideas, then probe", () => {
     for (const idea of ideasSamples) {
-      expect(afterMirror(base, idea)).toEqual({ ideas: [...keptIdeas(base.ideas), idea], loopStep: "probe" });
+      const ideas = isConfirmOnly(idea) ? keptIdeas(base.ideas) : [...keptIdeas(base.ideas), idea];
+      expect(afterMirror(base, idea)).toEqual({ ideas, loopStep: "probe" });
     }
   });
   it("thin notes still block probe and mirror saves (same probeForThinNote gate)", () => {

@@ -104,10 +104,12 @@ import {
   appendLines,
   applySectionPatch,
   nextOutlineIndex,
+  officialLeadName,
   outlineSectionsForContinue,
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, oneOptionLeadBatch, type ListeningState, specificPressureTest, isGenericPressureReason } from "@/lib/stages/explore-intent";
 import { fetchListenClaim } from "@/lib/stages/listen-client";
@@ -1117,7 +1119,7 @@ export function CoachingLoop({
       {
         ...teach,
         ideas: step.ideas,
-        chosenLead: seeded?.name ?? live.chosenLead,
+        chosenLead: officialLeadName(seeded?.name) ?? officialLeadName(live.chosenLead) ?? null,
         loopStep: step.loopStep,
         ...(opts?.replace ? { logic: null, logicRevealed: false } : {}),
       },
@@ -1142,14 +1144,16 @@ export function CoachingLoop({
 
   function onNameLead(text: string, more: LoopLine[]) {
     if (!section || !text.trim()) return;
-    updateSection(section.key, { chosenLead: text.trim(), loopStep: "summarize" }, { transcript: withLines(more) });
-    log("section_lead_picked");
+    const lead = officialLeadName(text);
+    updateSection(section.key, { ...(lead ? { chosenLead: lead } : {}), loopStep: "summarize" }, { transcript: withLines(more) });
+    if (lead) log("section_lead_picked");
     clearSent(idea);
   }
 
   function onPickLead(lead: PreparedLead, more: LoopLine[]) {
     if (!section) return;
-    updateSection(section.key, { chosenLead: lead.name, loopStep: "summarize" }, { transcript: withLines(more) });
+    const picked = officialLeadName(lead.name);
+    updateSection(section.key, { ...(picked ? { chosenLead: picked } : {}), loopStep: "summarize" }, { transcript: withLines(more) });
     log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
   }
 
@@ -1361,7 +1365,7 @@ export function CoachingLoop({
     setThinNote(null);
     outlineDrafts.current[key] = text;
     // A blank answer is not a decision to delete the Stance notes.
-    const sections = text.trim()
+    const sections = text.trim() && !isConfirmOnly(text)
       ? session.sections.map((item) => (item.key === key ? { ...item, ideas: [text.trim()] } : item))
       : session.sections;
     const outlineDone = [...(session.outlineDone ?? []).filter((k) => k !== key), key];

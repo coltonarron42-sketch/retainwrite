@@ -101,7 +101,7 @@ describe("#2 the intent check starts while typing pauses", () => {
   it("a 600 ms typing pause warms the check in Stage 2 and Stage 3; plain yes and untouched notes don't", async () => {
     const { INTENT_WARM_MS } = await import("@/components/stages/loop/stance-chat");
     expect(INTENT_WARM_MS).toBe(600);
-    expect(chat).toContain('<IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />');
+    expect(chat).toContain('<IntentWarm idea={isPlainYes(idea) || isConfirmOnly(idea) ? "" : idea} ask={ask} classify={props.classify} />');
     expect(outline).toContain('<IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")}');
     // Send uses the same ask string as the warm-up, so the cache key matches.
     expect(chat).toMatch(/await props\.classify\(text, ask\)/);

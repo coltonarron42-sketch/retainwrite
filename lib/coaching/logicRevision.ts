@@ -7,6 +7,7 @@ import {
   type FinalizedLogic,
 } from "@/lib/coaching/logicCheck";
 import { keptIdeas } from "@/lib/coaching/thin";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 
 export { quoteOnWordBoundary };
 
@@ -22,7 +23,7 @@ export function revisionPrefill(ideas: string[]): string {
 export function replaceClaim(ideas: string[], next: string): string[] {
   const text = next.trim();
   const kept = keptIdeas(ideas);
-  if (!text) return kept.slice(0, -1);
+  if (!text || isConfirmOnly(text)) return text ? kept : kept.slice(0, -1);
   return [...kept.slice(0, -1), text];
 }
 

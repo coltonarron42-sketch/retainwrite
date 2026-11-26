@@ -35,7 +35,7 @@ import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
-import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
+import { discussionLine, isConfirmOnly, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
 import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint, listenConfirmOffer, specificPressureTest } from "@/lib/stages/explore-intent";
 import { fetchListenReply } from "@/lib/stages/listen-client";
 import { keptIdeas } from "@/lib/coaching/thin";
@@ -492,7 +492,7 @@ export function StanceChat(props: Props) {
     };
     setHint(null);
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
-    const yes = isPlainYes(text) || (fromVoice && isSpokenYes(text));
+    const yes = isPlainYes(text) || isConfirmOnly(text) || (fromVoice && isSpokenYes(text));
     const lastPau = [...transcript].reverse().find((l) => l.who === "pau" && l.k === section.key)?.text ?? ask;
     // Exploring an option (QA prod walk): listen, don't lock, and don't open a new menu.
     if (kind === "listening" || isExploreIntent(text)) {
@@ -908,7 +908,7 @@ export function StanceChat(props: Props) {
                 <dl className="space-y-1 text-[16px] leading-[1.6]">
                   {(() => {
                     const lead = section.chosenLead?.trim() ?? "";
-                    const real = Boolean(lead) && !/^(your lead|your angle|your (source|example)|n\/?a|tbd|placeholder)$/i.test(lead);
+                    const real = Boolean(lead) && !isConfirmOnly(lead) && !/^(your lead|your angle|your (source|example)|n\/?a|tbd|placeholder)$/i.test(lead);
                     return real ? (
                       <div>
                         <dt className="inline font-semibold">Lead: </dt>
@@ -1056,7 +1056,7 @@ export function StanceChat(props: Props) {
         </PauPauGroup>
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
-        <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
+        <IntentWarm idea={isPlainYes(idea) || isConfirmOnly(idea) ? "" : idea} ask={ask} classify={props.classify} />
         {lookupNote && (checking || props.busy) ? (
           <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
             {lookupNote}

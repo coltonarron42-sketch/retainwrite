@@ -6,6 +6,7 @@ import { clipWords } from "@/lib/copy/clip";
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
 import { keptIdeas } from "@/lib/coaching/thin";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 
 const GENERIC_TITLES = [
   "a source your field usually cites",
@@ -35,7 +36,7 @@ export function coachingSubject(input: {
 /** Course-title leads are not something a student can look up. */
 export function visibleSourceLead(lead: string | null | undefined): string | null {
   const text = lead?.trim() ?? "";
-  if (!text) return null;
+  if (!text || isConfirmOnly(text)) return null;
   if (/^research on\b/i.test(text) && /\b(soc\s+\d+|argumentative essay|the assigned concept|your topic)\b/i.test(text)) {
     return null;
   }

@@ -6,6 +6,7 @@
  * done. Coaching only: she never writes their sentences.
  */
 import { wordCount } from "@/lib/utils";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 
 /** Quote the student's words on a word boundary. Never cut a mid-word. */
 function quoteOnWordBoundary(text: string, max = 160): string {
@@ -134,7 +135,7 @@ function isTopicalPhrase(phrase: string): boolean {
 export function isClosingPhrase(text: string): boolean {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t || isExploreHold(t)) return false;
-  if (isExploreDone(t)) return true;
+  if (isExploreDone(t) || isConfirmOnly(t)) return true;
   return /^(yeah|yes|yep|yup|sure|ok(?:ay)?)[,.\s]*(that'?s (what I want|it|enough|fine|my (call|angle|idea))( for now)?)?[.!\s]*$/i.test(t);
 }
 

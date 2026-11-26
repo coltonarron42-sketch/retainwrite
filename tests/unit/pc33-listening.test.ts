@@ -24,11 +24,12 @@ import {
   specificPressureTest,
   stripLeadIns,
 } from "@/lib/stages/explore-intent";
-import { isUnquotableLeadIdea } from "@/lib/coaching/exampleLeads";
+import { isUnquotableLeadIdea, visibleSourceLead, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
-import { stanceTurnFor } from "@/lib/stages/stance-turn";
-import { exampleLeadBatch } from "@/lib/coaching/exampleLeads";
+import { afterMirror, afterProbe, officialLeadName, outlineSectionsForContinue, stanceTurnFor, substantiveNote } from "@/lib/stages/stance-turn";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 import { keptIdeas } from "@/lib/coaching/thin";
+import { replaceClaim } from "@/lib/coaching/logicRevision";
 
 const QA = {
   counter: "can I talk through the counterargument idea a bit before I commit?",
@@ -542,5 +543,70 @@ describe("PC-33: QA should-fixes for cards, first-turn listen, and pressure test
     expect(line).not.toMatch(/A reader might ask whether/);
     expect((line.match(/\?/g) ?? []).length).toBe(1);
     expect(listenConfirmOffer(claim, "Introduction").match(/\?/g)?.length).toBe(1);
+  });
+});
+
+
+describe("isConfirmOnly covers every lock and claim write path", () => {
+  const PHRASE = "Yes, that is my plan for the body.";
+
+  it("treats the exact QA confirm-plus-filler as confirm-only", () => {
+    expect(isConfirmOnly(PHRASE)).toBe(true);
+    expect(isConfirmOnly("yep that's it")).toBe(true);
+    expect(isConfirmOnly("sounds right")).toBe(true);
+    expect(isConfirmOnly("Yes, that is my plan for the introduction.")).toBe(true);
+    expect(isConfirmOnly("Yes, that is my plan for the conclusion.")).toBe(true);
+    expect(isConfirmOnly("that is my plan for the body")).toBe(true);
+    expect(isConfirmOnly("Yes, Walton visiting stores is my body example.")).toBe(false);
+    expect(isConfirmOnly("My plan for the body is that Walton put associates first.")).toBe(false);
+  });
+
+  it("never stores the confirm phrase as a lead, idea, or lock-card line", () => {
+    expect(keptIdeas(["Walton visits stores often.", PHRASE])).toEqual(["Walton visits stores often."]);
+    expect(visibleSourceLead(PHRASE)).toBeNull();
+    expect(officialLeadName(PHRASE)).toBeNull();
+    expect(officialLeadName("Walton visiting stores")).toBe("Walton visiting stores");
+    expect(substantiveNote(PHRASE)).toBe(false);
+    const probed = afterProbe({ ideas: ["Walton visits stores often."], searchStatus: "not_needed" }, PHRASE, false);
+    expect(probed.ideas).toEqual(["Walton visits stores often."]);
+    expect(probed.ideas.join(" ")).not.toMatch(/Yes, that is my plan for the body/i);
+    const mirrored = afterMirror({ ideas: ["Servant leaders earn trust."] }, "Yes, that is my plan for the introduction.");
+    expect(mirrored.ideas).toEqual(["Servant leaders earn trust."]);
+    expect(replaceClaim(["Walton visits stores often."], PHRASE)).toEqual(["Walton visits stores often."]);
+    expect(listeningClaim([PHRASE], "Body")).toBeNull();
+    expect(officialListenNote([PHRASE], PHRASE)).toBe("");
+    const continued = outlineSectionsForContinue(
+      [{ key: "body", ideas: ["Walton visits stores often."] }],
+      { body: PHRASE },
+    );
+    expect(continued[0]!.ideas).toEqual(["Walton visits stores often."]);
+    const conclusion = outlineSectionsForContinue(
+      [{ key: "conclusion", ideas: ["The team still needs a servant lead."] }],
+      { conclusion: "Yes, that is my plan for the conclusion." },
+    );
+    expect(conclusion[0]!.ideas).toEqual(["The team still needs a servant lead."]);
+  });
+
+  it("the default lock, Body, Intro, and Conclusion write paths all call the guard", () => {
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    const turn = readFileSync("lib/stages/stance-turn.ts", "utf8");
+    const thin = readFileSync("lib/coaching/thin.ts", "utf8");
+    const leads = readFileSync("lib/coaching/exampleLeads.ts", "utf8");
+    const revision = readFileSync("lib/coaching/logicRevision.ts", "utf8");
+    const explore = readFileSync("lib/stages/explore-intent.ts", "utf8");
+    expect(loop).toMatch(/officialLeadName|isConfirmOnly/);
+    expect(loop).toMatch(/function onNameLead[\s\S]*officialLeadName/);
+    expect(loop).toMatch(/function onProbeSave[\s\S]*officialLeadName/);
+    expect(loop).toMatch(/function onPickLead[\s\S]*officialLeadName/);
+    expect(loop).toMatch(/isConfirmOnly\(text\)/);
+    expect(chat).toMatch(/isConfirmOnly\(text\)/);
+    expect(chat).toMatch(/isConfirmOnly\(lead\)/);
+    expect(turn).toMatch(/isConfirmOnly\(idea\)/);
+    expect(turn).toMatch(/isConfirmOnly\(text\)/);
+    expect(thin).toMatch(/isConfirmOnly\(idea\)/);
+    expect(leads).toMatch(/isConfirmOnly\(text\)/);
+    expect(revision).toMatch(/isConfirmOnly\(text\)/);
+    expect(explore).toMatch(/isConfirmOnly\(t\)/);
   });
 });

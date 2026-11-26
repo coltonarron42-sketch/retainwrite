@@ -12,6 +12,9 @@
  */
 import { keptIdeas } from "@/lib/coaching/thin";
 import { replaceClaim } from "@/lib/coaching/logicRevision";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
+
+export { isConfirmOnly, officialLeadName } from "@/lib/stages/confirm-only";
 
 export type StanceTurnKind =
   | "teach_card"
@@ -75,13 +78,18 @@ export function afterProbe(
   idea: string,
   replacing: boolean,
 ): { ideas: string[]; loopStep: "summarize" | "search" } {
-  const ideas = replacing ? replaceClaim(section.ideas, idea) : [...keptIdeas(section.ideas), idea];
+  const ideas = isConfirmOnly(idea)
+    ? keptIdeas(section.ideas)
+    : replacing
+      ? replaceClaim(section.ideas, idea)
+      : [...keptIdeas(section.ideas), idea];
   return { ideas, loopStep: section.searchStatus === "not_needed" ? "summarize" : "search" };
 }
 
 /** The step after the memory mirror (old "Save what it means to you"). */
 export function afterMirror(section: { ideas: string[] }, idea: string): { ideas: string[]; loopStep: "probe" } {
-  return { ideas: [...keptIdeas(section.ideas), idea], loopStep: "probe" };
+  const ideas = isConfirmOnly(idea) ? keptIdeas(section.ideas) : [...keptIdeas(section.ideas), idea];
+  return { ideas, loopStep: "probe" };
 }
 
 /**
@@ -94,7 +102,7 @@ export function outlineSectionsForContinue<T extends { key: string; ideas: strin
 ): T[] {
   return sections.map((item) => {
     const text = drafts[item.key]?.trim();
-    if (!text || text === keptIdeas(item.ideas).join("\n")) return item;
+    if (!text || isConfirmOnly(text) || text === keptIdeas(item.ideas).join("\n")) return item;
     return { ...item, ideas: [text] };
   });
 }
@@ -134,8 +142,12 @@ function uniqueNotes(notes: string[]): string[] {
  * that was already kept, unless this is an explicit replace ("change it to").
  */
 export function mergeSectionIdeas(current: string[] | undefined, incoming: string[] | undefined, replacing = false): string[] {
-  if (replacing) return uniqueNotes(incoming ?? []);
-  return uniqueNotes([...(current ?? []), ...(incoming ?? [])]);
+  const clean = (notes: string[] | undefined) => uniqueNotes((notes ?? []).filter((n) => n.trim() && !isConfirmOnly(n)));
+  if (replacing) {
+    const next = clean(incoming);
+    return next.length ? next : clean(current);
+  }
+  return uniqueNotes([...clean(current), ...clean(incoming)]);
 }
 
 export function mergeTranscript(current: LoopLine[] | undefined, incoming: LoopLine[] | undefined): LoopLine[] {
@@ -251,7 +263,7 @@ export function discussionLine(seed: number): string {
 export function substantiveNote(text: string): boolean {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t || /\?\s*$/.test(t)) return false;
-  if (isPlainYes(t) || isSwapNo(t) || replacementText(t)) return false;
+  if (isPlainYes(t) || isConfirmOnly(t) || isSwapNo(t) || replacementText(t)) return false;
   if (/^(no|nope|nah|ok(?:ay)?|sure|thanks?|cool|idk|i don'?t know)\b[\s.!,]*$/i.test(t)) return false;
   return t.split(" ").filter((w) => /[a-z]/i.test(w)).length >= 8;
 }

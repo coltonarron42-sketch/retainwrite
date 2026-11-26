@@ -1,6 +1,7 @@
 import { wordCount } from "@/lib/utils";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";
 import { isClosingPhrase, isExploreIntent } from "@/lib/stages/explore-intent";
+import { isConfirmOnly } from "@/lib/stages/confirm-only";
 
 const STOCK = new Set([
   "idk",
@@ -59,5 +60,5 @@ export function probeForThinNote(text: string): string | null {
  * ("Ask me some probing questions please.") so they are never the official note.
  */
 export function keptIdeas(ideas: string[]): string[] {
-  return ideas.map((idea) => idea.trim()).filter((idea) => idea && !probeForThinNote(idea) && rulesStanceIntent(idea) === "content" && !isExploreIntent(idea) && !isClosingPhrase(idea));
+  return ideas.map((idea) => idea.trim()).filter((idea) => idea && !probeForThinNote(idea) && rulesStanceIntent(idea) === "content" && !isExploreIntent(idea) && !isClosingPhrase(idea) && !isConfirmOnly(idea));
 }
