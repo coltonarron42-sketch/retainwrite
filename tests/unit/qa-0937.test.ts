@@ -98,7 +98,7 @@ describe("5. quips", () => {
     for (const line of ["Easier than group projects.", "My only skill is cheering. I'm cheering.", "One sanity check, mine and yours."]) {
       expect(q.dropStockFiller(`Lock it in? ${line}`)).toBe("Lock it in?");
     }
-    expect(q.quipFor("paper-1", 0, "pick_lead")).toBe("I'd write it for you, but I'm legally a cartoon.");
+    expect(q.quipFor("paper-1", 0, "pick_lead")).toBeNull();
     expect(q.quipFor("paper-1", 0, "logic_opener")).toBeNull();
     expect(q.quipFor("paper-1", 2, "pick_lead")).toBeNull();
   });

@@ -6,15 +6,14 @@
  */
 
 /** Stage 2 pool. Each teases the situation, never the student; no repeated pattern. */
-export const STAGE2_QUIPS = [
-  "I'd write it for you, but I'm legally a cartoon.",
-] as const;
+export const STAGE2_QUIPS = [] as const;
 
 /**
  * QA 9:37 AM: stock lines that repeat paper after paper read as filler. Only the approved
  * cartoon line is dealt (once per paper); these are retired and stripped if they ever show up.
  */
 export const RETIRED_QUIPS = [
+  "I'd write it for you, but I'm legally a cartoon.",
   "I'd hold the pencil, but no thumbs.",
   "I'm weirdly into this.",
   "Deadlines scare me, and I don't even have one.",
@@ -77,14 +76,14 @@ export function isCartoonJoke(sentence: string): boolean {
 }
 
 export function quipDeck(seed: string): string[] {
-  const deck = (STAGE2_QUIPS as readonly string[]).filter((q) => q !== SIGNATURE_QUIP);
+  const deck = [...(STAGE2_QUIPS as readonly string[])].filter((q) => q !== SIGNATURE_QUIP && !/cartoon/i.test(q));
   let h = hash(seed || "rw");
   for (let i = deck.length - 1; i > 0; i--) {
     h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
     const j = h % (i + 1);
     [deck[i], deck[j]] = [deck[j]!, deck[i]!];
   }
-  return [SIGNATURE_QUIP, ...deck];
+  return deck;
 }
 
 /** The quip for one slot in one section, or null (pool used up / no seed). */
@@ -145,6 +144,7 @@ export function oneQuipParas(paras0: string[]): string[] {
   return paras.map((p) => {
     const parts = p.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g) ?? [p];
     const kept = parts.filter((s) => {
+      if (isCartoonJoke(s)) return false;
       if (!isQuip(s)) return true;
       if (seen) return false;
       seen = true;

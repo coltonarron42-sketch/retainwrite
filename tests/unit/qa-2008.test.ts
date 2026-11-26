@@ -112,7 +112,7 @@ describe("#2 the intent check starts while typing pauses", () => {
 describe("#3 the only cartoon joke is the signature quip", () => {
   it("no welcome line jokes about being a cartoon or standing up", () => {
     for (const line of WELCOME_BACK_LINES) expect(line).not.toMatch(/cartoon|stand up/i);
-    expect(STAGE2_QUIPS.filter((q) => /cartoon/i.test(q))).toEqual([SIGNATURE_QUIP]);
+    expect(STAGE2_QUIPS.filter((q) => /cartoon/i.test(q))).toEqual([]);
     const files = ["lib/coach/welcome-back.ts", "components/stages/stage1/welcome-back.tsx", "lib/coach/personality.ts", "components/stages/loop/stance-chat.tsx"];
     for (const f of files) expect(read(f)).not.toMatch(/stand up, but/i);
   });

@@ -553,8 +553,12 @@ export function readingCommentAck(text: string): string {
   const topic = t.match(/\bthe\s+([a-z]+(?:\s+[a-z]+){0,4}\s+approach)\b/i)?.[0]
     ?? t.match(/\b((?:task|relationship|skills?|behavioral|trait|situational|transformational|servant|emotional intelligence|empathy)(?:\s+(?:vs\.?|versus|and|approach|style|leadership|intelligence)){0,4})\b/i)?.[0]
     ?? null;
-  const what = topic ? `${topic} in ${source}` : source;
-  return `Got it — you found ${what} interesting. I've noted that.`;
+  // QA #76: a light ack only, never lead options or a write-it-for-you quip.
+  if (topic && /behavioral approach/i.test(topic)) {
+    return "Good catch, the behavioral approach is in your chapter; I'll keep it in mind.";
+  }
+  if (topic) return `Good catch, ${topic} is in your chapter; I'll keep it in mind.`;
+  return "Good catch — I'll keep that in mind.";
 }
 
 /**

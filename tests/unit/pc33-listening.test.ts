@@ -29,6 +29,8 @@ import {
   stripClaimMeta,
   fallbackClaimPoint,
   pointLeadTitle,
+  isClearSectionDecision,
+  decisionAffirm,
 } from "@/lib/stages/explore-intent";
 import { isUnquotableLeadIdea, visibleSourceLead, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
@@ -482,9 +484,10 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
     expect((offer.match(/\?/g) ?? []).length).toBe(1);
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     const onListen = loop.slice(loop.indexOf("async function onListen"), loop.indexOf("function onTeachSkip"));
-    expect(onListen).toContain("patch.logicRevealed = true");
-    expect(onListen).toMatch(/applyOnTopicPressureTest|specificPressureTest/);
-    expect(onListen).not.toContain('loopStep = "summarize"');
+    expect(onListen).toContain('loopStep: "summarize"');
+    expect(onListen).toContain("sectionClaimSummary");
+    expect(onListen).not.toContain("patch.logicRevealed = true");
+    expect(onListen).not.toMatch(/loopStep: "logic_check"/);
     expect(onListen).not.toContain("that's a start");
   });
 
@@ -759,5 +762,62 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
     );
     expect(kept.result.tier).toBe("strong");
     expect(kept.result.reason).toMatch(/doesn't answer the question your prompt asks/);
+  });
+});
+
+
+describe("QA #76 re-verify: a clear body decision is locked, no menu, no stacked pressure test", () => {
+  const BODY = "Yes, Walton visiting stores is my body example.";
+  const ALSO = "Also he shared profits with associates.";
+
+  it("detects the exact QA body decision after a Yes- prefix", () => {
+    expect(isClearSectionDecision(BODY)).toBe(true);
+    expect(isConfirmOnly(BODY)).toBe(false);
+    expect(looksLikeNewPoint(BODY)).toBe(true);
+    expect(fallbackClaimPoint(BODY)).toBe("Walton visited stores to hear from associates");
+    expect(pointLeadTitle(fallbackClaimPoint(BODY))).toBe("Your point: Walton visited stores to hear from associates.");
+  });
+
+  it("affirms and asks one thing instead of restating the claim", () => {
+    const synth = fallbackClaimPoint(BODY);
+    const ack = decisionAffirm(synth, "Body");
+    expect(ack).toMatch(/^Got it — that's locked in for your body\./);
+    expect(ack).toMatch(/What did he actually hear from associates/);
+    expect(ack).not.toMatch(/Walton's store visits were the key move/);
+    const add = decisionAffirm(fallbackClaimPoint(ALSO), "Body", true);
+    expect(add).toMatch(/that's in your body too/);
+    expect(add).toMatch(/What did that change for the associates/);
+    expect(add).not.toMatch(/^So your hunch is that he shared profits/);
+  });
+
+  it("the confirm step summarizes once and does not jump to a pressure-test opener on the same turn", () => {
+    const claim = listeningClaim(
+      [fallbackClaimPoint(BODY), fallbackClaimPoint(ALSO)],
+      "Body",
+    ) ?? "";
+    const summary = sectionClaimSummary(claim, "Body");
+    expect(summary).toBe(
+      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it.",
+    );
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const fn = loop.slice(loop.indexOf("function onConfirm"), loop.indexOf("async function onLogicOpener"));
+    expect(fn).toMatch(/loopStep: "summarize"/);
+    expect(fn).toMatch(/arriving/);
+    // The first arrival must not set logic_check; that happens only after they confirm the summary.
+    const arrival = fn.slice(fn.indexOf("if (arriving)"), fn.indexOf("They confirmed the summary"));
+    expect(arrival).toMatch(/loopStep: "summarize"/);
+    expect(arrival).not.toMatch(/loopStep: "logic_check"/);
+  });
+
+  it("Stage 2 sendNow locks a clear decision and acks a reading comment without classifying", () => {
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    const send = chat.slice(chat.indexOf("async function sendNow(text"), chat.indexOf("sendNowRef.current = sendNow"));
+    expect(send.indexOf("isReadingComment(text)")).toBeGreaterThan(0);
+    expect(send.indexOf("isClearSectionDecision(text)")).toBeGreaterThan(0);
+    expect(send.indexOf("isReadingComment(text)")).toBeLessThan(send.indexOf("isExploreIntent(text)"));
+    expect(send.indexOf("isClearSectionDecision(text)")).toBeLessThan(send.indexOf("props.classify"));
+    expect(send).toMatch(/h\.newPoint/);
+    expect(send).toMatch(/readingCommentAck/);
+    expect(send).not.toMatch(/I'd write it for you/);
   });
 });

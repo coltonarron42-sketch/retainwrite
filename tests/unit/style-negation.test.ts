@@ -137,10 +137,9 @@ describe("QA #76: a comment about a reading is light engagement, never an exampl
   it("detects the QA reading comment and does not treat it as a leader moment", () => {
     expect(isReadingComment(QA)).toBe(true);
     const ack = readingCommentAck(QA);
-    expect(ack).toMatch(/Got it/i);
-    expect(ack).toMatch(/noted/i);
-    expect(ack).toMatch(/Northouse ch 4/i);
+    expect(ack).toBe("Good catch, the behavioral approach is in your chapter; I'll keep it in mind.");
     expect(ack).toMatch(/behavioral approach/i);
+    expect(ack).not.toMatch(/I'd write it for you/i);
     expect(ack).not.toMatch(/When was it\?/i);
     expect(ack).not.toMatch(/Name the moment/i);
     expect(ack).not.toMatch(/what they did/i);

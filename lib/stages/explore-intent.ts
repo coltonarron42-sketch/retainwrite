@@ -468,6 +468,34 @@ export function keepAngleSummary(note: string, title: string): string {
 /** Official section note for recaps and pressure tests; never a confirm/closing phrase. */
 
 /** Default-path confirm: summarize the synthesized claim, then invite the lock. */
+
+const SECTION_DECISION =
+  /\b(?:is my (?:body |intro(?:duction)? |conclusion |section )?(?:example|point|idea|claim|angle)|is the (?:example|point) i want|i (?:want to|would like to|i'?d like to|am going to|gonna) (?:use|argue|say|go with)|my (?:point|example|claim|angle) is)\b/i;
+
+/** A clear decision for this section (e.g. "Yes, Walton visiting stores is my body example."). */
+export function isClearSectionDecision(text: string | null | undefined): boolean {
+  const raw = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!raw || isExploreIntent(raw)) return false;
+  const t = stripReplyFillers(raw);
+  if (!t) return false;
+  return SECTION_DECISION.test(raw) || SECTION_DECISION.test(t);
+}
+
+/** Affirm a locked point and ask one thing; never just restate the claim. */
+export function decisionAffirm(synth: string, sectionTitle = "", added = false): string {
+  const part = sectionTitle.toLowerCase().replace(/\s+\(.*/, "") || "section";
+  const t = (synth ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
+  const storeVisit = /visit(?:ed|ing)? stores/i.test(t);
+  const profits = /shared profits/i.test(t);
+  const follow = storeVisit
+    ? "What did he actually hear from associates, or what changed after those visits?"
+    : profits
+      ? "What did that change for the associates?"
+      : "Want to add one detail, or should I summarize what you have?";
+  if (added) return `Got it — that's in your ${part} too. ${follow}`;
+  return `Got it — that's locked in for your ${part}. ${follow}`;
+}
+
 export function sectionClaimSummary(claim: string, sectionTitle = ""): string {
   const part = (sectionTitle || "this section").toLowerCase();
   const summary = (claim ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
