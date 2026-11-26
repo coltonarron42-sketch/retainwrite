@@ -211,9 +211,16 @@ export function exploreNote(text: string): string | null {
     if (isExploreIntent(t) && wordCount(t) < 12) continue;
     kept.push(t.charAt(0).toUpperCase() + t.slice(1));
   }
-  if (!kept.length) return null;
+  if (!kept.length) {
+    const topic = exploreTopic(raw);
+    if (topic && BELONG_CUE.test(raw)) return `Still deciding whether ${topic} belongs`;
+    return null;
+  }
   return kept.join(" ").replace(/\s+/g, " ").trim();
 }
+
+const BELONG_CUE =
+  /\b(haven'?t decided|have not decided|not sure|not decided)\s+(if|whether)\s+(it|this|that|they)\s+belongs?\b/i;
 
 function finishSentence(text: string): string {
   const t = text.replace(/\s+/g, " ").trim();
@@ -230,6 +237,10 @@ function lowerFirst(text: string): string {
 /** Deterministic paraphrase in Pau's words. Never a verbatim quote, never mid-sentence. */
 export function fallbackParaphrase(note: string): string {
   let t = stripLeadIns(note.replace(/\s+/g, " ").trim());
+  if (/^(?:you're still |still )?deciding whether\s+/i.test(t)) {
+    const rest = t.replace(/^(?:you're still |still )?deciding whether\s+/i, "").replace(/[.]+$/, "");
+    return finishSentence(`You're still deciding whether ${lowerFirst(rest)}`);
+  }
   const lessPress = t.match(/^(.+?)\s+just get(?:s)? less press\.?$/i);
   if (lessPress || /just get(?:s)? less press/i.test(t)) {
     const whoRaw = (lessPress?.[1] ?? t.replace(/\s+just get(?:s)? less press\.?$/i, "")).trim() || "they";
@@ -272,9 +283,14 @@ export function exploreReply(text: string, sectionTitle: string): string {
   const ack = topic
     ? `Got it — you want to talk through ${topic} before anything gets locked in your ${part}.`
     : "Got it, let's talk it through before anything gets locked.";
-  if (note) {
-    const follow = specificFollowUp(note);
-    return `${ack} ${fallbackParaphrase(note)} ${follow}`.replace(/\s+/g, " ").trim();
+  const point = note ?? (topic && BELONG_CUE.test(text) ? `Still deciding whether ${topic} belongs` : null);
+  if (point) {
+    const follow = specificFollowUp(point + " " + text);
+    return `${ack} ${fallbackParaphrase(point)} ${follow}`.replace(/\s+/g, " ").trim();
+  }
+  if (topic) {
+    const follow = specificFollowUp(text);
+    return `${ack} ${finishSentence(`You're still working out what you think about ${topic}`)} ${follow}`.replace(/\s+/g, " ").trim();
   }
   return `${ack} I'll note it for this section and keep this open. I'm here if you want to keep going, or tell me when that's what you want for now.`.replace(/\s+/g, " ").trim();
 }
@@ -404,19 +420,19 @@ export function specificPressureTest(claim: string): string {
   const t = (claim ?? "").replace(/\s+/g, " ").trim();
   if (/less press/i.test(t)) {
     const pressWho = /servant leaders?/i.test(t) ? "servant leaders" : "they";
-    return `A reader might ask whether ${pressWho} really get less press, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?`;
+    return `A reader might counter that ${pressWho} getting less press may just be a feeling, not something you can show. Do you have an example, like Walton, where the press credited something else?`;
   }
   if (/more (of the )?credit/i.test(t)) {
-    return "A reader might ask whether they really get more of the credit, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?";
+    return "A reader might counter that they get more of the credit only in how it feels, not in what you can show. Do you have an example, like Walton, where the press credited something else?";
   }
   if (/costco/i.test(t)) {
-    return "A reader might ask whether a Costco comparison really belongs here, or whether it just feels like a fit. What one fact about Costco would actually support your point?";
+    return "A reader might counter that a Costco comparison may not belong here, even if it feels like a fit. What one fact about Costco would actually support your point?";
   }
   const gist = quoteOnWordBoundary(t.replace(/^your intro hints that\s+/i, ""), 80).replace(/[.]+$/, "");
   if (gist && !isClosingPhrase(gist) && !isNoteFragment(gist)) {
-    return `A reader might ask whether “${gist}” really holds, or whether it just feels that way. What's one example that would show it?`;
+    return `A reader might counter that “${gist}” may just feel true, rather than something you can show. What's one example that would show it?`;
   }
-  return "A reader might ask whether this really holds, or whether it just feels that way. What's one example that would show it?";
+  return "A reader might counter that this may just feel true, rather than something you can show. What's one example that would show it?";
 }
 
 /** After a confirm phrase: summarize the idea once, then the pressure-test offer. */

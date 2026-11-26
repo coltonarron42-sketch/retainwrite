@@ -1,5 +1,6 @@
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { asHeading, isClauseTopic, isQuestionTopic, topicMidSentence, topicRef, topicSearchTerms } from "@/lib/copy/topic-phrase";
+import { cardTopicPhrase } from "@/lib/copy/topic-keywords";
 import { clipWords } from "@/lib/copy/clip";
 // SOP: coaching only, never generate submission text
 
@@ -147,7 +148,7 @@ function exampleLeadBatchRaw(input: {
   if (!rawSubject) {
     return { personalized: false, candidates: [], wildcard: null };
   }
-  const subject = topicRef(rawSubject);
+  const subject = /…/.test(topicRef(rawSubject)) ? cardTopicPhrase(rawSubject) : topicRef(rawSubject);
   const question = isQuestionTopic(rawSubject);
   const search = topicSearchTerms(rawSubject) || subject;
 
@@ -155,7 +156,7 @@ function exampleLeadBatchRaw(input: {
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
     const ideaForCards = idea && !isUnquotableLeadIdea(idea) && !isUnquotableLeadIdea(noteFocus(idea)) ? idea : "";
-    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null });
+    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null, topicSource: input.concept?.trim() || input.assignmentText || rawSubject });
   }
   const candidates: LeadCandidate[] = [
     {
@@ -183,7 +184,7 @@ function exampleLeadBatchRaw(input: {
       lessonLink: question ? "Fits your question" : `Fits ${subject}`,
       whyFits: idea
         ? `You already have a note. Find one source that speaks to the claim you are least sure about, then explain that connection in your own words.`
-        : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+        : `Something this assignment would recognize as about ${isQuestionTopic(input.concept || rawSubject) || isClauseTopic(input.concept || rawSubject) ? "your question" : cardTopicPhrase(input.concept?.trim() || input.assignmentText || rawSubject)}. Verify it before you cite it.`,
       ...(idea ? { studentNamed: true } : {}),
     },
   ];
@@ -257,8 +258,12 @@ function sectionLeadBatch(ctx: {
   idea: string;
   ref: string;
   searchTerm?: string | null;
+  topicSource?: string;
 }): { personalized: true; candidates: LeadCandidate[]; wildcard: LeadCandidate } {
   const { section, subject, question, idea, ref } = ctx;
+  const topicPhrase = (isQuestionTopic(ctx.topicSource) || isClauseTopic(ctx.topicSource) || isQuestionTopic(subject) || isClauseTopic(subject))
+    ? "your question"
+    : cardTopicPhrase(ctx.topicSource || subject);
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
   const rawFocus = idea ? noteFocus(idea) : "";
@@ -333,7 +338,7 @@ function sectionLeadBatch(ctx: {
         lessonLink: `Fits your ${part}`,
         whyFits: idea
           ? "Find one source that speaks to the claim you are least sure about, then explain that connection in your own words."
-          : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+          : `Something this assignment would recognize as about ${topicPhrase}. Verify it before you cite it.`,
         ...(idea ? { studentNamed: true } : {}),
       },
     ],

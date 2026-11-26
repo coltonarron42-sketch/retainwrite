@@ -78,7 +78,8 @@ describe("PC-33: explore intent", () => {
     const reply = exploreReply(QA.costco, "Body");
     expect(reply).toMatch(/talk through the Costco comparison/i);
     expect(reply).toMatch(/body/i);
-    expect(reply).toMatch(/what you want for now/i);
+    expect(reply).toMatch(/still deciding whether the Costco comparison belongs/i);
+    expect(reply).not.toMatch(/I'll note it/i);
     expect(reply).not.toMatch(/Going with it|lock it in|Your call is below|Pick one to chase/i);
     expect(reply).not.toMatch(/talk through (?!(?:the|a|an) )/i);
     // At most one question, and only when there is nothing to reflect.
@@ -466,7 +467,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
     const claim = listeningClaim([hint, press, done], "Introduction")!;
     const offer = listenConfirmOffer(claim, "Introduction");
     expect(offer).toMatch(/^Your intro hints that transformational leaders get more of the credit, while servant leaders get less press\./);
-    expect(offer).toMatch(/A reader might ask whether servant leaders really get less press, or whether it just feels that way\./);
+    expect(offer).toMatch(/A reader might counter that servant leaders getting less press may just be a feeling, not something you can show\./);
     expect(offer).toMatch(/Do you have an example, like Walton, where the press credited something else\?/);
     expect(offer).not.toMatch(/that's a start/i);
     expect(offer).not.toMatch(/want to go with it/i);
@@ -485,7 +486,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
       "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.";
     const line = specificPressureTest(claim);
     expect(line).toBe(
-      "A reader might ask whether servant leaders really get less press, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?",
+      "A reader might counter that servant leaders getting less press may just be a feeling, not something you can show. Do you have an example, like Walton, where the press credited something else?",
     );
     expect((line.match(/\?/g) ?? []).length).toBe(1);
     const generic = pressureTestLine({
@@ -499,5 +500,47 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
     const route = readFileSync("app/api/papers/[paperId]/stance/listen/route.ts", "utf8");
     expect(client).toMatch(/LISTEN_CLIENT_MS = 11_000/);
     expect(route).toMatch(/LISTEN_MODEL_TIMEOUT_MS = 8_000/);
+  });
+});
+
+describe("PC-33: QA should-fixes for cards, first-turn listen, and pressure test", () => {
+  const sheet =
+    "BUS 210 Leadership essay for Prof. Kim. Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. APA 7. Due Dec 10.";
+  const prompt = "which leadership style is most effective for leading a team through change, using one real leader as your example";
+
+  it("never splices a mid-phrase cut of the raw prompt into a conclusion card", () => {
+    const b = exampleLeadBatch({
+      concept: prompt,
+      assignmentText: sheet,
+      studentIdea: "",
+      rubricRef: "prompt",
+      section: { key: "conclusion", title: "Conclusion" },
+    });
+    const blob = JSON.stringify(b);
+    expect(blob).not.toMatch(/through…/);
+    expect(blob).not.toMatch(/leading a team through…/);
+    expect(blob).not.toMatch(/Something this assignment would recognize as about which leadership style is most effective for leading a team through…/);
+    const third = b.candidates[2]!.whyFits;
+    expect(third).toMatch(/about your question|leadership style leading team change/i);
+    expect(third).not.toMatch(/…/);
+    expect(third).not.toMatch(/which leadership style is most effective for leading a team through/i);
+  });
+
+  it("reflects the Costco belong-point on the first Body listening turn, not a generic hold", () => {
+    const reply = exploreReply(QA.costco, "Body");
+    expect(reply).toMatch(/talk through the Costco comparison/i);
+    expect(reply).toMatch(/still deciding whether the Costco comparison belongs/i);
+    expect(reply).not.toMatch(/I'll note it/i);
+    expect((reply.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
+  });
+
+  it("the pressure test is one counterpoint statement plus a single question", () => {
+    const claim =
+      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.";
+    const line = specificPressureTest(claim);
+    expect(line).toMatch(/^A reader might counter that /);
+    expect(line).not.toMatch(/A reader might ask whether/);
+    expect((line.match(/\?/g) ?? []).length).toBe(1);
+    expect(listenConfirmOffer(claim, "Introduction").match(/\?/g)?.length).toBe(1);
   });
 });
