@@ -29,7 +29,14 @@ export function htmlEvidence(html: string): { title: string; text: string } {
   )
     .replace(/\s+/g, " ")
     .trim();
-  return { title, text: `${metas.join(" ")} ${body}`.slice(0, 200_000) };
+  // QA 5:32 walk: paywalled article pages (HBR) carry the article text in their JSON-LD (articleBody /
+  // abstract), which the visible HTML doesn't show. Its string values count as the page's text too.
+  const ld = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+    .flatMap((m) => [...m[1]!.matchAll(/"((?:[^"\\]|\\.){20,})"/g)].map((x) => x[1]!))
+    .map((x) => decode(x.replace(/\\u([0-9a-f]{4})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))).replace(/\\[nrt]/g, " ").replace(/\\(.)/g, "$1")).replace(/<[^>]+>/g, " "))
+    .join(" ")
+    .replace(/\s+/g, " ");
+  return { title, text: `${metas.join(" ")} ${ld} ${body}`.slice(0, 200_000) };
 }
 
 async function fetchOne(url: string, timeoutMs: number): Promise<PageEvidence | null> {

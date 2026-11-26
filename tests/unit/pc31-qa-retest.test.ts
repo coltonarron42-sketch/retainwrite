@@ -155,6 +155,28 @@ describe("QA 5:32: hosting domains and status order", () => {
     } finally {
       globalThis.fetch = orig;
     }
-    expect(shown).toEqual(["Searching for x…", "Reading hbr.org…", "Pulling it together…"]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(shown[0]).toBe("Searching for x…");
+    expect(shown).not.toContain("Searching a bit more on x…");
+    expect(shown).not.toContain("Double-checking the sources…");
+  });
+});
+
+describe("QA 5:32 walk: paywalled pages and cut titles", () => {
+  it("JSON-LD article text counts as page text (HBR's paywalled pages)", async () => {
+    const { htmlEvidence } = await import("@/lib/coach/page-evidence");
+    const html = `<html><head><title>What the Best Transformational Leaders Do</title><script type="application/ld+json">{"@type":"Article","articleBody":"Satya Nadella, for instance, joined Microsoft in 1992 and worked his way up to running its cloud business."}</script></head><body><p>Subscribe to read</p></body></html>`;
+    expect(htmlEvidence(html).text).toContain("Satya Nadella, for instance, joined Microsoft");
+  });
+  it("a cut citation title with no page title is cleaned, not shown raw", async () => {
+    const { applySourceQuality } = await import("@/lib/coach/source-quality");
+    const U = "https://csuepress.columbusstate.edu/sltp/vol2/iss1/3";
+    const q = applySourceQuality("• Joseph Patrnchak at Cleveland Clinic used servant leadership [csuepress.columbusstate.edu]", {
+      mode: "research",
+      sources: [{ title: '"Implementing Servant Leadership at Cleveland Clinic: A Case Study in O" by Jose', url: U }],
+      read: [U],
+      fetched: new Map([[U, { title: "", text: "Joseph Patrnchak Cleveland Clinic servant leadership ".repeat(10) }]]),
+    });
+    expect(q.sources[0]!.title).toBe("Implementing Servant Leadership at Cleveland Clinic: A Case Study in…");
   });
 });

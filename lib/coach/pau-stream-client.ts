@@ -49,6 +49,20 @@ export async function fetchPauAnswer(
   let rot = 0;
   const shown = new Set<string>();
   let phase = 0;
+  // QA 5:32: each line stays up long enough to read (~0.7s), so "Searching for …" isn't replaced by
+  // "Reading …" in the same instant. Queued lines are dropped when the answer arrives.
+  const MIN_SHOW_MS = 700;
+  let shownAt = 0;
+  const queue: string[] = [];
+  let pump: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    pump = null;
+    const next = queue.shift();
+    if (!next) return;
+    shownAt = Date.now();
+    o.onStatus?.(next);
+    if (queue.length) pump = setTimeout(flush, MIN_SHOW_MS);
+  };
   const show = (line: string) => {
     // QA 5:32: searching → reading → writing, never back to an earlier step.
     const ph = statusPhase(line);
@@ -56,7 +70,12 @@ export async function fetchPauAnswer(
     if (ph) phase = ph;
     lastAt = Date.now();
     shown.add(line);
-    o.onStatus?.(line);
+    queue.push(line);
+    if (!pump) {
+      const wait = Math.max(0, shownAt + MIN_SHOW_MS - Date.now());
+      if (wait === 0) flush();
+      else pump = setTimeout(flush, wait);
+    }
   };
   const rotTimer = setInterval(() => {
     if (Date.now() - lastAt < (o.rotateMs ?? 4_000)) return;
@@ -95,5 +114,7 @@ export async function fetchPauAnswer(
     clearTimeout(maxTimer);
     if (idleTimer) clearTimeout(idleTimer);
     clearInterval(rotTimer);
+    if (pump) clearTimeout(pump);
+    queue.length = 0;
   }
 }

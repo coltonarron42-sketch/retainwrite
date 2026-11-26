@@ -310,7 +310,14 @@ export function applySourceQuality(
   const bare = (t: string, u: string) => !t || /^https?:/i.test(t) || t.toLowerCase().replace(/^www\./, "") === hostOf(u);
   // A citation title cut off mid-word ('"…A Case Study in O" by Jose') reads worse than the page's own title.
   const cut = (t: string) => /["“”]\s+by\s+\S+$|\s\S{1,2}["”]?$/.test(t.trim());
-  passing = passing.map((s) => (cut(s.title) && evidenceFor(s.url, o).title.length > 12 && !cut(evidenceFor(s.url, o).title) ? { ...s, title: evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim().slice(0, 90) } : s));
+  passing = passing.map((s) => {
+    if (!cut(s.title)) return s;
+    const page = evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim();
+    if (page.length > 12 && !cut(page)) return { ...s, title: page.slice(0, 90) };
+    // No page title to fall back on: drop the quotes and the cut-off "by Jose", end the cut word with "…".
+    const clean = s.title.replace(/^["“]/, "").replace(/["”]\s+by\s+.*$/, "").replace(/\s+\S{1,2}$/, "").trim();
+    return clean.length > 12 ? { ...s, title: `${clean}…` } : s;
+  });
   passing = passing.map((s) => (bare(s.title, s.url) ? { ...s, title: evidenceFor(s.url, o).title.replace(/\s+/g, " ").trim().slice(0, 90) || s.title } : s));
   const goodUnused = [...new Set((o.read ?? []).filter((u) => tierOf(u) >= 2).map(hostOf))].filter((h) => !used.has(h));
   return { text: out.join("\n"), sources: passing, kept: out.filter((l) => l.startsWith("• ")).length, dropped, checks, goodUnused };
