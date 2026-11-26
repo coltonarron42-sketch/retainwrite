@@ -13,7 +13,7 @@ vi.mock("@/lib/env", async (orig) => ({ ...(await orig<typeof import("@/lib/env"
 vi.mock("@/lib/demo/session-server", () => ({ getDemoSession: async () => null }));
 vi.mock("@/lib/server/voice/capture", () => ({ refreshVoiceProfile: async () => undefined }));
 vi.mock("@/lib/server/paper-context/store", () => ({
-  loadPaperContextBlock: async () => ({ block: "Assignment: argue which leadership style works best during change." }),
+  loadPauContextBlock: async () => ({ block: "Assignment: argue which leadership style works best during change." }), loadPaperContextBlock: async () => ({ block: "Assignment: argue which leadership style works best during change." }),
   readPaperContext: async () => ({ v: 1, northstar: true }),
 }));
 
@@ -124,7 +124,8 @@ describe("PC-32 ghost exposure: every client-facing read on a paper WITH a store
     const res = await POST(post({ mode: "answer", message: "what should my thesis be?", stage: 2, section: "Intro" }), ctx);
     const body = await res.text();
     assertClean("POST coach/answer", body);
-    expect(JSON.parse(body)).toEqual({ paras: [] });
+    // PC-31 merge: the reply also carries sources/mode/effort/gated/spoken (never ghost text: assertClean above).
+    expect(JSON.parse(body).paras).toEqual([]);
   });
 
   it("POST /coach/fit: table lines only, never the ghost", async () => {

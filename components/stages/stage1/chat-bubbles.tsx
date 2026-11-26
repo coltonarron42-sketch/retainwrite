@@ -6,6 +6,7 @@ import { COACH_NAME } from "@/lib/stage1/pau-pau";
 import { friendlyStatus, isAssignmentRead } from "@/lib/stage1/reading-status";
 import { cn } from "@/lib/utils";
 import { tidyPunct } from "@/lib/copy/tidy";
+import { parseSourcesLine } from "@/lib/coach/sources-line";
 import { plainText } from "@/lib/voice/presence";
 import { PauFace, SpeakingWaves, useBubbleSpeaking } from "@/components/stages/stage1/pau-presence";
 
@@ -98,7 +99,7 @@ export function PauPauGroup({
   const shown = bubbles
     .map((b, i) => ({ b, i }))
     .filter(({ b }) => b !== null && b !== undefined && b !== "" && b !== false)
-    .map(({ b, i }) => ({ b: typeof b === "string" ? tidyPunct(b) : b, i }));
+    .map(({ b, i }) => ({ b: typeof b === "string" ? (parseSourcesLine(b) ? <SourcesLinks line={b} /> : tidyPunct(b)) : b, i }));
   const speaking = useBubbleSpeaking(plainText(shown.map(({ b }) => b)));
   return (
     <div className={cn("flex items-start gap-2 sm:gap-3", className)} data-pau-turn data-chat-line="pau">
@@ -129,6 +130,24 @@ export function PauPauGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+/** PC-31 QA 3:46: the one Sources line under a researched reply, with linked titles. */
+function SourcesLinks({ line }: { line: string }) {
+  const parts = parseSourcesLine(line) ?? [{ text: line }];
+  return (
+    <span className="text-[15px] text-ds-muted" data-sources-line>
+      {parts.map((p, i) =>
+        "url" in p ? (
+          <a key={i} href={p.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-ds-ink">
+            {p.label}
+          </a>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </span>
   );
 }
 

@@ -115,7 +115,10 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
   });
   it("routes that touch it return only coaching output or flow data (no ghost variables in any response)", () => {
     const coach = src("app/api/papers/[paperId]/coach/answer/route.ts");
-    expect(coach).toContain("return NextResponse.json({ paras });");
+    // PC-31 merge: the route returns compute()'s reply (paras, sources, mode, effort, gated, spoken): no ghost field.
+    expect(coach).toContain("return NextResponse.json(await compute(() => undefined));");
+    expect(coach).toMatch(/return \{ paras, sources, mode, effort, gated: gate\.blocked, spoken,/);
+    expect(coach.match(/return \{ paras[^\n]*/g)?.join("\n") ?? "").not.toMatch(/ghost/);
     expect(coach).not.toMatch(/NextResponse\.json\([^)]*ghost/);
     const complete = src("app/api/papers/[paperId]/intake/complete/route.ts");
     expect(complete).not.toMatch(/NextResponse\.json\([^)]*ghost/i);
