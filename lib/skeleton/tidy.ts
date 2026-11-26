@@ -59,14 +59,24 @@ export function bodyPlan(input: { text?: string | null; words?: number | null })
 const COUNTER = /\bcounter|objection|other side|limitation|rebuttal/i;
 
 /** A shape trimmed (or, for a stated count, padded) to the plan; bodies re-keyed body-1..n in order. */
-export function fitBodies(shape: PaperShape, plan: BodyPlan): PaperShape {
+export function fitBodies(shape: PaperShape, plan: BodyPlan, readings: string[] = []): PaperShape {
   const bodies = shape.blocks.filter((b) => b.group === "body");
   const counter = bodies.find((b) => COUNTER.test(b.sub)) ?? null;
   const target = counter ? plan.withCounter : plan.bodies;
   let keep: ShapeBlock[] = bodies;
   if (bodies.length > target) {
     const rest = bodies.filter((b) => b !== counter);
-    keep = counter ? [...rest.slice(0, target - 1), counter] : rest.slice(0, target);
+    const room = counter ? target - 1 : target;
+    // QA prod smoke (after #83): a body built on an assigned reading is kept first; then the rest, in order.
+    const must = new Set<ShapeBlock>();
+    for (const r of readings) {
+      const hit = rest.find((b) => namesIn(b.sub, r));
+      if (hit && must.size < room) must.add(hit);
+    }
+    const picked = new Set(must);
+    for (const b of rest) if (picked.size < room) picked.add(b);
+    const ordered = rest.filter((b) => picked.has(b));
+    keep = counter ? [...ordered, counter] : ordered;
   } else if (plan.stated && bodies.length < target) {
     keep = [...bodies];
     for (let i = bodies.length; i < target; i++) keep.push({ key: "", group: "body", label: "", sub: `main point ${i + 1}` });
@@ -81,6 +91,98 @@ export function fitBodies(shape: PaperShape, plan: BodyPlan): PaperShape {
 }
 
 export { shapeSigOf } from "@/lib/skeleton/shape";
+
+/* ---- QA prod smoke (after #83, f8df7ccc): every assigned reading in the skeleton, no look-alike titles ---- */
+
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const namesIn = (text: string | null | undefined, name: string) => new RegExp(`\\b${esc(name)}(?:'s|’s)?\\b`, "i").test(String(text ?? ""));
+
+/**
+ * The readings the assignment requires, by author (or source when there's no author): "Northouse",
+ * "Goleman". Given names ("Daniel" in "Daniel Goleman") and a source next to an author (HBR) are
+ * dropped; a reading the sheet calls optional or recommended is not required.
+ */
+export function requiredReadings(text: string | null | undefined, names: string[]): string[] {
+  const t = String(text ?? "").replace(/\s+/g, " ");
+  const sentences = t.split(/(?<=[.!?])\s+/);
+  const out: string[] = [];
+  for (const n of names) {
+    if (/^[A-Z]{2,6}$/.test(n) && names.some((m) => m !== n && !/^[A-Z]{2,6}$/.test(m))) continue;
+    if (new RegExp(`\\b${esc(n)}\\s+(?:[A-Z]\\.\\s+)?(?:${names.filter((m) => m !== n).map(esc).join("|") || "\\b$^"})\\b`).test(t)) continue;
+    const said = sentences.filter((x) => namesIn(x, n));
+    if (said.length && said.every((x) => /\b(?:optional|recommended|for background|if you want|not required)\b/i.test(x))) continue;
+    if (!out.some((o) => o.toLowerCase() === n.toLowerCase())) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Every required reading gets a body within the count: one whose line names it, or (when the model
+ * left it out) woven into the best non-counter body that names no reading yet ("the leader's change
+ * story, with Northouse"). Deterministic, after the model.
+ */
+export function coverReadings(shape: PaperShape, readings: string[]): PaperShape {
+  const bodies = shape.blocks.filter((b) => b.group === "body");
+  const missing = readings.filter((r) => !bodies.some((b) => namesIn(b.sub, r)));
+  if (!missing.length) return shape;
+  const subs = new Map(bodies.map((b) => [b.key, b.sub]));
+  for (const r of missing) {
+    const free = bodies.filter((b) => !COUNTER.test(subs.get(b.key)!) && !readings.some((x) => namesIn(subs.get(b.key), x)));
+    const host = free.find((b) => /\b(?:theor|style|approach|framework|concept|model|definition|leadership)\w*/i.test(subs.get(b.key)!)) ?? free[0] ?? bodies.find((b) => !COUNTER.test(subs.get(b.key)!)) ?? bodies[0];
+    if (!host) break;
+    subs.set(host.key, `${subs.get(host.key)}, with ${r}`);
+  }
+  return { ...shape, blocks: shape.blocks.map((b) => (b.group === "body" && subs.get(b.key) !== b.sub ? { ...b, sub: subs.get(b.key)! } : b)) };
+}
+
+const STOP = new Set(["the", "a", "an", "and", "of", "to", "in", "on", "for", "with", "his", "her", "their", "leader", "leader's", "leadership"]);
+const tokens = (t: string, leader: string | null) => {
+  const lw = new Set(String(leader ?? "").toLowerCase().split(/\s+/).filter(Boolean));
+  return new Set(t.toLowerCase().replace(/[’']s\b/g, "").split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w) && !lw.has(w)));
+};
+const firstPart = (t: string) => t.split(/\s*,\s*/)[0]!.trim().toLowerCase();
+const capFirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/**
+ * Bold titles, deterministic after the titler:
+ * - a body built on a required reading names that reading first ("Northouse, servant leadership, change fit");
+ * - no near-duplicates: a later title that opens like an earlier one drops the shared opening, and one
+ *   that says mostly the same words falls back to its own paragraph line.
+ */
+export function fixTitles(view: SkeletonView, readings: string[], leader: string | null | undefined): SkeletonView {
+  const name = leader?.trim() || null;
+  const leadRe = name ? new RegExp(`^${esc(name)}(?:'s|’s)?\\s*[,:–—-]\\s*`, "i") : null;
+  const blocks = view.blocks.map((b) => ({ ...b }));
+  const body = blocks.filter((b) => b.group === "body");
+  for (const b of body) {
+    if (!b.title) continue;
+    const r = readings.find((x) => namesIn(b.sub, x));
+    if (!r || namesIn(b.title, r)) continue;
+    const rest = (leadRe ? b.title.replace(leadRe, "") : b.title).trim();
+    const parts = rest.split(/\s*,\s*/).filter(Boolean).slice(0, 2);
+    b.title = [r, ...parts.map((x, i) => (i === 0 ? x.charAt(0).toLowerCase() + x.slice(1) : x))].join(", ");
+  }
+  const seen: { title: string; first: string; toks: Set<string> }[] = [];
+  for (const b of body) {
+    if (!b.title) continue;
+    let t = b.title;
+    const first = firstPart(t);
+    if (seen.some((s) => s.first === first) && t.includes(",")) {
+      const rest = t.split(/\s*,\s*/).slice(1).join(", ").trim();
+      if (rest.split(/\s+/).length >= 2) t = capFirst(rest);
+    }
+    const toks = tokens(t, name);
+    const near = seen.some((s) => {
+      const both = [...toks].filter((w) => s.toks.has(w)).length;
+      const union = new Set([...toks, ...s.toks]).size;
+      return union > 0 && both / union >= 0.5;
+    });
+    if (near) t = capFirst(b.sub);
+    b.title = t;
+    seen.push({ title: t, first: firstPart(t), toks: tokens(t, name) });
+  }
+  return { ...view, blocks };
+}
 
 const STYLE_LABEL = /^(servant|transformational|situational|transactional|authentic|democratic|behavioral|autocratic|laissez-faire|charismatic)$/i;
 const andList = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
