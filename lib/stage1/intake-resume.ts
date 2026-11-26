@@ -55,7 +55,7 @@ export function intakeScreenAfterLoad(input: {
   return "card";
 }
 
-/** Skip get-to-know-you must not throw away answers already counted in the voice sample. */
+/** Skip get-to-know-you must not throw away answers (they still feed the background voice profile). */
 export function answersAfterSkippingInterest<T extends { kind: string }>(answers: T[]): T[] {
   return answers;
 }
@@ -63,8 +63,6 @@ export function answersAfterSkippingInterest<T extends { kind: string }>(answers
 export function stanceStartBlockers(input: {
   checklistConfirmed: boolean;
   hasStory: boolean;
-  voiceOk: boolean;
-  voiceReason?: string;
   stanceOk: boolean;
   /**
    * North-star papers (Colton 12:04 AM): the advance check is clarify, catch up,
@@ -78,15 +76,10 @@ export function stanceStartBlockers(input: {
   if (input.northstar && !input.northstar.catchUpDone) reasons.push("Tell me whether you've read the material (or want the key points).");
   if (input.northstar && !input.northstar.decided) reasons.push("Pick a direction and tell me why.");
   if (!input.hasStory) reasons.push("Pick a story angle first.");
-  // Voice length is a warning, never a hard stop (PLAN.md): see voiceShortNote.
+  // PC-32 (Colton t219u, Nov 25): voice is captured in the background in every stage; it is never a
+  // Stage 1 step, condition or note. Stage 1 is the assignment, its summary and a first direction.
   if (!input.stanceOk) reasons.push("Add a couple more sentences to your early take.");
   return reasons;
-}
-
-/** Gentle note when the voice sample is short. The student can still continue. */
-export function voiceShortNote(input: { voiceOk: boolean }): string | null {
-  if (input.voiceOk) return null;
-  return "Your answers are on the short side, so I have less of your voice to match. You can keep going now, or reopen an earlier answer and add a few sentences.";
 }
 
 /**
@@ -180,4 +173,23 @@ export function shortNoteNudge(kind: "stance" | "story", words: number): string 
   }
   if (words >= 15) return null;
   return "A little more on what you'd write about and why, and your own angle is ready.";
+}
+
+/**
+ * Short Stage 1 wrap-up (PC-32, Colton t221u): the confirmed assignment is the only must; their
+ * starting point is saved either way ("starting fresh" is a fine answer, never a blocker).
+ */
+export function shortStage1Checklist(input: { confirmed: boolean; kind: "has_ideas" | "read_material" | "no_clue" }): { label: string; done: boolean }[] {
+  return [
+    { label: "Assignment confirmed", done: input.confirmed },
+    {
+      label:
+        input.kind === "has_ideas"
+          ? "Your first idea, saved for Stage 2"
+          : input.kind === "read_material"
+            ? "Where you're starting: you've done the reading"
+            : "Where you're starting: fresh (totally fine)",
+      done: true,
+    },
+  ];
 }

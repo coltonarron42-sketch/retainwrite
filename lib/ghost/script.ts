@@ -139,26 +139,81 @@ const gramSet = (t: string, n: number) => {
 };
 
 /**
- * Output gate (Colton t221u): a student-facing reply may not share any 5-word run with the ghost
- * (unless that run is already in the student's own words / the shared context), nor be a
- * near-copy of one ghost sentence (≥ 8 new content words, ≥ 70% of them from that sentence).
+ * Words that any coaching answer in this space uses (styles, teams, change, the paper's own
+ * vocabulary). A ghost run made only of these (plus stopwords) is generic wording, not leakage.
  */
-export function ghostLeakCheck(output: string, g: GhostScript | null, allowedCorpus = ""): { ok: true } | { ok: false; rule: "ngram" | "near" } {
-  if (!g || !output.trim()) return { ok: true };
+const GENERIC_WORDS = new Set(
+  "leadership leader leaders lead leads leading led style styles servant transformational transactional situational democratic autocratic authentic charismatic laissez faire participative adaptive visionary coaching team teams employee employees people person staff worker workers followers follower organization organizations organizational company companies business change changes changing trust vision shared goal goals growth grow needs need first put puts motivate motivates motivation inspire inspires inspired decision decisions approach example examples paper essay argue argues argument thesis claim evidence research source sources study studies article reading readings chapter textbook author theory model book effective effectiveness success successful result results support supports show shows make makes help helps work works better best good great strong key important way ways often many much one two three second new real during through while because before after own others other future past time today world life day every something reward rewards punishment consequences clear adapt adapts adapting rely relies moment situation situations context contrast power control focus focuses differ differs different attention".split(" "),
+);
+/** Stock phrases a coach says about these topics (their 5-word runs never count). */
+const GENERIC_PHRASES = [
+  "servant leadership puts the needs of the team first",
+  "the leader puts the needs of others first",
+  "leading a team through a period of change",
+  "transformational leadership inspires followers with a shared vision of the future",
+  "transactional leadership uses rewards and consequences to get results",
+  "situational leadership adapts the style to the readiness of the followers",
+  "democratic leadership shares decisions with the team",
+  "autocratic leadership makes decisions without input from the team",
+  "use one real leader as your example",
+  "say it in your own words",
+  "what do you think about that",
+  "this is a question to pursue not a sentence to paste",
+  "check the author and the date yourself",
+];
+const GENERIC_GRAMS = new Set(GENERIC_PHRASES.flatMap((p) => [...gramSet(p, 5)]));
+
+/** A ghost n-gram worth protecting: not in the shared context, not stock wording, not mostly filler. */
+function distinctive(gram: string, allowed: Set<string>): boolean {
+  if (allowed.has(gram) || GENERIC_GRAMS.has(gram)) return false;
+  const w = gram.split(" ");
+  const stops = w.filter((x) => STOP.has(x)).length;
+  if (stops * 2 > w.length) return false;
+  return w.some((x) => !STOP.has(x) && !GENERIC_WORDS.has(x));
+}
+
+export type GhostLeakResult = { ok: boolean; rule?: "ngram8" | "ngram5" | "near"; hits5: number; hits8: number };
+
+/**
+ * Output gate (Colton t221u; tuned PC-32 QA 5:15 PM so it blocks real leakage, not generic wording).
+ * Only DISTINCTIVE ghost runs count: not in the allowed corpus (assignment, brief, readings and
+ * sources text, the student's own messages and notes), not stock phrasing, not mostly stopwords,
+ * not made only of everyday topic words. Blocks on any distinctive 8-word run, on 2+ distinct
+ * distinctive 5-word runs, or on a near-copy of one ghost sentence (≥ 8 distinctive content words,
+ * ≥ 70% of them from that sentence). A single 5-word run never blocks on its own.
+ */
+export function ghostLeakCheck(output: string, g: GhostScript | null, allowedCorpus = ""): GhostLeakResult {
+  if (!g || !output.trim()) return { ok: true, hits5: 0, hits8: 0 };
   const corpus = ghostCorpus(g);
-  const allowed = gramSet(allowedCorpus, 5);
-  const out = gramSet(output, 5);
-  for (const gram of gramSet(corpus, 5)) if (out.has(gram) && !allowed.has(gram)) return { ok: false, rule: "ngram" };
+  const out8 = gramSet(output, 8);
+  const allowed5 = gramSet(allowedCorpus, 5);
+  const allowed8 = gramSet(allowedCorpus, 8);
+  let hits8 = 0;
+  for (const gram of gramSet(corpus, 8)) if (out8.has(gram) && !allowed8.has(gram) && distinctive(gram, allowed5)) hits8++;
+  // Distinct RUNS: overlapping 5-grams of one copied stretch count once (a 6-word overlap is one run).
+  const ghost5 = gramSet(corpus, 5);
+  const ot = toks(output);
+  let hits5 = 0;
+  let inRun = false;
+  for (let i = 0; i + 5 <= ot.length; i++) {
+    const gram = ot.slice(i, i + 5).join(" ");
+    const hit = ghost5.has(gram) && distinctive(gram, allowed5);
+    if (hit && !inRun) hits5++;
+    inRun = hit;
+  }
+  if (hits8 > 0) return { ok: false, rule: "ngram8", hits5, hits8 };
+  if (hits5 >= 2) return { ok: false, rule: "ngram5", hits5, hits8 };
   const allowedWords = new Set(toks(allowedCorpus));
-  const ghostSentences = corpus.split(/(?<=[.!?])\s+|\n+/).map((x) => new Set(toks(x).filter((w) => !STOP.has(w)))).filter((x) => x.size >= 6);
+  const keep = (w: string) => !STOP.has(w) && !GENERIC_WORDS.has(w);
+  const ghostSentences = corpus.split(/(?<=[.!?])\s+|\n+/).map((x) => new Set(toks(x).filter(keep))).filter((x) => x.size >= 6);
   for (const sentence of output.split(/(?<=[.!?])\s+|\n+/)) {
-    const novel = [...new Set(toks(sentence).filter((w) => !STOP.has(w) && !allowedWords.has(w)))];
+    const novel = [...new Set(toks(sentence).filter((w) => keep(w) && !allowedWords.has(w)))];
     if (novel.length < 8) continue;
     for (const gs of ghostSentences) {
-      if (novel.filter((w) => gs.has(w)).length / novel.length >= 0.7) return { ok: false, rule: "near" };
+      if (novel.filter((w) => gs.has(w)).length / novel.length >= 0.7) return { ok: false, rule: "near", hits5, hits8 };
     }
   }
-  return { ok: true };
+  return { ok: true, hits5, hits8 };
 }
 
 /** Log-safe view: sizes and counts only, never text. */
