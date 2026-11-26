@@ -143,3 +143,15 @@ describe("live walk 7:25 PM: #71's grounding gate keeps the background label who
     expect(bg).not.toMatch(/pickup/);
   });
 });
+
+describe("live walk 7:31 PM: a reading paragraph never gets the R2 prefix stacked on its own label", async () => {
+  const { groundParas } = await import("@/lib/coach/grounding");
+  it("'From your Northouse chapter: …' stays as is; an unlabeled claim still gets the prefix", () => {
+    const out = groundParas(
+      ["Servant leadership centers on putting the needs of team members first.", "From your Northouse chapter: Northouse surveys servant leadership among the major approaches.", "Northouse describes servant leadership as putting followers first."],
+      { source: "", unreadRefs: ["Northouse, Leadership: Theory and Practice"] },
+    ).paras;
+    expect(out[1]).toBe("From your Northouse chapter: Northouse surveys servant leadership among the major approaches.");
+    expect(out[2]).toMatch(/^I don't have your copy, so here's the general idea: Northouse describes/);
+  });
+});

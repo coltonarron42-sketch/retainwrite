@@ -77,7 +77,9 @@ export function groundParas(paras: string[], o: GroundOpts): GroundResult {
       .filter((s, i, a) => a.indexOf(s) === i)
       .join(" ");
     // 2. Unlabeled claims about a reading we don't have.
-    if (refRe && !leadLabeled && !/^•?\s*Sources:/i.test(text) && !GROUNDING.label.test(text) && !/\?\s*$/.test(text)) {
+    // PC-32 polish: a structured answer's reading paragraph ("From your Northouse chapter: …", built from that
+    // reading's parsed key points) already names its source; never stack the R2 prefix on it.
+    if (refRe && !leadLabeled && !/^•?\s*Sources:/i.test(text) && !/^From your [^:]{1,60}:/.test(text) && !GROUNDING.label.test(text) && !/\?\s*$/.test(text)) {
       // A claim: "<ref> describes ..." or an attribution ("... from Northouse chapter 4", "in Goleman's article").
       const attrRe = new RegExp(`\\b(?:from|in|per|according to|as)\\s+(?:the\\s+)?${refRe.source}`);
       const claim = sentencesOf(text).some((s) => refRe.test(s) && (GROUNDING.claimVerbs.test(s) || attrRe.test(s)) && !/\?\s*$/.test(s));
