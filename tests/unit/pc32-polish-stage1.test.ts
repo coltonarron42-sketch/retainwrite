@@ -155,3 +155,20 @@ describe("live walk 7:31 PM: a reading paragraph never gets the R2 prefix stacke
     expect(out[2]).toMatch(/^I don't have your copy, so here's the general idea: Northouse describes/);
   });
 });
+
+describe("live walk 7:36 PM: #71's prose gate lets the labeled background facts through", async () => {
+  const { gateParas } = await import("@/lib/coach/prose-gate");
+  const facts = "Sam Walton made regular store visits to listen directly to associates and customers. Sam Walton introduced profit-sharing plans that let employees own part of the company. Sam Walton kept store-level decisions close to the people doing the work instead of centralizing them at headquarters.";
+  const o = { names: ["Sam Walton"], context: "How did Sam Walton show servant leadership? Introduction" };
+  it("labeled facts pass (never the 'what's the main point you want your intro to set up?' reframe)", () => {
+    const r = gateParas([`From general background (check before citing): ${facts}`, "Which of those actions feels strongest for your paper?"], o);
+    expect(r.blocked).toBe(false);
+    expect(r.paras[0]).toContain("profit-sharing");
+  });
+  it("the same sentences with no label are still gated as before", async () => {
+    const { findPasteableRuns } = await import("@/lib/coach/prose-gate");
+    const more = `${facts} Walton believed the people closest to customers knew best what the stores and their shoppers needed every single day.`;
+    expect(findPasteableRuns([more], o).length).toBeGreaterThan(0);
+    expect(gateParas([`From general background (check before citing): ${more}`], o).blocked).toBe(false);
+  });
+});
