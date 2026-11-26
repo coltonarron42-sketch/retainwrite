@@ -169,7 +169,7 @@ export async function POST(request: Request, ctx: Ctx) {
           return { q: applySourceQuality(rr.raw, { mode: qmode, sources: rr.sources, read: rr.read, fetched, titles: rr.titles, offTopic }), fetched };
         };
         let q: QualityResult | null = null;
-        let retried = false;
+        const retried = false;
         let capped = false;
         // Hard per-turn cap hit: answer from the good pages she'd already opened, no more searching.
         const fromReadPages = async (read: string[], titles?: Map<string, string>): Promise<QualityResult | null> => {
@@ -193,27 +193,7 @@ export async function POST(request: Request, ctx: Ctx) {
           q = await fromReadPages(r.read ?? [], r.titles);
         } else if (r.ok && search) {
           q = (await verify(r)).q;
-          // She read a good page but leaned on weak or unsupported ones: one more pass restricted to the good pages.
-          // QA 4:08: only when nothing survived (a kept, supported bullet beats another search).
-          // QA retest: the retry stays inside the turn's cap (≤2 searches a turn, retry included).
-          if (qmode === "research" && q.kept === 0 && q.goodUnused.length && searches < searchCap && turnSearchCap(paperUsed + searches, 1) > 0) {
-            retried = true;
-            emit("Finding sources you can cite…");
-            const r2 = await grokResearch({
-              system: coachAnswerSystem(mode, { plain: true }),
-              user: userJson,
-              effort: "low",
-              search: true,
-              maxSearches: Math.max(1, searchCap - searches),
-              allowedDomains: q.goodUnused.slice(0, 5),
-              timeoutMs: 22_000,
-              onStatus: streaming ? emit : undefined,
-              topic: askTopic(body.message),
-            });
-            searches += r2.searches ?? 0;
-            const q2 = r2.ok ? (await verify(r2)).q : !r2.ok && r2.reason === "capped" ? ((capped = true), await fromReadPages(r2.read ?? [], r2.titles)) : null;
-            if (q2 && q2.kept > q.kept) q = q2;
-          }
+          // QA 5:13: no second search pass. When nothing passes, she goes straight to labeled general background (turn stays under ~25s).
         }
         if (q) {
           const none = qmode === "research" && q.kept === 0;
@@ -236,7 +216,7 @@ export async function POST(request: Request, ctx: Ctx) {
                 user: userJson,
                 effort: "low",
                 search: false,
-                timeoutMs: 12_000,
+                timeoutMs: 9_000,
               });
               if (bgr.ok) background = bgr.raw.split(/\n+/);
             }
