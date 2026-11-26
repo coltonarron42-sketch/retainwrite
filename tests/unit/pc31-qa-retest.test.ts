@@ -87,3 +87,12 @@ describe("QA retest (749bd2a walk): one bullet per leader, readable titles", () 
     expect(q.sources[0]!.title).toBe("Implementing Servant Leadership at Cleveland Clinic: A Case Study in Organizational Change");
   });
 });
+
+describe("QA retest (d3159a3 walk): student-blog platforms on .edu are weak", () => {
+  it("sites.psu.edu / blogs.*.edu don't pass; a department page does", async () => {
+    const { sourceTier } = await import("@/lib/coach/source-quality");
+    expect(sourceTier("https://sites.psu.edu/leadership/2019/02/14/a-tale-of-two-dans/")).toBe(1);
+    expect(sourceTier("https://blogs.umass.edu/x/servant")).toBe(1);
+    expect(sourceTier("https://trace.tennessee.edu/utk_libpub/13")).toBeGreaterThanOrEqual(2);
+  });
+});

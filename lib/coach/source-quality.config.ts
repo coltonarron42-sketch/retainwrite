@@ -46,7 +46,7 @@ export const SOURCE_QUALITY = {
     "epdf.pub", "epdf.tips", "pdfcoffee", "doku.pub", "idoc.pub", "annas-archive", "sci-hub", "freebookspot", "ebookee",
   ],
   /** .edu pages that are program marketing, not course or library pages. */
-  eduMarketingHost: /^(?:online|degrees?|programs?|admissions?|blog|onlinedegrees?|graduate-?online)\./i,
+  eduMarketingHost: /^(?:online|degrees?|programs?|admissions?|blogs?|onlinedegrees?|graduate-?online|sites|wp|wordpress|students?|pages|commons)\./i, // also student-blog platforms (sites.psu.edu, blogs.*.edu)
   /** A PDF on a library/repository host that isn't the publisher is treated as a pirated textbook copy. */
   libraryHost: /^(?:e?library|lib|repository|repo|dspace|eprints?|elib|digilib|ebooks?|files|docs|uploads?)\./i,
   /** Friendly names for inline attribution. */

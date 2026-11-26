@@ -127,7 +127,8 @@ export async function grokResearch(opts: {
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   const body: AnyJson = {
     model: MODEL_FAST,
-    instructions: opts.system,
+    // QA retest (d3159a3): max_tool_calls alone didn't stop a 3rd search attempt, so the model is told its budget too.
+    instructions: opts.search ? `${opts.system}\nYou can run at most ${opts.maxSearches ?? MAX_SEARCH_CALLS} web search${(opts.maxSearches ?? MAX_SEARCH_CALLS) === 1 ? "" : "es"} this turn. Plan them; after the last one, answer from what you found.` : opts.system,
     input: [{ role: "user", content: opts.user }],
     ...(opts.search
       ? {
@@ -187,10 +188,11 @@ export async function grokResearch(opts: {
     if (capped) controller.abort();
     const usage = final && typeof final === "object" ? ((final as AnyJson).server_side_tool_usage ?? ((final as AnyJson).usage as AnyJson | undefined)?.server_side_tool_usage_details ?? null) : null;
     // Event names and search-call shapes only (never content).
-    console.info("[grok-research] stream", { cap, calls: callIds.size, capped, actions, usage, types: [...types].filter((t) => !/delta|reasoning/.test(t)).slice(0, 20) });
+    console.info("[grok-research] stream", { cap, calls: callIds.size, completed: actions.length, aborted: capped ? callIds.size - actions.length : 0, capped, actions, usage, types: [...types].filter((t) => !/delta|reasoning/.test(t)).slice(0, 20) });
     // Billed count when xAI reports it (server_side_tool_usage.web_search_calls), else the distinct calls we saw.
     const billed = usage && typeof (usage as AnyJson).web_search_calls === "number" ? ((usage as AnyJson).web_search_calls as number) : null;
-    return { ...(final ?? { output_text: capped ? "" : text, output: [] }), _searched: billed ?? callIds.size, _read: read, _capped: capped };
+    return { ...(final ?? { output_text: capped ? "" : text, output: [] }), // A capped turn: the searches that ran (the cut-off one never returned results; it's logged as aborted).
+      _searched: billed ?? (capped ? Math.min(callIds.size, actions.length || cap) : callIds.size), _read: read, _capped: capped };
   };
   try {
     let resp: AnyJson;
