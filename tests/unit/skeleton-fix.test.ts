@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { keepShownTitles, projectSkeleton, ruleOutline, shapeFromModel, shapeSigOf, type ShapeOutline } from "@/lib/skeleton/shape";
-import { bodyPlan, directionSummary, fitBodies, reasonClause, statedBodies, varyTitles } from "@/lib/skeleton/tidy";
+import { bodyPlan, chosenStyles, directionSummary, fitBodies, reasonClause, statedBodies, varyTitles } from "@/lib/skeleton/tidy";
+import { pickedStyles } from "@/lib/stage1/paper-context";
 
 const SHEET = "BUS 210 Leadership essay for Prof. Kim. Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. APA 7. Due Dec 10.";
 // The 5-body model shape QA saw on 8e10b2f3.
@@ -115,5 +116,30 @@ describe("QA (after #82) a: the top line is a synthesized summary", () => {
     const dock = readFileSync("components/skeleton/skeleton-dock.tsx", "utf8");
     expect(dock).toContain("direction={view?.summary ?? null}");
     expect(dock).not.toContain("shortDirection(live?.direction)");
+  });
+});
+
+describe("QA (after #82) walk: titles match their paragraph", () => {
+  const ANSWER = "I read both. Goleman says emotional intelligence matters more than IQ for leaders; Northouse ch 4 covers the behavioral approach, task vs relationship. I want to argue transformational leadership, using Satya Nadella at Microsoft. Because he got a huge company to change by inspiring people with a clear vision instead of ordering them around.";
+  it("a style named only while describing a reading isn't their choice", () => {
+    const all = pickedStyles({ pick: "Transformational", answer: ANSWER });
+    expect(all.map((x) => x.toLowerCase())).toContain("behavioral");
+    expect(chosenStyles(all, ANSWER, "Transformational").map((x) => x.toLowerCase())).toEqual(["transformational"]);
+    expect(chosenStyles(["Servant", "Transformational"], "I want servant and transformational together.", null)).toEqual(["Servant", "Transformational"]);
+    expect(chosenStyles(["Servant"], ANSWER, null)).toEqual(["Servant"]);
+    expect(directionSummary({ leader: "Satya Nadella", styles: chosenStyles(all, ANSWER, "Transformational"), said: ANSWER })).toMatch(/^Satya Nadella as a transformational leader: he got a huge company to change/);
+  });
+  it("the style title lands on the leader's paragraph, not the Northouse one", () => {
+    const fit = fitBodies(FIVE, bodyPlan({ text: SHEET }));
+    const titles = ruleOutline(fit, { leader: "Satya Nadella", styles: ["transformational"] }).titles.map((t) => `${t.key} ${t.title}`);
+    expect(titles[0]).not.toMatch(/transformational/i);
+    expect(titles[0]).toMatch(/northouse/i);
+    expect(titles[2]).toMatch(/^body-3 Satya Nadella, transformational leadership$/);
+    const v = varyTitles(projectSkeleton(fit, ruleOutline(fit, { leader: "Satya Nadella", styles: ["transformational"] })), "Satya Nadella");
+    for (const b of bodies(v)) { const t = (b as unknown as { title: string | null }).title; if (t) expect(t.charAt(0)).toBe(t.charAt(0).toUpperCase()); }
+  });
+  it("the route and the titler use the chosen styles", () => {
+    expect(readFileSync("app/api/papers/[paperId]/skeleton/route.ts", "utf8")).toContain("chosenStyles(pickedStyles(pctx?.decision");
+    expect(readFileSync("lib/skeleton/shape.ts", "utf8")).toContain("Each title names what THAT paragraph is about");
   });
 });

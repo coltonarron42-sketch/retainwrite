@@ -257,11 +257,18 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
   const body = shape.blocks.filter((b) => b.group === "body");
   const styles = facts.styles.map(lowerStyle);
   if (!facts.leader && !styles.length) return { v: 1, titles: [], source: "rules" };
+  // QA (after #82): a style title goes on a paragraph about the leader, never on the Northouse,
+  // Goleman or counterargument paragraph (that shifted every title by one).
+  const IDEA = /\b(theor|reading|northouse|goleman|counter|limit|research|definition|framework|model)\w*/i;
+  const jobOf = (b: (typeof body)[number]) => clean(b.sub.split(/\s*[:(–—-]\s*/)[0] ?? b.sub, 40);
+  const slots = body.map((b, i) => ({ i, idea: IDEA.test(jobOf(b)) })).filter((x) => !x.idea).map((x) => x.i);
+  const order = slots.length >= styles.length ? slots : body.map((_, i) => i);
   const titles = body.map((b, i) => {
-    const style = styles[i] ?? (styles.length === 1 && i === 0 ? styles[0] : null);
-    const job = style ? null : clean(b.sub.split(/\s*[:(–—-]\s*/)[0] ?? b.sub, 40);
+    const at = order.indexOf(i);
+    const style = at >= 0 ? (styles[at] ?? null) : null;
+    const job = style ? null : jobOf(b);
     // A theory, reading or counterargument paragraph is about the idea, not the leader.
-    const aboutIdea = Boolean(job) && /\b(theor|reading|northouse|goleman|counter|limit|research|definition|framework|model)\w*/i.test(job!);
+    const aboutIdea = Boolean(job) && IDEA.test(job!);
     const parts = [aboutIdea ? null : facts.leader, style ? `${style}${/leader|style/i.test(style) ? "" : " leadership"}` : job].filter((x): x is string => Boolean(x));
     // A title from their pick (or a real shape) stays once shown; a stand-in shape's placeholder can still improve.
     return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[], fixed: Boolean(style) || shape.source === "model" };
@@ -272,6 +279,7 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
 export const OUTLINE_SYSTEM = `You label the body paragraphs of a student's paper plan with short titles, using ONLY the student's own choices and notes. You never write any part of the paper.
 Return JSON only: {"titles":[{"title":"...","ideas":[0,2]}]} with one entry per body paragraph, in order.
 - title: 3 to 7 words, comma-separated parts: their leader or example, the style or idea that paragraph shows, and (if their notes give one) the example in 1 to 3 words. E.g. "Sam Walton, transformational vision", "Sam Walton, servant leadership, listening to associates", "Legere, winners circle, culture change". Each part is a complete noun phrase; never end on a word like "of", "the" or "a". No sentences, no claims, no new facts, nothing the student didn't choose or write.
+- Each title names what THAT paragraph is about (its line in body_paragraphs). A style goes only on a paragraph about the leader using it; a reading or counterargument paragraph keeps its own topic. Name the leader in at most two titles.
 - ideas: indexes of the student's body notes that belong in that paragraph (may be empty).`;
 
 /** The client view: labels, subheadings and short titles only. */

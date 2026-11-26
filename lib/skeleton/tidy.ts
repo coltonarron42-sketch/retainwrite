@@ -124,19 +124,43 @@ export function directionSummary(input: { leader?: string | null; styles?: strin
 /** QA (after #82): the leader's name opens at most two body titles; the rest say what the paragraph does. */
 export function varyTitles(view: SkeletonView, leader: string | null | undefined, max = 2): SkeletonView {
   const name = leader?.trim();
-  if (!name) return view;
-  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const lead = new RegExp(`^${esc}(?:'s|’s)?\\s*[,:–—-]\\s*`, "i");
+  const esc = name ? name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
+  const lead = esc ? new RegExp(`^${esc}(?:'s|’s)?\\s*[,:–—-]\\s*`, "i") : null;
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   let seen = 0;
   return {
     ...view,
     blocks: view.blocks.map((b) => {
-      if (b.group !== "body" || !b.title || !lead.test(b.title)) return b;
+      if (b.group !== "body" || !b.title) return b;
+      // Every bold title reads as a title ("Counterargument and reply"), never a lowercase fragment.
+      if (!lead || !lead.test(b.title)) return { ...b, title: cap(b.title) };
       seen++;
-      if (seen <= max) return b;
+      if (seen <= max) return { ...b, title: cap(b.title) };
       const rest = b.title.replace(lead, "").trim();
       if (rest.split(/\s+/).length < 2) return b;
-      return { ...b, title: rest.charAt(0).toUpperCase() + rest.slice(1) };
+      return { ...b, title: cap(rest) };
     }),
   };
+}
+
+/**
+ * QA (after #82): the styles they chose, not every style word in their answer. "Northouse ch 4
+ * covers the behavioral approach. I want to argue transformational…" chose transformational only.
+ * A style counts when its sentence makes a choice, or it is their tapped pick; a sentence that only
+ * describes a reading doesn't. If nothing reads as a choice, the list is kept as it was.
+ */
+const CHOICE_CUE = /\b(?:argu\w*|pick\w*|choos\w*|chose|go(?:ing)? with|like|prefer\w*|want|best|most effective|think|believe|focus\w* on|use|using)\b/i;
+const READING_CUE = /\b(?:covers?|says|talks? about|describes?|explains?|discuss\w*|ch(?:apter)?\.?\s*\d+|northouse|goleman|article|textbook)\b/i;
+export function chosenStyles(styles: string[], answer: string | null | undefined, pick?: string | null): string[] {
+  const said = `${answer ?? ""}`;
+  if (styles.length < 2 || !said.trim()) return styles;
+  const sentences = said.split(/(?<=[.!?;])\s+/);
+  const head = (x: string) => x.toLowerCase().split(/\s+/)[0]!;
+  const pickHead = pick && pick !== "their own" ? head(pick.split(/[:(–]/)[0]!.trim()) : null;
+  const kept = styles.filter((st) => {
+    if (pickHead && head(st) === pickHead) return true;
+    const re = new RegExp(`\\b${head(st).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i");
+    return sentences.some((x) => re.test(x) && CHOICE_CUE.test(x) && !(READING_CUE.test(x) && !/\b(?:argu\w*|want|pick\w*|choos\w*|chose|prefer\w*)\b/i.test(x)));
+  });
+  return kept.length ? kept : styles;
 }

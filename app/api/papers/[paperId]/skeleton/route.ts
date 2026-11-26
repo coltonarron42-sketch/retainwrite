@@ -8,7 +8,7 @@ import { hasGrokKey } from "@/lib/ai/grok";
 import { readPaperContext } from "@/lib/server/paper-context/store";
 import { ensureOutline, ensureShape, readGhost, viewFor } from "@/lib/server/skeleton/ghost";
 import { factsKeyOf, shapeSigOf, wordsTarget } from "@/lib/skeleton/shape";
-import { directionSummary } from "@/lib/skeleton/tidy";
+import { chosenStyles, directionSummary } from "@/lib/skeleton/tidy";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -54,7 +54,7 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     let outline = existing?.outline ?? null;
     // Ghost #2 (QA 1:11 AM #1): bold titles as soon as their choices lock (leader, styles), then
     // refined from their body notes (POST). A shape change re-titles; a plain GET never churns them.
-    const facts = { leader: pickedLeader(pctx), styles: pickedStyles(pctx?.decision, pctx?.options?.options ?? []) };
+    const facts = { leader: pickedLeader(pctx), styles: chosenStyles(pickedStyles(pctx?.decision, pctx?.options?.options ?? []), pctx?.decision?.answer, pctx?.decision?.pick) };
     const choices = [...(post?.choices ?? []), pctx?.decision?.answer ?? "", pctx?.leader?.answer ?? ""].map((c) => c.trim()).filter(Boolean);
     const shapeChanged = Boolean(outline && outline.titles.some((t) => !shape.blocks.some((b) => b.key === t.key)));
     const pendingModel = Boolean(existing?.outlineHash?.startsWith("r:"));
