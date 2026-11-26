@@ -802,9 +802,9 @@ describe("QA #76 re-verify: a clear body decision is locked, no menu, no stacked
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     const fn = loop.slice(loop.indexOf("function onConfirm"), loop.indexOf("async function onLogicOpener"));
     expect(fn).toMatch(/loopStep: "summarize"/);
-    expect(fn).toMatch(/arriving/);
-    // The first arrival must not set logic_check; that happens only after they confirm the summary.
-    const arrival = fn.slice(fn.indexOf("if (arriving)"), fn.indexOf("They confirmed the summary"));
+    expect(fn).toMatch(/alreadySummarized/);
+    // The first confirm must not set logic_check until a summary has been shown.
+    const arrival = fn.slice(fn.indexOf("if (!alreadySummarized)"), fn.indexOf("They confirmed the summary"));
     expect(arrival).toMatch(/loopStep: "summarize"/);
     expect(arrival).not.toMatch(/loopStep: "logic_check"/);
   });

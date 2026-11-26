@@ -1321,9 +1321,13 @@ export function CoachingLoop({
     const claim = listeningClaim(kept, section.title);
     const notes = claim || kept.join(" ");
     const lead = claim ? pointLeadTitle(claim) : officialLeadName(current.chosenLead) ?? current.chosenLead;
-    const arriving = current.loopStep !== "summarize" && current.loopStep !== "confirm";
-    // First confirm: summarize and wait. Pressure test only after they agree (QA #76).
-    if (arriving) {
+    const alreadySummarized = (base.transcript ?? []).some(
+      (l) => l.k === current.key && l.who === "pau" && /Here's what I have for your /i.test(l.text),
+    );
+    // First confirm: summarize and wait. A prior decision may already be on
+    // "summarize" (Your point card) without a summary having been spoken yet.
+    // Pressure test only after they agree with that summary (QA #76).
+    if (!alreadySummarized) {
       const summary = claim ? sectionClaimSummary(claim, section.title) : "";
       const already = more.some((l) => l.who === "pau" && (l.text === summary || /Here's what I have for your /i.test(l.text)));
       const lines = summary && !already ? [...more, { k: section.key, who: "pau" as const, text: summary }] : more;
