@@ -75,7 +75,16 @@ export function asOnSheet(item: string, sheet: string): string {
   if (!it || !sh || /^(?:the|a|an|our|your)\b/i.test(it)) return it;
   const head = it.split(" ").slice(0, 3).join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const m = sh.match(new RegExp(`\\b((?:the|our)\\s+(?:(?:assigned|required|attached|provided)\\s+)?)${head}`, "i"));
-  if (!m) return it;
+  if (!m) {
+    // QA 5:32 walk: the parsed item can be worded differently ("Goleman HBR article 'What Makes a Leader?'")
+    // from the sheet ("the assigned HBR article 'What Makes a Leader?' by Daniel Goleman"). Its quoted title
+    // still finds the sheet's wording, and the sheet's "the assigned" stays.
+    const title = it.match(/['‘“"]([^'’”"]{4,120})['’”"]/)?.[1];
+    const at = title ? sh.toLowerCase().indexOf(title.toLowerCase()) : -1;
+    if (at < 0) return it;
+    const lead = sh.slice(Math.max(0, at - 80), at).match(/\b(?:the|our)\s+(assigned|required|attached|provided)\b[^.;]*$/i);
+    return lead ? `The ${lead[1]!.toLowerCase()} ${it}`.replace(/\s+/g, " ") : it;
+  }
   const lead = m[1]!.trim().replace(/^our\b/i, "the");
   const rest = /^(?:assigned|required|attached|provided)\s/i.test(it) ? it : `${lead.split(" ").slice(1).join(" ")} ${it}`.trim();
   return `The ${rest}`.replace(/\s+/g, " ");

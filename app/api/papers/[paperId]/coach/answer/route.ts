@@ -198,7 +198,7 @@ export async function POST(request: Request, ctx: Ctx) {
             user: JSON.stringify({ ...JSON.parse(userJson), pages }),
             effort: "low",
             search: false,
-            timeoutMs: 8_000,
+            timeoutMs: 10_000,
           });
           if (!r3.ok) return null;
           console.info("[coach-answer] grounded draft", JSON.stringify(r3.raw.slice(0, 600)));
@@ -214,8 +214,10 @@ export async function POST(request: Request, ctx: Ctx) {
             const fetched = await fetchEvidence(cands, { timeoutMs: 3_000, max: 10 });
             // Her own tagged draft, checked (the fallback), and the grounded rewrite from the pages (preferred).
             const tagged = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read, fetched, titles: r.titles, offTopic: offTopicOf(fetched) });
-            const fromPages = await grounded(r.read, r.titles, fetched);
-            q = fromPages && fromPages.kept > 0 && fromPages.kept >= Math.min(tagged.kept, 1) ? fromPages : tagged;
+            // Live (9552ba3): with page text read properly (JSON-LD), her checked draft usually keeps 1-3 bullets, and a
+            // second model pass costs ~8s+ (over the ~20s budget). So the grounded pass runs when the check left nothing.
+            const fromPages = tagged.kept === 0 ? await grounded(r.read, r.titles, fetched) : null;
+            q = fromPages && fromPages.kept > 0 ? fromPages : tagged;
             groundedUsed = q === fromPages;
           } else {
             q = (await verify(r)).q;
