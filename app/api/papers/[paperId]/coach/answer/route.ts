@@ -190,6 +190,7 @@ export async function POST(request: Request, ctx: Ctx) {
             .map((f) => ({ url: f.url, site: sourceHost(f.url), title: f.title, excerpt: bestExcerpt(f.text, EXAMPLE_WORDS, 1800) }))
             .sort((x, y) => sourceTier(y.url) - sourceTier(x.url))
             .slice(0, 4);
+          console.info("[coach-answer] grounded pages", JSON.stringify({ fetched: fetched.size, usable: pages.map((x) => `${x.site} (${x.excerpt.length})`) }));
           if (!pages.length) return null;
           emit(WRITING_LINE);
           const r3 = await grokResearch({
@@ -197,9 +198,10 @@ export async function POST(request: Request, ctx: Ctx) {
             user: JSON.stringify({ ...JSON.parse(userJson), pages }),
             effort: "low",
             search: false,
-            timeoutMs: 9_000,
+            timeoutMs: 8_000,
           });
           if (!r3.ok) return null;
+          console.info("[coach-answer] grounded draft", JSON.stringify(r3.raw.slice(0, 600)));
           return applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles, offTopic });
         };
         if (!r.ok && r.reason === "capped" && search) {
@@ -209,7 +211,7 @@ export async function POST(request: Request, ctx: Ctx) {
           if (qmode === "research") {
             const cands = [...new Set([...lineUrls(r.raw), ...r.sources.map((x) => x.url), ...r.read])].filter((u) => sourceTier(u) >= 2);
             emit(CHECKING_LINE);
-            const fetched = await fetchEvidence(cands, { timeoutMs: 3_500, max: 8 });
+            const fetched = await fetchEvidence(cands, { timeoutMs: 3_000, max: 10 });
             // Her own tagged draft, checked (the fallback), and the grounded rewrite from the pages (preferred).
             const tagged = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read, fetched, titles: r.titles, offTopic: offTopicOf(fetched) });
             const fromPages = await grounded(r.read, r.titles, fetched);

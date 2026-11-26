@@ -28,6 +28,9 @@ export const SOURCE_QUALITY = {
   fine: [
     // recognized research and professional orgs
     "greenleaf.org", "shrm.org", "brookings.edu", "rand.org", "oecd.org", "worldbank.org", "who.int", "un.org", "britannica.com",
+    // QA 5:32: established business and tech news, and case publishers (real reporting on named leaders)
+    "geekwire.com", "fastcompany.com", "inc.com", "cnn.com", "wired.com", "techcrunch.com", "theverge.com", "qz.com",
+    "marketwatch.com", "barrons.com", "seattletimes.com", "chicagotribune.com", "iveypublishing.ca", "thecasecentre.org", "imd.org",
   ],
   blocked: [
     // QA 5:32: hosting, app and dev domains (anyone's demo or side project, never a source)
