@@ -125,6 +125,7 @@ import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angle
 import { clipWords } from "@/lib/copy/clip";
 import { isContentQuestion } from "@/lib/coach/answer";
 import { isWriteRequest } from "@/lib/stages/stance-intent";
+import { reflectsSetAside, setAsideStyles } from "@/lib/stage1/style-negation";
 import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
 import { sourcesLine, type SourceRef } from "@/lib/coach/sources-line";
 import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
@@ -169,7 +170,6 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
-import { reflectsSetAside, setAsideStyles } from "@/lib/stage1/style-negation";
 import { asOnSheet, longEnough, studentTurns, studentWordTotal, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
 import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
