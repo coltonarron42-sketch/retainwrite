@@ -29,6 +29,8 @@ export type ShapeOutline = {
   source: "model" | "rules";
   /** QA 3:26 AM #3: the locked choices (leader, styles) the shown titles were made from. */
   factsKey?: string;
+  /** QA (after #82): the shape these titles were made for; titles for another shape are never served. */
+  shapeSig?: string;
 };
 
 /** What the client gets. Never includes private notes. */
@@ -36,6 +38,8 @@ export type SkeletonView = {
   blocks: { key: string; group: SkeletonGroup; label: string; sub: string; title: string | null; ideaRefs: number[] }[];
   transitions: string[];
   source: "model" | "rules";
+  /** QA (after #82): the top line, synthesized from their locked choices (never their raw words). */
+  summary?: string | null;
 };
 
 export const BODY_MIN = 2;
@@ -55,10 +59,19 @@ export function wordsTarget(input: { wordsMin?: number; wordsMax?: number; pages
   return null;
 }
 
-/** Body paragraphs for a length: ~250 words each after the intro and conclusion. */
+/** Body paragraphs for a length: ~300 words each after ~300 for the intro and conclusion (see lib/skeleton/tidy.ts bodyPlan). */
 export function bodyCountFor(words: number | null): number {
   if (!words) return 3;
-  return Math.min(BODY_MAX, Math.max(BODY_MIN, Math.round((words - 300) / 250)));
+  return Math.min(BODY_MAX, Math.max(BODY_MIN, Math.round((words - 300) / 300)));
+}
+
+/** QA (after #82): which shape a set of body titles was made for (its body lines, in order). */
+export function shapeSigOf(shape: PaperShape): string {
+  const bodies = shape.blocks.filter((b) => b.group === "body");
+  const s = bodies.map((b) => `${b.key}=${b.sub.toLowerCase()}`).join("|");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return `s${(h >>> 0).toString(36)}:${bodies.length}`;
 }
 
 const INTRO_SUB = "hook, context and your thesis";
@@ -159,7 +172,7 @@ export function shapeFromModel(raw: unknown, names: string[] = []): PaperShape |
 
 export const SHAPE_SYSTEM = `You plan the SHAPE of a student's paper so a writing coach knows the structure. You never write any part of the paper.
 Return JSON only: {"body":[{"focus":"...","kind":"example|theory|analysis|counter|evidence"}],"transitions":n,"examples":n,"theories":n,"decisions":["..."]}.
-- body: one entry per body paragraph, in order. Size it to the assignment's length (about 250 words per body paragraph; a 10-page paper has many more than a 2-page one) and to what it requires (named examples, theories, styles, readings, counterarguments).
+- body: one entry per body paragraph, in order. Use exactly target_bodies entries (target_bodies_with_counter when one of them is a counterargument paragraph); the count is already sized to the assignment's length (about 300 words per body paragraph) or to a paragraph count the assignment states.
 - focus: 2 to 7 words naming the paragraph's job for THIS assignment, lowercase, e.g. "the leader's change story", "style in action: first example", "tie it to Northouse's styles", "Goleman's emotional intelligence link", "counterargument and reply". You may name the theories, styles and readings the assignment itself names. Never the student's own choices, no claims, no sentences.
 - decisions: up to 5 short questions the student must decide before drafting (e.g. "Which leader will you use?"). Never answer them.`;
 
@@ -210,7 +223,7 @@ export function outlineFromModel(raw: unknown, shape: PaperShape, bodyNotes: num
       fixed: true,
     };
   });
-  return { v: 1, titles: titles.filter((t) => t.title), source: "model" };
+  return { v: 1, titles: titles.filter((t) => t.title), source: "model", shapeSig: shapeSigOf(shape) };
 }
 
 /** QA 3:26 AM #3: what a title may change for: the student's locked leader and styles only. */
@@ -222,14 +235,16 @@ export function factsKeyOf(facts: OutlineFacts): string {
  * QA 3:26 AM #3: once a body title is shown it stays until the student locks a new choice.
  * A refinement (model titles, a re-planned shape) may fill a blank title, never replace one.
  */
-export function keepShownTitles(prev: ShapeOutline | null | undefined, next: ShapeOutline, factsKey: string): ShapeOutline {
-  if (!prev?.titles.length || (prev.factsKey && prev.factsKey !== factsKey)) return { ...next, factsKey };
+export function keepShownTitles(prev: ShapeOutline | null | undefined, next: ShapeOutline, factsKey: string, shapeSig?: string): ShapeOutline {
+  // QA (after #82): titles shown for an earlier shape are never carried over to a rebuilt one.
+  if (shapeSig && prev && prev.shapeSig !== shapeSig) return { ...next, factsKey, shapeSig };
+  if (!prev?.titles.length || (prev.factsKey && prev.factsKey !== factsKey)) return { ...next, factsKey, ...(shapeSig ? { shapeSig } : {}) };
   const titles = next.titles.map((t, i) => {
     const shown = prev.titles.find((x) => x.key === t.key) ?? prev.titles[i];
     return shown?.title && shown.fixed !== false ? { ...t, title: shown.title, fixed: true } : t;
   });
-  for (const [i, p] of prev.titles.entries()) if (p.title && p.fixed !== false && !titles.some((t) => t.key === p.key) && i >= titles.length) titles.push(p);
-  return { ...next, titles, factsKey };
+  // QA (after #82): never a title for a body the shape doesn't have (no Body 6 on a 5-body shape).
+  return { ...next, titles, factsKey, ...(shapeSig ? { shapeSig } : {}) };
 }
 
 const lowerStyle = (s: string) => (/^[A-Z][a-z]+(?:[- ][a-z]+)*$/.test(s) ? s.toLowerCase() : s);
@@ -251,7 +266,7 @@ export function ruleOutline(shape: PaperShape, facts: OutlineFacts): ShapeOutlin
     // A title from their pick (or a real shape) stays once shown; a stand-in shape's placeholder can still improve.
     return { key: b.key, title: cleanTitle(parts.join(", ")), ideaRefs: [] as number[], fixed: Boolean(style) || shape.source === "model" };
   });
-  return { v: 1, titles: titles.filter((t) => t.title), source: "rules" };
+  return { v: 1, titles: titles.filter((t) => t.title), source: "rules", shapeSig: shapeSigOf(shape) };
 }
 
 export const OUTLINE_SYSTEM = `You label the body paragraphs of a student's paper plan with short titles, using ONLY the student's own choices and notes. You never write any part of the paper.
@@ -261,7 +276,9 @@ Return JSON only: {"titles":[{"title":"...","ideas":[0,2]}]} with one entry per 
 
 /** The client view: labels, subheadings and short titles only. */
 export function projectSkeleton(shape: PaperShape, outline: ShapeOutline | null): SkeletonView {
-  const byKey = new Map((outline?.titles ?? []).map((t) => [t.key, t]));
+  // QA (after #82): titles are served only for the shape they were made for, one per current body, in order.
+  const current = outline && outline.shapeSig === shapeSigOf(shape) ? outline : null;
+  const byKey = new Map((current?.titles ?? []).map((t) => [t.key, t]));
   const body = shape.blocks.filter((b) => b.group === "body");
   const transitions = body.slice(1).map((b, i) => `Transition – from ${body[i]!.sub} to ${b.sub}`).slice(0, shape.transitions);
   return {

@@ -7,7 +7,8 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { hasGrokKey } from "@/lib/ai/grok";
 import { readPaperContext } from "@/lib/server/paper-context/store";
 import { ensureOutline, ensureShape, readGhost, viewFor } from "@/lib/server/skeleton/ghost";
-import { factsKeyOf, wordsTarget } from "@/lib/skeleton/shape";
+import { factsKeyOf, shapeSigOf, wordsTarget } from "@/lib/skeleton/shape";
+import { directionSummary } from "@/lib/skeleton/tidy";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -62,12 +63,17 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     const factsChanged = Boolean(outline && outline.factsKey && outline.factsKey !== factsKeyOf(facts));
     // A stand-in shape's placeholder titles improve once the real shape is in (picked titles stay).
     const placeholders = shape.source === "model" && Boolean(outline?.titles.some((t) => t.fixed === false));
-    if (post || ((!outline || shapeChanged || pendingModel || leaderMissing || factsChanged || placeholders) && (facts.leader || facts.styles.length))) {
+    // QA (after #82): titles made for another shape (a rebuild, a resize, or older titles with no
+    // shape mark) are stale: regenerate them for this shape; nothing old carries over.
+    const stale = Boolean(outline && outline.shapeSig !== shapeSigOf(shape));
+    if (post || ((!outline || stale || shapeChanged || pendingModel || leaderMissing || factsChanged || placeholders) && (facts.leader || facts.styles.length))) {
       const bodyNotes = (post?.bodyNotes ?? []).map((n) => n.trim()).filter(Boolean);
-      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model", shown: existing?.outline ?? null });
+      outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post && !stale ? existing : shapeChanged || stale ? null : existing, later: (task) => after(task), refine: shape.source === "model", shown: stale ? null : (existing?.outline ?? null) });
     }
     // Round 4 #1: the rules stand-in while the real shape is made: the client shows "Building…" and asks again.
-    return NextResponse.json({ view: viewFor(shape, outline, readingNames(text)), building: shape.source !== "model" && hasGrokKey() });
+        // QA (after #82): the top line is a summary of their locked choices, never their raw sentence.
+    const summary = directionSummary({ leader: facts.leader, styles: facts.styles, said: pctx?.decision?.answer ?? null });
+    return NextResponse.json({ view: viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary }), building: shape.source !== "model" && hasGrokKey() });
   } catch {
     return NextResponse.json({ view: null, reason: "error" });
   }
