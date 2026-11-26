@@ -216,6 +216,28 @@ export const asLeader = (why: string, label = "") => {
 /** One definition line, the same in every turn: "• Servant: a leader who puts…". */
 const defLine = (o: DecisionOption) => `• ${o.label}: ${o.why ? asLeader(o.why, o.label) : STYLE_DEFS[cueKey(o.label)] ?? "a real, well-known choice"}.`;
 
+/**
+ * QA (after #80): the assignment's own focus, as a clause Pau can lean the narrow-to-two on
+ * ("…most effective for leading a team through change, using…" → "leading a team through change").
+ * Only what the parsed prompt literally says; null when there's no clear focus phrase (never invented).
+ */
+export function assignmentFocus(prompt: string | null | undefined): string | null {
+  const t = String(prompt ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const m = /\b(?:for|in|when|while|at)\s+((?:[a-z]+ing)\b[^,.;:?!()]{6,70}?)(?=\s*(?:[,.;:?!()]|$|\s+(?:using|with|citing|based on|drawing on|and use|in (?:an? )?(?:\d|essay|paper)|in apa)\b))/i.exec(t);
+  if (!m) return null;
+  const f = m[1]!.trim().replace(/\s+/g, " ");
+  const words = f.split(" ");
+  if (words.length < 2 || words.length > 10) return null;
+  // A gerund that's really a requirement, not the paper's focus ("for using APA", "in writing 1,200 words").
+  if (/^(?:using|writing|citing|including|following|making|getting)\b/i.test(f) || /\b(?:apa|mla|words?|pages?|sources?|citations?)\b/i.test(f)) return null;
+  return f.charAt(0).toLowerCase() + f.slice(1);
+}
+
+const FOCUS_STOP = /^(?:a|an|the|of|to|in|on|for|with|and|or|through|into|during|their|your|its|his|her|our|leading|leader|leaders|leadership|style|styles|one|real)$/i;
+const focusWords = (focus: string) => [...new Set(focus.toLowerCase().split(/[^a-z']+/).filter((w) => w.length > 2 && !FOCUS_STOP.test(w)))];
+const stem = (w: string) => w.replace(/'s$/, "").replace(/(?:ing|es|s)$/, "");
+
 export function pickEscalation(input: {
   options: DecisionOption[];
   round: number;
@@ -232,6 +254,8 @@ export function pickEscalation(input: {
   recIndex?: number;
   /** QA ethos (after #77): everything the student has said so far, so the two offered are grounded in it. */
   said?: string;
+  /** QA (after #80): the parsed assignment prompt/topic, for a real reason behind the two offered. */
+  focus?: string | null;
 }): { paras: string[]; recommend: DecisionOption | null; offerCatchUp: boolean } {
   const opts = input.options.slice(0, 3).map((o) => ({ ...o, why: input.unread ? scrubUnreadRefs(o.why) : o.why }));
   const what = input.kind === "leader" ? "leaders" : "options";
@@ -275,7 +299,21 @@ export function pickEscalation(input: {
   // the reading one tap away; round 5 is a different way in (someone they've seen lead); after
   // that, the two again in other words. No "ok" takes a pick here: they name one.
   const other = opts.find((o) => o.label !== rec.label) ?? null;
-  const grounded = input.kind === "leader" ? null : groundedTwo(opts, input.said ?? "");
+  const grounded0 = input.kind === "leader" ? null : groundedTwo(opts, input.said ?? "");
+  // QA (after #80): nothing in their words points anywhere: lean on the assignment's own focus.
+  // The two are the ones whose definitions speak to that focus, only when that clearly sets them
+  // apart from the rest; otherwise the list order stays and the line names the focus neutrally.
+  const focus = grounded0 && !grounded0.quote && opts.length > 2 ? assignmentFocus(input.focus) : null;
+  const fw = focus ? focusWords(focus).map(stem) : [];
+  const score = (o: DecisionOption) => {
+    const d = asLeader(o.why ?? "", o.label).toLowerCase().split(/[^a-z']+/).map(stem);
+    return fw.filter((w) => d.includes(w)).length;
+  };
+  const ranked = focus ? opts.map((o, i) => ({ o, i, s: score(o) })).sort((a, b) => b.s - a.s || a.i - b.i) : [];
+  const sharper = ranked.length > 2 && ranked[1]!.s > 0 && ranked[1]!.s > ranked[2]!.s;
+  const grounded = grounded0 && sharper
+    ? { ...grounded0, two: ranked.slice(0, 2).sort((a, b) => a.i - b.i).map((r) => r.o), rest: ranked.slice(2).sort((a, b) => a.i - b.i).map((r) => r.o) }
+    : grounded0;
   const two = grounded ? grounded.two : other ? [rec, other] : [rec];
   // QA (5:06 PM): the two read as plain definitions ("• Transformational: a leader selling…"), never "lets you show…".
   const line2 = (o: DecisionOption) => (input.kind === "leader" ? `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.` : defLine(o));
@@ -283,11 +321,18 @@ export function pickEscalation(input: {
   const readFirst = input.kind === "leader" ? "" : " Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.";
   const names = two.map((o) => o.label).join(" or ");
   // QA ethos (after #77): why these two, from their own words; otherwise the rest stays on the table (chips match the two).
+  const restLine = grounded?.rest.length
+    ? `${grounded.rest.map((o) => o.label).join(" and ")} ${grounded.rest.length > 1 ? "are" : "is"} still on the table if neither fits.`
+    : "";
   const why2 = grounded?.quote
     ? `You said “${grounded.quote}”, so these two are the closest fit.`
-    : grounded?.rest.length
-      ? `These two are a good place to start; ${grounded.rest.map((o) => o.label).join(" and ")} ${grounded.rest.length > 1 ? "are" : "is"} still on the table if neither fits.`
-      : null;
+    : focus && sharper
+      ? `Since your prompt is about ${focus}, these two speak to that most directly; ${restLine}`
+      : focus
+        ? `Your prompt is about ${focus}, and either of these is a real way to argue it; ${restLine}`
+        : grounded?.rest.length
+          ? `These two are a good place to start; ${restLine}`
+          : null;
   const narrow = [`Let's narrow it to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
   const narrow2 = [`No wrong answer here. Down to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
   const otherWay = [`Let's come at it from a different side. Forget the labels for a second: think of someone who led a team you were on, at work, in sports, anywhere. What's one thing they did?`];
