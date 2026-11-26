@@ -1,5 +1,8 @@
 "use client";
 
+import { SourceHintCard } from "@/components/stages/source-hint";
+import { sourceHintsFor } from "@/lib/coaching/source-hints";
+import type { MaterialSummary } from "@/lib/stage1/paper-context";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { withoutClosingQuestion } from "@/lib/copy/sentences";
 import { DsButton } from "@/components/ui/ds-button";
@@ -111,6 +114,8 @@ export type StanceHandlers = {
 
 type Props = {
   paperId: string;
+  /** P3: the paper's stored sources (readings they gave us, pages Pau found), placed per section. */
+  sources?: MaterialSummary[];
   intro: {
     heading: string;
     body: string;
@@ -118,8 +123,6 @@ type Props = {
     purpose?: string;
     /** Their Stage 1 decision, referenced instead of re-asked (north star D). */
     earlier?: string | null;
-    /** QA 4:57 PM: the fit check for the style + leader they already gave, right after "Earlier you picked…". */
-    fit?: string[];
     /** Key points from the material, labeled by source. */
     material?: { label: string; points: string[] }[];
   };
@@ -645,7 +648,6 @@ export function StanceChat(props: Props) {
   // QA 11:51: her opener is what they decided in Stage 1 ("Earlier you picked…"), then the assignment.
   const introBubbles: ReactNode[] = [
     ...(intro.earlier ? [intro.earlier] : []),
-    ...(intro.fit ?? []),
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
     ...(intro.purpose ? [intro.purpose] : []),
@@ -722,6 +724,10 @@ export function StanceChat(props: Props) {
           <p className={dsCaption} data-section-step data-section-key={section.key}>
             Section {active + 1} of {sections.length} · {section.title}: {section.needs}
           </p>
+          {/* P3: at the section's first prompt, the source that belongs here (when and where to reference it). */}
+          {!transcript.some((l) => l.who !== "pau" && l.k === section.key) ? (
+            <SourceHintCard stage={2} sectionTitle={section.title} hints={sourceHintsFor(section, sections, props.sources)} />
+          ) : null}
 
           {asideHere && props.asideChips?.length ? (
             <Choices label="Options from earlier">
