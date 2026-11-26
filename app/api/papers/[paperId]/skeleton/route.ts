@@ -8,7 +8,7 @@ import { hasGrokKey } from "@/lib/ai/grok";
 import { readPaperContext } from "@/lib/server/paper-context/store";
 import { ensureOutline, ensureShape, readGhost, viewFor } from "@/lib/server/skeleton/ghost";
 import { factsKeyOf, shapeSigOf, wordsTarget } from "@/lib/skeleton/shape";
-import { chosenStyles, directionSummary } from "@/lib/skeleton/tidy";
+import { chosenStyles, directionSummary, requiredReadings } from "@/lib/skeleton/tidy";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -73,7 +73,7 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
     // Round 4 #1: the rules stand-in while the real shape is made: the client shows "Building…" and asks again.
         // QA (after #82): the top line is a summary of their locked choices, never their raw sentence.
     const summary = directionSummary({ leader: facts.leader, styles: facts.styles, said: pctx?.decision?.answer ?? null });
-    return NextResponse.json({ view: viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary }), building: shape.source !== "model" && hasGrokKey() });
+    return NextResponse.json({ view: viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary, readings: requiredReadings(text, readingNames(text)) }), building: shape.source !== "model" && hasGrokKey() });
   } catch {
     return NextResponse.json({ view: null, reason: "error" });
   }
