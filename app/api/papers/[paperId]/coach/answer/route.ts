@@ -69,7 +69,6 @@ export async function POST(request: Request, ctx: Ctx) {
   const started = Date.now();
   let block = "";
   let leader: string | null = null;
-  let style: string | null = null;
   let readings: ReadingRef[] = [];
   let ghost: GhostScript | null = null;
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
@@ -86,9 +85,7 @@ export async function POST(request: Request, ctx: Ctx) {
     ]);
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
     block = loaded?.block ?? "";
-    const pair = loaded?.ctx ? fitPairFromContext(loaded.ctx as never) : null;
-    leader = pair?.leader ?? null;
-    style = pair?.style ?? null;
+    leader = loaded?.ctx ? (fitPairFromContext(loaded.ctx as never)?.leader ?? null) : null;
     readings = readingCatalog((loaded?.ctx ?? null) as never);
     ghost = g;
     // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
@@ -111,7 +108,7 @@ export async function POST(request: Request, ctx: Ctx) {
     section: body.section ?? "",
     coach_asked: body.ask ?? "",
     student_message: body.message,
-    ...(structured ? { student_leader: askedLeader ?? "", student_style: style ?? "", readings: readings.map((r) => ({ id: r.id, title: r.title, author: r.author, key_points: r.points })) } : {}),
+    ...(structured ? { student_leader: askedLeader ?? "", readings: readings.map((r) => ({ id: r.id, title: r.title, author: r.author, key_points: r.points })) } : {}),
     paper_context: block,
   });
   const schema = structured
