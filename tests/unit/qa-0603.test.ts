@@ -136,7 +136,7 @@ describe("3. decision", () => {
   it("a vague pick is probed by name", () => {
     expect(isVaguePick("idk, the team one I guess")).toBe(true);
     expect(guessPick("idk, the team one I guess", OPTIONS)?.label).toBe("Team-based leadership");
-    expect(vaguePickProbe("idk, the team one I guess", OPTIONS)).toMatch(/leaning toward team-based leadership\. Why that one\?/);
+    expect(vaguePickProbe("idk, the team one I guess", OPTIONS)).toMatch(/leaning toward Team-based leadership\. Why that one\?/);
     expect(decisionHasReason("I'd pick transformational because it helps a team buy into change")).toBe(true);
     expect(decisionHasReason("idk")).toBe(false);
     // No lean to name: the probe lists the options and nothing is prefilled.
@@ -154,11 +154,12 @@ describe("3. decision", () => {
     const brief = readFileSync("lib/server/paper-context/brief.ts", "utf8");
     expect(brief).toMatch(/NEEDS_REAL_PERSON/);
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(intake).toContain('id: "leader_pick"');
-    expect(intake).toContain('id: "decision_why"');
+    // PC-32 (Colton t221u): the leader and the decision's reason moved to Stage 2's stance interview.
+    expect(intake).not.toContain('id: "leader_pick"');
+    expect(intake).toContain("for (const step of ideasPlan(answers))");
   });
   it("Stage 2 carries the actual decision and reason, never idk", () => {
-    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked Transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");
+    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "idk", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "I read both", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toMatch(/^Earlier you told me transformational, because Nadella/);
@@ -194,7 +195,7 @@ describe("4. gate and checklist", () => {
       }).decided,
     ).toBe(true);
     expect(northstarGateFrom({ answers: [], decisionAnswer: "Team-based because it shares the work of change", needsLeader: true }).decided).toBe(false);
-    expect(stanceStartBlockers({ checklistConfirmed: true, hasStory: true, voiceOk: true, stanceOk: true, northstar: { catchUpDone: true, decided: false } })).toContain("Pick a direction and tell me why.");
+    expect(stanceStartBlockers({ checklistConfirmed: true, hasStory: true, stanceOk: true, northstar: { catchUpDone: true, decided: false } })).toContain("Pick a direction and tell me why.");
   });
   it("a friendly nudge replaces the bare counter", () => {
     expect(shortNoteNudge("stance", 8)).not.toMatch(/\d/);

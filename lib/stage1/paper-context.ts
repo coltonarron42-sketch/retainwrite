@@ -1,3 +1,4 @@
+import type { StartingPoint } from "@/lib/stage1/starting-point";
 import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
@@ -74,6 +75,12 @@ export type PaperContext = {
   lostAtStart?: boolean;
   /** When Pau showed the material summary before the confirm (QA 7:02 AM: never re-ask "have you read it?"). */
   materialShownAt?: number;
+  /**
+   * PC-32 (Colton t221u): where the student is after Stage 1 (has ideas / has read the material /
+   * no clue), with their idea in their own words. Stage 2 meets them there. (The ghost script is
+   * never stored here: it lives encrypted in its own server-only row.)
+   */
+  startingPoint?: StartingPoint;
 };
 
 export const READING_MAX_CHARS = 12_000;
@@ -378,10 +385,20 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
   if (ctx.missing?.length)
     lines.push(`Readings you DON'T have the actual text of yet: ${ctx.missing.join("; ")}. Anything you say about them is your own general knowledge (say so) or nothing; never quotes or page details. They can send photos, a paste, a PDF or a link.`)
   if (ctx.lostAtStart) lines.push("At the start they said they hadn't read the material or didn't know where to start: offer the key points again if they seem lost.");
+  if (ctx.startingPoint) {
+    const sp = ctx.startingPoint;
+    lines.push(
+      sp.kind === "has_ideas"
+        ? `Where they start (Stage 1): they already have an idea, in their words: "${clip(sp.ideas ?? "", 240)}"${sp.followUp ? ` Why it interests them: "${clip(sp.followUp, 160)}"` : ""}. Build on it; never replace it.`
+        : sp.kind === "read_material"
+          ? "Where they start (Stage 1): they've read the material but have no direction yet. Start from what stood out to them."
+          : "Where they start (Stage 1): no ideas yet and that's fine. Start from zero, one small question at a time.",
+    );
+  }
   if (ctx.decision) lines.push(`Their decision (their words): picked "${clip(ctx.decision.pick, 80)}". "${clip(ctx.decision.answer, 260)}"`);
   if (extra.earlyTake) lines.push(`Their early take (their words): "${clip(extra.earlyTake, 260)}"`);
   if (extra.ownAngle) lines.push(`Their story angle: "${clip(extra.ownAngle, 160)}"`);
-  if (extra.voiceSample) lines.push(`How they talk (voice sample): "${clip(extra.voiceSample, 160)}"`);
+  if (extra.voiceSample) lines.push(`How they talk (their own words from an earlier answer; tone only, never paper content): "${clip(extra.voiceSample, 160)}"`);
   for (const l of (extra.lockedPoints ?? []).slice(0, 4)) {
     if (l.points.length) lines.push(`Stage 2 ${l.section} (locked, their words): ${clip(l.points.join(" | "), 200)}`);
   }
@@ -392,7 +409,7 @@ export function paperContextBlock(ctx: PaperContext, extra: ContextExtras = {}):
 /* ------------------------- stage and section purpose ------------------------- */
 
 export const STAGE_PURPOSE: Record<1 | 2 | 3, string> = {
-  1: "Stage 1 is about getting clear on what the assignment really asks, catching up on the material, and making your first real choices. No writing yet.",
+  1: "Stage 1 is quick: we get the assignment in, make sure it's clear what it's really asking, and see if you already have an idea. No writing yet.",
   2: "Stance is where you decide what you actually think, section by section, in your own words. Your notes here become your outline.",
   3: "Outline turns your Stance notes into a short plan: one line per point, so every paragraph has a job before you draft.",
 };
@@ -449,42 +466,13 @@ export function guessPick(text: string, options: DecisionOption[]): DecisionOpti
   return best?.o ?? null;
 }
 
-/** Style/approach labels lowercase mid-sentence; proper names stay as written. */
-export function midSentenceLabel(label: string): string {
-  const t = (label ?? "").trim();
-  if (!t) return t;
-  const styleish =
-    /^(servant|transformational|situational|transactional|democratic|autocratic|authentic|charismatic|laissez-faire|participative|adaptive|visionary|coaching|team-based|relationship|task|skill|skills|behavioral|trait|leadership|style|approach|based|the|and|or|one|two|three)s?$/i;
-  const words = t.split(/\s+/);
-  if (words.some((w) => /[A-Za-z]/.test(w) && !styleish.test(w.replace(/[.,]/g, "")))) return t;
-  return t.charAt(0).toLowerCase() + t.slice(1);
-}
-
-/** A bare yes after "Why that one?" confirms the guessed pick (QA #76). Light, never a reteach. */
-export function confirmPickNudge(label: string): string {
-  const name = midSentenceLabel(label);
-  return `Got it — you're going with ${name}. In a sentence, what about it fits this assignment? Or we can move on and come back to the why.`;
-}
-
-export function pickFromWhyProbe(last: string | null | undefined, options: DecisionOption[]): DecisionOption | null {
-  const t = String(last ?? "");
-  const m = t.match(/leaning toward\s+(.+?)\.\s*Why that one\?/i);
-  const name = (m?.[1] ?? "").trim();
-  if (!name) return null;
-  return (
-    options.find(
-      (o) => o.label.toLowerCase() === name.toLowerCase() || midSentenceLabel(o.label).toLowerCase() === name.toLowerCase(),
-    ) ?? null
-  );
-}
-
 /** The probe for a vague pick: name the option and ask why. */
 export function vaguePickProbe(text: string, options: DecisionOption[]): string {
   const g = guessPick(text, options);
   return g
-    ? `Sounds like you're leaning toward ${midSentenceLabel(g.label)}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
+    ? `Sounds like you're leaning toward ${g.label}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
     : options.length
-      ? `Which one are you leaning toward (${options.map((o) => midSentenceLabel(o.label)).join(", ")}), and why? One sentence is plenty.`
+      ? `Which one are you leaning toward (${options.map((o) => o.label).join(", ")}), and why? One sentence is plenty.`
       : "Which one do you mean? Name it in your own words and say why. One sentence is plenty.";
 }
 

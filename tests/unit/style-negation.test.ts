@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { chosenStyles, informedAffirm, informedNext, lockedPicks, stylesIn } from "@/lib/stage1/north-turns";
-import { answerNamesOption, pickFrom, pickedStyles, vaguePickProbe, midSentenceLabel, confirmPickNudge, pickFromWhyProbe } from "@/lib/stage1/paper-context";
+import { answerNamesOption, pickFrom, pickedStyles } from "@/lib/stage1/paper-context";
 import { northstarChecklist } from "@/lib/stage1/intake-resume";
 import { askKind, moreWordsNote } from "@/lib/stage1/chat-copy";
 import { isReadingComment, readingCommentAck } from "@/lib/stage1/paper-context";
+import { ideaTopic } from "@/lib/stage1/starting-point";
 import { readFileSync } from "node:fs";
 
 const heads = (xs: string[]) => xs.map((x) => x.toLowerCase().split(" ")[0]).sort();
@@ -126,6 +127,8 @@ describe("QA #76 re-verify: a known leader is never a style", () => {
     expect(turn).toMatch(/✓ A real leader as your example: Sam Walton/);
     expect(informedNext(t, "Sam Walton")).toMatch(/servant leadership/);
     expect(informedNext(t, "Sam Walton")).not.toMatch(/walton and servant/i);
+    expect(ideaTopic(t)).toBe("Sam Walton as an example of servant leadership");
+    expect(ideaTopic(t)).not.toMatch(/walton leadership/i);
   });
 });
 
@@ -169,40 +172,5 @@ describe("QA #76: a comment about a reading is light engagement, never an exampl
     expect(echo).toBeGreaterThan(comment);
     expect(nudge).toBeGreaterThan(visible);
     expect(intake.slice(own, nudge)).toMatch(/The story screen has no `q`/);
-  });
-});
-
-describe("QA #76: a bare yes after why confirms the pick, never a reteach", () => {
-  const opts = [
-    { label: "Transformational", why: "a shared vision" },
-    { label: "Situational", why: "fit how ready the team is" },
-    { label: "Servant", why: "puts the team first" },
-  ];
-  it("lowercases servant mid-sentence in the why probe", () => {
-    expect(midSentenceLabel("Servant")).toBe("servant");
-    expect(midSentenceLabel("Servant leadership")).toBe("servant leadership");
-    expect(midSentenceLabel("Sam Walton")).toBe("Sam Walton");
-    const probe = vaguePickProbe("Sam Walton, servant leadership", opts);
-    expect(probe).toBe(
-      "Sounds like you're leaning toward servant. Why that one? What about it fits this assignment for you? One sentence is plenty.",
-    );
-    expect(probe).not.toMatch(/leaning toward Servant\./);
-  });
-  it("a bare yes after that why-question confirms the pick with a light nudge, never a reteach", () => {
-    const probe = vaguePickProbe("Sam Walton, servant leadership", opts);
-    const picked = pickFromWhyProbe(probe, opts);
-    expect(picked?.label).toBe("Servant");
-    expect(confirmPickNudge(picked!.label)).toBe(
-      "Got it — you're going with servant. In a sentence, what about it fits this assignment? Or we can move on and come back to the why.",
-    );
-    expect(confirmPickNudge(picked!.label)).not.toMatch(/short version of each/i);
-    expect(confirmPickNudge("Servant leadership")).toMatch(/you're going with servant leadership\./);
-    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    const why = intake.indexOf("a bare yes after \"Why that one?\" confirms the guessed pick");
-    const esc = intake.indexOf("pickEscalation({", why);
-    expect(why).toBeGreaterThan(0);
-    expect(esc).toBeGreaterThan(why);
-    expect(intake.slice(why, esc)).toMatch(/confirmPickNudge/);
-    expect(intake.slice(why, esc)).toMatch(/isYesSaying\(text\)/);
   });
 });

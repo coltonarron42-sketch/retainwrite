@@ -133,6 +133,8 @@ type Props = {
     purpose?: string;
     /** Their Stage 1 decision, referenced instead of re-asked (north star D). */
     earlier?: string | null;
+    /** QA 4:57 PM: the fit check for the style + leader they already gave, right after "Earlier you picked…". */
+    fit?: string[];
     /** Key points from the material, labeled by source. */
     material?: { label: string; points: string[] }[];
   };
@@ -455,12 +457,14 @@ export function StanceChat(props: Props) {
   const asideParas = asideHere ? props.aside!.paras : [];
   // After she answers, she never re-asks the opener: a short follow-up instead.
   const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror" || kind === "listening";
-  const paras0 = asideHere && freeText ? [asideFollowUp(props.aside?.intent, section.title)] : turnParas;
+  // QA 5:51 PM: when her last line already ends in a question, no extra "Back to…" / "When you're ready…" tag.
+  const endsInQuestion = lastLineAsks(transcript, section.key);
+  const paras0 = asideHere && freeText ? (endsInQuestion ? [] : [asideFollowUp(props.aside?.intent, section.title)]) : turnParas;
   // Idempotent turns (QA 5:44 PM): a turn already said AND answered in the
   // saved history for this section (by section id) is never said again
   // verbatim, whatever re-rendered it (a remount, a late restore, a toggle).
   const said = alreadyAnswered(transcript, section.key, paras0.join(" "));
-  const paras = said ? sectionResume(transcript, section.key, section.title, freeText) : paras0;
+  const paras = said ? (endsInQuestion ? [] : sectionResume(transcript, section.key, section.title, freeText)) : paras0;
   const ask = paras.join(" ");
   // One option set per turn: a short directions list, never directions plus a stretch.
   const visibleBatch = props.batch ? oneOptionLeadBatch(props.batch) : { ranked: [] as PreparedLead[], wildcard: null, capReached: false, searchPrompt: null };
@@ -728,6 +732,7 @@ export function StanceChat(props: Props) {
   // QA 11:51: her opener is what they decided in Stage 1 ("Earlier you picked…"), then the assignment.
   const introBubbles: ReactNode[] = [
     ...(intro.earlier ? [intro.earlier] : []),
+    ...(intro.fit ?? []),
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
     ...(intro.purpose ? [intro.purpose] : []),
@@ -1270,6 +1275,13 @@ export function alreadyAnswered(transcript: LoopLine[], key: string, text: strin
     return transcript.slice(i + 1).some((l) => l.k === key && l.who !== "pau");
   }
   return false;
+}
+
+/** QA 5:51 PM: the latest line in this section is hers and already asks something. */
+export function lastLineAsks(transcript: LoopLine[], key: string): boolean {
+  const mine = transcript.filter((l) => l.k === key);
+  const last = mine[mine.length - 1];
+  return Boolean(last && last.who === "pau" && /\?["”’)]*\s*$/.test(last.text.trim()));
 }
 
 /** Her short line instead of a repeat. */
