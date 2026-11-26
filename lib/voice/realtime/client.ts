@@ -681,6 +681,11 @@ export class RealtimeVoice {
     this.setPhase("thinking");
   }
 
+  /** PC-31: a typed Pau answer (signed by the coach route) that she says word for word. */
+  sayAnswer(text: string, sig: string) {
+    this.send({ type: "rw.say", text: text.slice(0, 1600), sig });
+  }
+
   /** The app moved to a new scripted turn after a tap: she says it in her words. */
   /** `say` (PC-29d): words to say that aren't the prompt itself (a side answer, a nudge); `spoken` stays the on-screen prompt. */
   sayTurn(text: string, opts: { detail?: boolean; spoken?: string; say?: string } = {}) {

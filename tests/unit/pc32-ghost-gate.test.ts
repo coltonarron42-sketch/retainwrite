@@ -122,7 +122,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: () => undefined }));
 vi.mock("@/lib/env", async (orig) => ({ ...(await orig<typeof import("@/lib/env")>()), hasSupabaseConfig: () => true }));
 vi.mock("@/lib/demo/session-server", () => ({ getDemoSession: async () => null }));
-vi.mock("@/lib/server/paper-context/store", () => ({ loadPaperContextBlock: async () => ({ block: ASSIGNMENT }), readPaperContext: async () => ({}) }));
+vi.mock("@/lib/server/paper-context/store", () => ({ loadPauContextBlock: async () => ({ block: ASSIGNMENT }), loadPaperContextBlock: async () => ({ block: ASSIGNMENT }), readPaperContext: async () => ({}) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getClaims: async () => ({ data: { claims: { sub: "u" } }, error: null }) },

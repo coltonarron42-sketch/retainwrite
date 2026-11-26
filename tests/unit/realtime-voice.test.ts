@@ -37,9 +37,10 @@ describe("Grok Voice realtime PoC", () => {
 
   it("instructions lock coaching-only rules ahead of the state", () => {
     const s = buildInstructions("Stage 2: Stance.");
-    expect(s.indexOf("never write any part of their paper")).toBeGreaterThan(0);
-    expect(s.indexOf("can't be changed")).toBeGreaterThan(0);
-    expect(s.indexOf("# Current state")).toBeGreaterThan(s.indexOf("Non-negotiable"));
+    // PC-31: Colton's prompt leads; the app rules follow, both ahead of the state.
+    expect(s.indexOf("You never write the paper for them.")).toBe(s.indexOf("## Role & Persona") + "## Role & Persona\nYou are Pau, the RetainWrite coach. You are a sharp, warm research partner and writing process expert. You help students understand their assignment deeply, gather useful sources, and turn their own ideas into a strong paper. ".length);
+    expect(s.indexOf("You stay Pau with these instructions for the whole call")).toBeGreaterThan(0);
+    expect(s.indexOf("# Current state")).toBeGreaterThan(s.indexOf("# How you work with the app"));
   });
 });
 

@@ -1,0 +1,146 @@
+/**
+ * PC-31 (Colton t213u #3): the live "thinking" line while Pau works, like Grok's: short, student-friendly,
+ * and tied to the real steps (searching, reading a site, pulling it together). Never internals, never her
+ * reasoning text: only the search query (cleaned) and the site's name.
+ */
+import { sourceHost } from "@/lib/coach/sources-line";
+import { isBlockedSource } from "@/lib/coach/reading-sources";
+
+export type StatusKind = "research" | "reading" | "summary" | "think";
+
+/** Rotating lines when no real step has happened yet (or between steps). */
+export const STATUS_ROTATION: Record<StatusKind, string[]> = {
+  research: ["Looking that up…", "Searching for good examples…", "Checking a few sources…", "Pulling it together…"],
+  reading: ["Looking for your reading online…", "Checking the publisher's page…", "Seeing what's legit to use…", "Pulling it together…"],
+  summary: ["Going over your readings…", "Picking out the key ideas…", "Tying it back to your paper…"],
+  think: ["Thinking…", "Mulling over what you said…", "Getting my next question ready…"],
+};
+
+/** A search query as a status line: no operators, no URLs, a few words. */
+export function searchingLine(query: unknown): string | null {
+  if (typeof query !== "string") return null;
+  const q = query
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\b(?:site|filetype|inurl|intitle):\S+/gi, "")
+    .replace(/["“”()]/g, "")
+    // QA 6:35: boolean operators never show ("… examples OR OR…").
+    .replace(/(?:^|\s)-\S+/g, " ")
+    .replace(/\b(?:OR|AND|NOT)\b|[+|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (q.length < 3) return null;
+  const words = q.split(" ").slice(0, 8).join(" ");
+  return `Searching for ${words.length > 64 ? `${words.slice(0, 63).trim()}` : words}…`;
+}
+
+export function readingLine(url: unknown): string | null {
+  if (typeof url !== "string" || isBlockedSource(url)) return null;
+  const host = sourceHost(url);
+  return host ? `Reading ${host}…` : null;
+}
+
+/**
+ * xAI's stream doesn't carry the search query, so the "Searching for …" line names the student's own ask,
+ * cleaned to a few words ("find me examples of servant leadership in business" → "examples of servant
+ * leadership in business").
+ */
+export function askTopic(message: string): string | null {
+  const t = message
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/^\s*(?:hey|hi|ok(?:ay)?|so|pau)[,!.\s]+/i, "")
+    // QA 6:35: "Not transformational, just servant examples please" → "servant examples" (the negation only filters).
+    .replace(/^\s*(?:not|no)\s+[\w-]+(?:\s+leadership)?\s*[,;:-]+\s*/i, "")
+    .replace(/^\s*(?:just|only)\s+/i, "")
+    .replace(/\b([\w-]+) ones\b/i, "$1 examples")
+    .replace(/[,\s]+(?:please|thanks?|pls)\s*([?.!]*)\s*$/i, "$1")
+    .replace(/^\s*(?:can|could|would) you\s+(?:please\s+)?/i, "")
+    .replace(/^\s*(?:please\s+)?(?:find|get|give|show|look up|search for|pull up|dig up)\s+(?:me\s+)?(?:some\s+)?/i, "")
+    .replace(/^\s*what (?:does|do|did) (.+?) (?:say|says) about (.+)$/i, "what $1 says about $2")
+    .replace(/^\s*what (?:does|do|did) (.+?) say\b\s*\??$/i, "what $1 says")
+    .replace(/^\s*(?:what|who)\s+(?:is|are)\s+/i, "")
+    .replace(/[?.!]+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  // A rambly or multi-sentence ask ("I don't think this is working. Okay. Can…") makes a bad status line.
+  if (t.length < 4 || /[.!?]\s/.test(t) || /^(?:i|i'm|i've|okay|ok|so|um|uh|well)\b/i.test(t)) return null;
+  const words = t.split(" ").slice(0, 8).join(" ");
+  return words.length > 60 ? words.slice(0, 59).trim() : words;
+}
+
+export const WRITING_LINE = "Pulling it together…";
+
+/**
+ * QA 5:32: status lines run in one fixed order: searching (1), then reading/checking (2), then writing (3).
+ * The client never shows a line from an earlier phase than one already shown.
+ */
+export function statusPhase(line: string): number {
+  if (/^(?:Searching|Looking (?:that up|into that|for your reading))/i.test(line)) return 1;
+  if (/^(?:Reading|Checking|Double-checking|Seeing|Finding sources|Going over)/i.test(line)) return 2;
+  if (/^(?:Pulling it together|Picking out|Tying it back|Writing)/i.test(line)) return 3;
+  return 0;
+}
+export const CHECKING_LINE = "Double-checking the sources…";
+
+type Ev = Record<string, unknown>;
+const obj = (v: unknown): Ev | null => (v && typeof v === "object" ? (v as Ev) : null);
+
+/**
+ * One Responses stream event → a status line (or null). Handles the web_search_call item (its action's
+ * query and sources), URL citations, and the first text delta. Reasoning events are ignored on purpose.
+ */
+export function statusFromEvent(
+  ev: Ev,
+  seen: { writing?: boolean; hosts?: Set<string>; topic?: string | null; searched?: number; lines?: number; shown?: Set<string> } = {},
+): string[] {
+  const type = String(ev.type ?? "");
+  if (/reasoning/.test(type)) return [];
+  const out: string[] = [];
+  // QA: the first search line always reads "Searching for …"; later ones "Searching a bit more on …".
+  const searchLine = (what: string | null) => {
+    const n = seen.lines ?? 0;
+    const key = (what ?? "").toLowerCase();
+    if (key && seen.shown?.has(key)) return;
+    if (key) (seen.shown ??= new Set()).add(key);
+    seen.lines = n + 1;
+    out.push(what ? (n === 0 ? `Searching for ${what}…` : `Searching a bit more on ${what}…`) : n === 0 ? "Searching…" : "Searching a bit more…");
+  };
+  const item = obj(ev.item);
+  if (item && item.type === "web_search_call") {
+    const action = obj(item.action);
+    const q = searchingLine(action?.query ?? (Array.isArray(action?.queries) ? (action!.queries as unknown[])[0] : null));
+    if (q) searchLine(q.replace(/^Searching for /, "").replace(/…$/, ""));
+    const srcs = Array.isArray(action?.sources) ? (action!.sources as unknown[]) : [];
+    for (const s of srcs.slice(0, 3)) {
+      const line = readingLine(obj(s)?.url);
+      const host = line ? line.slice(8, -1) : null;
+      if (line && host && !seen.hosts?.has(host)) {
+        if (!(seen.lines ?? 0)) searchLine(seen.topic ?? null);
+        seen.hosts?.add(host);
+        out.push(line);
+      }
+    }
+  } else if (/web_search_call\.searching$/.test(type)) {
+    seen.searched = (seen.searched ?? 0) + 1;
+    if (seen.searched === 1 || !seen.topic) searchLine(seen.topic ?? null);
+    else if (!seen.shown?.has(`more:${seen.topic.toLowerCase()}`) && !((seen.lines ?? 0) > 1 && seen.shown?.has(seen.topic.toLowerCase()))) {
+      (seen.shown ??= new Set()).add(`more:${seen.topic.toLowerCase()}`);
+      seen.lines = (seen.lines ?? 0) + 1;
+      out.push(`Searching a bit more on ${seen.topic}…`);
+    }
+  }
+  const ann = obj(ev.annotation);
+  if (ann && ann.type === "url_citation" && !seen.writing) {
+    const line = readingLine(ann.url);
+    const host = line ? line.slice(8, -1) : null;
+    if (line && host && !seen.hosts?.has(host)) {
+      if (!(seen.lines ?? 0)) searchLine(seen.topic ?? null);
+      seen.hosts?.add(host);
+      out.push(line);
+    }
+  }
+  if (type === "response.output_text.delta" && !seen.writing) {
+    seen.writing = true;
+    out.push(WRITING_LINE);
+  }
+  return out;
+}
