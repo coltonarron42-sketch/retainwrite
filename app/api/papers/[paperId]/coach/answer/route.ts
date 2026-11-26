@@ -27,6 +27,8 @@ const bodySchema = z.object({
   stage: z.number().int().min(1).max(3),
   section: z.string().max(200).optional(),
   ask: z.string().max(1000).optional(),
+  /** The student's own notes so far (their words are never "ghost" overlap). */
+  notes: z.string().max(8000).optional(),
 });
 
 type Ctx = { params: Promise<{ paperId: string }> };
@@ -61,46 +63,78 @@ export async function POST(request: Request, ctx: Ctx) {
     // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
     if (body.stage >= 2 && !g) after(() => backfillGhost(supabase, paperId, userId));
   }
-  const res = await grokChatJson({
-    model: MODEL_FAST,
-    system: ghost ? `${COACH_ANSWER_SYSTEM}\n\n${ghostGuidance(ghost)}` : COACH_ANSWER_SYSTEM,
-    user: JSON.stringify({
-      mode: body.mode as CoachAnswerMode,
-      stage: body.stage,
-      section: body.section ?? "",
-      coach_asked: body.ask ?? "",
-      student_message: body.message,
-      paper_context: block,
-    }),
-    jsonSchema: {
-      name: "coach_answer",
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: { paras: { type: "array", items: { type: "string" } } },
-        required: ["paras"],
-      },
-    },
-    timeoutMs: 7_000,
+  const system = ghost ? `${COACH_ANSWER_SYSTEM}\n\n${ghostGuidance(ghost)}` : COACH_ANSWER_SYSTEM;
+  const user = JSON.stringify({
+    mode: body.mode as CoachAnswerMode,
+    stage: body.stage,
+    section: body.section ?? "",
+    coach_asked: body.ask ?? "",
+    student_message: body.message,
+    paper_context: block,
   });
-  let paras: string[] = [];
-  if (res.ok) {
-    try {
-      paras = cleanCoachAnswer((JSON.parse(res.text) as { paras?: unknown }).paras, { mode: body.mode, message: body.message });
-    } catch {
-      paras = [];
+  const ask = async (extra = "") => {
+    const res = await grokChatJson({
+      model: MODEL_FAST,
+      system: extra ? `${system}\n\n${extra}` : system,
+      user,
+      jsonSchema: {
+        name: "coach_answer",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: { paras: { type: "array", items: { type: "string" } } },
+          required: ["paras"],
+        },
+      },
+      timeoutMs: 7_000,
+    });
+    let out: string[] = [];
+    if (res.ok) {
+      try {
+        out = cleanCoachAnswer((JSON.parse(res.text) as { paras?: unknown }).paras, { mode: body.mode, message: body.message });
+      } catch {
+        out = [];
+      }
     }
-  }
-  if (paras.some((p) => !assertCoachingOnly(p).ok)) paras = [];
-  // Never the ghost's sentences: any 5-word overlap or near-copy drops the reply (client falls back).
+    return out.some((p) => !assertCoachingOnly(p).ok) ? [] : out;
+  };
+  // Never the ghost's sentences (PC-32 QA 5:15 PM gate: distinctive runs only). The student's
+  // words, the assignment, the brief and the readings in the context block are allowed overlap.
+  const allowed = [body.message, body.ask ?? "", body.section ?? "", body.notes ?? "", block].join("\n");
+  const gate = (ps: string[]) => {
+    let hits5 = 0;
+    let hits8 = 0;
+    let rule: string | null = null;
+    for (const p of ps) {
+      const r = ghostLeakCheck(p, ghost, allowed);
+      hits5 += r.hits5;
+      hits8 += r.hits8;
+      if (!r.ok) rule ??= r.rule ?? "blocked";
+    }
+    return { ok: rule === null, rule, hits5, hits8 };
+  };
+  let paras = await ask();
   let ghostBlocked = false;
-  if (ghost && paras.length) {
-    const allowed = [body.message, body.ask ?? "", block].join("\n");
-    if (paras.some((p) => !ghostLeakCheck(p, ghost, allowed).ok)) {
-      paras = [];
-      ghostBlocked = true;
-    }
+  let regen: { ok: boolean; rule: string | null; hits5: number; hits8: number } | null = null;
+  const first = ghost && paras.length ? gate(paras) : { ok: true, rule: null, hits5: 0, hits8: 0 };
+  if (!first.ok) {
+    ghostBlocked = true;
+    // One retry in different words; the client's fallback only if that is blocked too.
+    const again = await ask(
+      "Your previous draft read too much like a finished paper. Answer the student's question again in completely different, plain conversational words: short coaching, no paper-like prose, no thesis-style sentences, nothing that could be pasted into an essay.",
+    );
+    regen = again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0 };
+    paras = regen.ok ? again : [];
   }
-  console.info("[coach-answer]", { mode: body.mode, stage: body.stage, ms: Date.now() - started, ok: paras.length > 0, ghost: Boolean(ghost), ghostBlocked });
+  console.info("[coach-answer]", {
+    mode: body.mode,
+    stage: body.stage,
+    ms: Date.now() - started,
+    ok: paras.length > 0,
+    ghost: Boolean(ghost),
+    ghostBlocked,
+    gate: { rule: first.rule, hits5: first.hits5, hits8: first.hits8 },
+    regen: regen ? { ok: regen.ok, rule: regen.rule, hits5: regen.hits5, hits8: regen.hits8 } : null,
+  });
   return NextResponse.json({ paras });
 }
