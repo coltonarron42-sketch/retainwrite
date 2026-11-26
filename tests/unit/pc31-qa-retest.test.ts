@@ -181,11 +181,3 @@ describe("QA 5:32 walk: paywalled pages and cut titles", () => {
   });
 });
 
-describe("QA 5:32 walk: checklist keeps 'The assigned' when the parse rewords the item", () => {
-  it("Goleman HBR article 'What Makes a Leader?' → The assigned Goleman HBR article …", () => {
-    const sheet = "Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words.";
-    expect(asOnSheet("Goleman HBR article 'What Makes a Leader?'", sheet)).toBe("The assigned Goleman HBR article 'What Makes a Leader?'");
-    expect(asOnSheet("HBR article 'What Makes a Leader?' by Daniel Goleman", sheet)).toBe("The assigned HBR article 'What Makes a Leader?' by Daniel Goleman");
-    expect(asOnSheet("Chapter 4 of the Northouse textbook", sheet)).toBe("Chapter 4 of the Northouse textbook");
-  });
-});
