@@ -241,9 +241,9 @@ describe("#7 lead titles are section-specific", () => {
     const a = intro.candidates.map((c) => c.name);
     const b = body.candidates.map((c) => c.name);
     expect(a.filter((n) => b.includes(n))).toEqual([]);
-    expect(a[0]).toContain("introduction");
-    expect(a[0]).toContain("later starts help teens sleep");
-    expect(b[0]).toContain("Sleep debt shows up in grades");
+    expect(a[0]).toBe("Your point: Later starts help teens sleep before first period.");
+    expect(b[0]).toBe("Your point: Sleep debt shows up in grades and car crashes.");
+    expect(a[1] ?? "").toMatch(/introduction/i);
     expect(stanceTurnParas("pick_lead", { section: section({ title: "Body" }), card: null, mirrorAsk: "", activeTrigger: null })[0]).toContain("for your body");
   });
   it("a long 'how did…' prompt is called 'your question', never spliced in mid-sentence", () => {

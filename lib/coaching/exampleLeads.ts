@@ -7,6 +7,7 @@ import { clipWords } from "@/lib/copy/clip";
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
+import { pointLeadTitle } from "@/lib/stages/explore-intent";
 
 const GENERIC_TITLES = [
   "a source your field usually cites",
@@ -271,17 +272,14 @@ function sectionLeadBatch(ctx: {
   const cleanedIdea = idea ? stripReplyFillers(idea) : "";
   const rawFocus = cleanedIdea ? noteFocus(cleanedIdea) : "";
   const focus = rawFocus && !isUnquotableLeadIdea(rawFocus) && !isUnquotableLeadIdea(cleanedIdea || idea) ? rawFocus : "";
-  // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
-  // added inside the marks) and is never last in a question, so a template '?'
-  // can't turn it into one (QA 2:31 #3a). One framing rule for every section:
-  // the first title opens with "You wrote “…”" and every later mention of the
-  // note says "your point". Leading yes/also/so/and fillers are stripped first
-  // so a confirm-plus-claim is never quoted raw (QA #76 default Body path).
-  // No mark is added after the closing quote either (QA 4:42 #4): a dash joins
-  // the quote to the question instead of a stray "”.".
-  const quoted = focus ? `“${focus}”` : "";
+  // QA #76: the first title is a synthesized Lead ("Your point: …"), never a
+  // raw "You wrote" quote of the student's sentence. Later mentions say
+  // "your point". Leading yes/also/so/and fillers and meta phrasing
+  // ("is my body example", "my point is") are stripped first.
   const about = focus ? "your point" : question ? "your question" : subject;
-  const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} — ${ask.charAt(0).toLowerCase()}${ask.slice(1)}` : ask);
+  const pointTitle = focus ? pointLeadTitle(focus) || pointLeadTitle(cleanedIdea) : "";
+  // QA #76: a synthesized Lead, never a raw "You wrote" quote. The evidence ask stays in whyFits.
+  const youWrote = (ask: string) => (pointTitle ? pointTitle : ask);
   // Keywords only: never the student's raw sentence in a search box.
   const topicTerm = searchPhrase(ctx.search);
   const extra = idea ? noteKeywords(idea, topicTerm) : [];

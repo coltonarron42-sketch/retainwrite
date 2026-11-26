@@ -34,6 +34,8 @@ import {
   overlapsTeaching,
   stripReadingRefusal,
   vaguePickProbe,
+  confirmPickNudge,
+  pickFromWhyProbe,
   withoutDarkWeb,
   uploadOfferOnly,
   STAGE_PURPOSE,
@@ -2633,6 +2635,29 @@ export function AssignmentIntake({
           recPending.current[q.id] = null;
           tookRec = true;
         }
+      }
+    }
+    // QA #76: a bare yes after "Why that one?" confirms the guessed pick. Light nudge for a
+    // reason, or moving on — never a reteach of the styles (t222u). Minimal: #79 reworks Stage 1.
+    if (
+      !tookRec &&
+      (q.id === "decision_pick" || q.id === "leader_pick") &&
+      text &&
+      isYesSaying(text) &&
+      !decisionHasReason(text) &&
+      wordCount(text) <= 4
+    ) {
+      const opts2 = q.id === "leader_pick" ? brief?.options?.people ?? [] : brief?.options?.options ?? [];
+      const confirmed =
+        pickFromWhyProbe(lastProbe.current[q.id] ?? null, opts2) ??
+        guessPick(qaAsides.filter((x) => x.qid === q.id).at(-1)?.said ?? "", opts2);
+      if (confirmed) {
+        recPending.current[q.id] = confirmed;
+        lastProbe.current[q.id] = confirmPickNudge(confirmed.label);
+        setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [confirmPickNudge(confirmed.label)] }].slice(-12));
+        dropSent(sentBox);
+        setError(null);
+        return;
       }
     }
     const confused = !tookRec && (q.id === "decision_pick" || q.id === "leader_pick") && Boolean(text) && isConfusedSaying(text) && !decisionHasReason(text);

@@ -136,7 +136,7 @@ describe("3. decision", () => {
   it("a vague pick is probed by name", () => {
     expect(isVaguePick("idk, the team one I guess")).toBe(true);
     expect(guessPick("idk, the team one I guess", OPTIONS)?.label).toBe("Team-based leadership");
-    expect(vaguePickProbe("idk, the team one I guess", OPTIONS)).toMatch(/leaning toward Team-based leadership\. Why that one\?/);
+    expect(vaguePickProbe("idk, the team one I guess", OPTIONS)).toMatch(/leaning toward team-based leadership\. Why that one\?/);
     expect(decisionHasReason("I'd pick transformational because it helps a team buy into change")).toBe(true);
     expect(decisionHasReason("idk")).toBe(false);
     // No lean to name: the probe lists the options and nothing is prefilled.

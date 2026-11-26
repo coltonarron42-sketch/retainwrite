@@ -26,6 +26,9 @@ import {
   applyOnTopicPressureTest,
   sectionClaimSummary,
   fallbackParaphrase,
+  stripClaimMeta,
+  fallbackClaimPoint,
+  pointLeadTitle,
 } from "@/lib/stages/explore-intent";
 import { isUnquotableLeadIdea, visibleSourceLead, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
@@ -289,7 +292,7 @@ describe("PC-33: explore cues beat the wandering lead path", () => {
       rubricRef: "prompt",
       section: { key: "intro", title: "Introduction" },
     });
-    expect(claim.candidates[0]!.name).toMatch(/^You wrote “Sam Walton put associates first\.?”/);
+    expect(claim.candidates[0]!.name).toBe("Your point: Sam Walton put associates first.");
   });
 });
 
@@ -438,7 +441,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
   it("synthesizes one clean Pau sentence from the exact QA listening turns", () => {
     const claim = listeningClaim([hint, press, done], "Introduction");
     expect(claim).toBe(
-      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.",
+      "Your intro hints that transformational leaders get more of the credit, and servant leaders get less press.",
     );
     expect(claim!).not.toMatch(/;:|;\s*:|maybe|hear me out|I think|that's a start/i);
     expect((claim!.match(/[.!?]/g) ?? []).filter((ch) => ch !== ",").length).toBeGreaterThanOrEqual(1);
@@ -470,7 +473,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
   it("treats the confirm phrase as the confirm: one summary, then a specific pressure-test offer", () => {
     const claim = listeningClaim([hint, press, done], "Introduction")!;
     const offer = listenConfirmOffer(claim, "Introduction");
-    expect(offer).toMatch(/^Your intro hints that transformational leaders get more of the credit, while servant leaders get less press\./);
+    expect(offer).toMatch(/^Your intro hints that transformational leaders get more of the credit, and servant leaders get less press\./);
     expect(offer).toMatch(/A reader might counter that servant leaders getting less press may just be a feeling, not something you can show\./);
     expect(offer).toMatch(/Do you have an example, like Walton, where the press credited something else\?/);
     expect(offer).not.toMatch(/that's a start/i);
@@ -487,7 +490,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
 
   it("makes the pressure test specific to the less-press claim, in one line and one question", () => {
     const claim =
-      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.";
+      "Your intro hints that transformational leaders get more of the credit, and servant leaders get less press.";
     const line = specificPressureTest(claim);
     expect(line).toBe(
       "A reader might counter that servant leaders getting less press may just be a feeling, not something you can show. Do you have an example, like Walton, where the press credited something else?",
@@ -540,7 +543,7 @@ describe("PC-33: QA should-fixes for cards, first-turn listen, and pressure test
 
   it("the pressure test is one counterpoint statement plus a single question", () => {
     const claim =
-      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.";
+      "Your intro hints that transformational leaders get more of the credit, and servant leaders get less press.";
     const line = specificPressureTest(claim);
     expect(line).toMatch(/^A reader might counter that /);
     expect(line).not.toMatch(/A reader might ask whether/);
@@ -627,16 +630,20 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
   it("strips leading yes/also/so/and and synthesizes a paraphrased Lead, never quoting the raw reply", () => {
     expect(isConfirmOnly(first)).toBe(false);
     expect(stripReplyFillers(first)).toBe("Walton visiting stores is my body example.");
+    expect(stripClaimMeta(first)).toBe("Walton visiting stores");
+    expect(fallbackClaimPoint(first)).toBe("Walton visited stores to hear from associates");
+    expect(pointLeadTitle(first)).toBe("Your point: Walton visited stores to hear from associates.");
     expect(officialLeadName(first)).toBe("Walton visiting stores is my body example.");
     expect(stripReplyFillers(fuller)).toMatch(/^He shared profits/i);
+    expect(fallbackClaimPoint(fuller)).toBe("he shared profits with associates");
     expect(officialLeadName(fuller)).toMatch(/^He shared profits/i);
     const probed = afterProbe({ ideas: [], searchStatus: "required" }, first, false);
     expect(probed.ideas.join(" ")).toBe("Walton visiting stores is my body example.");
     expect(probed.ideas.join(" ")).not.toMatch(/^Yes,/);
     const claim = listeningClaim(probed.ideas, "Body");
-    expect(claim).toBeTruthy();
+    expect(claim).toBe("Walton visited stores to hear from associates.");
     expect(claim!).not.toMatch(/^Yes,/i);
-    expect(claim!).toMatch(/Walton visiting stores/i);
+    expect(claim!).not.toMatch(/is my body example/i);
     const batch = exampleLeadBatch({
       concept: prompt,
       assignmentText: sheet,
@@ -647,11 +654,11 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
     const blob = JSON.stringify(batch);
     expect(blob).not.toMatch(/You wrote “Yes, Walton visiting stores is my body example/);
     expect(blob).not.toContain("Yes, Walton visiting stores is my body example.");
-    expect(batch.candidates[0]!.name).not.toMatch(/^You wrote “Yes,/);
-    expect(batch.candidates[0]!.name).toMatch(/^You wrote “Walton visiting stores is my body example/);
+    expect(blob).not.toMatch(/You wrote “Walton visiting stores is my body example/);
+    expect(batch.candidates[0]!.name).not.toMatch(/^You wrote/);
+    expect(batch.candidates[0]!.name).toBe("Your point: Walton visited stores to hear from associates.");
     const synth = listeningClaim([stripReplyFillers(first)], "Body");
-    expect(synth).toBeTruthy();
-    expect(synth!).not.toMatch(/^Yes,/i);
+    expect(synth).toBe("Walton visited stores to hear from associates.");
   });
 
   it("a new fuller point is saved as a note, not as a verbatim Lead, and the cards refresh to it", () => {
@@ -662,10 +669,14 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
     expect(next.ideas.some((i) => /^Also /i.test(i))).toBe(false);
     expect(next.ideas.join(" ")).toMatch(/shared profits/i);
     const claim = listeningClaim(next.ideas, "Body");
-    expect(claim!).toMatch(/shared profits/i);
+    expect(claim).toBe("Walton visited stores to hear from associates, and he shared profits with them.");
     expect(claim!).not.toMatch(/^Also /i);
+    expect(claim!).not.toMatch(/\bwhile\b/);
     const oldBatch = JSON.stringify(exampleLeadBatch({ concept: prompt, assignmentText: sheet, studentIdea: firstSaved.ideas.at(-1) ?? "", rubricRef: "prompt", section: body }));
     const newBatch = JSON.stringify(exampleLeadBatch({ concept: prompt, assignmentText: sheet, studentIdea: next.ideas.at(-1) ?? "", rubricRef: "prompt", section: body }));
+    expect(newBatch).toContain("Your point: He shared profits with associates.");
+    expect(oldBatch).toContain("Your point: Walton visited stores to hear from associates.");
+    expect(newBatch).not.toMatch(/You wrote/);
     expect(newBatch).toMatch(/shared profits/i);
     expect(newBatch).not.toBe(oldBatch);
     expect(readFileSync("components/stages/loop/coaching-loop.tsx", "utf8")).toMatch(/keptIdeas\(section\.ideas\)\.at\(-1\)/);
@@ -686,8 +697,12 @@ describe("QA re-verify of #76: default Body path (not just listening)", () => {
     ).ideas;
     const claim = listeningClaim(ideas, "Body")!;
     const summary = sectionClaimSummary(claim, "Body");
-    expect(summary).toMatch(/Here's what I have for your body/i);
-    expect(summary).toMatch(/shared profits|visiting stores/i);
+    expect(claim).toBe("Walton visited stores to hear from associates, and he shared profits with them.");
+    expect(summary).toBe(
+      "Here's what I have for your body: Walton visited stores to hear from associates, and he shared profits with them. If that sounds right, we can pressure-test it.",
+    );
+    expect(summary).not.toMatch(/\bwhile\b/);
+    expect(summary).not.toMatch(/is my body example/i);
     expect(summary).not.toMatch(/I'm checking that you're happy with this idea/i);
     const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");

@@ -449,13 +449,42 @@ export function guessPick(text: string, options: DecisionOption[]): DecisionOpti
   return best?.o ?? null;
 }
 
+/** Style/approach labels lowercase mid-sentence; proper names stay as written. */
+export function midSentenceLabel(label: string): string {
+  const t = (label ?? "").trim();
+  if (!t) return t;
+  const styleish =
+    /^(servant|transformational|situational|transactional|democratic|autocratic|authentic|charismatic|laissez-faire|participative|adaptive|visionary|coaching|team-based|relationship|task|skill|skills|behavioral|trait|leadership|style|approach|based|the|and|or|one|two|three)s?$/i;
+  const words = t.split(/\s+/);
+  if (words.some((w) => /[A-Za-z]/.test(w) && !styleish.test(w.replace(/[.,]/g, "")))) return t;
+  return t.charAt(0).toLowerCase() + t.slice(1);
+}
+
+/** A bare yes after "Why that one?" confirms the guessed pick (QA #76). Light, never a reteach. */
+export function confirmPickNudge(label: string): string {
+  const name = midSentenceLabel(label);
+  return `Got it — you're going with ${name}. In a sentence, what about it fits this assignment? Or we can move on and come back to the why.`;
+}
+
+export function pickFromWhyProbe(last: string | null | undefined, options: DecisionOption[]): DecisionOption | null {
+  const t = String(last ?? "");
+  const m = t.match(/leaning toward\s+(.+?)\.\s*Why that one\?/i);
+  const name = (m?.[1] ?? "").trim();
+  if (!name) return null;
+  return (
+    options.find(
+      (o) => o.label.toLowerCase() === name.toLowerCase() || midSentenceLabel(o.label).toLowerCase() === name.toLowerCase(),
+    ) ?? null
+  );
+}
+
 /** The probe for a vague pick: name the option and ask why. */
 export function vaguePickProbe(text: string, options: DecisionOption[]): string {
   const g = guessPick(text, options);
   return g
-    ? `Sounds like you're leaning toward ${g.label}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
+    ? `Sounds like you're leaning toward ${midSentenceLabel(g.label)}. Why that one? What about it fits this assignment for you? One sentence is plenty.`
     : options.length
-      ? `Which one are you leaning toward (${options.map((o) => o.label).join(", ")}), and why? One sentence is plenty.`
+      ? `Which one are you leaning toward (${options.map((o) => midSentenceLabel(o.label)).join(", ")}), and why? One sentence is plenty.`
       : "Which one do you mean? Name it in your own words and say why. One sentence is plenty.";
 }
 

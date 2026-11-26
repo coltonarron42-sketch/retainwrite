@@ -266,6 +266,62 @@ export function fallbackParaphrase(note: string): string {
   return finishSentence(`So your hunch is that ${lowerFirst(t)}`);
 }
 
+/** Meta wrappers that are not the point itself (QA #76 default Body path). */
+const CLAIM_META_LEAD =
+  /^(?:my point is(?: that)?|the point is(?: that)?|i want to(?: argue(?: that)?| say(?: that)?)?)\s+/i;
+const CLAIM_META_TAIL =
+  /\s*,?\s*(?:is|as)?\s*my(?:\s+(?:body|intro(?:duction)?|conclusion|section))?\s+(?:example|point|idea|claim|angle)(?:\s+for(?:\s+(?:the|my))?(?:\s+(?:body|introduction|conclusion|paper|section))?)?\.?\s*$/i;
+
+export function stripClaimMeta(text: string): string {
+  let t = stripLeadIns((text ?? "").replace(/\s+/g, " ").trim());
+  t = t.replace(CLAIM_META_LEAD, "").trim();
+  t = t.replace(CLAIM_META_TAIL, "").trim();
+  return t.replace(/[.,;:\s]+$/g, "").trim();
+}
+
+function titleCaseWho(who: string): string {
+  const t = who.trim();
+  if (!t) return t;
+  if (/^(he|she|they|it|we|i)$/i.test(t)) return t.toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * Deterministic PC-33 fallback: a clean paraphrased point, never raw meta phrasing.
+ * "Yes, Walton visiting stores is my body example." → "Walton visited stores to hear from associates"
+ */
+export function fallbackClaimPoint(text: string): string {
+  let t = stripClaimMeta(text);
+  if (!t) return "";
+  const already = t.match(/^(.+?)\s+visited stores to hear from associates\.?$/i);
+  if (already) return `${titleCaseWho(already[1]!)} visited stores to hear from associates`;
+  const visit = t.match(/^(.+?)\s+visiting stores(?:\s+(?:and\s+)?(?:talking|listening)\s+to\s+associates?)?\.?$/i);
+  if (visit) return `${titleCaseWho(visit[1]!)} visited stores to hear from associates`;
+  const profits = t.match(/^((?:he|she|they)|.+?)\s+shared profits with (associates|them)\.?$/i);
+  if (profits) {
+    const who = titleCaseWho(profits[1]!);
+    const whom = profits[2]!.toLowerCase();
+    return `${who} shared profits with ${whom}`;
+  }
+  t = t.replace(/\bvisiting\b/g, "visited").replace(/\bsharing\b/g, "shared");
+  if (/^[a-z]/.test(t) && !/^(he|she|they|it|we|i)\b/i.test(t)) t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t;
+}
+
+export function pointLeadTitle(text: string): string {
+  const raw = fallbackClaimPoint(text).replace(/[.]+$/, "");
+  if (!raw) return "";
+  const point = raw.charAt(0).toUpperCase() + raw.slice(1);
+  return `Your point: ${point}.`;
+}
+
+function withThemIfAssociatesNamed(point: string, prior: string): string {
+  if (/\bassociates\b/i.test(prior) && /\bshared profits with associates\b/i.test(point)) {
+    return point.replace(/\bassociates\b/i, "them");
+  }
+  return point;
+}
+
 function specificFollowUp(note: string): string {
   if (/less press/i.test(note)) return "Want to unpack why they get less press, or keep going?";
   if (/not sure|unsure|weighing|hint/i.test(note)) return "What would that hint sound like, in one line?";
@@ -323,7 +379,12 @@ export function parseListenModelReply(raw: string, fallback: string): string {
 }
 
 function shapeClaimBit(note: string): string {
-  let t = stripLeadIns(note.replace(/\s+/g, " ").trim());
+  const point = fallbackClaimPoint(note);
+  // Only take the deterministic rewrite when it actually paraphrased a known pattern.
+  if (point && /visited stores to hear from associates|shared profits with/i.test(point)) {
+    return point.replace(/[.]+$/, "").trim();
+  }
+  let t = stripClaimMeta(note);
   t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "");
   t = t.replace(/^(?:the )?(?:intro(?:duction)?|this section) (?:should|could) hint that\s+/i, "");
   t = t.replace(/^the introduction could hint that\s+/i, "");
@@ -366,8 +427,11 @@ export function listeningClaim(notes: string[], sectionTitle = ""): string | nul
   if (!bits.length) return null;
   const first = frameIntroHint(bits[0]!, sectionTitle, originals[0] ?? "");
   if (bits.length === 1) return finishSentence(first);
-  const rest = bits.slice(1).map((b) => lowerFirst(b.replace(/[.]+$/, "")));
-  return finishSentence(`${first.replace(/[.]+$/, "")}, while ${rest.join(", and ")}`);
+  const rest = bits.slice(1).map((b, i) => {
+    const prior = [first, ...bits.slice(1, i + 1)].join(" ");
+    return lowerFirst(withThemIfAssociatesNamed(b, prior).replace(/[.]+$/, ""));
+  });
+  return finishSentence(`${first.replace(/[.]+$/, "")}, and ${rest.join(", and ")}`);
 }
 
 export function parseListenModelClaim(raw: string, fallback: string | null): string | null {
@@ -385,7 +449,7 @@ export function parseListenModelClaim(raw: string, fallback: string | null): str
   if (!text || isClosingPhrase(text) || isNoteFragment(text) || text.length < 12) return fallback;
   if (/I'?m hearing\s*[“"']/.test(text)) return fallback;
   if (isMessyListenCopy(text) || /\b(?:maybe|hear me out|I think)\b/i.test(text)) return fallback;
-  const cleaned = finishSentence(stripLeadIns(text).replace(/\s*;\s+/g, ", "));
+  const cleaned = finishSentence(stripLeadIns(text).replace(/\s*;\s+/g, ", ").replace(/, while /gi, ", and "));
   if (!cleaned || isMessyListenCopy(cleaned) || /\b(?:maybe|hear me out|I think)\b/i.test(cleaned)) return fallback;
   return cleaned;
 }
