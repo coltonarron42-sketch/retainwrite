@@ -159,7 +159,7 @@ describe("3. decision", () => {
     expect(intake).toContain("for (const step of ideasPlan(answers))");
   });
   it("Stage 2 carries the actual decision and reason, never idk", () => {
-    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked Transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");
+    expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "idk", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "I read both", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toMatch(/^Earlier you told me transformational, because Nadella/);

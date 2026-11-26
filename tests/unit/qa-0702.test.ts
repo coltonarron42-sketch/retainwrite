@@ -194,7 +194,7 @@ describe("7. polish", () => {
   it("Stage 2 paraphrases the decision", () => {
     expect(toSecondPerson("I think my team")).toBe("you think your team");
     expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because I think it helps my team buy into change", at: 1 }, { question: "q", pick: "Satya Nadella", answer: "x", at: 1 })).toBe(
-      "Earlier you picked Transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change. That's a solid reason to build on.",
+      "Earlier you picked transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change. That's a solid reason to build on.",
     );
   });
   it("an argument essay isn't labeled Lesson", () => {
