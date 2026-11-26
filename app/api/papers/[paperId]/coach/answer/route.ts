@@ -15,6 +15,8 @@ import {
   THESIS_FOR_THEM,
   cleanCoachAnswer,
   noFactsReply,
+  pruneGhostParas,
+  BACKGROUND_LABEL,
   oneQuestion,
   readingCatalog,
   shapeStructuredAnswer,
@@ -177,19 +179,46 @@ export async function POST(request: Request, ctx: Ctx) {
   let ghostBlocked = false;
   let regen: ReturnType<typeof gate> | null = null;
   const first = ghost && paras.length ? gate(paras) : { ok: true, rule: null, hits5: 0, hits8: 0, hitsFact: 0 };
+  const passes = (t: string) => ghostLeakCheck(t, ghost, allowed, topic).ok;
+  // A structured answer keeps its clean parts when one part reads like the ghost (QA 6:15 walk).
+  const salvage = (ps: string[]) => {
+    if (!structured || !ghost) return null;
+    const pr = pruneGhostParas(ps, passes);
+    return pr.length && gate(pr).ok ? pr : null;
+  };
+  let blocked = !first.ok;
+  let pruned = false;
+  if (blocked) {
+    ghostBlocked = true;
+    const pr = salvage(paras);
+    if (pr) {
+      paras = pr;
+      pruned = true;
+      blocked = false;
+    }
+  }
   const shape1 = lastShape as { leaderFacts: number; aboutLeader: boolean } | null;
+  const hasFacts = (ps: string[]) => ps.some((p) => p.startsWith(BACKGROUND_LABEL));
   // QA 6:15 PM: a question about their leader with no leader facts gets one retry asking for 2-3.
-  const noFacts = Boolean(structured && shape1?.aboutLeader && shape1.leaderFacts === 0);
+  const noFacts = Boolean(structured && shape1?.aboutLeader && (shape1.leaderFacts === 0 || !hasFacts(paras)));
   let factsRetry: { leaderFacts: number } | null = null;
-  if (!first.ok || noFacts) {
-    if (!first.ok) ghostBlocked = true;
+  if (blocked || noFacts) {
     // One retry (different words after a gate block; concrete facts when none came back).
-    const again = await ask([!first.ok ? RETRY_INSTRUCTION : "", noFacts ? FACTS_RETRY_INSTRUCTION : ""].filter(Boolean).join("\n\n"));
-    regen = !ghost ? { ok: again.length > 0, rule: again.length ? null : "empty", hits5: 0, hits8: 0, hitsFact: 0 } : again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0, hitsFact: 0 };
+    let again = await ask([blocked ? RETRY_INSTRUCTION : "", noFacts ? FACTS_RETRY_INSTRUCTION : ""].filter(Boolean).join("\n\n"));
     const shape2 = lastShape as { leaderFacts: number; aboutLeader: boolean } | null;
-    if (noFacts) factsRetry = { leaderFacts: shape2?.leaderFacts ?? 0 };
-    if (regen.ok && noFacts && askedLeader && (shape2?.leaderFacts ?? 0) === 0) paras = noFactsReply(askedLeader);
-    else paras = regen.ok ? again : !first.ok ? [] : noFacts && askedLeader ? noFactsReply(askedLeader) : paras;
+    regen = !ghost ? { ok: again.length > 0, rule: again.length ? null : "empty", hits5: 0, hits8: 0, hitsFact: 0 } : again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0, hitsFact: 0 };
+    if (!regen.ok && again.length) {
+      const pr = salvage(again);
+      if (pr) {
+        again = pr;
+        regen = { ...regen, ok: true, rule: `${regen.rule}:pruned` };
+      }
+    }
+    const retryFacts = (shape2?.leaderFacts ?? 0) > 0 && hasFacts(again);
+    if (noFacts) factsRetry = { leaderFacts: retryFacts ? (shape2?.leaderFacts ?? 0) : 0 };
+    if (regen.ok && (!noFacts || retryFacts)) paras = again;
+    else if (noFacts && askedLeader && (regen.ok || !blocked)) paras = noFactsReply(askedLeader);
+    else if (blocked) paras = [];
   }
   console.info("[coach-answer]", {
     mode: body.mode,
@@ -200,6 +229,7 @@ export async function POST(request: Request, ctx: Ctx) {
     ghostBlocked,
     gate: { rule: first.rule, hits5: first.hits5, hits8: first.hits8, hitsFact: first.hitsFact },
     structured,
+    pruned,
     factsRetry,
     regen: regen ? { ok: regen.ok, rule: regen.rule, hits5: regen.hits5, hits8: regen.hits8, hitsFact: regen.hitsFact } : null,
   });

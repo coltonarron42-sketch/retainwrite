@@ -144,7 +144,8 @@ describe("QA 6:15 PM: 'main leadership styles' puts Goleman under readings, not 
     });
     expect(o.paras[0]).toMatch(/^From your Northouse chapter: The book surveys/);
     expect(o.paras[0]).not.toMatch(/several main leadership approaches/);
-    expect(o.paras[0]!.match(/[.!?](\s|$)/g)!.length).toBeLessThanOrEqual(2);
+    expect(o.paras[0]).toContain("Each approach is explained");
+    expect(o.paras[0]).not.toContain("It pairs each approach");
     expect(o.paras[1]).toMatch(/^From your Goleman article: Goleman focuses on emotional intelligence/);
     expect(o.paras.join(" ")).not.toContain(BACKGROUND_LABEL);
   });
@@ -213,5 +214,34 @@ describe("QA 6:15 PM should-fix (c): every write-it-for-me request gets the warm
   }
   it("their own notes and teaching asks are not write requests", () => {
     for (const m of ["Write about how he listened to workers", "Show me an example outline line", "I want to write my intro about Walton myself", "Walton wrote a book about retail"]) expect(isWriteRequest(m)).toBe(false);
+  });
+});
+
+describe("QA 6:15 walk: one ghost-like part doesn't sink the answer", () => {
+  const BAD = "Servant leadership puts the needs of others first so the team grows.";
+  const ok = (t: string) => !t.includes(BAD);
+  it("drops the blocked part, keeps the clean facts and the question", async () => {
+    const { pruneGhostParas } = await import("@/lib/coach/answer");
+    const out = pruneGhostParas(
+      [BAD, `${BACKGROUND_LABEL} Walton visited stores every week. ${BAD} He started profit sharing for associates.`, "Which of those do you want to build on in your paper?"],
+      ok,
+    );
+    expect(out).toEqual([`${BACKGROUND_LABEL} Walton visited stores every week. He started profit sharing for associates.`, "Which of those do you want to build on in your paper?"]);
+  });
+  it("nothing clean left: empty (retry or fallback)", async () => {
+    const { pruneGhostParas } = await import("@/lib/coach/answer");
+    expect(pruneGhostParas([BAD, "Which part of that fits?"], ok)).toEqual([]);
+  });
+});
+
+describe("QA 6:15 walk: 'task vs. relationship' is one sentence", () => {
+  it("the reading point isn't cut at 'vs.'", () => {
+    const o = shapeStructuredAnswer({
+      raw: { explain: "", readingPoints: [{ text: "The book surveys the major approaches: trait and skills, behavioral (task vs. relationship), situational, transformational and servant leadership.", readingId: northouse.id }], leaderFacts: [], question: "" },
+      readings,
+      leader: null,
+      message: "What are the main leadership styles?",
+    });
+    expect(o.paras[0]).toContain("(task vs. relationship), situational, transformational and servant leadership.");
   });
 });

@@ -58,7 +58,12 @@ export function isContentQuestion(text: string): boolean {
 
 export const BACKGROUND_LABEL = "From general background (check before citing):";
 
-const sentencesOf = (t: string) => (t.replace(/\s+/g, " ").trim().match(/[^.!?]+(?:[.!?]+["”’)]*|$)/g) ?? []).map((x) => x.trim()).filter(Boolean);
+/** Abbreviations that never end a sentence ("task vs. relationship", "e.g.", "Ch. 4"). */
+const ABBREV = /\b(vs|e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Ch|ch|No|St|Inc|Co|Jr|Sr|U\.S|approx)\.(?=\s)/g;
+const sentencesOf = (t: string) =>
+  (t.replace(/\s+/g, " ").trim().replace(ABBREV, "$1\u0000").match(/[^.!?]+(?:[.!?]+["”’)]*|$)/g) ?? [])
+    .map((x) => x.replace(/\u0000/g, ".").trim())
+    .filter(Boolean);
 const isQuestion = (s: string) => /\?["”’)]*$/.test(s.trim());
 
 /**
@@ -412,3 +417,29 @@ export function noFactsReply(leader: string): string[] {
 /** The one retry when a leader question came back with no leader facts. */
 export const FACTS_RETRY_INSTRUCTION =
   "Your previous answer had no concrete facts about the leader the student asked about. Answer again: put 2-3 concrete, well-documented things that person actually did (actions, decisions, habits, with specifics) in leaderFacts, each standing alone, with no reading or author mentioned in them. If you genuinely don't know solid facts, return leaderFacts empty. Never invent.";
+
+/**
+ * QA 6:15 walk: one ghost-like sentence shouldn't sink a whole structured answer. A blocked part is
+ * dropped (the background part fact by fact); the reply survives when real content is left.
+ */
+export function pruneGhostParas(paras: string[], ok: (t: string) => boolean): string[] {
+  if (!paras.length) return [];
+  const body = paras.slice(0, -1);
+  const last = paras[paras.length - 1]!;
+  const kept: string[] = [];
+  for (const p of body) {
+    if (ok(p)) {
+      kept.push(p);
+      continue;
+    }
+    if (p.startsWith(BACKGROUND_LABEL)) {
+      const facts = sentencesOf(p.slice(BACKGROUND_LABEL.length)).filter(ok);
+      if (facts.length) kept.push(`${BACKGROUND_LABEL} ${facts.join(" ")}`);
+    }
+  }
+  if (!kept.length) return [];
+  const isQ = isQuestion(last);
+  if (!isQ) return ok(last) ? [...kept, last] : kept;
+  const factCount = sentencesOf(kept.find((p) => p.startsWith(BACKGROUND_LABEL))?.slice(BACKGROUND_LABEL.length) ?? "").length;
+  return [...kept, ok(last) ? last : factCount >= 2 ? "Which of those do you want to build on in your paper?" : "Which part of that fits what you want to say?"];
+}
