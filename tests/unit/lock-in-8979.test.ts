@@ -90,7 +90,7 @@ describe("QA full prod walk 8979326a: what they said is what's locked in", () =>
       OPTIONS,
     )!;
     expect(line).toContain("with Sam Walton as your example");
-    expect(line).toMatch(/Servant and Transformational/);
+    expect(line).toMatch(/servant and transformational leadership/);
     expect(line).toContain("because when Walmart was growing so fast Walton kept going into stores and listening, so associates actually trusted the changes.");
     expect(line).not.toMatch(/…/);
   });

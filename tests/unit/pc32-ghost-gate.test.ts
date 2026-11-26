@@ -152,7 +152,8 @@ describe("coach/answer: one retry in different words before the fallback", () =>
     drafts.push([`Try this: ${GHOST.thesis}`], ["Servant leaders put their team first; transformational leaders sell a big shared vision. Which feels closer to your leader?"]);
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const r = await call();
-    expect(r.paras).toEqual(["Servant leaders put their team first; transformational leaders sell a big shared vision. Which feels closer to your leader?"]);
+    // QA 5:51 PM: the one question rides last, on its own.
+    expect(r.paras).toEqual(["Servant leaders put their team first; transformational leaders sell a big shared vision.", "Which feels closer to your leader?"]);
     const line = log.mock.calls.find((c) => c[0] === "[coach-answer]")![1] as { ghostBlocked: boolean; gate: { rule: string }; regen: { ok: boolean } };
     expect(line.ghostBlocked).toBe(true);
     expect(line.gate.rule).toBe("ngram8");
