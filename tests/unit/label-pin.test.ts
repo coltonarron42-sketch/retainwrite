@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { asOnSheet, checklistLabel, readingFields } from "@/lib/stage1/lock-in";
 import { requirementLines } from "@/lib/stage1/north-turns";
 import { lowerTitle, readingNames, restoreNames } from "@/lib/copy/name-case";
-import { projectSkeleton, shapeFromModel, withNameCase, withNameCaseView } from "@/lib/skeleton/shape";
+import { projectSkeleton, shapeFromModel, shapeSigOf, withNameCase, withNameCaseView } from "@/lib/skeleton/shape";
 import { sourceHintLead } from "@/lib/coaching/source-hints";
 
 const SHEET = "BUS 210 Leadership essay for Prof. Kim. Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. APA 7. Due Dec 10.";
@@ -89,13 +89,13 @@ describe("QA: reading names keep their capitals in Body hints and skeleton lines
 describe("QA prod: the skeleton view's bold titles keep reading names too", () => {
   it("the view restores names in titles and subs", () => {
     const shape = shapeFromModel({ body: [{ focus: "goleman's emotional intelligence link" }, { focus: "the leader's change story" }] })!;
-    const v = withNameCaseView(projectSkeleton(shape, { v: 1, source: "model", titles: [{ key: "body-1", title: "goleman's emotional intelligence link", ideaRefs: [] }] }), readingNames(SHEET));
+    const v = withNameCaseView(projectSkeleton(shape, { v: 1, source: "model", shapeSig: shapeSigOf(shape), titles: [{ key: "body-1", title: "goleman's emotional intelligence link", ideaRefs: [] }] }), readingNames(SHEET));
     expect(v.blocks[1]!.title).toBe("Goleman's emotional intelligence link");
     expect(v.blocks[1]!.sub).toBe("Goleman's emotional intelligence link");
   });
   it("the route passes the readings' names (viewFor applies them)", () => {
-    expect(readFileSync("lib/server/skeleton/ghost.ts", "utf8")).toContain("return withNameCaseView(projectSkeleton(shape, outline), names);");
+    expect(readFileSync("lib/server/skeleton/ghost.ts", "utf8")).toContain("withNameCaseView(varyTitles(projectSkeleton(shape, outline), extra.leader), names)");
     const src = readFileSync("app/api/papers/[paperId]/skeleton/route.ts", "utf8");
-    expect(src).toContain("viewFor(shape, outline, readingNames(text))");
+    expect(src).toContain("viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary })");
   });
 });
