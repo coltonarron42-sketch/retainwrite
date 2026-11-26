@@ -216,7 +216,8 @@ describe("5. template bugs", () => {
     expect(assignmentPurposeLine("BUS 210 Leadership essay for Prof")).not.toMatch(/teaches BUS/);
     const intro = stage2IntroText({ ask: "Argue which leadership style works best for leading change.", mustInclude: ["one real leader", "Northouse Ch. 4"], graded: [] }, { heading: "x", body: "y" });
     expect(intro.heading).toBe("Your assignment, in plain words");
-    expect(intro.body).toMatch(/It has to include: one real leader; Northouse Ch\. 4\./);
+    // QA #84: readings first, with the pinned label.
+    expect(intro.body).toMatch(/It has to include: The assigned chapter: Chapter 4 of Northouse; one real leader\./);
   });
   it("the topic phrase drops the instruction words", () => {
     expect(cleanTopic(req.topic.value)).toBe("which leadership style is most effective for leading a team through change");
