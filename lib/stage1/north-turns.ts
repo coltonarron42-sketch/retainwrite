@@ -174,19 +174,47 @@ export function groundedTwo(opts: DecisionOption[], said: string): { two: Decisi
   for (const o of opts) if (picked.length < 2 && !picked.includes(o)) picked.push(o);
   const quote = hits.length ? (() => {
     const h = hits[0]!;
-    // Their phrase, a few words either side, in their words.
-    const from = Math.max(0, words.lastIndexOf(" ", Math.max(0, h.at - 18)));
-    const to = words.indexOf(" ", Math.min(words.length, h.at + h.phrase.length + 14));
-    return words.slice(from, to < 0 ? words.length : to).replace(/\s+/g, " ").replace(/^[\s,.;:!?]+|[\s,.;:!?]+$/g, "").trim();
+    // Their phrase in their own words: the clause it sits in (never across a line or sentence), filler
+    // in front dropped ("hmm", "I guess", "maybe"), at most ~10 whole words around the cue.
+    const clauseStart = Math.max(...["\n", ".", "!", "?", ";", ","].map((c) => words.lastIndexOf(c, h.at - 1))) + 1;
+    const ends = ["\n", ".", "!", "?", ";", ","].map((c) => words.indexOf(c, h.at + h.phrase.length)).filter((i) => i >= 0);
+    const clause = words.slice(clauseStart, ends.length ? Math.min(...ends) : words.length);
+    const at = h.at - clauseStart;
+    const before = clause.slice(0, at).trim().split(/\s+/).filter(Boolean);
+    const after = clause.slice(at + h.phrase.length).trim().split(/\s+/).filter(Boolean);
+    const FILLER = /^(?:hmm+|um+|uh+|idk|i|guess|think|maybe|like|so|well|okay|ok|not|sure|just)$/i;
+    let b = before.slice(-5);
+    while (b.length && FILLER.test(b[0]!.replace(/[^a-z]/gi, ""))) b = b.slice(1);
+    return [...b, h.phrase, ...after.slice(0, 4)].join(" ").replace(/\s+/g, " ").replace(/^[\s,.;:!?]+|[\s,.;:!?]+$/g, "").trim();
   })() : null;
   return { two: picked.slice(0, 2), quote, rest: opts.filter((o) => !picked.slice(0, 2).includes(o)) };
 }
 
-/** "lets you show a leader selling a shared vision…" → "a leader selling a shared vision…" (a plain picture of the style). */
-const asLeader = (why: string) => {
-  const w = plain(why).replace(/^lets you (?:show|argue that|argue|weigh|focus on)\s+/i, "");
-  return /^(?:a |an |the )?leader\b/i.test(w) ? w.replace(/^(?:a |an |the )/i, "a ") : w;
+/**
+ * QA (5:06 PM): every style definition has one shape, "a leader who…" / "a leader [verb]ing…".
+ * Used when an option's own line (e.g. a model-written "why") isn't in that shape.
+ */
+const STYLE_DEFS: Record<string, string> = {
+  servant: "a leader who puts the team's needs first so people come through the change together",
+  transformational: "a leader selling a shared vision so people want the change",
+  situational: "a leader shifting style to fit how ready the team is",
+  behavioral: "a leader balancing getting the work done with caring for the people",
+  democratic: "a leader who brings the team into the big decisions",
+  transactional: "a leader trading clear rewards for results",
+  authentic: "a leader who leads from their own values, openly",
 };
+const leaderShaped = (w: string) => /^a leader (?:who\b|\w+ing\b)/i.test(w);
+
+/** "lets you show a leader selling a shared vision…" → "a leader selling a shared vision…" (a plain picture of the style). */
+export const asLeader = (why: string, label = "") => {
+  const w0 = plain(why).replace(/^lets you (?:show|argue that|argue|weigh|focus on)\s+/i, "");
+  const w = /^(?:a |an |the )?leader\b/i.test(w0) ? w0.replace(/^(?:a |an |the )/i, "a ") : w0;
+  if (leaderShaped(w)) return w;
+  // Not a leadership style (e.g. "Primacy effect"): keep its own line whole, never a half-stripped one.
+  return STYLE_DEFS[cueKey(label)] ?? plain(why);
+};
+/** One definition line, the same in every turn: "• Servant: a leader who puts…". */
+const defLine = (o: DecisionOption) => `• ${o.label}: ${o.why ? asLeader(o.why, o.label) : STYLE_DEFS[cueKey(o.label)] ?? "a real, well-known choice"}.`;
 
 export function pickEscalation(input: {
   options: DecisionOption[];
@@ -249,7 +277,8 @@ export function pickEscalation(input: {
   const other = opts.find((o) => o.label !== rec.label) ?? null;
   const grounded = input.kind === "leader" ? null : groundedTwo(opts, input.said ?? "");
   const two = grounded ? grounded.two : other ? [rec, other] : [rec];
-  const line2 = (o: DecisionOption) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`;
+  // QA (5:06 PM): the two read as plain definitions ("• Transformational: a leader selling…"), never "lets you show…".
+  const line2 = (o: DecisionOption) => (input.kind === "leader" ? `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.` : defLine(o));
   // The reading button sits under the style question (the reading-help row); a leader pick has none.
   const readFirst = input.kind === "leader" ? "" : " Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.";
   const names = two.map((o) => o.label).join(" or ");
@@ -265,7 +294,7 @@ export function pickEscalation(input: {
   // QA ethos (after #77): style turns 2 and 3 are neutral: plain definitions and one open question,
   // never a recommendation or a lean toward one style. The gut pick between two waits for turn 4.
   if (input.kind !== "leader" && step <= 1) {
-    const defs = opts.map((o) => `• ${o.label}: ${o.why ? asLeader(o.why) : "a real, well-known choice"}.`);
+    const defs = opts.map(defLine);
     const head = input.confused
       ? `That's okay, that's why you're here! ${concept ? `${concept} ` : ""}Here's the short version of each:`
       : step === 0

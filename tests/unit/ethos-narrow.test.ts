@@ -25,8 +25,8 @@ describe("4th 'not sure': narrow to two, gut pick, reading one tap away", () => 
     const txt = e.paras.join("\n");
     expect(e.paras[0]).toBe("Let's narrow it to two. These two are a good place to start; Servant is still on the table if neither fits.");
     expect(e.paras.filter((p) => p.startsWith("•"))).toEqual([
-      "• Transformational: lets you show a leader selling a shared vision so people want the change.",
-      "• Situational: lets you show a leader shifting style to fit how ready the team is.",
+      "• Transformational: a leader selling a shared vision so people want the change.",
+      "• Situational: a leader shifting style to fit how ready the team is.",
     ].map((x) => expect.stringMatching(new RegExp(`^${x.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i"))));
     expect(txt).toMatch(/going with your gut: Transformational or Situational\?/);
     expect(txt).toMatch(/Catch me up on the reading first/);

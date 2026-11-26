@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { groundedTwo, gutPickOf, narrowedTwo, pickEscalation } from "@/lib/stage1/north-turns";
+import { asLeader, groundedTwo, gutPickOf, narrowedTwo, pickEscalation } from "@/lib/stage1/north-turns";
 
 // QA ethos should-fix (after #77): turns 2 and 3 are neutral; the narrow-to-two (turn 4) says why those two, and the chips match.
 const OPTS = [
@@ -29,7 +29,7 @@ describe("turns 2 and 3: plain definitions, one neutral question, no lean", () =
     expect(t.filter((p) => p.startsWith("•"))).toEqual([
       "• Transformational: a leader selling a shared vision so people want the change.",
       "• Situational: a leader shifting style to fit how ready the team is.",
-      "• Servant: putting people's needs first carries a team through change.",
+      "• Servant: a leader who puts the team's needs first so people come through the change together.",
     ]);
     expect(t.at(-1)).toBe("Which one sounds most like a leader you know?");
     expect(out[1]!.recommend).toBeNull();
@@ -92,5 +92,34 @@ describe("turn 4: the two offered, and why, from their own words", () => {
     const people = [{ label: "Satya Nadella", why: "Led Microsoft's shift." }, { label: "Mary Barra", why: "Guided GM." }];
     const e = pickEscalation({ options: people, round: 2, kind: "leader" });
     expect(e.recommend).not.toBeNull();
+  });
+});
+
+describe("QA 5:06 PM: one definition shape everywhere; turn 4 reads naturally", () => {
+  const SHAPE = /^a leader (?:who\b|\w+ing\b)/;
+  it("every leadership-style definition source reads 'a leader who…' / 'a leader [verb]ing…'", () => {
+    const ctx = readFileSync("lib/stage1/paper-context.ts", "utf8");
+    const block = ctx.slice(ctx.indexOf('question: "Which leadership style do you want to argue works best here"'));
+    const opts = [...block.slice(0, block.indexOf("people:")).matchAll(/\{ label: "([^"]+)", why: "([^"]+)" \}/g)].map((m) => ({ label: m[1]!, why: m[2]! }));
+    expect(opts.length).toBe(4);
+    for (const o of opts) expect(asLeader(o.why, o.label)).toMatch(SHAPE);
+    // A model-written line in another shape still gets the same form for a known style.
+    for (const [label, why] of [["Servant", "Lets you argue that putting people's needs first carries a team through change."], ["Behavioral", "Lets you weigh getting the work done against caring for the people."], ["Democratic", "Shows how sharing decisions builds buy-in."], ["Transactional", "Rewards and consequences drive results."], ["Authentic", "Lets you argue that honesty earns trust."]]) {
+      expect(asLeader(why!, label!)).toMatch(SHAPE);
+    }
+    // Not a leadership style: its own line, whole.
+    expect(asLeader("Lets you argue for putting the hardest material first.", "Primacy effect")).toBe("lets you argue for putting the hardest material first");
+  });
+  it("turn 4 quoting the student: the whole turn, word for word, and the chips are those two", () => {
+    const said = "not sure\nI guess a boss who listened to everyone\nhmm idk, maybe one with a big vision";
+    const t = run(said)[3]!.paras;
+    expect(t).toEqual([
+      "Let's narrow it to two. You said “a boss who listened to everyone”, so these two are the closest fit.",
+      "• Servant: a leader who puts the team's needs first so people come through the change together.",
+      "• Transformational: a leader selling a shared vision so people want the change.",
+      "Which one feels closer, just going with your gut: Servant or Transformational? Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.",
+    ]);
+    expect(t.join("\n")).not.toMatch(/lets you/i);
+    expect(narrowedTwo(t.join("\n"))).toEqual(["Servant", "Transformational"]);
   });
 });
