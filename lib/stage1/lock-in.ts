@@ -80,3 +80,63 @@ export function asOnSheet(item: string, sheet: string): string {
   const rest = /^(?:assigned|required|attached|provided)\s/i.test(it) ? it : `${lead.split(" ").slice(1).join(" ")} ${it}`.trim();
   return `The ${rest}`.replace(/\s+/g, " ");
 }
+
+/* ---- QA (after #81, paper c09238f7): the checklist's reading label is built, not copied ---- */
+
+const READING_TYPE = String.raw`(?:(?:[A-Z]{2,6}\s+)?(?:article|chapter|book|textbook|essay|handout|reading|case study|report|excerpt|piece|paper|book chapter|short story|poem|video|podcast))`;
+const NAME = String.raw`(?:[A-Z][\w.'’-]*\s+){0,2}[A-Z][\w'’-]+`;
+
+export type ReadingFields = { type: string | null; title: string | null; author: string | null; chapter: string | null };
+
+/** Type, title and author out of one assigned-reading item, however the parse worded it. */
+export function readingFields(item: string): ReadingFields | null {
+  let t = item.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
+  t = t.replace(/^(?:the|a|an|our|your)\s+(?:(?:assigned|required|attached|provided)\s+)?/i, "").replace(/^(?:assigned|required|attached|provided)\s+/i, "");
+  // Title: the quoted part (straight or curly; a title's own apostrophe or "?" stays in it).
+  const q = /(?<=^|[\s(])[“"‘']([^“”"]{3,120}?)[”"’'](?=\s|$|[,.;:)])/.exec(t);
+  let title = q ? q[1]!.trim() : null;
+  let rest = q ? `${t.slice(0, q.index)} ${t.slice(q.index + q[0].length)}`.replace(/\s+/g, " ").trim() : t;
+  let author: string | null = null;
+  const by = new RegExp(String.raw`\bby\s+(${NAME})`).exec(rest);
+  if (by) {
+    author = by[1]!.trim();
+    rest = rest.replace(by[0], " ").replace(/\s+/g, " ").trim();
+  }
+  const poss = new RegExp(String.raw`^(${NAME})(?:'s|’s|s'|s’)\s+(?=${READING_TYPE}\b)`, "i").exec(rest);
+  if (poss && !author) {
+    author = poss[1]!.trim();
+    rest = rest.slice(poss[0].length).trim();
+  }
+  // "Chapter 6 of Myers' Psychology (memory)"
+  const chp = /^(?:[Cc]hapter|[Cc]h\.?)\s*(\d{1,2})\s+(?:of|in|from)\s+(?:the\s+|our\s+)?([A-Z][\w-]+)(?:'s|’s|'|’)\s+([A-Z][^()]*?)(?:\s*\([^)]*\))?$/.exec(rest);
+  if (chp) return { type: "chapter", chapter: chp[1]!, author: author ?? chp[2]!, title: title ?? chp[3]!.trim() };
+  // "Chapter 4 of Northouse, Leadership: Theory and Practice"
+  const ch = /^(?:chapter|ch\.?)\s*(\d{1,2})\s+(?:of|in|from)\s+(?:the\s+|our\s+)?(?:textbook\s+)?\(?([A-Z][\w'’-]+),\s+([^()]+?)\)?$/i.exec(rest);
+  if (ch) return { type: "chapter", chapter: ch[1]!, author: author ?? ch[2]!, title: title ?? ch[3]!.trim() };
+  const type = new RegExp(String.raw`^(${READING_TYPE})\b`, "i").exec(rest)?.[1] ?? null;
+  if (!type && !title) return null;
+  if (!title && type) {
+    const after = rest.slice(type.length).replace(/^\s*(?:on|about|titled|called)\s+/i, "").trim();
+    title = after && after.split(" ").length <= 12 ? after : null;
+  }
+  if (!type && !author) return null;
+  const typ = type ? type.replace(/^([A-Z]{2,6})\s+/, "$1 ").replace(/(\s|^)([A-Za-z][a-z ]+)$/, (m) => m.toLowerCase()) : null;
+  return { type: typ, title, author, chapter: null };
+}
+
+/** "The assigned <type> '<title>' by <author>", with graceful gaps; never without "The assigned". */
+export function readingLabel(f: ReadingFields): string {
+  const type = f.type ?? "reading";
+  const title = f.title ? `'${f.title.replace(/^['‘“"]|['’”"]$/g, "")}'` : "";
+  if (f.chapter) return `The assigned chapter ${f.chapter} of ${title || "the textbook"}${f.author ? ` by ${f.author}` : ""}`.replace(/\s+/g, " ");
+  return ["The assigned", type, title, f.author ? `by ${f.author}` : ""].filter(Boolean).join(" ");
+}
+
+/**
+ * A checklist item: an assigned reading is labeled from its fields (deterministic, whatever the
+ * parse's wording); anything else (APA, length, a leader) keeps asOnSheet's rule.
+ */
+export function checklistLabel(item: string, sheet: string): string {
+  const f = readingFields(item);
+  return f ? readingLabel(f) : asOnSheet(item, sheet);
+}
