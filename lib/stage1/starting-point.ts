@@ -5,6 +5,8 @@
  * Where they are (has ideas / has read the material / no clue) is saved so Stage 2 meets them there.
  * // SOP: coaching only, never generate submission text
  */
+import { chosenStyles } from "@/lib/stage1/north-turns";
+import { leaderAcross } from "@/lib/stage1/lock-in";
 
 export const IDEAS_CHECK_ID = "ideas_check";
 export const IDEAS_FOLLOW_ID = "ideas_follow";
@@ -103,7 +105,10 @@ export function ideasAck(point: Pick<StartingPoint, "kind">): string {
 /** Stage 2's opening line that meets them where they are (used when there's no older Stage 1 decision). */
 export function stage2StartingLine(point: StartingPoint | null | undefined): string | null {
   if (!point) return null;
-  if (point.kind === "has_ideas" && point.ideas) return `In Stage 1 you said you're thinking about ${clip(second(ideaGist(point.ideas)), 25)}. We'll start there.`;
+  if (point.kind === "has_ideas" && point.ideas) {
+    const topic = ideaTopic(point.ideas);
+    return topic ? `In Stage 1 you said you're thinking about ${topic}. We'll start there.` : "In Stage 1 you shared a first idea. We'll start there.";
+  }
   if (point.kind === "read_material") return "You've already read the material, so we'll start from what stood out to you.";
   return "No ideas yet is a fine place to start. We'll build them up one section at a time.";
 }
@@ -147,11 +152,35 @@ export function ideasClarify(ideas: string): string {
   return `Just so I note it right: when you say "${clip(ideaGist(ideas), 12)}", what's the part you'd want to write about? One line is plenty.`;
 }
 
+const ROLE =
+  /\bmy\s+(?:(old|former|first|last|current)\s+)?(?:([a-z]+)\s+)?(manager|boss|coach|teacher|mom|dad|mother|father|grandma|grandpa|grandmother|grandfather|aunt|uncle|captain|supervisor|principal|pastor|coworker|co-worker|mentor|sister|brother|director|leader|instructor|professor|sergeant|commander)\b(?:,?\s+([A-Z][a-z'’-]{2,}))?/;
+
+/**
+ * QA 5:33 PM (same rule as #76): the acknowledgement paraphrases their idea as a clean phrase
+ * ("Sam Walton as an example of servant leadership", "your old manager, Mandy"), never their raw
+ * text spliced into a template. Null when there's no clean phrase to give.
+ */
+export function ideaTopic(text: string): string | null {
+  const t = text.replace(/[\u2018\u2019]/g, "'");
+  const style = chosenStyles([t])[0]?.toLowerCase() ?? null;
+  const leader = leaderAcross([t.replace(/\b(Actually|Maybe|Also|Honestly|Probably|Okay|Ok|Yes|Yeah|No|So|Well|But|And|I'll|I'm|I'd|I've|I)\b/g, (w) => w.toLowerCase())], "");
+  const role = ROLE.exec(t);
+  const roleText = role ? `your ${role[1] ? `${role[1]} ` : ""}${role[2] && !/^(the|a|an|really|very)$/.test(role[2]) ? `${role[2]} ` : ""}${role[3]}` : null;
+  const name = leader ?? role?.[4] ?? null;
+  const subject = roleText && name ? `${roleText}, ${name},` : (name ?? roleText);
+  if (subject && style) return `${subject} as an example of ${style} leadership`;
+  if (subject) return subject.replace(/,$/, "");
+  if (style) return `${style} leadership`;
+  return null;
+}
+
 export function ideasConfirm(text: string, first: boolean): string {
-  const gist = clip(second(ideaGist(text)), 28);
-  return first
-    ? `Ooh, I like that. So you're thinking: ${gist}. Did I get that right?`
-    : `Got it, I noted that too: ${gist}. Is that it for now, or is there more you want to add?`;
+  const topic = ideaTopic(text);
+  // QA 5:33 PM: calm, no "Ooh, I like that" on a bare leader + style pair; paraphrase, never quote.
+  if (first) return topic ? `Got it. So you're thinking about ${topic}. Did I get that right?` : "Got it, I've noted that as your starting idea. Did I get it right, or is there something you'd change?";
+  return topic
+    ? `Got it, I noted that too: ${topic}. Is that it for now, or is there more you want to add?`
+    : "Got it, I noted that detail too. Is that it for now, or is there more you want to add?";
 }
 
 /**

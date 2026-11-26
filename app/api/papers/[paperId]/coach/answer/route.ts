@@ -12,6 +12,13 @@ import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, type CoachAnswerMode } from "@/l
 
 export const runtime = "nodejs";
 /** A missing ghost is backfilled in after() (plan + section-by-section writing, usually 1-3 min). */
+/**
+ * The one retry after a gate block (QA 5:15 PM; QA 5:33 PM: the retry must still answer the question
+ * with real specifics, just not in paper sentences).
+ */
+const RETRY_INSTRUCTION =
+  "Your previous draft read too much like a finished paper. Answer the student's question again, still directly and specifically: if they asked about a leader, give concrete facts about what that leader actually did (actions, decisions, habits), from paper_context or clearly labelled as general background, never invented. Use your own plain, conversational words. Don't phrase anything as a thesis, a claim about which style is best, or a sentence from a paper; no argument for their essay. End with one question about their choice.";
+
 export const maxDuration = 800;
 
 /**
@@ -101,29 +108,32 @@ export async function POST(request: Request, ctx: Ctx) {
   // Never the ghost's sentences (PC-32 QA 5:15 PM gate: distinctive runs only). The student's
   // words, the assignment, the brief and the readings in the context block are allowed overlap.
   const allowed = [body.message, body.ask ?? "", body.section ?? "", body.notes ?? "", block].join("\n");
+  // The student's own terms (their leader, their style, the words of their question) are never
+  // "ghost wording" on their own (QA 5:33 PM: "How did Sam Walton show servant leadership?").
+  const topic = [body.message, body.notes ?? ""].join("\n");
   const gate = (ps: string[]) => {
     let hits5 = 0;
     let hits8 = 0;
+    let hitsFact = 0;
     let rule: string | null = null;
     for (const p of ps) {
-      const r = ghostLeakCheck(p, ghost, allowed);
+      const r = ghostLeakCheck(p, ghost, allowed, topic);
       hits5 += r.hits5;
       hits8 += r.hits8;
+      hitsFact += r.hitsFact ?? 0;
       if (!r.ok) rule ??= r.rule ?? "blocked";
     }
-    return { ok: rule === null, rule, hits5, hits8 };
+    return { ok: rule === null, rule, hits5, hits8, hitsFact };
   };
   let paras = await ask();
   let ghostBlocked = false;
-  let regen: { ok: boolean; rule: string | null; hits5: number; hits8: number } | null = null;
-  const first = ghost && paras.length ? gate(paras) : { ok: true, rule: null, hits5: 0, hits8: 0 };
+  let regen: ReturnType<typeof gate> | null = null;
+  const first = ghost && paras.length ? gate(paras) : { ok: true, rule: null, hits5: 0, hits8: 0, hitsFact: 0 };
   if (!first.ok) {
     ghostBlocked = true;
     // One retry in different words; the client's fallback only if that is blocked too.
-    const again = await ask(
-      "Your previous draft read too much like a finished paper. Answer the student's question again in completely different, plain conversational words: short coaching, no paper-like prose, no thesis-style sentences, nothing that could be pasted into an essay.",
-    );
-    regen = again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0 };
+    const again = await ask(RETRY_INSTRUCTION);
+    regen = again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0, hitsFact: 0 };
     paras = regen.ok ? again : [];
   }
   console.info("[coach-answer]", {
@@ -133,8 +143,8 @@ export async function POST(request: Request, ctx: Ctx) {
     ok: paras.length > 0,
     ghost: Boolean(ghost),
     ghostBlocked,
-    gate: { rule: first.rule, hits5: first.hits5, hits8: first.hits8 },
-    regen: regen ? { ok: regen.ok, rule: regen.rule, hits5: regen.hits5, hits8: regen.hits8 } : null,
+    gate: { rule: first.rule, hits5: first.hits5, hits8: first.hits8, hitsFact: first.hitsFact },
+    regen: regen ? { ok: regen.ok, rule: regen.rule, hits5: regen.hits5, hits8: regen.hits8, hitsFact: regen.hitsFact } : null,
   });
   return NextResponse.json({ paras });
 }

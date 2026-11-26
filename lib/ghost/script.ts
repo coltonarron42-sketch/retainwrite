@@ -114,6 +114,7 @@ export function ghostGuidance(g: GhostScript | null): string {
   return [
     "HIDDEN GUIDANCE (internal reference paper Pau wrote; the student must never see it).",
     "Use it only to know where a strong paper could go and which questions to ask next. Never quote, paraphrase, summarize or hint at its wording, thesis or sentences; never present its ideas as the answer. The student's own ideas always win.",
+    "If they ask about their own leader or style, still answer with real, specific facts (what the leader actually did), from paper_context or labelled as general background, never invented: just never in the reference paper's sentences or argument.",
     `Section jobs:\n${outline}`,
     sources ? `Real sources it used (you may suggest looking these up): ${sources}` : "",
   ]
@@ -163,57 +164,94 @@ const GENERIC_PHRASES = [
 ];
 const GENERIC_GRAMS = new Set(GENERIC_PHRASES.flatMap((p) => [...gramSet(p, 5)]));
 
-/** A ghost n-gram worth protecting: not in the shared context, not stock wording, not mostly filler. */
-function distinctive(gram: string, allowed: Set<string>): boolean {
+/**
+ * A ghost n-gram worth protecting: not in the shared context, not stock wording, not mostly filler,
+ * and not made only of everyday topic words plus the student's own terms (their leader, their style,
+ * the words of their question).
+ */
+function distinctive(gram: string, allowed: Set<string>, topic: Set<string>): boolean {
   if (allowed.has(gram) || GENERIC_GRAMS.has(gram)) return false;
   const w = gram.split(" ");
   const stops = w.filter((x) => STOP.has(x)).length;
   if (stops * 2 > w.length) return false;
-  return w.some((x) => !STOP.has(x) && !GENERIC_WORDS.has(x));
+  return w.some((x) => !STOP.has(x) && !GENERIC_WORDS.has(x) && !topic.has(x));
 }
 
-export type GhostLeakResult = { ok: boolean; rule?: "ngram8" | "ngram5" | "near"; hits5: number; hits8: number };
+/**
+ * The ghost's ARGUMENT (its thesis and claim sentences: why, therefore, most effective...) is what a
+ * student could lift. Its plain FACT sentences (what the leader did, when) state public facts any
+ * good answer about that leader also states, so they're only protected against being reproduced.
+ */
+const ARGUMENT =
+  /\b(because|therefore|thus|hence|so that|demonstrat\w*|prov(?:e|es|ed|ing)|suggest\w*|argu\w*|most effective|more effective|best|should|ultimately|in conclusion|conclud\w*|this means|which is why|clearly|highlight\w*|illustrat\w*|reveal\w*|exemplif\w*|essential|crucial|key to|stands? out|in short|overall|makes? (?:him|her|it|them|this)|is why|proves?|shows? (?:that|how|why)|evidence that)\b/i;
+export function isArgumentSentence(sentence: string): boolean {
+  return ARGUMENT.test(sentence);
+}
+const splitSentences = (t: string) => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+
+export type GhostLeakResult = { ok: boolean; rule?: "ngram8" | "ngram5" | "near" | "copy12" | "nearFact"; hits5: number; hits8: number; hitsFact?: number };
 
 /**
- * Output gate (Colton t221u; tuned PC-32 QA 5:15 PM so it blocks real leakage, not generic wording).
+ * Output gate (Colton t221u; tuned PC-32 QA 5:15 PM and 5:33 PM: block real leakage, not generic
+ * wording and not plain facts about the student's own leader).
  * Only DISTINCTIVE ghost runs count: not in the allowed corpus (assignment, brief, readings and
  * sources text, the student's own messages and notes), not stock phrasing, not mostly stopwords,
- * not made only of everyday topic words. Blocks on any distinctive 8-word run, on 2+ distinct
- * distinctive 5-word runs, or on a near-copy of one ghost sentence (≥ 8 distinctive content words,
- * ≥ 70% of them from that sentence). A single 5-word run never blocks on its own.
+ * not made only of everyday topic words plus the student's own terms (`topic`).
+ * - Argument sentences (thesis, claims): blocks on any distinctive 8-word run, on 2+ distinct
+ *   distinctive 5-word runs, or on a near-copy (≥ 8 novel content words, ≥ 70% from that sentence).
+ * - Fact sentences: blocks only when one is reproduced: a distinctive 12-word run, or a sentence that
+ *   takes ≥ 85% of ≥ 10 novel content words from it AND covers ≥ 70% of its content words.
  */
-export function ghostLeakCheck(output: string, g: GhostScript | null, allowedCorpus = ""): GhostLeakResult {
-  if (!g || !output.trim()) return { ok: true, hits5: 0, hits8: 0 };
-  const corpus = ghostCorpus(g);
-  const out8 = gramSet(output, 8);
+export function ghostLeakCheck(output: string, g: GhostScript | null, allowedCorpus = "", topicText = ""): GhostLeakResult {
+  if (!g || !output.trim()) return { ok: true, hits5: 0, hits8: 0, hitsFact: 0 };
+  const ghostSent = [g.thesis, ...g.outline.flatMap((s) => s.points), ...splitSentences(g.paper)].filter(Boolean);
+  const argText = [g.thesis, ...ghostSent.filter(isArgumentSentence)].join("\n");
+  const factText = ghostSent.filter((x) => x !== g.thesis && !isArgumentSentence(x)).join("\n");
+  const topic = new Set(toks(topicText).filter((w) => !STOP.has(w)));
   const allowed5 = gramSet(allowedCorpus, 5);
   const allowed8 = gramSet(allowedCorpus, 8);
+  const allowed12 = gramSet(allowedCorpus, 12);
+  const out8 = gramSet(output, 8);
+  const out12 = gramSet(output, 12);
   let hits8 = 0;
-  for (const gram of gramSet(corpus, 8)) if (out8.has(gram) && !allowed8.has(gram) && distinctive(gram, allowed5)) hits8++;
+  for (const gram of gramSet(argText, 8)) if (out8.has(gram) && !allowed8.has(gram) && distinctive(gram, allowed5, topic)) hits8++;
   // Distinct RUNS: overlapping 5-grams of one copied stretch count once (a 6-word overlap is one run).
-  const ghost5 = gramSet(corpus, 5);
+  const ghost5 = gramSet(argText, 5);
   const ot = toks(output);
   let hits5 = 0;
   let inRun = false;
   for (let i = 0; i + 5 <= ot.length; i++) {
     const gram = ot.slice(i, i + 5).join(" ");
-    const hit = ghost5.has(gram) && distinctive(gram, allowed5);
+    const hit = ghost5.has(gram) && distinctive(gram, allowed5, topic);
     if (hit && !inRun) hits5++;
     inRun = hit;
   }
-  if (hits8 > 0) return { ok: false, rule: "ngram8", hits5, hits8 };
-  if (hits5 >= 2) return { ok: false, rule: "ngram5", hits5, hits8 };
+  let hitsFact = 0;
+  for (const gram of gramSet(factText, 12)) if (out12.has(gram) && !allowed12.has(gram) && distinctive(gram, allowed5, topic)) hitsFact++;
+  const res = (rule?: GhostLeakResult["rule"]): GhostLeakResult => ({ ok: !rule, ...(rule ? { rule } : {}), hits5, hits8, hitsFact });
+  if (hits8 > 0) return res("ngram8");
+  if (hits5 >= 2) return res("ngram5");
+  if (hitsFact > 0) return res("copy12");
   const allowedWords = new Set(toks(allowedCorpus));
   const keep = (w: string) => !STOP.has(w) && !GENERIC_WORDS.has(w);
-  const ghostSentences = corpus.split(/(?<=[.!?])\s+|\n+/).map((x) => new Set(toks(x).filter(keep))).filter((x) => x.size >= 6);
-  for (const sentence of output.split(/(?<=[.!?])\s+|\n+/)) {
-    const novel = [...new Set(toks(sentence).filter((w) => keep(w) && !allowedWords.has(w)))];
-    if (novel.length < 8) continue;
-    for (const gs of ghostSentences) {
-      if (novel.filter((w) => gs.has(w)).length / novel.length >= 0.7) return { ok: false, rule: "near", hits5, hits8 };
+  const sets = (xs: string[]) => xs.map((x) => new Set(toks(x).filter(keep))).filter((x) => x.size >= 6);
+  const argSets = sets(splitSentences(argText));
+  const factSets = sets(splitSentences(factText));
+  for (const sentence of splitSentences(output)) {
+    const novel = [...new Set(toks(sentence).filter((w) => keep(w) && !allowedWords.has(w) && !topic.has(w)))];
+    const content = new Set(toks(sentence).filter(keep));
+    if (novel.length >= 8) {
+      for (const gs of argSets) if (novel.filter((w) => gs.has(w)).length / novel.length >= 0.7) return res("near");
+    }
+    if (novel.length >= 10) {
+      for (const gs of factSets) {
+        const from = novel.filter((w) => gs.has(w)).length / novel.length;
+        const covers = [...gs].filter((w) => content.has(w)).length / gs.size;
+        if (from >= 0.85 && covers >= 0.7) return res("nearFact");
+      }
     }
   }
-  return { ok: true, hits5, hits8 };
+  return res();
 }
 
 /** Log-safe view: sizes and counts only, never text. */
