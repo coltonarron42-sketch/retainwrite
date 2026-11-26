@@ -13,7 +13,9 @@ You get: mode, stage, section, what you asked, the student's message, and paper_
 - mode "lost": they said "idk", they're stuck, or it's hard. Don't repeat questions. Give 2-3 short key points from paper_context (or the general ideas the assignment names), then 2-3 concrete named options to choose from ("servant, transformational or situational: which could you defend?"), and ask which they'd pick and why. No praise at all here ("great", "nice", "love that"): they told you they're stuck, so just help.
 - mode "vague": their note is a start but vague (e.g. "be nice to people, I guess"). Be honest, not hollow: say what's good in a few words, name exactly what's missing (which style, which leader, what example), and ask ONE pointed question that gets the specific, using names from paper_context when you can. No praise like "that's really good".
 - mode "interview" (t204u): they asked you to interview them about their own story (student_message has their story and their latest answer). Ask exactly ONE short question (under 20 words) that builds on a specific detail from their latest answer, so they can say more about what the person did and why it mattered. At most a 6-word acknowledgement naming that detail first. No teaching, no options, no lists, no second question. Return {"paras": [one short paragraph]}.
-Always end with one question about THEIR choice or idea. Never write a thesis, topic sentence, intro, outline line on their topic, or any sentence they could paste in. No lists with headings, no markdown, no emoji. Return JSON {"paras": [1-3 short paragraphs]}.`;
+Content answers have two clearly separate parts (QA 5:51 PM). (a) What the readings actually say: ONLY what paper_context's key points or reading text for that reading actually contain. Never credit a reading or author with a claim it doesn't make (a general definition is not a definition of one style), and never link the student's leader to an author or reading unless that reading's text in paper_context names the leader. If no reading is relevant to the question, skip (a) entirely; no recap of the readings by default. (b) Facts about a real person, company or event: put them ONLY in "background" (plain sentences, no label; the app adds "From general background (check before citing):"), never in paras, never invented.
+Asked to write any part for them (an intro, body paragraph, conclusion, thesis, paragraph or sentence): no recap and no facts; say that part's theirs to write and ask one question that gets their own idea.
+Always end with exactly ONE question about THEIR choice or idea (never "…, and which…?" or two asks). Never write a thesis, topic sentence, intro, outline line on their topic, or any sentence they could paste in. No lists with headings, no markdown, no emoji. Return JSON {"paras": [1-3 short paragraphs], "background": [0-3 short sentences of general-background facts]}.`;
 
 export function cleanCoachAnswer(raw: unknown, ctx?: { mode?: CoachAnswerMode; message?: string }): string[] {
   if (!Array.isArray(raw)) return [];
@@ -50,4 +52,106 @@ export function isContentQuestion(text: string): boolean {
   // Their own claim phrased with a question mark ("maybe leaders should listen?") stays content.
   if (/\b(i think|i believe|my point|my idea|i'?d argue)\b/i.test(t)) return false;
   return CONTENT_Q.test(t);
+}
+
+/* ---------------- QA 5:51 PM: one ask, labelled background, no invented reading links ---------------- */
+
+export const BACKGROUND_LABEL = "From general background (check before citing):";
+
+const sentencesOf = (t: string) => (t.replace(/\s+/g, " ").trim().match(/[^.!?]+(?:[.!?]+["”’)]*|$)/g) ?? []).map((x) => x.trim()).filter(Boolean);
+const isQuestion = (s: string) => /\?["”’)]*$/.test(s.trim());
+
+/**
+ * Exactly ONE question per reply (R1): only the last question sentence survives, and a stacked
+ * ask inside it ("Which change episode…, and which counterargument…?") keeps its first ask.
+ */
+export function oneQuestion(paras: string[]): string[] {
+  const all = paras.map((p) => sentencesOf(p));
+  let lastP = -1;
+  let lastS = -1;
+  all.forEach((ss, i) => ss.forEach((x, j) => { if (isQuestion(x)) { lastP = i; lastS = j; } }));
+  return all
+    .map((ss, i) =>
+      ss
+        .filter((x, j) => !isQuestion(x) || (i === lastP && j === lastS))
+        .map((x) => (isQuestion(x) ? splitStackedAsk(x) : x))
+        .join(" ")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+function splitStackedAsk(q: string): string {
+  const m = q.match(/^(.{12,}?)(?:[,;:]\s*|\s+)(?:and|or|plus|also)\s+(?:which|what|how|why|who|where|when|do|does|did|is|are|would|could|can|should|will)\b.+\?$/i);
+  return m ? `${m[1]!.replace(/[\s,;:]+$/, "")}?` : q;
+}
+
+const ATTRIB = /\b(describe[sd]?|say[s]?|said|argue[sd]?|note[sd]?|add[s]?|added|stress(?:es|ed)?|define[sd]?|write[s]?|wrote|explain[sd]?|cover[s]?|survey[s]?|treat[s]?|link[s]?|suggest[s]?|calls?|emphasi[sz]e[sd]?|point[s]? out|highlight[s]?|frame[sd]?|discuss(?:es|ed)?)\b/i;
+
+/** Author-like names the paper's reading list mentions (capitalized words in the context block). */
+function readingNames(block: string, leader: string | null): string[] {
+  const leaderParts = new Set((leader ?? "").toLowerCase().split(/\s+/).filter(Boolean));
+  const skip = new Set("The A An Chapter Leadership Theory Practice Harvard Business Review HBR APA What Makes Leader Stage Body Introduction Conclusion Prof Professor Dr Due Using Write Graded Assignment Key Sources Readings Where Their They How Anything".split(" "));
+  const out = new Set<string>();
+  for (const line of block.split("\n").filter((l) => !/their words|in their words/i.test(l))) {
+    for (const m of line.matchAll(/\b([A-Z][a-z]{2,}(?:-[A-Z][a-z]+)?)\b/g)) {
+      const w = m[1]!;
+      if (!skip.has(w) && !leaderParts.has(w.toLowerCase())) out.add(w);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Shape a content answer into (a) the readings part, (b) a labelled background part, then one
+ * question. Post-checks (QA 5:51 PM): a sentence crediting a reading's author is kept only when
+ * the reading's actual text (key points) is in the context; one that ties the student's leader to
+ * an author is dropped unless that reading text names the leader. Leader facts left in paras move
+ * to the labelled background part.
+ */
+export function shapeContentAnswer(input: { paras: string[]; background?: unknown; block: string; leader: string | null }): string[] {
+  const { block, leader } = input;
+  const readingText = block
+    .split("\n")
+    .filter((l) => /your teaching content|^- Sources for that/i.test(l))
+    .join("\n");
+  const surname = leader ? leader.trim().split(/\s+/).pop()!.toLowerCase() : null;
+  const namesLeader = (t: string) => Boolean(surname && new RegExp(`\\b${surname.replace(/[^a-z]/g, "")}\\b`, "i").test(t));
+  const authors = readingNames(block, leader);
+  const credits = (t: string) =>
+    authors.filter((a) => new RegExp(`\\b${a}(?:'s|’s)?\\b`).test(t) && (ATTRIB.test(t) || new RegExp(`according to ${a}|${a}(?:'s|’s)\\b`).test(t)));
+  const leaderInReadings = Boolean(surname && namesLeader(readingText));
+  const background: string[] = Array.isArray(input.background) ? input.background.map((x) => String(x ?? "").replace(/\s+/g, " ").trim()).filter(Boolean) : [];
+  const kept: string[] = [];
+  for (const p of input.paras) {
+    const out: string[] = [];
+    for (const x of sentencesOf(p)) {
+      const by = credits(x);
+      if (by.length) {
+        // Not grounded in the reading's text, or ties their leader to an author who never discusses them.
+        if (by.some((a) => !new RegExp(`\\b${a}\\b`).test(readingText))) continue;
+        if (namesLeader(x) && !leaderInReadings) continue;
+        out.push(x);
+        continue;
+      }
+      if (!isQuestion(x) && namesLeader(x) && !leaderInReadings && !/general background/i.test(x)) {
+        background.push(x);
+        continue;
+      }
+      out.push(x);
+    }
+    if (out.length) kept.push(out.join(" "));
+  }
+  const bg = background
+    .map((x) => x.replace(/^from general background[^:]*:\s*/i, "").replace(/^from general background,?\s*/i, ""))
+    .map((x) => x.charAt(0).toUpperCase() + x.slice(1))
+    .filter((x) => !isQuestion(x));
+  // The question goes last, after the labelled background part.
+  const flat = oneQuestion(kept);
+  const lastQ = flat.length && isQuestion(sentencesOf(flat[flat.length - 1]!).pop() ?? "") ? sentencesOf(flat[flat.length - 1]!).pop()! : null;
+  const body = lastQ ? [...flat.slice(0, -1), sentencesOf(flat[flat.length - 1]!).slice(0, -1).join(" ")].filter(Boolean) : flat;
+  const result = [...body];
+  if (bg.length) result.push(`${BACKGROUND_LABEL} ${bg.join(" ")}`);
+  if (lastQ) result.push(lastQ);
+  return result.slice(0, 4);
 }

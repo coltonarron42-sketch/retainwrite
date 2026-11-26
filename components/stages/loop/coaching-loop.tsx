@@ -1500,7 +1500,7 @@ export function CoachingLoop({
                       : assignmentPurposeLine(subject),
             }),
             purpose: STAGE_PURPOSE[2],
-            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []) ?? stage2StartingLine(pctx?.startingPoint),
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? [], pctx ? (fitPairFromContext(pctx, sessionRef.current?.assignmentText ?? "")?.leader ?? null) : null) ?? stage2StartingLine(pctx?.startingPoint),
             fit: entryFit,
             material: materialList(pctx),
           }}

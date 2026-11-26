@@ -8,7 +8,10 @@ import { createClient } from "@/lib/supabase/server";
 import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
 import { ghostGuidance, ghostLeakCheck, type GhostScript } from "@/lib/ghost/script";
 import { backfillGhost, readGhost } from "@/lib/server/ghost/store";
-import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, type CoachAnswerMode } from "@/lib/coach/answer";
+import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, oneQuestion, shapeContentAnswer, type CoachAnswerMode } from "@/lib/coach/answer";
+import { isWriteRequest, writeRequestReply } from "@/lib/stages/stance-intent";
+import { fitPairFromContext } from "@/lib/stage2/fit-check";
+import { leaderAcross } from "@/lib/stage1/lock-in";
 
 export const runtime = "nodejs";
 /** A missing ghost is backfilled in after() (plan + section-by-section writing, usually 1-3 min). */
@@ -51,6 +54,7 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const started = Date.now();
   let block = "";
+  let leader: string | null = null;
   let ghost: GhostScript | null = null;
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
     const supabase = await createClient();
@@ -66,9 +70,16 @@ export async function POST(request: Request, ctx: Ctx) {
     ]);
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
     block = loaded?.block ?? "";
+    leader = loaded?.ctx ? (fitPairFromContext(loaded.ctx as never)?.leader ?? null) : null;
     ghost = g;
     // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
     if (body.stage >= 2 && !g) after(() => backfillGhost(supabase, paperId, userId));
+  }
+  // QA 5:51 PM: "Just give me the intro paragraph" (any section): the same warm decline as the
+  // thesis request, no recap, one question; no model call.
+  if (isWriteRequest(body.message)) {
+    console.info("[coach-answer]", { mode: body.mode, stage: body.stage, ms: Date.now() - started, ok: true, writeRequest: true });
+    return NextResponse.json({ paras: writeRequestReply(body.section ?? "", body.message) });
   }
   const system = ghost ? `${COACH_ANSWER_SYSTEM}\n\n${ghostGuidance(ghost)}` : COACH_ANSWER_SYSTEM;
   const user = JSON.stringify({
@@ -89,7 +100,7 @@ export async function POST(request: Request, ctx: Ctx) {
         schema: {
           type: "object",
           additionalProperties: false,
-          properties: { paras: { type: "array", items: { type: "string" } } },
+          properties: { paras: { type: "array", items: { type: "string" } }, background: { type: "array", items: { type: "string" } } },
           required: ["paras"],
         },
       },
@@ -98,7 +109,10 @@ export async function POST(request: Request, ctx: Ctx) {
     let out: string[] = [];
     if (res.ok) {
       try {
-        out = cleanCoachAnswer((JSON.parse(res.text) as { paras?: unknown }).paras, { mode: body.mode, message: body.message });
+        const j = JSON.parse(res.text) as { paras?: unknown; background?: unknown };
+        const cleaned = cleanCoachAnswer(j.paras, { mode: body.mode, message: body.message });
+        // QA 5:51 PM: readings part, then labelled general background, then exactly one question.
+        out = body.mode === "answer" ? shapeContentAnswer({ paras: cleaned, background: j.background, block, leader: leader ?? leaderAcross([body.message], "") }) : oneQuestion(cleaned);
       } catch {
         out = [];
       }
