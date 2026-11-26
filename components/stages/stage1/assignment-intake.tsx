@@ -5162,6 +5162,8 @@ function ListTextarea({ value, onChange }: { value: string; onChange: (raw: stri
 }
 
 /** What the no-ideas nudge can name: the brief's example leaders and the plain-words assignment. */
-function nudgeContext(b: { options?: { people?: { label: string }[] } | null; readback?: { ask?: string } | null } | null | undefined) {
-  return { people: (b?.options?.people ?? []).map((p) => p.label), ask: b?.readback?.ask ?? null };
+function nudgeContext(b: { options?: { people?: { label: string }[] } | null; readback?: { ask?: string; mustInclude?: string[] } | null } | null | undefined) {
+  // The read-back's must-include list (Chapter 4, the Goleman article) counts as readings too.
+  const ask = [b?.readback?.ask ?? "", ...(b?.readback?.mustInclude ?? [])].join(" ").trim();
+  return { people: (b?.options?.people ?? []).map((p) => p.label), ask: ask || null };
 }

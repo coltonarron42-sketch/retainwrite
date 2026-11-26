@@ -43,7 +43,8 @@ export function refTokens(titles: string[]): string[] {
 }
 
 /** ", from general background on Northouse's survey of approaches," / "(general background on X)". */
-const AWKWARD_LABEL = /,?\s*\(?(?:drawing\s+)?(?:from|based on|per)\s+(?:the\s+)?general background(?:\s+(?:on|about|from)\s+[^,.;:()]{1,60})?\)?,?/gi;
+// PC-32 polish: never "From general background (check before citing):", the structured answer's own label.
+const AWKWARD_LABEL = /,?\s*\(?(?:drawing\s+)?(?:from|based on|per)\s+(?:the\s+)?general background(?!\s*\(check before citing\))(?:\s+(?:on|about|from)\s+[^,.;:()]{1,60})?\)?,?/gi;
 
 export function groundParas(paras: string[], o: GroundOpts): GroundResult {
   const fixedCounts: string[] = [];

@@ -453,7 +453,7 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
   const paras: string[] = [];
   if (explain.length) paras.push(explain.join(" "));
   paras.push(...readingParas);
-  if (facts.length) paras.push(`${BACKGROUND_LABEL} ${facts.slice(0, 4).join(" ")}`);
+  if (facts.length) paras.push(`${BACKGROUND_LABEL} ${facts.slice(0, 3).join(" ")}`);
   paras.push(fittingQuestion(raw.question, { items, facts: facts.length, readings: readingParas.length, explain: explain.length > 0 }));
   return { paras: paras.slice(-4), leaderFacts: leaderFactCount, readingPoints: readingParas.length, aboutLeader };
 }

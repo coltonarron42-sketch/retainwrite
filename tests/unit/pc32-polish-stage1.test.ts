@@ -115,3 +115,31 @@ describe("QA 6:53 PM: Stage 1's reflect-back and Stage 2 starting line keep a lo
     expect(stage2StartingLine({ kind: "has_ideas", ideas: t, readMaterial: false, at: 1 } as never)).toBe("In Stage 1 you said you're thinking about Satya Nadella as an example of transformational leadership. We'll start there.");
   });
 });
+
+describe("live walk 7:20 PM: the nudge's teach line ties the paper to the readings", () => {
+  it("the read-back's must-include list counts as readings", () => {
+    expect(readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8")).toMatch(/\.\.\.\(b\?\.readback\?\.mustInclude \?\? \[\]\)/);
+    expect(ideasNudge({ ask: "You are writing an essay on leadership style. Chapter 4 of the textbook (Northouse); the assigned HBR article by Daniel Goleman" })).toMatch(/tied back to your readings\./);
+  });
+});
+
+describe("live walk 7:25 PM: #71's grounding gate keeps the background label whole", async () => {
+  const { groundParas } = await import("@/lib/coach/grounding");
+  const { shapeStructuredAnswer } = await import("@/lib/coach/answer");
+  it("never turns it into \"I don't have your copy, so here's the general idea: (check before citing):\"", () => {
+    const paras = ["From general background (check before citing): Walton visited stores often to talk with associates. He shared profits with associates.", "Which of these habits do you want to build on?"];
+    const out = groundParas(paras, { source: "", unreadRefs: ["Northouse, Leadership: Theory and Practice", "What Makes a Leader? by Daniel Goleman"] }).paras;
+    expect(out).toEqual(paras);
+    expect(out.join(" ")).not.toMatch(/general idea: \(check before citing\)/);
+  });
+  it("at most three background facts", () => {
+    const r = shapeStructuredAnswer({
+      raw: { explain: "", readingPoints: [], leaderFacts: ["Walton visited his stores often to talk with associates on the floor.", "Walton asked managers to listen first to the associates who stocked shelves.", "Walton set up profit sharing so associates shared in the company's growth.", "Walton drove an old pickup truck around Bentonville for decades."], question: "Which of these habits fits your introduction best?" },
+      message: "How did Sam Walton show servant leadership?",
+      leader: "Sam Walton",
+      readings: [],
+    });
+    const bg = r.paras.find((p) => p.startsWith("From general background"))!;
+    expect(bg).not.toMatch(/pickup/);
+  });
+});
