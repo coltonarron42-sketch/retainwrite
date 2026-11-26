@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { assertCoachingOnly } from "@/lib/ai/guard";
@@ -7,7 +8,8 @@ import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { ghostLeakCheck, type GhostScript } from "@/lib/ghost/script";
 import { readGhost } from "@/lib/server/ghost/store";
-import { fitJudgePrompt, fitPairIn, fitReply, knownFit, parseFitVerdict, type FitBasis, type FitVerdict } from "@/lib/stage2/fit-check";
+import { chosenStyles } from "@/lib/stage1/north-turns";
+import { fitJudgePrompt, fitKey, fitPairIn, fitReply, knownFit, parseFitVerdict, type FitBasis, type FitPair, type FitVerdict } from "@/lib/stage2/fit-check";
 
 export const runtime = "nodejs";
 
@@ -16,12 +18,29 @@ export const runtime = "nodejs";
  * picked? Known pairs answer from the table (no model call); others get one fast verdict, using
  * the research the hidden ghost already gathered (source titles only). Pau's words always come
  * from the table (R2), never from the ghost; the reply still passes the coaching and ghost gates.
+ * Once per pair (QA 4:57 PM): each result is kept server-side, so a reload or a repeat gets the
+ * same lines back without a new check.
  * // SOP: coaching only, never generate submission text
  */
 const bodySchema = z.object({
-  note: z.string().min(1).max(4000),
+  pair: z.object({ style: z.string().min(3).max(40), leader: z.string().min(2).max(60) }).optional(),
+  note: z.string().min(1).max(4000).optional(),
   sheet: z.string().max(20000).optional(),
+  source: z.enum(["entry", "note"]).optional(),
 });
+
+/** Server-only row (hidden from autosave reads and writes like every server:* key). */
+const FIT_FIELD = "server:fit_checks";
+type Stored = Record<string, { verdict: FitVerdict; paras: string[]; at: number }>;
+
+async function readFits(supabase: SupabaseClient, paperId: string): Promise<Stored> {
+  try {
+    const { data } = await supabase.from("paper_autosaves").select("draft_text").eq("paper_id", paperId).eq("field_key", FIT_FIELD).maybeSingle();
+    return data?.draft_text ? (JSON.parse(data.draft_text as string) as Stored) : {};
+  } catch {
+    return {};
+  }
+}
 
 type Ctx = { params: Promise<{ paperId: string }> };
 
@@ -34,21 +53,33 @@ export async function POST(request: Request, ctx: Ctx) {
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
-  const pair = fitPairIn(body.note, body.sheet ?? "");
+  // A pair sent by the client must name a real style; else it's read from the note.
+  const sent: FitPair | null = body.pair && chosenStyles([body.pair.style])[0] ? { style: chosenStyles([body.pair.style])[0]!.toLowerCase(), leader: body.pair.leader.trim() } : null;
+  const pair = sent ?? (body.note ? fitPairIn(body.note, body.sheet ?? "") : null);
   if (!pair) return NextResponse.json({ pair: null, verdict: null, paras: [] });
+  const key = fitKey(pair);
   const started = Date.now();
   let ghost: GhostScript | null = null;
+  let supabase: SupabaseClient | null = null;
+  let userId: string | null = null;
+  let stored: Stored = {};
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
-    const supabase = await createClient();
+    supabase = (await createClient()) as unknown as SupabaseClient;
     const { data: claims } = await supabase.auth.getClaims();
-    const userId = typeof claims?.claims?.sub === "string" ? claims.claims.sub : null;
+    userId = typeof claims?.claims?.sub === "string" ? claims.claims.sub : null;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const [{ data: paper }, g] = await Promise.all([
+    const [{ data: paper }, s] = await Promise.all([
       supabase.from("papers").select("id").eq("id", paperId).eq("user_id", userId).maybeSingle(),
-      readGhost(supabase, paperId).catch(() => null),
+      readFits(supabase, paperId),
     ]);
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    ghost = g;
+    stored = s;
+    const hit = stored[key];
+    if (hit) {
+      console.info("[coach-fit]", { verdict: hit.verdict, source: body.source ?? "note", cached: true, ms: Date.now() - started });
+      return NextResponse.json({ pair, verdict: hit.verdict, paras: hit.paras, cached: true });
+    }
+    ghost = await readGhost(supabase, paperId).catch(() => null);
   }
   let verdict: FitVerdict = knownFit(pair) ?? "unsure";
   let basis: FitBasis = knownFit(pair) ? "known" : "general";
@@ -75,7 +106,13 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   let paras = fitReply(pair, verdict);
   if (paras.some((p) => !assertCoachingOnly(p).ok)) paras = [];
-  if (ghost && paras.some((p) => !ghostLeakCheck(p, ghost!, body.note).ok)) paras = [];
-  console.info("[coach-fit]", { verdict, basis, ms: Date.now() - started, ok: paras.length > 0, ghost: Boolean(ghost) });
+  if (ghost && paras.some((p) => !ghostLeakCheck(p, ghost!, `${body.note ?? ""}\n${pair.style} ${pair.leader}`).ok)) paras = [];
+  if (supabase && userId && paras.length) {
+    const next: Stored = { ...stored, [key]: { verdict, paras, at: Date.now() } };
+    await supabase
+      .from("paper_autosaves")
+      .upsert({ paper_id: paperId, user_id: userId, field_key: FIT_FIELD, draft_text: JSON.stringify(next), submitted: false, updated_at: new Date().toISOString() }, { onConflict: "paper_id,field_key" });
+  }
+  console.info("[coach-fit]", { verdict, basis, source: body.source ?? "note", cached: false, ms: Date.now() - started, ok: paras.length > 0, ghost: Boolean(ghost) });
   return NextResponse.json({ pair, verdict, paras });
 }

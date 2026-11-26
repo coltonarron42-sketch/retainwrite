@@ -118,6 +118,8 @@ type Props = {
     purpose?: string;
     /** Their Stage 1 decision, referenced instead of re-asked (north star D). */
     earlier?: string | null;
+    /** QA 4:57 PM: the fit check for the style + leader they already gave, right after "Earlier you picked…". */
+    fit?: string[];
     /** Key points from the material, labeled by source. */
     material?: { label: string; points: string[] }[];
   };
@@ -643,6 +645,7 @@ export function StanceChat(props: Props) {
   // QA 11:51: her opener is what they decided in Stage 1 ("Earlier you picked…"), then the assignment.
   const introBubbles: ReactNode[] = [
     ...(intro.earlier ? [intro.earlier] : []),
+    ...(intro.fit ?? []),
     `${intro.heading}.`.replace(/([?.!])\.$/, "$1"),
     intro.body,
     ...(intro.purpose ? [intro.purpose] : []),

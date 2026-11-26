@@ -18,7 +18,7 @@ import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
 import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
 import { stage2StartingLine } from "@/lib/stage1/starting-point";
-import { fitKey, fitPairIn } from "@/lib/stage2/fit-check";
+import { fitKey, fitPairForNote, fitPairFromContext, type FitPair } from "@/lib/stage2/fit-check";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -300,6 +300,10 @@ export function CoachingLoop({
   // PC-29 QA round 3: the Stage 2 opener (the plain-words assignment, "Earlier you picked …") waits
   // for the paper context instead of showing (and saying) the parsed-topic fallback first.
   const [pctxSettled, setPctxSettled] = useState(false);
+  /** QA 4:57 PM: the entry fit check's lines, shown with the Stage 2 opener. */
+  const [entryFit, setEntryFit] = useState<string[]>([]);
+  /** The style + leader known so far (entry, then each checked note), so a note can change one half. */
+  const fitPair = useRef<FitPair | null>(null);
   const [asideChips, setAsideChips] = useState<string[]>([]);
   useEffect(() => {
     if (!persist || stage < 2 || stage > 3) return;
@@ -311,8 +315,11 @@ export function CoachingLoop({
       body: JSON.stringify({ action: "context" }),
     })
       .then((r) => (r.ok ? (r.json() as Promise<PaperBrief & { ok?: boolean }>) : null))
-      .then((d) => {
+      .then(async (d) => {
         if (live && d?.ok) setPctx(d);
+        // QA 4:57 PM: the style + leader they already gave (Stage 1 ideas, an older pick) gets its
+        // fit check once, on Stage 2 entry, shown inline with the opener before the Intro.
+        if (live && d?.ok && stage === 2) await entryFitCheck(d, () => live);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -323,6 +330,7 @@ export function CoachingLoop({
       live = false;
       clearTimeout(cap);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, persist, stage]);
   const introReady = !persist || pctxSettled;
   // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
@@ -879,38 +887,57 @@ export function CoachingLoop({
    * 1-2 better fits, theirs to keep (their note is never changed). Runs after the save, so the
    * flow never waits on it; the lines join the chat above the next ask.
    */
-  async function fitCheck(note: string, sectionKey: string) {
-    if (stage !== 2) return;
-    const pair = fitPairIn(note, sessionRef.current?.assignmentText ?? "");
-    if (!pair) return;
-    const key = fitKey(pair);
-    const base0 = sessionRef.current ?? session;
-    if (!base0 || base0.events.includes(key) || fitAsked.current.has(key)) return;
-    fitAsked.current.add(key);
+  /** POST /coach/fit for one pair (the server keeps each result: once per pair, reload-safe). */
+  async function fetchFit(pair: FitPair, source: "entry" | "note", note?: string): Promise<{ verdict?: string | null; paras?: string[] } | null> {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 9000);
       const res = await fetch(`/api/papers/${paperId}/coach/fit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: note.slice(0, 4000), sheet: (sessionRef.current?.assignmentText ?? "").slice(0, 20000) }),
+        body: JSON.stringify({ pair, source, ...(note ? { note: note.slice(0, 4000) } : {}) }),
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) return;
-      const d = (await res.json()) as { verdict?: string | null; paras?: string[] };
-      const base = sessionRef.current;
-      if (!d.paras?.length || !base) return;
-      const next: Session = {
-        ...base,
-        transcript: appendLines(base.transcript, d.paras.map((text): LoopLine => ({ k: sectionKey, who: "pau", text }))),
-        events: [...base.events, key, `stance_fit_${d.verdict ?? "none"}`],
-      };
-      commit(next);
-      syncSession(next, sectionKey);
+      return res.ok ? ((await res.json()) as { verdict?: string | null; paras?: string[] }) : null;
     } catch {
-      // The fit check is a nice-to-have: the stance flow goes on without it.
+      return null;
     }
+  }
+
+  /** Stage 2 entry: the pair from Stage 1 (or an older pick), checked once and shown with the opener. */
+  async function entryFitCheck(ctx: PaperBrief, alive: () => boolean) {
+    const pair = fitPairFromContext(ctx, sessionRef.current?.assignmentText ?? "");
+    if (!pair) return;
+    fitPair.current = pair;
+    fitAsked.current.add(fitKey(pair));
+    const d = await fetchFit(pair, "entry");
+    if (alive() && d?.paras?.length) setEntryFit(d.paras);
+  }
+
+  /**
+   * A later Stage 2 note that introduces or changes the pair gets its own fit check, once per pair.
+   * Their note is never changed; the lines join the chat above the next ask.
+   */
+  async function fitCheck(note: string, sectionKey: string) {
+    if (stage !== 2) return;
+    const pair = fitPairForNote(note, fitPair.current, sessionRef.current?.assignmentText ?? "");
+    if (!pair) return;
+    const key = fitKey(pair);
+    const base0 = sessionRef.current ?? session;
+    if (!base0 || base0.events.includes(key) || fitAsked.current.has(key)) return;
+    fitAsked.current.add(key);
+    fitPair.current = pair;
+    const d = await fetchFit(pair, "note", note);
+    const base = sessionRef.current;
+    if (!d?.paras?.length || !base) return;
+    const next: Session = {
+      ...base,
+      transcript: appendLines(base.transcript, d.paras.map((text): LoopLine => ({ k: sectionKey, who: "pau", text }))),
+      events: [...base.events, key, `stance_fit_${d.verdict ?? "none"}`],
+    };
+    commit(next);
+    syncSession(next, sectionKey);
   }
 
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
@@ -1465,6 +1492,7 @@ export function CoachingLoop({
             }),
             purpose: STAGE_PURPOSE[2],
             earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []) ?? stage2StartingLine(pctx?.startingPoint),
+            fit: entryFit,
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}

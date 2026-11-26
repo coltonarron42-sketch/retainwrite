@@ -2,10 +2,12 @@
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
 import { informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
-import { chosenStyles, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
+import { chosenStyles, gutPickOf, narrowedTwo, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+/** QA 4:57 PM: the short Stage 1 ends on the Start Stage 2 button, not a question. */
+const SHORT_GATE_LINE = "That's everything for Stage 1. Tap Start Stage 2 whenever you're ready.";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
@@ -2482,6 +2484,20 @@ export function AssignmentIntake({
         recPending.current[q.id] = null;
         tookRec = true;
       }
+      // QA ethos: after "Let's narrow it to two", naming one of the two (or "the first one") is their gut pick, in their words.
+      const two = narrowedTwo(lastProbe.current[q.id] ?? null);
+      if (!tookRec && text && two.length) {
+        const gut = gutPickOf(text, two);
+        if (gut) {
+          // Named it: their words stand as they typed them. "The first one": say which, then their words.
+          if (!new RegExp(`\\b${gut.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) {
+            const rest = text.replace(/^\s*(?:the\s+)?(?:first|second|1st|2nd|other|last)(?:\s+one)?[\s,.!:-]*/i, "").trim();
+            text = `I'd pick ${gut}${rest ? `. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : ""}`;
+          }
+          recPending.current[q.id] = null;
+          tookRec = true;
+        }
+      }
     }
     const confused = !tookRec && (q.id === "decision_pick" || q.id === "leader_pick") && Boolean(text) && isConfusedSaying(text) && !decisionHasReason(text);
     const vagueNo = !tookRec && Boolean(recPending.current[q.id]) && Boolean(text) && isNoSaying(text) && wordCount(text) < 6;
@@ -4448,9 +4464,9 @@ export function AssignmentIntake({
       : screen === "story"
         ? ["Here are a few directions your paper could take, built from what you told me."]
         : screen === "gate"
-          ? [
-              "That's everything for Stage 1. Ready for the stance interview?",
-            ]
+          ? startingNow
+            ? [ideasAck(startingNow), SHORT_GATE_LINE]
+            : ["That's everything for Stage 1. Ready for the stance interview?"]
           : [];
     // PC-29 QA round 2: what the call says is the copy this turn shows, word for word.
     // QA 11:51 (b): with a nudge or error up, the call says only that, never the whole prompt again.
@@ -4795,7 +4811,7 @@ export function AssignmentIntake({
             <PauPauGroup
               bubbles={[
                 ...leadsBubbles,
-                ...(startingNow ? [ideasAck(startingNow), "That's everything for Stage 1. Ready for Stage 2?"] : ["That's everything for Stage 1. Ready for the stance interview?"]),
+                ...(startingNow ? [ideasAck(startingNow), SHORT_GATE_LINE] : ["That's everything for Stage 1. Ready for the stance interview?"]),
                 gateChecks,
               ].filter((b) => b !== null)}
               headingIndex={leadsBubbles.length}
