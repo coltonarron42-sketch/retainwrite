@@ -22,7 +22,10 @@ export function searchingLine(query: unknown): string | null {
   const q = query
     .replace(/https?:\/\/\S+/g, "")
     .replace(/\b(?:site|filetype|inurl|intitle):\S+/gi, "")
-    .replace(/["“”]/g, "")
+    .replace(/["“”()]/g, "")
+    // QA 6:35: boolean operators never show ("… examples OR OR…").
+    .replace(/(?:^|\s)-\S+/g, " ")
+    .replace(/\b(?:OR|AND|NOT)\b|[+|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (q.length < 3) return null;
@@ -45,6 +48,11 @@ export function askTopic(message: string): string | null {
   const t = message
     .replace(/https?:\/\/\S+/g, "")
     .replace(/^\s*(?:hey|hi|ok(?:ay)?|so|pau)[,!.\s]+/i, "")
+    // QA 6:35: "Not transformational, just servant examples please" → "servant examples" (the negation only filters).
+    .replace(/^\s*(?:not|no)\s+[\w-]+(?:\s+leadership)?\s*[,;:-]+\s*/i, "")
+    .replace(/^\s*(?:just|only)\s+/i, "")
+    .replace(/\b([\w-]+) ones\b/i, "$1 examples")
+    .replace(/[,\s]+(?:please|thanks?|pls)\s*([?.!]*)\s*$/i, "$1")
     .replace(/^\s*(?:can|could|would) you\s+(?:please\s+)?/i, "")
     .replace(/^\s*(?:please\s+)?(?:find|get|give|show|look up|search for|pull up|dig up)\s+(?:me\s+)?(?:some\s+)?/i, "")
     .replace(/^\s*what (?:does|do|did) (.+?) (?:say|says) about (.+)$/i, "what $1 says about $2")

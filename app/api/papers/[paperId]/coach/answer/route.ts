@@ -22,6 +22,7 @@ import { capOneAsk, countAsks } from "@/lib/coach/one-ask";
 import { checkLinks } from "@/lib/voice/realtime/links";
 import { signSpoken, spokenFrom } from "@/lib/coach/spoken-sign";
 import type { PaperContext } from "@/lib/stage1/paper-context";
+import { askedStyle, knownExamplesFor, researchCloser } from "@/lib/coach/known-examples";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -59,6 +60,8 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const started = Date.now();
+  // QA 6:35 #3: research turns aim for ~20s; optional passes (rescue, background model) only run inside it.
+  const TURN_BUDGET_MS = 19_000;
   let block = "";
   let paperCtx: PaperContext | null = null;
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
@@ -180,13 +183,20 @@ export async function POST(request: Request, ctx: Ctx) {
         // QA 6:20: the background fallback: at most 2 widely documented examples (a named leader and what they
         // did), no sites, no figures; none when the model isn't sure (R2: never invent).
         let bgPromise: Promise<string[]> | null = null;
+        // QA 6:35 #2/#3: mainstream styles come from the vetted table (no second model call); the model is
+        // asked only for a style that isn't there, with whatever time is left in the ~20s budget.
+        const style = askedStyle(body.message, [paperCtx?.decision?.pick, paperCtx?.decision?.answer]);
         const knownExamples = async (): Promise<string[]> => {
+          const table = knownExamplesFor(style);
+          if (table.length) return table;
+          const left = TURN_BUDGET_MS - (Date.now() - started);
+          if (left < 3_000) return [];
           const bgr = await grokResearch({
-            system: `You help a student find examples for a paper (coaching only; never write their paper). No sources this turn. Give at most 2 bullets (each starting with "• "), each a widely documented real-world example of the leadership style they asked about: the leader's full name, the organization, and in one sentence what they did. Use only examples covered widely in major business press or textbooks; if you aren't sure of one, leave it out (zero is fine). No numbers, dates, quotes or statistics. No site names or sources. Nothing else.`,
-            user: JSON.stringify({ ask: body.message.slice(0, 500) }),
+            system: `You help a student find examples for a paper (coaching only; never write their paper). No sources this turn. Give at most 2 bullets (each starting with "• "), each a widely documented real-world example of the leadership style they asked about (if the specific leader or setting they named is obscure, use well-known examples of that style instead; skip any style they set aside with "not" or "no"): the leader's full name, the organization, and in one sentence what they did. Use only examples covered widely in major business press or textbooks; if you aren't sure of one, leave it out (zero is fine). No numbers, dates, quotes or statistics. No site names or sources. Nothing else.`,
+            user: JSON.stringify({ ask: body.message.slice(0, 500), style }),
             effort: "low",
             search: false,
-            timeoutMs: 9_000,
+            timeoutMs: Math.min(6_000, left),
           });
           return bgr.ok ? bgr.raw.split(/\n+/) : [];
         };
@@ -205,13 +215,19 @@ export async function POST(request: Request, ctx: Ctx) {
             .slice(0, 4);
           console.info("[coach-answer] grounded pages", JSON.stringify({ fetched: fetched.size, usable: pages.map((x) => `${x.site} (${x.excerpt.length})`) }));
           if (!pages.length) return null;
+          // QA 6:35 #3: the rescue only runs when there's time left for it in the ~20s budget.
+          const left = TURN_BUDGET_MS - (Date.now() - started);
+          if (left < 6_000) {
+            console.info("[coach-answer] grounded skipped (time)", left);
+            return null;
+          }
           emit(WRITING_LINE);
           const r3 = await grokResearch({
             system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search is done for this turn. Write 1-3 example bullets using ONLY facts stated in the excerpts in "pages". Each bullet comes from one page: name the real leader (a person, by full name) and organization exactly as that excerpt does, say in one sentence what they did and how it fits the style asked about, and end with that page's site in square brackets, like [hbr.org]. Skip a page that has no named real-world example. Never add a fact, name, number or date that isn't in the excerpt. If no excerpt has a named example, write no bullets. Then one short question about their paper.`,
             user: JSON.stringify({ ...JSON.parse(userJson), pages }),
             effort: "low",
             search: false,
-            timeoutMs: 10_000,
+            timeoutMs: Math.min(9_000, left - 1_000),
           });
           if (!r3.ok) return null;
           console.info("[coach-answer] grounded draft", JSON.stringify(r3.raw.slice(0, 600)));
@@ -239,6 +255,8 @@ export async function POST(request: Request, ctx: Ctx) {
           }
           // QA 5:13: no second search pass. When nothing passes, she goes straight to labeled general background.
         }
+        // QA 6:35 #4: every research turn ends its status lines on the writing step.
+        if (qmode === "research") emit(WRITING_LINE);
         if (q) {
           const none = qmode === "research" && q.kept === 0;
           quality = {
@@ -259,6 +277,7 @@ export async function POST(request: Request, ctx: Ctx) {
             paras = cleanPauParas(q.text);
             sources = q.sources;
           }
+          if (qmode === "research") paras = researchCloser(paras, paperCtx?.leader?.pick);
         } else if (r.ok) {
           paras = cleanPauParas(r.text);
           sources = r.sources;
