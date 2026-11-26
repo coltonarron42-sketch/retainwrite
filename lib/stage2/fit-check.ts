@@ -16,6 +16,7 @@
  */
 import { chosenStyles } from "@/lib/stage1/north-turns";
 import { leaderAcross } from "@/lib/stage1/lock-in";
+import { isConfirmOnly } from "@/lib/stage1/starting-point";
 
 export type FitPair = { style: string; leader: string };
 export type FitVerdict = "strong" | "weak" | "unsure";
@@ -27,9 +28,48 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z\s-]/g, "").replace(/\
 /** The style + leader they named in this note (both needed). A name from the sheet is never their leader. */
 export function fitPairIn(text: string, sheet = ""): FitPair | null {
   const style = chosenStyles([text])[0];
-  const leader = leaderAcross([text], sheet);
+  const leader = leaderIn([text], sheet);
   if (!style || !leader) return null;
   return { style: style.toLowerCase(), leader };
+}
+
+/** Sentence-start words that look like a first name to the name finder ("Actually I'll…"). */
+const leaderIn = (texts: (string | null | undefined)[], sheet: string) =>
+  leaderAcross(
+    texts.map((t) => String(t ?? "").replace(/\b(Actually|Maybe|Also|Honestly|Probably|Definitely|Okay|Ok|Yes|Yeah|No|So|Well|But|And|Then|Now|Instead|Hmm|I'll|I'm|I'd|I've|I)\b/g, (w) => w.toLowerCase())),
+    sheet,
+  );
+
+type Said = { pick?: string | null; answer?: string | null } | null | undefined;
+
+/**
+ * QA 4:57 PM (MUST-FIX 1): the pair they already gave before Stage 2 (Stage 1 ideas, an older
+ * pick), so the fit check runs once on Stage 2 entry, inline with the opener, before the Intro.
+ */
+export function fitPairFromContext(
+  ctx: { decision?: Said; leader?: Said; startingPoint?: { ideas?: string | null; followUp?: string | null } | null } | null | undefined,
+  sheet = "",
+): FitPair | null {
+  if (!ctx) return null;
+  const said = [ctx.decision?.pick, ctx.decision?.answer, ctx.startingPoint?.ideas, ctx.startingPoint?.followUp].filter((t) => t && !isConfirmOnly(t));
+  const style = chosenStyles(said)[0];
+  const lp = ctx.leader?.pick && ctx.leader.pick !== "their own" && ctx.leader.pick.length <= 40 ? ctx.leader.pick : null;
+  const leader = lp ?? leaderIn([ctx.leader?.answer, ...said], sheet);
+  if (!style || !leader) return null;
+  return { style: style.toLowerCase(), leader };
+}
+
+/**
+ * A Stage 2 note that introduces or changes the pair: what the note names, filled in from the pair
+ * already known ("actually Herb Kelleher" keeps the style). A confirm phrase is never a pair.
+ */
+export function fitPairForNote(note: string, known: FitPair | null, sheet = ""): FitPair | null {
+  if (isConfirmOnly(note)) return null;
+  const style = chosenStyles([note])[0]?.toLowerCase() ?? null;
+  const leader = leaderIn([note], sheet);
+  if (!style && !leader) return null;
+  const p = { style: style ?? known?.style ?? null, leader: leader ?? known?.leader ?? null };
+  return p.style && p.leader ? { style: p.style, leader: p.leader } : null;
 }
 
 export const fitKey = (p: FitPair) => `fit:${norm(p.style)}|${norm(p.leader)}`;

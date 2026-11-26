@@ -25,13 +25,28 @@ export type StartingPoint = {
 };
 
 const NOTHING = /^\s*(no+|nope|nah|not (?:yet|really|sure)|no idea|idk|i don'?t know|dunno|nothing( yet)?|none( yet)?|haven'?t|i have not|not at all|no clue|skip|pass|n\/a|\?+)\b[\s\S]{0,40}$/i;
+/** QA 4:57 PM: "I don't have any ideas yet", "no ideas so far", "not really, nothing yet". */
+const NO_IDEAS = /\b(?:i\s+(?:don'?t|do not|didn'?t|haven'?t|have not)\s+(?:have|got|thought of|come up with)\s+(?:any|an|a)?\s*(?:ideas?|clue|thoughts?|anything)|no\s+ideas?(?:\s+yet)?|not\s+(?:any|a single)\s+ideas?|nothing\s+(?:yet|so far|in mind)|haven'?t\s+(?:thought|decided)\s+(?:about\s+it|yet))\b/i;
+
+/**
+ * Shared guard (QA 4:57 PM): a yes / no / confirm phrase ("Yes, that's right", "yep", "correct",
+ * "sounds good", "no") is a reply to Pau, NEVER idea content. Used wherever their words are saved.
+ */
+export function isConfirmOnly(text: string | null | undefined): boolean {
+  const t = String(text ?? "").trim().toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[.!?,\s]+$/g, "");
+  if (!t) return true;
+  const rest = t.replace(/^(?:oh\s+|um+\s+|well\s+)?(?:yes|yeah|yep|yup|ya|sure|ok(?:ay)?|right|correct|exactly|true|perfect|totally|absolutely|definitely|no|nope|nah|not really|pretty much|basically|sounds (?:right|good)|you got it|got it|that'?s (?:it|right|correct|all|everything)|that works|all good|i'?m good|good for now|for now)\b[\s,.!-]*/i, "");
+  if (rest === t) return false;
+  return !rest || isConfirmOnly(rest) || /^(?:that'?s (?:it|right|correct|all)|you got it|exactly|for now|thanks?|thank you)$/.test(rest);
+}
 const READ = /\b(i(?:'ve| have)? (?:already )?read|i did read|read (?:it|them|both|all|the (?:chapter|article|reading|book))|finished (?:it|them|the reading)|went through (?:it|the reading))\b/i;
 const NOT_READ = /\b(haven'?t|have not|didn'?t|did not|not yet|never) (?:read|looked|opened)\b/i;
 
 /** True when the answer actually carries an idea (not a "no", a shrug, or only "I read it"). */
 export function hasIdea(text: string): boolean {
   const t = text.trim();
-  if (!t || NOTHING.test(t)) return false;
+  if (!t || NOTHING.test(t) || isConfirmOnly(t)) return false;
+  if (NO_IDEAS.test(t) && t.split(/\s+/).length < 14) return false;
   const words = t.split(/\s+/).filter(Boolean).length;
   if (words < 2) return false;
   // "I read it but no idea yet" is not an idea.
@@ -40,14 +55,14 @@ export function hasIdea(text: string): boolean {
 }
 
 export function classifyStartingPoint(input: { ideas?: string | null; followUp?: string | null; lostAtStart?: boolean; hasReading?: boolean; materialAnswer?: string | null }): StartingPoint {
-  const ideas = (input.ideas ?? "").trim();
+  const ideas = isConfirmOnly(input.ideas) ? "" : (input.ideas ?? "").trim();
   const said = [ideas, input.followUp ?? "", input.materialAnswer ?? ""].join(" ");
   const readMaterial = !input.lostAtStart && READ.test(said) && !NOT_READ.test(said);
   const idea = hasIdea(ideas);
   return {
     kind: idea ? "has_ideas" : readMaterial ? "read_material" : "no_clue",
     ...(idea ? { ideas: ideas.slice(0, 2000) } : {}),
-    ...(idea && input.followUp?.trim() ? { followUp: input.followUp.trim().slice(0, 2000) } : {}),
+    ...(idea && input.followUp?.trim() && !isConfirmOnly(input.followUp) ? { followUp: input.followUp.trim().slice(0, 2000) } : {}),
     readMaterial,
     at: Date.now(),
   };
@@ -70,6 +85,8 @@ export function ideaGist(text: string): string {
   return text
     .trim()
     .replace(/^(?:yes|yeah|yep|kind of|sort of|i guess|maybe|um+|so|well)[,.!\s]+/i, "")
+    // QA 4:57 PM: "also she trained…" echoes as "she trained…".
+    .replace(/^(?:oh,?\s+)?(?:also|and also|and|plus|oh and|too)[,\s]+/i, "")
     .replace(/^(?:i'?m|i am|i was)\s+(?:thinking|leaning|planning|hoping)\s+(?:about|of|on|towards?|to)\s+(?:writing about\s+)?/i, "")
     .replace(/^i\s+(?:want|plan|hope|think i(?:'d| would)? (?:like|want))\s+to\s+(?:write|focus|argue)\s+(?:about|on|that)?\s*/i, "")
     .replace(/^i(?:'d| would)\s+(?:write|focus|argue)\s+(?:about|on|that)?\s*/i, "");
@@ -79,7 +96,8 @@ export function ideaGist(text: string): string {
 export function ideasAck(point: Pick<StartingPoint, "kind">): string {
   if (point.kind === "has_ideas") return "Love it. I saved that, and we'll build on it in Stage 2.";
   if (point.kind === "read_material") return "Nice, you've done the reading, so we'll start from what stuck with you in Stage 2.";
-  return "Totally fine. We'll figure it out together in Stage 2, starting from zero.";
+  // QA 4:57 PM: no ideas yet gets no reflection and no praise.
+  return "That's totally fine, we'll find one together in Stage 2.";
 }
 
 /** Stage 2's opening line that meets them where they are (used when there's no older Stage 1 decision). */
@@ -117,9 +135,13 @@ export function isDoneSaying(text: string): boolean {
 
 /** Too thin to note as-is ("leadership", "maybe sports"): one light clarifying question is OK. */
 export function isUnclearIdea(text: string): boolean {
+  // QA 4:57 PM: "Elon Musk, servant leadership" is terse but concrete: summarize it back, never drill.
+  if (CONCRETE.test(text) || /\b[A-Z][a-z'’-]+\s+[A-Z][a-z'’-]{2,}\b/.test(text)) return false;
   const words = ideaGist(text).split(/\s+/).filter(Boolean).length;
   return words < 5 || /\b(something (about|like|with)|kind of|sort of|not sure (how|exactly))\b/i.test(text) && words < 12;
 }
+
+const CONCRETE = /\b(servant|transformational|situational|transactional|democratic|autocratic|authentic|charismatic|laissez-faire|participative|adaptive|visionary|coaching)\b/i;
 
 export function ideasClarify(ideas: string): string {
   return `Just so I note it right: when you say "${clip(ideaGist(ideas), 12)}", what's the part you'd want to write about? One line is plenty.`;
@@ -155,9 +177,9 @@ export function ideasPlan(answers: Said[]): IdeaStep[] {
     if (said === null) break;
     if (kind === "clarify") {
       clarified = true;
-      toConfirm = isDoneSaying(said) ? first : `${ideaGist(first)}: ${said}`;
+      toConfirm = isDoneSaying(said) || isConfirmOnly(said) ? first : `${ideaGist(first)}: ${said}`;
     } else {
-      if (isDoneSaying(said)) break;
+      if (isDoneSaying(said) || isConfirmOnly(said)) break;
       toConfirm = said;
     }
     prev = kind;
@@ -172,7 +194,7 @@ export function ideasSaid(answers: Said[]): { ideas: string | null; followUp: st
   const more: string[] = [];
   for (let i = 1; i <= MAX_IDEA_TURNS; i++) {
     const t = latest(ideaStepId(i));
-    if (t && !isDoneSaying(t)) more.push(t);
+    if (t && !isDoneSaying(t) && !isConfirmOnly(t)) more.push(t);
   }
   return { ideas: first, followUp: more.length ? more.join(" ") : null };
 }
