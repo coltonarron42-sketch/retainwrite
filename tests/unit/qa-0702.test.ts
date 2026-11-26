@@ -291,7 +291,7 @@ describe("preview walk follow-ups (a85a5e1)", () => {
   it("a stated stance plus its reason reads as one paraphrased line", () => {
     expect(
       stage2Earlier({ question: "q", pick: "their own", answer: "I want to argue transformational leadership, using Satya Nadella. Because he got a huge company to change by inspiring people.", at: 1 }),
-    ).toBe("Earlier you told me you want to argue transformational leadership, using Satya Nadella, because he got a huge company to change by inspiring people.");
+    ).toBe("You picked Satya Nadella as a transformational leader, mainly for how he got a huge company to change by inspiring people."); // QA 6:53 PM
   });
   it("Stage 2 'Digging it up…' stays up while her answer loads", () => {
     expect(src("components/stages/loop/stance-chat.tsx")).toContain("lookupNote && (checking || props.busy)");

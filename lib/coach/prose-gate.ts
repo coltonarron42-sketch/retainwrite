@@ -39,7 +39,13 @@ export function echoShare(text: string, echo: string | undefined): number {
   return ws.filter((w) => theirs.has(w)).length / ws.length;
 }
 
-type Piece = { item: number; text: string; kind: "decl" | "question" | "bullet" | "starter" | "quote" };
+type Piece = { item: number; text: string; kind: "decl" | "question" | "bullet" | "starter" | "quote" | "sourced" };
+
+/**
+ * PC-32 polish: a structured answer's labeled research paragraph ("From general background (check before
+ * citing): …", "From your Goleman article: …") is sourced facts (capped at 2-3 short items), not essay prose.
+ */
+const SOURCED_LEAD = /^(?:From general background \(check before citing\)|From your [^:]{1,60}):\s/;
 
 export type ProseRun = { sentences: number; words: number; score: number; reasons: string[]; text: string; pieces: Piece[] };
 
@@ -77,6 +83,10 @@ function pieces(items: string[]): Piece[] {
     for (const line of raw.split(/\n+/)) {
       const l = line.trim();
       if (!l) continue;
+      if (SOURCED_LEAD.test(l)) {
+        for (const x of sentences(l)) out.push({ item, text: x, kind: /\?["”’)]*$/.test(x) ? "question" : "sourced" });
+        continue;
+      }
       if (BULLET.test(l) && wc(l) <= PROSE_GATE.bulletMaxWords) {
         out.push({ item, text: l, kind: "bullet" });
         continue;

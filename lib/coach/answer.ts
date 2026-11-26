@@ -217,7 +217,7 @@ export function shapeContentAnswer(input: { paras: string[]; background?: unknow
 /** The answer-mode format: readings, general-background facts and the one question come back apart. */
 export const COACH_ANSWER_STRUCTURED = `Mode "answer" output (QA 6:15 PM). Return JSON {"explain": string, "readingPoints": [{"text": string, "readingId": string}], "leaderFacts": [string], "question": string}.
 - readingPoints: what the student's assigned readings say that answers the question. ONLY readings listed in "readings" (use its id), and ONLY what that reading's key_points support. Never credit a reading with a claim it doesn't make; never tie the student's leader to a reading or author unless that reading's key_points name the leader. The assigned readings are READINGS, never background: anything you say about them goes here, never in leaderFacts. Empty when no reading is relevant (for a question about how their own leader acted, usually empty). Plain sentences without "From your…" (the app adds the reading's name).
-- leaderFacts: general-background facts about real people, companies or events (for a question about a leader: 2-3 concrete things that person actually did: actions, decisions, habits, with names and specifics). Each item one or two plain sentences, standing alone. Never mention a reading or its author here, never connect the leader to a reading, never invent events, numbers or quotes; if you're not sure of a detail, leave it out. No label (the app adds "From general background (check before citing):").
+- leaderFacts: ONLY when the question is about a person (usually their leader) or asks for real examples; for a concept question ("What are the main leadership styles?") leave it EMPTY and use readingPoints and explain. General-background facts about real people, companies or events (for a question about a leader: 2-3 concrete things that person actually did: actions, decisions, habits, with names and specifics). Pick the 2-3 best-known, widely documented behaviors that show the student's style (student_style; e.g. for servant leadership: listening to associates, regular store visits, profit sharing), not side trivia or cost-cutting unless they asked about it. Leave out precise numbers, dates, distances and anecdotes unless they're famous; anything you're not sure is widely reported, leave out. Each item one or two complete, plain, grammatical sentences, standing alone. Never mention a reading or its author here, never connect the leader to a reading, never invent events, numbers or quotes; if you're not sure of a detail, leave it out. No label (the app adds "From general background (check before citing):").
 - explain: 0-2 plain sentences of how-to or concept explanation in your own words (how a good intro works, what a term means). No facts about real people or events here and no claims about the readings; empty string when not needed.
 - question: exactly ONE short question about THEIR choice that fits what you just gave. Start with "Which of those…" only when you gave two or more items; otherwise ask something that fits. Never two asks, never "…, and which…".
 - Never state their thesis for them ("Your paper will argue…"); say "You picked…" instead.`;
@@ -255,8 +255,17 @@ export function readingCatalog(ctx: {
   for (const m of ctx.readback?.mustInclude ?? []) if (m && looksLikeReading(m)) raw.push({ title: m, points: "" });
   const groups: { titles: string[]; author: string | null; points: string[] }[] = [];
   for (const r of raw) {
-    const a = authorOf(r.title);
-    const g = groups.find((x) => (a && x.author === a) || x.titles.some((t) => t.toLowerCase() === r.title.toLowerCase()));
+    // QA 6:44 PM: a title with no name ("“What Makes a Leader?”") takes the author its key points name.
+    const a = authorOf(r.title) ?? authorFromPoints(r.points);
+    const core = coreTitle(r.title);
+    const g = groups.find(
+      (x) =>
+        (a && x.author === a) ||
+        x.titles.some((t) => {
+          const c = coreTitle(t);
+          return c === core || (c.length >= 8 && core.length >= 8 && (c.includes(core) || core.includes(c)));
+        }),
+    );
     if (g) {
       g.titles.push(r.title);
       if (r.points) g.points.push(r.points);
@@ -272,7 +281,32 @@ export function readingCatalog(ctx: {
 
 /** How a reading is introduced: "From your Goleman article:", "From your Northouse chapter:". */
 export function readingLead(r: ReadingRef): string {
-  return r.author ? `From your ${r.author} ${r.noun}:` : `From your reading "${r.title}":`;
+  if (r.author) return `From your ${r.author} ${r.noun}:`;
+  // QA 6:44 PM: never doubled quotes ('From your reading "“What Makes a Leader?”"').
+  const t = dequote(r.title);
+  return t ? `From your reading, ${t}:` : "From your reading:";
+}
+
+/** A title without any quote marks around or inside it. */
+export function dequote(t: string): string {
+  return String(t ?? "").replace(/[“”"‘’]|(^|\s)'|'(\s|$)/g, "$1$2").replace(/\s+/g, " ").trim();
+}
+
+/** The work's own title, for matching "HBR article 'What Makes a Leader?' by Daniel Goleman" to "“What Makes a Leader?”". */
+function coreTitle(t: string): string {
+  return dequote(t)
+    .replace(/\bby\s+(?:[A-Z][a-z.]+\s*){1,3}$/, "")
+    .replace(/^[A-Z][a-z]+['’]s\s+/, "")
+    .replace(/\b(?:the )?(?:hbr|harvard business review) article\b/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** "Goleman argues…" in a reading's key points names its author. */
+function authorFromPoints(points: string): string | null {
+  const m = points.match(/\b([A-Z][a-z]{2,}(?:-[A-Z][a-z]+)?)\s+(?:argues|says|names|writes|describes|treats|explains|claims|defines|lists|shows|surveys|notes)\b/);
+  return m && !NAME_SKIP.has(m[1]!) && !/^(He|She|They|It|This|The|Each|Leaders?)$/.test(m[1]!) ? m[1]! : null;
 }
 
 /** "Your paper will argue…": stating their thesis for them (never; it's their pick). */
@@ -335,6 +369,11 @@ export type StructuredAnswer = { explain?: unknown; readingPoints?: unknown; lea
 
 export type ShapedAnswer = { paras: string[]; leaderFacts: number; readingPoints: number; aboutLeader: boolean };
 
+/** "Who are some examples…", "give me examples of servant leaders", "which real leaders…". */
+export function asksForExamples(message: string): boolean {
+  return /\b(examples?|for instance|real[- ](?:life |world )?(?:leaders?|people|persons?|companies)|famous|well[- ]known|who (?:is|are|was|were|has|have)\b|which (?:leaders?|people|ceos?|companies)|name (?:a|some|a few) (?:leaders?|people|ceos?))/i.test(message);
+}
+
 /** Is the question about this person (their leader, or a person they name)? */
 export function asksAboutLeader(message: string, leader: string | null): boolean {
   if (!leader) return false;
@@ -377,6 +416,9 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
   // QA 6:15 walk: "Goleman focuses on…" / "Goleman names five…" is a reading claim too, whatever the verb.
   const creditTo = (x: string) => readings.find((r) => r.author && new RegExp(`\\b${r.author}(?:'s|’s)?\\b`).test(x));
   const facts: string[] = [];
+  // QA 6:44 PM: a concept question ("What are the main leadership styles?") stays with the readings
+  // and explain; leader facts only when the question is about the leader or asks for examples.
+  const wantsFacts = aboutLeader || asksForExamples(message);
   for (const f of Array.isArray(raw.leaderFacts) ? raw.leaderFacts : []) {
     const x = cleanItem(f);
     const r = !aboutLeader && !namesLeader(x) ? creditTo(x) : undefined;
@@ -384,6 +426,7 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
       addReading(r, x);
       continue;
     }
+    if (!wantsFacts) continue;
     const c = cleanLeaderFact(x, authors);
     if (c && !facts.includes(c)) facts.push(c);
   }
@@ -397,6 +440,7 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
       continue;
     }
     if (leader && namesLeader(sent)) {
+      if (!wantsFacts) continue;
       const c = cleanLeaderFact(sent, authors);
       if (c && !facts.includes(c)) facts.push(c);
       continue;
@@ -409,7 +453,7 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
   const paras: string[] = [];
   if (explain.length) paras.push(explain.join(" "));
   paras.push(...readingParas);
-  if (facts.length) paras.push(`${BACKGROUND_LABEL} ${facts.slice(0, 4).join(" ")}`);
+  if (facts.length) paras.push(`${BACKGROUND_LABEL} ${facts.slice(0, 3).join(" ")}`);
   paras.push(fittingQuestion(raw.question, { items, facts: facts.length, readings: readingParas.length, explain: explain.length > 0 }));
   return { paras: paras.slice(-4), leaderFacts: leaderFactCount, readingPoints: readingParas.length, aboutLeader };
 }
