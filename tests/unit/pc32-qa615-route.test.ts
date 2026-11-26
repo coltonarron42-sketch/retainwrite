@@ -9,7 +9,7 @@ const ctx = {
 };
 vi.mock("@/lib/demo/session-server", () => ({ getDemoSession: async () => null }));
 vi.mock("@/lib/env", async (orig) => ({ ...(await orig<typeof import("@/lib/env")>()), hasSupabaseConfig: () => true }));
-vi.mock("@/lib/server/paper-context/store", () => ({ loadPaperContextBlock: async () => ({ block: "Assignment: leadership through change.", ctx }) }));
+vi.mock("@/lib/server/paper-context/store", () => ({ loadPauContextBlock: async () => ({ block: "Assignment: leadership through change.", ctx }), loadPaperContextBlock: async () => ({ block: "Assignment: leadership through change.", ctx }) }));
 vi.mock("@/lib/server/ghost/store", () => ({ readGhost: async () => null, backfillGhost: async () => undefined }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
