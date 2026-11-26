@@ -56,6 +56,19 @@ describe("MUST-FIX 1: readings and general background stay apart (no invented li
     expect(r[0]).toMatch(/^From general background \(check before citing\): Sam Walton showed servant leadership by regularly visiting stores and listening to associates\. He also introduced profit-sharing/);
     expect(r[1]).toBe("Which of those do you want to use?");
   });
+  it("QA walk f804c567 (3ea9a66): 'These habits fit … Northouse covers in Chapter 4 … Goleman' is dropped (leader tied to readings by reference)", () => {
+    const r = shapeContentAnswer({
+      paras: ["These habits fit the high-relationship side of the task-versus-relationship behaviors Northouse covers in Chapter 4 and the empathy parts of Goleman's emotional intelligence.", "Which do you want to use?"],
+      background: ["Sam Walton visited stores often."],
+      block: BLOCK,
+      leader: "Sam Walton",
+      message: "How did Sam Walton show servant leadership?",
+    });
+    expect(r).toEqual([`${BACKGROUND_LABEL} Sam Walton visited stores often.`, "Which do you want to use?"]);
+    // A grounded reading sentence about the concept itself still stays.
+    const ok = shapeContentAnswer({ paras: ["Goleman says empathy is one of the five parts of emotional intelligence.", "Which part fits?"], block: BLOCK, leader: "Sam Walton", message: "What does Goleman say about empathy?" });
+    expect(ok[0]).toBe("Goleman says empathy is one of the five parts of emotional intelligence.");
+  });
   it("QA walk f804c567 (bf5ba4f): no question from the model still ends on exactly one ask", () => {
     const r = shapeContentAnswer({ paras: ["From general background (check before citing): Sam Walton visited stores often."], block: BLOCK, leader: "Sam Walton", message: "How did Sam Walton show servant leadership?" });
     expect(r).toEqual([`${BACKGROUND_LABEL} Sam Walton visited stores often.`, "Which of those do you want to build on in your paper?"]);

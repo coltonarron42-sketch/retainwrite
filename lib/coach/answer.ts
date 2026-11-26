@@ -13,7 +13,7 @@ You get: mode, stage, section, what you asked, the student's message, and paper_
 - mode "lost": they said "idk", they're stuck, or it's hard. Don't repeat questions. Give 2-3 short key points from paper_context (or the general ideas the assignment names), then 2-3 concrete named options to choose from ("servant, transformational or situational: which could you defend?"), and ask which they'd pick and why. No praise at all here ("great", "nice", "love that"): they told you they're stuck, so just help.
 - mode "vague": their note is a start but vague (e.g. "be nice to people, I guess"). Be honest, not hollow: say what's good in a few words, name exactly what's missing (which style, which leader, what example), and ask ONE pointed question that gets the specific, using names from paper_context when you can. No praise like "that's really good".
 - mode "interview" (t204u): they asked you to interview them about their own story (student_message has their story and their latest answer). Ask exactly ONE short question (under 20 words) that builds on a specific detail from their latest answer, so they can say more about what the person did and why it mattered. At most a 6-word acknowledgement naming that detail first. No teaching, no options, no lists, no second question. Return {"paras": [one short paragraph]}.
-Content answers have two clearly separate parts (QA 5:51 PM). (a) What the readings actually say: ONLY what paper_context's key points or reading text for that reading actually contain. Never credit a reading or author with a claim it doesn't make (a general definition is not a definition of one style), and never link the student's leader to an author or reading unless that reading's text in paper_context names the leader. If no reading is relevant to the question, skip (a) entirely; no recap of the readings by default. (b) Facts about a real person, company or event: put them ONLY in "background" (plain sentences, no label; the app adds "From general background (check before citing):"), never in paras, never invented.
+Content answers have two clearly separate parts (QA 5:51 PM). (a) What the readings actually say: ONLY what paper_context's key points or reading text for that reading actually contain. Never credit a reading or author with a claim it doesn't make (a general definition is not a definition of one style), and never link the student's leader to an author or reading unless that reading's text in paper_context names the leader. If no reading is relevant to the question, skip (a) entirely; no recap of the readings by default. For a question about their own leader, (a) is empty unless a reading's text in paper_context actually discusses that leader; don't connect the leader's actions to a reading or author ("these habits fit Northouse's…"). (b) Facts about a real person, company or event: put them ONLY in "background" (plain sentences, no label; the app adds "From general background (check before citing):"), never in paras, never invented.
 Asked to write any part for them (an intro, body paragraph, conclusion, thesis, paragraph or sentence): no recap and no facts; say that part's theirs to write and ask one question that gets their own idea.
 Always end paras with exactly ONE question about THEIR choice or idea (never "…, and which…?" or two asks); the question goes in paras, never in background. Never write a thesis, topic sentence, intro, outline line on their topic, or any sentence they could paste in. No lists with headings, no markdown, no emoji. Return JSON {"paras": [1-3 short paragraphs], "background": [0-3 short sentences of general-background facts]}.`;
 
@@ -88,6 +88,9 @@ function splitStackedAsk(q: string): string {
 
 const ATTRIB = /\b(describe[sd]?|say[s]?|said|argue[sd]?|note[sd]?|add[s]?|added|stress(?:es|ed)?|define[sd]?|write[s]?|wrote|explain[sd]?|cover[s]?|survey[s]?|treat[s]?|link[s]?|suggest[s]?|calls?|emphasi[sz]e[sd]?|point[s]? out|highlight[s]?|frame[sd]?|discuss(?:es|ed)?)\b/i;
 
+/** A sentence that points back at the leader without naming them ("he", "his", "these habits"). */
+const LEADER_REF = /\b(he|she|him|his|her|hers|these (?:habits|actions|moves|steps|practices|choices|behaviors|behaviours|traits|examples)|those (?:habits|actions|moves|steps|practices|choices|behaviors|behaviours|traits|examples)|this (?:habit|approach|example|behavior|behaviour))\b/i;
+
 /** Author-like names the paper's reading list mentions (capitalized words in the context block). */
 function readingNames(block: string, leader: string | null): string[] {
   const leaderParts = new Set((leader ?? "").toLowerCase().split(/\s+/).filter(Boolean));
@@ -134,6 +137,10 @@ export function shapeContentAnswer(input: { paras: string[]; background?: unknow
         // Not grounded in the reading's text, or ties their leader to an author who never discusses them.
         if (by.some((a) => !new RegExp(`\\b${a}\\b`).test(readingText))) continue;
         if (namesLeader(x) && !leaderInReadings) continue;
+        // "These habits fit … Northouse … Goleman": the leader tied to the readings by reference.
+        if (aboutLeader && !leaderInReadings && LEADER_REF.test(x)) continue;
+        // "…Northouse covers in Chapter 4": a chapter's contents only when that chapter's text is in the context.
+        if (/\bchapter\s+\d+/i.test(x) && !/\bchapter\s+\d+/i.test(readingText)) continue;
         out.push(x);
         continue;
       }
