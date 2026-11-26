@@ -12,14 +12,15 @@ describe("PC-30 Skeleton sections: order and count", () => {
     const short = paperSections({ view: viewFor(800), words: {} });
     expect(short.map((s) => s.kicker)).toEqual(["Introduction", "Body Paragraph 1", "Body Paragraph 2", "Conclusion"]);
     const long = paperSections({ view: viewFor(2000), words: {} });
-    expect(long.filter((s) => s.group === "body")).toHaveLength(7);
+    // QA (after #82): ~300 words a body after ~300 for the intro and conclusion: 2,000 words → 6.
+    expect(long.filter((s) => s.group === "body")).toHaveLength(6);
     expect(long[0]!.kicker).toBe("Introduction");
     expect(long.at(-1)!.kicker).toBe("Conclusion");
-    expect(long.filter((s) => s.group === "body").map((s) => s.kicker)).toEqual([1, 2, 3, 4, 5, 6, 7].map((n) => `Body Paragraph ${n}`));
+    expect(long.filter((s) => s.group === "body").map((s) => s.kicker)).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Body Paragraph ${n}`));
   });
   it("round 3: titles come from #64's shaped skeleton, not generic labels", () => {
     // Rules stand-in shape: the per-paragraph focus becomes the title.
-    const rules = paperSections({ view: viewFor(1300), words: {} });
+    const rules = paperSections({ view: viewFor(1600), words: {} });
     expect(rules.map((s) => s.title)).toEqual(["Hook, context and your thesis", "Leadership example 1", "Leadership example 2", "Leadership example 3", "Tie it to the theory", "Bring it home and recap"]);
     // Model shape (ghost #1) focus, then ghost #2's short title wins when it's in.
     const v = viewFor(800);
@@ -143,7 +144,7 @@ describe("PC-30 long press", () => {
 
 describe("PC-30 a note shows in one card only", () => {
   it("two paragraphs pointing at the same note: the first one keeps it", () => {
-    const v = viewFor(1300);
+    const v = viewFor(1600);
     const body = v.blocks.filter((b) => b.group === "body");
     body[0]!.ideaRefs = [0];
     body[3]!.ideaRefs = [0, 1];
@@ -156,7 +157,7 @@ describe("PC-30 a note shows in one card only", () => {
 
 describe("PC-30 placed and unplaced notes", () => {
   it("a note ghost #2 placed in paragraph 4 is not also shown in paragraph 1", () => {
-    const v = viewFor(1500);
+    const v = viewFor(1800);
     const body = v.blocks.filter((b) => b.group === "body");
     body[3]!.ideaRefs = [0];
     const words = skeletonWordsFromSession(session({ body: { status: "confirmed", ideas: ["listen to the team", "free note"] } }));

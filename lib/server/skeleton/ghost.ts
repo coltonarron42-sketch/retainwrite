@@ -21,6 +21,7 @@ import {
   shapeFromModel,
   withNameCase,
   withNameCaseView,
+  shapeSigOf,
   type OutlineFacts,
   type PaperShape,
   type ShapeOutline,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/skeleton/shape";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { readingNames } from "@/lib/copy/name-case";
+import { bodyPlan, fitBodies, varyTitles } from "@/lib/skeleton/tidy";
 
 type GhostRow = { shape: PaperShape | null; shapeHash: string | null; outline: ShapeOutline | null; outlineHash: string | null };
 
@@ -97,7 +99,9 @@ function once(key: string, later: (task: () => Promise<void>) => void, task: () 
  * QA (after #81): every shape served (new or stored) has the readings' names in their own case.
  */
 export async function ensureShape(input: Parameters<typeof ensureShapeRaw>[0]): Promise<PaperShape> {
-  return withNameCase(await ensureShapeRaw(input), readingNames(input.assignmentText));
+  // QA (after #82): every shape served is sized to the plan (stored ones too), bodies re-keyed in order.
+  const plan = bodyPlan({ text: input.assignmentText, words: input.words });
+  return withNameCase(fitBodies(await ensureShapeRaw(input), plan), readingNames(input.assignmentText));
 }
 
 async function ensureShapeRaw(input: {
@@ -114,10 +118,11 @@ async function ensureShapeRaw(input: {
   // A rules fallback (the model missed) is retried on the next ask, never kept for good.
   const hash = `a:${inputHash(input.assignmentText)}`;
   if (input.existing?.shape && input.existing.shapeHash === hash && input.existing.shape.source === "model") return input.existing.shape;
+  const plan = bodyPlan({ text: input.assignmentText, words: input.words });
   const model = async (): Promise<PaperShape | null> => {
     const raw = await askJson(
       SHAPE_SYSTEM,
-      JSON.stringify({ assignment: input.assignmentText.slice(0, 8000), target_words: input.words, course_material: input.material.slice(0, 4000) }),
+      JSON.stringify({ assignment: input.assignmentText.slice(0, 8000), target_words: input.words, target_bodies: plan.bodies, target_bodies_with_counter: plan.withCounter, course_material: input.material.slice(0, 4000) }),
       true,
       "shape",
     );
@@ -160,12 +165,14 @@ export async function ensureOutline(input: {
   shown?: ShapeOutline | null;
 }): Promise<ShapeOutline | null> {
   const fk = factsKeyOf(input.facts);
-  const keep = (o: ShapeOutline, prev: ShapeOutline | null | undefined = input.shown) => keepShownTitles(prev, o, fk);
+  const sig = shapeSigOf(input.shape);
+  const keep = (o: ShapeOutline, prev: ShapeOutline | null | undefined = input.shown) => keepShownTitles(prev, o, fk, sig);
   const studentCorpus = [...input.choices, ...input.bodyNotes].join("\n");
   if (!input.facts.leader && !input.facts.styles.length && !input.bodyNotes.length) return input.existing?.outline ?? null;
-  const hash = `${inputHash(input.shape.blocks.map((b) => b.key).join(","))}:${inputHash(JSON.stringify(input.facts) + studentCorpus)}`;
+  // QA (after #82): the hash carries the shape's own body lines, so a rebuilt shape always re-titles.
+  const hash = `${sig}:${inputHash(JSON.stringify(input.facts) + studentCorpus)}`;
   const pending = `r:${hash}`;
-  if (input.existing?.outline && input.existing.outlineHash === hash) return input.existing.outline;
+  if (input.existing?.outline && input.existing.outlineHash === hash && input.existing.outline.shapeSig === sig) return input.existing.outline;
   const guard = async (outline: ShapeOutline): Promise<ShapeOutline> => {
     // Same leak guard as the hidden draft: a title may not carry hidden-draft wording.
     const hidden = await loadHiddenDraftMaterial(input.paperId).catch(() => null);
@@ -216,9 +223,11 @@ export async function ensureOutline(input: {
   return rules;
 }
 
-export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = []): SkeletonView {
+export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = [], extra: { leader?: string | null; summary?: string | null } = {}): SkeletonView {
   // QA (after #81): bold body titles keep the readings' names too ("Goleman's emotional intelligence link").
-  return withNameCaseView(projectSkeleton(shape, outline), names);
+  // QA (after #82): the leader opens at most two titles; the top line is the synthesized summary.
+  const view = withNameCaseView(varyTitles(projectSkeleton(shape, outline), extra.leader), names);
+  return { ...view, summary: extra.summary ?? null };
 }
 
 /** Server-side only: the decisions the shape says Pau needs (for her prompts). */

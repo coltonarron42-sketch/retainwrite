@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import type { SkeletonView } from "@/lib/skeleton/shape";
 import { HOLD_MS, IDLE, pressReduce, type PressEvent, type PressState } from "@/lib/skeleton/long-press";
 import { OPEN_EVENT, requestSection, revealSection, useLiveSkeleton } from "@/lib/skeleton/live";
-import { paperSections, previewText, shortDirection, sectionHref, sectionTarget, skeletonWordsFromSession, type PaperSection, type SessionSectionLike, type SkeletonWords } from "@/lib/skeleton/sections";
+import { paperSections, previewText, sectionHref, sectionTarget, skeletonWordsFromSession, type PaperSection, type SessionSectionLike, type SkeletonWords } from "@/lib/skeleton/sections";
 
 type Props = {
   paperId: string;
@@ -132,7 +132,7 @@ export function SkeletonDock({ paperId, stage, paperStage, demoMode = false, tit
         <SkeletonOverlay
           sections={sections}
           waiting={waiting}
-          direction={shortDirection(live?.direction)}
+          direction={view?.summary ?? null}
           interactive={(s) => Boolean(sectionTarget(paperStage, s))}
           onOpen={openSection}
           onClose={close}
