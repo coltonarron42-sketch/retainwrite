@@ -2,6 +2,7 @@
 
 import { friendlyStatus } from "@/lib/stage1/reading-status";
 import { namedWorksFrom } from "@/lib/stage1/readings";
+import { inlineLabel } from "@/lib/stage1/reading-label";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DsButton } from "@/components/ui/ds-button";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -399,7 +400,7 @@ export function PauPauConfirm({
       if (!p?.ask) return [];
       return [
         `In plain words: ${p.ask}`,
-        p.mustInclude.length ? `To do well, it needs ${p.mustInclude.join(", ")}.` : "",
+        p.mustInclude.length ? `To do well, it needs ${p.mustInclude.map(inlineLabel).join(", ")}.` : "",
       ].filter(Boolean);
     }
     setReplyStatus(route === "material" ? "Digging it up… (I'm checking what I know about your readings)" : "Pulling together a few real options…");
