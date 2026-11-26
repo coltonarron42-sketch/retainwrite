@@ -1400,6 +1400,7 @@ export function CoachingLoop({
       ) : null}
       {stage === 2 && section && introReady ? (
         <StanceChat
+          sources={pctx?.summaries ?? (pctx?.summary ? [pctx.summary] : [])}
           skeleton={skeleton}
           earlier={stage1Past}
           paperId={paperId}
@@ -1525,6 +1526,7 @@ export function CoachingLoop({
       {stage === 3 &&
       productStageBounce({ stage, progress: stageProgress, sections: session.sections }) === "stay" ? (
         <OutlineChat
+          sources={pctx?.summaries ?? (pctx?.summary ? [pctx.summary] : [])}
           skeleton={skeleton}
           earlier={stage2Past}
           pick={pctx?.decision ? pickPhrase(pctx.decision, pctx.options?.options ?? []) : null}

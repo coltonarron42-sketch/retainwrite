@@ -1,0 +1,98 @@
+/** P3: stored sources placed per section, shown at the section's first prompt (Stages 2–3). */
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { placeSources, sameWork, sourceHintLead, sourceHintsFor, storedSources } from "@/lib/coaching/source-hints";
+import type { MaterialSummary } from "@/lib/stage1/paper-context";
+
+const S = (kind: MaterialSummary["kind"], title: string, points: string[], url?: string): MaterialSummary => ({ kind, title, points, sources: url ? [{ title, url }] : [], at: 1 });
+const GOLEMAN = S("found", "What Makes a Leader? (Goleman, HBR)", ["Emotional intelligence matters more than IQ for leaders.", "Five components: self-awareness, self-regulation, motivation, empathy, social skill.", "Empathy helps leaders keep talent during change."], "https://hbr.org/2004/01/what-makes-a-leader");
+const NORTHOUSE = S("reading", "Northouse, Chapter 4", ["The behavioral approach looks at what leaders do: task and relationship behaviors.", "Servant leaders put followers' needs first."]);
+const KNOW = S("knowledge", "Leadership styles", ["Transformational leaders inspire a shared vision."]);
+const SECTIONS = [
+  { key: "intro", title: "Introduction", needs: "Hook and thesis" },
+  { key: "body1", title: "Body 1: Why servant leadership works", needs: "Explain servant leadership with the behavioral approach", concept: "servant leadership" },
+  { key: "body2", title: "Body 2: Empathy during change", needs: "Show how emotional intelligence and empathy keep a team together through change" },
+  { key: "conc", title: "Conclusion", needs: "Restate and close" },
+];
+
+describe("stored sources", () => {
+  it("their readings, pages Pau found and her summaries of the assigned readings, one per work, their copy first", () => {
+    const list = storedSources([KNOW, GOLEMAN, NORTHOUSE, S("found", "Northouse, Chapter 4", ["x"]), S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["y"]), S("knowledge", "Goleman's “What Makes a Leader?”", ["z"])]);
+    expect(list.map((x) => x.title)).toEqual(["Leadership styles", "What Makes a Leader? (Goleman, HBR)", "Northouse, Chapter 4"]);
+    expect(list[2]!.kind).toBe("reading");
+    expect(list[1]!.kind).toBe("found");
+  });
+  it("same work across titles, but a shared topic word never merges two works", () => {
+    expect(sameWork("Northouse, Chapter 4", "Northouse's Leadership: Theory and Practice (the book overall)")).toBe(true);
+    expect(sameWork("What Makes a Leader? (Goleman, HBR)", "Goleman's “What Makes a Leader?”")).toBe(true);
+    expect(sameWork("Leadership That Gets Results (Goleman)", "What Makes a Leader? (Goleman)")).toBe(false);
+    expect(sameWork("Leadership styles", "Northouse's Leadership: Theory and Practice")).toBe(false);
+  });
+  it("the default flow (no upload): her labelled summaries of the assigned readings are hinted, without a link", () => {
+    const NK = S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["Servant leaders put followers' needs first.", "Situational leadership matches style to readiness."]);
+    const GK = S("knowledge", "Goleman's “What Makes a Leader?”", ["Emotional intelligence: empathy and social skill matter during change."]);
+    expect(storedSources([NK, GK])).toHaveLength(2);
+    const h = sourceHintsFor(SECTIONS[2]!, SECTIONS, [NK, GK]);
+    expect(h.map((x) => x.title)).toEqual(["Goleman's “What Makes a Leader?”"]);
+    expect(h[0]!.url).toBeNull();
+    expect(h[0]!.from).toMatch(/check it against your copy/);
+  });
+  it("each source goes to the one section it fits best (where to reference it)", () => {
+    const placed = placeSources(SECTIONS, [GOLEMAN, NORTHOUSE]);
+    expect(placed.body2?.map((x) => x.title)).toEqual(["What Makes a Leader? (Goleman, HBR)"]);
+    expect(placed.body1?.map((x) => x.title)).toEqual(["Northouse, Chapter 4"]);
+    expect(placed.intro).toBeUndefined();
+    expect(placed.conc).toBeUndefined();
+  });
+  it("the place stays put while they write: an intro note never pulls a source out of the body (QA p3b)", () => {
+    const NK = S("knowledge", "Northouse's Leadership: Theory and Practice (the book overall)", ["Transformational leaders build a shared vision so a team buys into change."]);
+    const GK = S("knowledge", "Goleman's “What Makes a Leader?”", ["Empathy and social skill matter during change."]);
+    const live = [
+      { key: "intro", title: "Introduction", needs: "Introduce the work", kind: "intro", ideas: ["Transformational leadership works best for leading a team through change because people buy into a shared vision."] },
+      { key: "body", title: "Body", needs: "Develop the main examples", kind: "body", ideas: [] },
+      { key: "conclusion", title: "Conclusion", needs: "Close the paper", kind: "conclusion", ideas: [] },
+    ];
+    const before = placeSources(live.map((x) => ({ ...x, ideas: [] })), [NK, GK]);
+    const after = placeSources(live, [NK, GK]);
+    expect(Object.keys(before)).toEqual(["body"]);
+    expect(after).toEqual(before);
+    expect(sourceHintsFor(live[1]!, live, [NK, GK]).map((h) => h.title)).toEqual([NK.title, GK.title]);
+  });
+  it("with no fit, sources are shared out over the body sections", () => {
+    const placed = placeSources(SECTIONS, [S("reading", "Lecture notes", ["Week three overview."]), S("reading", "Case packet", ["Week four."])]);
+    expect(Object.keys(placed).sort()).toEqual(["body1", "body2"]);
+  });
+  it("a source that fits no section goes to the first body section, never the intro", () => {
+    const placed = placeSources(SECTIONS, [S("reading", "Lecture notes", ["Week three overview."])]);
+    expect(Object.keys(placed)).toEqual(["body1"]);
+  });
+  it("the hint carries the link, where it came from, and the two points that fit this section", () => {
+    const h = sourceHintsFor(SECTIONS[2]!, SECTIONS, [GOLEMAN, NORTHOUSE]);
+    expect(h).toHaveLength(1);
+    expect(h[0]!.url).toBe("https://hbr.org/2004/01/what-makes-a-leader");
+    expect(h[0]!.from).toBe("the source I found online");
+    expect(h[0]!.points).toEqual(["Emotional intelligence matters more than IQ for leaders.", "Empathy helps leaders keep talent during change."]);
+    expect(sourceHintsFor(SECTIONS[0]!, SECTIONS, [GOLEMAN, NORTHOUSE])).toEqual([]);
+    expect(sourceHintsFor(SECTIONS[1]!, SECTIONS, [])).toEqual([]);
+  });
+  it("the lead says when and where, with no question", () => {
+    expect(sourceHintLead(2, "Body 2: Empathy during change")).toMatch(/^Here's the source if you want to refresh before writing your body 2: empathy during change\. This is the section to reference it in\.$/);
+    expect(sourceHintLead(3, "Body 1")).toMatch(/cite in your body 1/);
+    expect(sourceHintLead(2, "x")).not.toContain("?");
+  });
+});
+
+describe("wired into Stages 2 and 3 at the section's first prompt", () => {
+  const stance = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+  const outline = readFileSync("components/stages/loop/outline-chat.tsx", "utf8");
+  const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+  it("shown only before their first reply in that section", () => {
+    expect(stance).toContain('!transcript.some((l) => l.who !== "pau" && l.k === section.key) ? (');
+    expect(stance).toContain("<SourceHintCard stage={2}");
+    expect(outline).toContain('!transcript.some((l) => l.who !== "pau" && l.k === current.key) ? (');
+    expect(outline).toContain("<SourceHintCard stage={3}");
+  });
+  it("fed from the stored paper context (no new storage)", () => {
+    expect(loop.match(/sources=\{pctx\?\.summaries \?\? \(pctx\?\.summary \? \[pctx\.summary\] : \[\]\)\}/g)?.length).toBe(2);
+  });
+});

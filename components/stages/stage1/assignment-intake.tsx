@@ -1174,6 +1174,11 @@ export function AssignmentIntake({
   // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
   const curQId = useRef<string | null>(null);
   const [recovering, setRecovering] = useState(false);
+  // QA (#78 gate): search links are built from their leader, their styles and the topic's keywords.
+  const searchPicks = () => ({
+    leader: leaderAlready,
+    styles: chosenStyles([brief?.decision?.answer, ...answers.map((a) => a.answerText)]),
+  });
   // North star (Colton 11:41): there is no extra voice question at all.
   const fallbackOff = Boolean(brief?.northstar);
 
@@ -2883,7 +2888,7 @@ export function AssignmentIntake({
           name: "A practitioner voice in this topic",
           whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
-          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
         }),
       ];
       if (tags[0]) {
@@ -2894,7 +2899,7 @@ export function AssignmentIntake({
             whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
-            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
           }),
         );
       }
@@ -3162,7 +3167,7 @@ export function AssignmentIntake({
           name: "A practitioner voice in this topic",
           whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
-          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
         }),
       ];
       if (tags[0]) {
@@ -3173,7 +3178,7 @@ export function AssignmentIntake({
             whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
-            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
           }),
         );
       }
