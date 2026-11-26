@@ -6,6 +6,8 @@ import { dropHedges } from "@/lib/copy/tidy";
  * // SOP: coaching only, never generate submission text
  */
 import { chosenStyles, namedPerson } from "@/lib/stage1/north-turns";
+import { leadingName, titleName } from "@/lib/copy/names";
+export { titleName } from "@/lib/copy/names";
 import { notAlreadyNamed } from "@/lib/stage1/readback-tidy";
 import { andList, answerNamesOption, decisionHasReason, decisionLabel, pickedStyles, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
@@ -128,21 +130,6 @@ export function stage2Earlier(
   // Only a common first word drops its capital ("You think…" → "you think…"); a name keeps it.
   const lower = /^(?:You|Your|You're|You've|You'd|The|A|An|It|It's|That|This|There|Maybe|Probably|Leaders?|Being|Having)\b/.test(told) ? `${told.charAt(0).toLowerCase()}${told.slice(1)}` : told;
   return `Earlier you told me ${lower.replace(/([.!?]\s+)([a-z])/g, (_x, a: string, b: string) => a + b.toUpperCase()).replace(/…$/, "")}${/…$/.test(told) ? "…" : "."}${who && !new RegExp(who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(said) ? ` Your example: ${who}.` : ""}`;
-}
-
-/** "Satya Nadella" from "satya nadella", keeping inner capitals ("McDonald"). */
-export function titleName(name: string): string {
-  return name.replace(/\s+/g, " ").trim().split(" ").map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
-}
-
-/** A short name fragment their answer opens with ("satya Nadella. I like…"): 2-3 words, one capitalized. */
-function leadingName(said: string): string | null {
-  const first = said.split(/[.!?;:,]/)[0]?.trim() ?? "";
-  const words = first.split(/\s+/).filter(Boolean);
-  if (words.length < 2 || words.length > 3) return null;
-  if (!words.some((w) => /^[A-Z][a-z'’-]+$/.test(w))) return null;
-  if (words.some((w) => /^(i|my|the|a|an|is|was|he|she|they|like|think|pick|want|because|leadership|servant|transformational|situational)$/i.test(w))) return null;
-  return titleName(words.join(" "));
 }
 
 /** The opener's heading and body: the read-back's plain words win over a parsed topic. */

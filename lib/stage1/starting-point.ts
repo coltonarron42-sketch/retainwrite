@@ -5,6 +5,7 @@
  * Where they are (has ideas / has read the material / no clue) is saved so Stage 2 meets them there.
  * // SOP: coaching only, never generate submission text
  */
+import { leadingName } from "@/lib/copy/names";
 import { chosenStyles } from "@/lib/stage1/north-turns";
 import { leaderAcross } from "@/lib/stage1/lock-in";
 
@@ -200,7 +201,8 @@ export function ideaTopic(text: string): string | null {
   const leader = leaderAcross([t.replace(/\b(Actually|Maybe|Also|Honestly|Probably|Okay|Ok|Yes|Yeah|No|So|Well|But|And|I'll|I'm|I'd|I've|I)\b/g, (w) => w.toLowerCase())], "");
   const role = ROLE.exec(t);
   const roleText = role ? `your ${role[1] ? `${role[1]} ` : ""}${role[2] && !/^(the|a|an|really|very)$/.test(role[2]) ? `${role[2]} ` : ""}${role[3]}` : null;
-  const name = leader ?? role?.[4] ?? null;
+  // QA 6:53 PM: "satya Nadella. I like…" still names the leader (capitalized).
+  const name = leader ?? role?.[4] ?? leadingName(t);
   const subject = roleText && name ? `${roleText}, ${name},` : (name ?? roleText);
   if (subject && style) return `${subject} as an example of ${style} leadership`;
   if (subject) return subject.replace(/,$/, "");

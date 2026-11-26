@@ -106,3 +106,12 @@ describe("should-fix: general-background leader facts are few, well known and ti
     expect(readFileSync("app/api/papers/[paperId]/coach/answer/route.ts", "utf8")).toMatch(/student_style: style \?\? ""/);
   });
 });
+
+describe("QA 6:53 PM: Stage 1's reflect-back and Stage 2 starting line keep a lowercase-typed leader", async () => {
+  const { ideasConfirm, stage2StartingLine } = await import("@/lib/stage1/starting-point");
+  const t = "satya Nadella. I like transformational, because he rebuilt Microsoft's culture";
+  it("names the leader, capitalized", () => {
+    expect(ideasConfirm(t, true)).toBe("Got it. So you're thinking about Satya Nadella as an example of transformational leadership. Did I get that right?");
+    expect(stage2StartingLine({ kind: "has_ideas", ideas: t, readMaterial: false, at: 1 } as never)).toBe("In Stage 1 you said you're thinking about Satya Nadella as an example of transformational leadership. We'll start there.");
+  });
+});
