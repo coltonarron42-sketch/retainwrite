@@ -1,8 +1,5 @@
 import { searchKeywords, searchPhrase } from "@/lib/coaching/exampleLeads";
 import { topicSearchTerms } from "@/lib/copy/topic-phrase";
-import { topicKeywords, trimAtWord } from "@/lib/copy/topic-keywords";
-
-export { topicKeywords, trimAtWord };
 export type ResearchLeadDraft = {
   name: string;
   whyAssignment: string;
@@ -90,6 +87,31 @@ export function leadLinks(lead: ResearchLeadDraft, topic?: string | null): LeadL
 
 /** What the student chose, for a sharper search: their leader and styles. */
 export type SearchPicks = { leader?: string | null; styles?: string[] };
+
+const QUERY_STOP = new Set(
+  "a an the and or of in on at to for with by from as is are was were be been being which what who whom whose how why when where whether that this these those it its do does did can could should would will most more best effective really very one real your you their them they he she his her our we us i my using use used through into about than then so if not no essay paper argue arguing argues write explain discuss".split(" "),
+);
+
+/** Trim to `max` characters at a word boundary (never mid-word). */
+export function trimAtWord(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max + 1);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 0 ? cut.slice(0, sp) : t.slice(0, max)).trim();
+}
+
+/** The topic's core terms ("leadership style leading team change"), never the question's filler words. */
+export function topicKeywords(topic: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of String(topic ?? "").replace(/[“”"'’?!.,;:()]/g, " ").split(/\s+/)) {
+    const w = raw.trim();
+    const lw = w.toLowerCase();
+    if (!w || lw.length < 3 || QUERY_STOP.has(lw) || /^\d/.test(lw) || out.some((x) => x.toLowerCase() === lw)) continue;
+    out.push(/^[A-Z][a-z]/.test(w) && out.length > 0 ? w : lw);
+  }
+  return out;
+}
 
 /**
  * QA (#78 gate): a search query from keywords (their leader, their styles, the topic's core terms),
