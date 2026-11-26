@@ -19,12 +19,15 @@ import {
   wordsTarget,
   SHAPE_SYSTEM,
   shapeFromModel,
+  withNameCase,
+  withNameCaseView,
   type OutlineFacts,
   type PaperShape,
   type ShapeOutline,
   type SkeletonView,
 } from "@/lib/skeleton/shape";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { readingNames } from "@/lib/copy/name-case";
 
 type GhostRow = { shape: PaperShape | null; shapeHash: string | null; outline: ShapeOutline | null; outlineHash: string | null };
 
@@ -89,8 +92,15 @@ function once(key: string, later: (task: () => Promise<void>) => void, task: () 
   });
 }
 
-/** Ghost #1: the shape, once the assignment (and any material) has been read. */
-export async function ensureShape(input: {
+/**
+ * Ghost #1: the shape, once the assignment (and any material) has been read.
+ * QA (after #81): every shape served (new or stored) has the readings' names in their own case.
+ */
+export async function ensureShape(input: Parameters<typeof ensureShapeRaw>[0]): Promise<PaperShape> {
+  return withNameCase(await ensureShapeRaw(input), readingNames(input.assignmentText));
+}
+
+async function ensureShapeRaw(input: {
   paperId: string;
   userId: string;
   assignmentText: string;
@@ -111,7 +121,7 @@ export async function ensureShape(input: {
       true,
       "shape",
     );
-    const fromModel = raw ? shapeFromModel(raw) : null;
+    const fromModel = raw ? shapeFromModel(raw, readingNames(input.assignmentText)) : null;
     if (raw && !fromModel) console.warn("[ghost] shape rejected by schema");
     if (fromModel) await writeGhost(input.paperId, input.userId, "shape", fromModel, hash).catch(() => undefined);
     return fromModel;
@@ -206,8 +216,9 @@ export async function ensureOutline(input: {
   return rules;
 }
 
-export function viewFor(shape: PaperShape, outline: ShapeOutline | null): SkeletonView {
-  return projectSkeleton(shape, outline);
+export function viewFor(shape: PaperShape, outline: ShapeOutline | null, names: string[] = []): SkeletonView {
+  // QA (after #81): bold body titles keep the readings' names too ("Goleman's emotional intelligence link").
+  return withNameCaseView(projectSkeleton(shape, outline), names);
 }
 
 /** Server-side only: the decisions the shape says Pau needs (for her prompts). */
