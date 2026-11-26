@@ -106,15 +106,15 @@ import {
   appendLines,
   applySectionPatch,
   nextOutlineIndex,
-  officialLeadName,
   outlineSectionsForContinue,
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
-import { isConfirmOnly, looksLikeNewPoint, stripReplyFillers } from "@/lib/stages/confirm-only";
-import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
-import { applyOnTopicPressureTest, exploreNote, exploreTopic, isClosingPhrase, isExploreDone, listeningClaim, oneOptionLeadBatch, sectionClaimSummary, type ListeningState } from "@/lib/stages/explore-intent";
-import { fetchListenClaim } from "@/lib/stages/listen-client";
+import { finalStanceIntent, intentReply, isWriteRequest, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
+import { sourcesLine } from "@/lib/coach/sources-line";
+import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
+import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -158,8 +158,6 @@ type RuntimeSection = {
   logic: FinalizedLogic | null;
   logicRevealed: boolean;
   continued: boolean;
-  listening?: ListeningState | null;
-  pendingKeep?: boolean;
 };
 
 type Session = {
@@ -404,6 +402,8 @@ export function CoachingLoop({
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
   const [answering, setAnswering] = useState(false);
+  /** PC-31 t213u: her live "thinking" line while an answer streams in. */
+  const [answerStatus, setAnswerStatus] = useState<string | null>(null);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
@@ -739,8 +739,6 @@ export function CoachingLoop({
             status: "confirmed" as const,
             loopStep: "confirmed" as const,
             continued: choice === "continued",
-            listening: null,
-            pendingKeep: false,
           }
         : item,
     );
@@ -873,25 +871,18 @@ export function CoachingLoop({
     return [...cur.answers.map((x) => x.text), ...cur.sections.flatMap((x) => keptIdeas(x.ideas))].join("\n");
   }
 
-  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+  async function coachAnswer(mode: CoachMode, message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
     try {
-      const controller = new AbortController();
-      // A blocked first draft is retried once on the server (PC-32 QA 5:15 PM), so allow for two calls.
-      const timer = setTimeout(() => controller.abort(), 16000);
-      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000), notes: studentNotes().slice(0, 8000) }),
-        signal: controller.signal,
-      });
-      // The cap covers reading the body too (a stalled body kept the buttons busy).
-      if (!res.ok) {
-        clearTimeout(timer);
-        return null;
-      }
-      const d = (await res.json()) as { paras?: string[] };
-      clearTimeout(timer);
-      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
+      // PC-31 t213u: streamed, with her live steps as the busy line ("Searching for …", "Reading …").
+      const d = await fetchPauAnswer(
+        `/api/papers/${paperId}/coach/answer`,
+        { mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000), notes: studentNotes().slice(0, 8000) },
+        { kind: statusKindFor(mode), idleMs: 22_000, maxMs: 55_000, onStatus: (line) => setAnswerStatus(line) },
+      );
+      setAnswerStatus(null);
+      if (!d?.paras?.length) return null;
+      const src = sourcesLine(d.sources);
+      return [...d.paras.map((p) => oneQuip(p)), ...(src ? [src] : [])];
     } catch {
       return null;
     }
@@ -957,7 +948,11 @@ export function CoachingLoop({
   }
 
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
-  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
+  function answerModeFor(intent: StanceIntent, text: string): CoachMode | null {
+    // PC-31: "write my intro" gets her reframe (a question about their point); "find me examples" gets real research.
+    if (isWriteRequest(text)) return "reframe";
+    if (RESEARCH_ASK.test(text)) return "research";
+    if (SUMMARY_ASK.test(text)) return "summary";
     if (intent === "content_question") return "answer";
     if (intent === "request_help" || isLostSaying(text)) return "lost";
     return null;
@@ -1032,52 +1027,6 @@ export function CoachingLoop({
       { transcript: withLines(more) },
     );
     log("teach_aspect_picked");
-  }
-
-  /** Exploring an option: acknowledge, note it, keep the floor open, don't lock or open a menu. */
-  async function onListen(more: LoopLine[], opts?: { text?: string; done?: boolean; lock?: boolean }) {
-    const base = sessionRef.current ?? session;
-    if (!base || !section) return;
-    const live = base.sections.find((item) => item.key === section.key) ?? section;
-    const incoming = opts?.text && !isClosingPhrase(opts.text) ? exploreNote(opts.text) : null;
-    const topic = exploreTopic(opts?.text ?? "") ?? live.listening?.topic ?? "this idea";
-    const already = new Set((live.listening?.notes ?? []).map((n) => n.replace(/\s+/g, " ").toLowerCase()));
-    const notes =
-      incoming && !already.has(incoming.replace(/\s+/g, " ").toLowerCase())
-        ? [...(live.listening?.notes ?? []), incoming]
-        : (live.listening?.notes ?? []);
-    if (opts?.done) {
-      const patch: Partial<RuntimeSection> = { listening: null, pendingKeep: false };
-      const prior = keptIdeas(live.ideas).filter((n) => !isClosingPhrase(n));
-      const claim =
-        (await fetchListenClaim(paperId, notes, section.title)) ?? listeningClaim([...notes, ...prior], section.title);
-      if (claim && !isClosingPhrase(claim)) patch.ideas = [claim];
-      else if (prior.length) patch.ideas = prior;
-      // The confirm phrase is the confirm: summarize once and offer the pressure test.
-      // No second "go with it?" question and no downgrade of the idea.
-      const ideaText = (patch.ideas ?? prior).join(" ");
-      if (ideaText) {
-        const current = { ...live, ideas: patch.ideas ?? prior };
-        relevance.current = { key: `${section.key}:${ideaText}`, verdict: fetchRelevance(ideaText, section.title) };
-        let logic = applyOnTopicPressureTest(checkNotes(current, ideaText, null), ideaText);
-        patch.loopStep = "logic_check";
-        patch.logic = logic;
-        patch.logicRevealed = true;
-      }
-      updateSection(section.key, patch, { transcript: withLines(more) });
-      paste.reset();
-      clearSent(idea);
-      setThinNote(null);
-      return;
-    }
-    updateSection(
-      section.key,
-      { listening: { topic, notes } },
-      { transcript: withLines(more), events: [...base.events, "stance_listening"] },
-    );
-    paste.reset();
-    clearSent(idea);
-    setThinNote(null);
   }
 
   function onTeachSkip(more: LoopLine[]) {
@@ -1183,7 +1132,7 @@ export function CoachingLoop({
       {
         ...teach,
         ideas: step.ideas,
-        chosenLead: officialLeadName(seeded?.name) ?? officialLeadName(live.chosenLead) ?? null,
+        chosenLead: seeded?.name ?? live.chosenLead,
         loopStep: step.loopStep,
         ...(opts?.replace ? { logic: null, logicRevealed: false } : {}),
       },
@@ -1209,48 +1158,14 @@ export function CoachingLoop({
 
   function onNameLead(text: string, more: LoopLine[]) {
     if (!section || !text.trim()) return;
-    if (isConfirmOnly(text) || isClosingPhrase(text) || isExploreDone(text)) {
-      updateSection(section.key, { loopStep: "summarize" }, { transcript: withLines(more) });
-      clearSent(idea);
-      return;
-    }
-    const lead = officialLeadName(text);
-    updateSection(section.key, { ...(lead ? { chosenLead: lead } : {}), loopStep: "summarize" }, { transcript: withLines(more) });
-    if (lead) log("section_lead_picked");
-    clearSent(idea);
-  }
-
-  /** A new substantive point on the default path: save it, reflect, and refresh the cards. */
-  async function onNewPoint(text: string, more: LoopLine[]) {
-    if (!section || !session) return;
-    const note = stripReplyFillers(text);
-    if (!note) return;
-    const live = (sessionRef.current ?? session)?.sections.find((item) => item.key === section.key) ?? section;
-    const probed = afterProbe(live, note, false);
-    const transcript = withLines(more);
-    const nextSession: Session = {
-      ...session,
-      transcript,
-      sections: session.sections.map((item) =>
-        item.key === section.key ? { ...item, ideas: probed.ideas, loopStep: "search", chosenLead: officialLeadName(live.chosenLead) ?? live.chosenLead } : item,
-      ),
-    };
-    if (!(await saveLoop(nextSession, `stance:${section.key}`, note, { stage: 2, sectionKey: section.key }))) {
-      restore(text);
-      return;
-    }
-    updateSection(
-      section.key,
-      { ideas: probed.ideas, loopStep: "search", chosenLead: officialLeadName(listeningClaim(probed.ideas, section.title)) ?? officialLeadName(live.chosenLead) ?? null },
-      { transcript },
-    );
+    updateSection(section.key, { chosenLead: text.trim(), loopStep: "summarize" }, { transcript: withLines(more) });
+    log("section_lead_picked");
     clearSent(idea);
   }
 
   function onPickLead(lead: PreparedLead, more: LoopLine[]) {
     if (!section) return;
-    const picked = officialLeadName(lead.name);
-    updateSection(section.key, { ...(picked ? { chosenLead: picked } : {}), loopStep: "summarize" }, { transcript: withLines(more) });
+    updateSection(section.key, { chosenLead: lead.name, loopStep: "summarize" }, { transcript: withLines(more) });
     log(lead.isWildcard ? "lead_wildcard_picked" : "section_lead_picked");
   }
 
@@ -1308,30 +1223,21 @@ export function CoachingLoop({
     // Every kept note stays at lock-in; an added reply never silently replaces the thesis (QA 8:31 AM).
     const current = base.sections.find((item) => item.key === section.key) ?? section;
     const kept = keptIdeas(current.ideas);
-    const claim = listeningClaim(kept, section.title);
-    const notes = claim || kept.join(" ");
+    const notes = kept.join(" ");
     // Relevance first, on every section: ask the model now, use it at "Yes, check it".
     relevance.current = { key: `${section.key}:${notes}`, verdict: fetchRelevance(notes, section.title) };
-    const logic = applyOnTopicPressureTest(checkNotes(current, notes, null), notes);
-    const offPrompt = /^This doesn't answer the question your prompt asks/.test(logic.result.reason ?? "");
-    const summary = claim ? sectionClaimSummary(claim, section.title) : "";
-    const already = more.some((l) => l.who === "pau" && l.text === summary);
-    const lines = summary && !already ? [...more, { k: section.key, who: "pau" as const, text: summary }] : more;
+    const logic = checkNotes(current, notes, null);
     updateSection(
       section.key,
       {
         loopStep: "logic_check",
         logic,
-        // On-topic thin claims go straight to the pressure test; a true off-prompt still alerts.
-        logicRevealed: !offPrompt && logic.result.tier !== "pass",
+        logicRevealed: false,
         ideas: kept,
-        listening: null,
-        pendingKeep: false,
-        ...(claim ? { chosenLead: officialLeadName(current.chosenLead) ?? officialLeadName(claim) ?? current.chosenLead } : {}),
       },
-      { transcript: withLines(lines) },
+      { transcript: withLines(more) },
     );
-    log(logic.result.tier === "pass" || offPrompt ? "logic_opener_shown" : "logic_check_run");
+    log("logic_opener_shown");
   }
 
   async function onLogicOpener(choice: "yes" | "tweak", more: LoopLine[]) {
@@ -1348,7 +1254,7 @@ export function CoachingLoop({
         setCheckingLogic(false);
       }
       if (verdict !== null) {
-        const logic = applyOnTopicPressureTest(checkNotes(section, notes, verdict), notes);
+        const logic = checkNotes(section, notes, verdict);
         const passed = logic.result.tier === "pass";
         updateSection(
           section.key,
@@ -1384,24 +1290,10 @@ export function CoachingLoop({
       return;
     }
     if (choice === "continued") {
-      const base = sessionRef.current ?? session;
-      const live = (base?.sections.find((item) => item.key === section.key) ?? section);
-      if (!live.pendingKeep) {
-        updateSection(section.key, { pendingKeep: true }, { transcript: withLines(more) });
-        return;
-      }
-      updateSection(section.key, { pendingKeep: false, listening: null });
       void continueAfterLogic("continued", more);
       return;
     }
     if (choice === "keep") {
-      const base = sessionRef.current ?? session;
-      const live = (base?.sections.find((item) => item.key === section.key) ?? section);
-      if (!live.pendingKeep) {
-        updateSection(section.key, { pendingKeep: true }, { transcript: withLines(more) });
-        return;
-      }
-      updateSection(section.key, { pendingKeep: false, listening: null });
       void continueAfterLogic("keep", more);
       return;
     }
@@ -1469,7 +1361,7 @@ export function CoachingLoop({
     setThinNote(null);
     outlineDrafts.current[key] = text;
     // A blank answer is not a decision to delete the Stance notes.
-    const sections = text.trim() && !isConfirmOnly(text)
+    const sections = text.trim()
       ? session.sections.map((item) => (item.key === key ? { ...item, ideas: [text.trim()] } : item))
       : session.sections;
     const outlineDone = [...(session.outlineDone ?? []).filter((k) => k !== key), key];
@@ -1544,7 +1436,7 @@ export function CoachingLoop({
       ? exampleLeadBatch({
           concept: subject === "your topic" ? section.concept : subject,
           assignmentText: subject === "your topic" ? session.assignmentText : subject,
-          studentIdea: keptIdeas(section.ideas).at(-1) || keptIdeas(section.ideas).join(" "),
+          studentIdea: keptIdeas(section.ideas).join(" "),
           rubricRef: section.rubricRef,
           section: { key: section.key, title: section.title },
           searchTerm: searchTerms.key === termCacheKey ? searchTerms.map[section.key] ?? null : null,
@@ -1626,8 +1518,6 @@ export function CoachingLoop({
               status: section.status,
               hasLogic: Boolean(section.logic),
               logicRevealed: section.logicRevealed,
-              listening: Boolean(section.listening),
-              pendingKeep: Boolean(section.pendingKeep),
             },
             { hasCard: Boolean(card), personalized: Boolean(examples?.personalized), hasBatch: Boolean(batch) },
           )}
@@ -1649,7 +1539,7 @@ export function CoachingLoop({
           leadsPending={Boolean(termCacheKey) && termsWait === termCacheKey && !(searchTerms.key === termCacheKey && searchTerms.map[section.key])}
           batch={
             batch
-              ? oneOptionLeadBatch({
+              ? {
                   ranked: batch.ranked,
                   wildcard: batch.wildcard,
                   capReached: batch.capReached,
@@ -1660,7 +1550,7 @@ export function CoachingLoop({
                         storyAngle: lesson.statement,
                       })
                     : null,
-                })
+                }
               : null
           }
           transcript={session.transcript ?? []}
@@ -1669,6 +1559,7 @@ export function CoachingLoop({
           classify={classifyIntent}
           onAside={onAside}
           busy={checkingLogic || answering}
+          busyNote={answering ? answerStatus : null}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
@@ -1704,13 +1595,11 @@ export function CoachingLoop({
             triggersSkip: () => log("memory_triggers_skipped"),
             nameLead: onNameLead,
             pickLead: onPickLead,
-            newPoint: onNewPoint,
             confirm: onConfirm,
             logicOpener: onLogicOpener,
             logicResult: onLogicResult,
             skipSection: onSkipSection,
             discuss: onDiscuss,
-            listen: onListen,
             jumpTo: (index) => {
               if (index < 0) return;
               setActive(index);

@@ -36,11 +36,7 @@ import { LESSON_PROBE_OPENER, MEMORY_CONFIRM, MEMORY_PROBE_OPENER } from "@/lib/
 import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } from "@/lib/coaching/memoryTriggers";
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
-import { discussionLine, isConfirmOnly, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { looksLikeNewPoint, stripReplyFillers } from "@/lib/stages/confirm-only";
-import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint, listenConfirmOffer, specificPressureTest, fallbackParaphrase } from "@/lib/stages/explore-intent";
-import { fetchListenReply } from "@/lib/stages/listen-client";
-import { keptIdeas } from "@/lib/coaching/thin";
+import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
 import { wordCount } from "@/lib/utils";
 import { asideFollowUp, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import type { SaveStatusValue as DraftSaveStatus } from "@/lib/papers/use-draft-save";
@@ -82,7 +78,6 @@ export type StanceSectionView = {
   concept: string | null;
   teachAspect: string | null;
   chosenLead: string | null;
-  ideas?: string[];
   logic: {
     result: {
       tier: "pass" | "moderate" | "strong";
@@ -108,16 +103,12 @@ export type StanceHandlers = {
   triggersSkip: () => void;
   nameLead: (text: string, lines: LoopLine[]) => void;
   pickLead: (lead: PreparedLead, lines: LoopLine[]) => void;
-  /** A new substantive point: save it, reflect, and regenerate the cards. */
-  newPoint: (text: string, lines: LoopLine[]) => void | Promise<unknown>;
   confirm: (lines: LoopLine[]) => void;
   logicOpener: (choice: "yes" | "tweak", lines: LoopLine[]) => void;
   logicResult: (choice: LogicChoice | "pass", lines: LoopLine[]) => void;
   skipSection: (lines: LoopLine[]) => void;
   /** Lines added to the chat with nothing saved (discussion over a waiting choice). */
   discuss: (lines: LoopLine[]) => void;
-  /** Exploring an option: listen, note it, and don't lock or offer a new menu. */
-  listen: (lines: LoopLine[], opts?: { text?: string; done?: boolean; lock?: boolean }) => void | Promise<unknown>;
   jumpTo: (index: number) => void;
   promptType: (value: "lesson" | "personal_experience" | "mixed") => void;
 };
@@ -162,6 +153,8 @@ type Props = {
   onAside: (intent: StanceIntent, turn: IntentTurn, lines: LoopLine[], forced?: "vague") => void | Promise<void>;
   /** Pau is checking (relevance) before she answers. */
   busy?: boolean;
+  /** PC-31 t213u: her live step while busy ("Searching for …"); replaces the generic lookup note. */
+  busyNote?: string | null;
   idea: string;
   onIdea: (value: string) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
@@ -297,19 +290,10 @@ function stanceTurnParasRaw(
       if (r.tier === "pass") return [logicPassText(ctx.seed, ctx.index)];
       if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
       // The concern is named in the same line as the flag (QA 11/23: "Here's a wrinkle." alone was hollow).
-      if (r.tier === "moderate") {
-        const note = officialListenNote(section.ideas, ctx.lastNote);
-        const concern = moderateConcern(r, note, section.title);
-        const offer = note && (/A reader might ask whether/i.test(concern) || /less press|more (of the )?credit/i.test(note));
-        if (offer) return [listenConfirmOffer(note, section.title), stockLine("logic_writer", ctx.seed, ctx.index)];
-        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${concern}`, stockLine("logic_writer", ctx.seed, ctx.index)];
-      }
+      if (r.tier === "moderate")
+        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${moderateConcern(r, ctx.lastNote, section.title)}`, stockLine("logic_writer", ctx.seed, ctx.index)];
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
-    case "keep_confirm":
-      return [keepAngleSummary(officialListenNote(section.ideas, ctx.lastNote), section.title)];
-    case "listening":
-      return [];
     case "locked_in":
       return ["That section is locked in."];
     default:
@@ -317,22 +301,13 @@ function stanceTurnParasRaw(
   }
 }
 
-function keptNote(section: { ideas?: string[] }): string {
-  return keptIdeas(section.ideas ?? []).join(" ");
-}
-
-/** The named concern for a moderate flag; never empty, never the generic line alone. */
+/** The named concern for a moderate flag; never empty. */
 export function moderateConcern(r: { reason?: string; alternativeAngles?: { question: string }[] }, note?: string, title = "this section"): string {
   const reason = (r.reason ?? "").trim();
   const ask = r.alternativeAngles?.[0]?.question?.trim();
-  const counter = asCounterpoint(ask);
-  const part = lowerTitle(title);
-  if (note && isVagueNote(note) && !reason) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
-  if (note || isGenericPressureReason(reason) || counter) {
-    const line = pressureTestLine({ claim: note, reason, counterpoint: counter || ask });
-    if (line) return line;
-  }
   if (reason) return /[.?!”"]$/.test(reason) ? reason : `${reason}.`;
+  const part = lowerTitle(title);
+  if (note && isVagueNote(note)) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
   return ask ?? `Your ${part} could use one more specific detail. What example would show it best in your ${part}?`;
 }
 
@@ -456,7 +431,7 @@ export function StanceChat(props: Props) {
   const asideHere = Boolean(props.aside && props.aside.k === section.key && props.aside.at === transcript.length);
   const asideParas = asideHere ? props.aside!.paras : [];
   // After she answers, she never re-asks the opener: a short follow-up instead.
-  const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror" || kind === "listening";
+  const freeText = kind === "probe" || kind === "teach_card" || kind === "mirror";
   // QA 5:51 PM: when her last line already ends in a question, no extra "Back to…" / "When you're ready…" tag.
   const endsInQuestion = lastLineAsks(transcript, section.key);
   const paras0 = asideHere && freeText ? (endsInQuestion ? [] : [asideFollowUp(props.aside?.intent, section.title)]) : turnParas;
@@ -466,8 +441,6 @@ export function StanceChat(props: Props) {
   const said = alreadyAnswered(transcript, section.key, paras0.join(" "));
   const paras = said ? (endsInQuestion ? [] : sectionResume(transcript, section.key, section.title, freeText)) : paras0;
   const ask = paras.join(" ");
-  // One option set per turn: a short directions list, never directions plus a stretch.
-  const visibleBatch = props.batch ? oneOptionLeadBatch(props.batch) : { ranked: [] as PreparedLead[], wildcard: null, capReached: false, searchPrompt: null };
 
   async function send() {
     const text = idea.trim();
@@ -500,20 +473,8 @@ export function StanceChat(props: Props) {
     };
     setHint(null);
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
-    const lastPau = [...transcript].reverse().find((l) => l.who === "pau" && l.k === section.key)?.text ?? ask;
-    const doneCue = isExploreDone(text, lastPau) || isClosingPhrase(text);
-    const yes = isPlainYes(text) || isConfirmOnly(text) || doneCue || (fromVoice && isSpokenYes(text));
-    // Exploring an option (QA prod walk): listen, don't lock, and don't open a new menu.
-    if (kind === "listening" || isExploreIntent(text)) {
-      const done = isExploreDone(text, lastPau);
-      const lock = done && isExploreLock(text);
-      clearSent();
-      const reply = done ? null : await fetchListenReply(props.paperId, text, section.title);
-      const lines = fromVoice ? [you(text)] : [you(text), ...(reply ? [pau(reply)] : [])];
-      await h.listen(lines, { text, done, lock });
-      return done ? "saved" : "listening";
-    }
-    const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "keep_confirm" || kind === "locked_in" || kind === "none";
+    const yes = isPlainYes(text) || (fromVoice && isSpokenYes(text));
+    const choiceTurn = kind === "confirm" || kind === "logic_opener" || kind === "logic_result" || kind === "locked_in" || kind === "none";
     // Over a waiting choice (Colton 11:45 PM): new ideas are discussion; a clear
     // replacement is saved only after "Want me to swap that in?" gets a yes.
     // Typed and spoken words take the same path (same gate).
@@ -564,38 +525,16 @@ export function StanceChat(props: Props) {
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
-        if (yes && keptIdeas(section.ideas ?? []).length) {
-          clearSent();
-          h.confirm([pau(card?.ask ?? ask), you(text)]);
-          return "saved";
-        }
         await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true, text });
         return "saved";
       case "mirror":
         await h.mirrorSave([pau(ask), you(text)], text);
         return "saved";
       case "probe":
-        if (yes && keptIdeas(section.ideas ?? []).length) {
-          clearSent();
-          h.confirm([pau(paras[0] ?? ""), you(text)]);
-          return "saved";
-        }
         await h.probeSave([pau(paras[0] ?? ""), you(text)], { text });
         return "saved";
       case "name_lead":
       case "pick_lead":
-        if (yes && keptIdeas(section.ideas ?? []).length) {
-          clearSent();
-          h.confirm([pau(paras[0] ?? ""), you(text)]);
-          return "saved";
-        }
-        if (looksLikeNewPoint(text)) {
-          const point = stripReplyFillers(text);
-          const reflect = fallbackParaphrase(point);
-          clearSent();
-          void h.newPoint(text, [pau(paras[0] ?? ""), you(text), pau(`${reflect} I'll add that to your ${section.title.toLowerCase()}.`)]);
-          return "saved";
-        }
         h.nameLead(text, [pau(paras[0] ?? ""), you(text)]);
         return "saved";
       case "confirm":
@@ -619,24 +558,10 @@ export function StanceChat(props: Props) {
           return "saved";
         }
         break;
-      case "keep_confirm":
-        if (yes) {
-          clearSent();
-          h.logicResult("keep", [pau(paras[0] ?? keepAngleSummary(officialListenNote(section.ideas, lastNote), section.title)), you(text)]);
-          return "saved";
-        }
-        break;
     }
     // QA 7:11 AM: a new, substantive answer over the confirm is added to their note, never
     // turned away ("Your note is still the one above…"). Replacing still asks first.
     if ((kind === "confirm" || kind === "logic_opener") && substantiveNote(text) && !isVagueNote(text)) {
-      if (kind === "confirm" && looksLikeNewPoint(text)) {
-        const point = stripReplyFillers(text);
-        const reflect = fallbackParaphrase(point);
-        clearSent();
-        void h.newPoint(text, [pau(paras[0] ?? ""), you(text), pau(`${reflect} I'll add that to your ${section.title.toLowerCase()}.`)]);
-        return "saved";
-      }
       clearSent();
       await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text), pau(ADDED_NOTE)], { text, append: true });
       return "saved";
@@ -668,9 +593,7 @@ export function StanceChat(props: Props) {
             ? "Or name your own source or example"
             : kind === "teach_card"
               ? "Or tell me in your own words"
-              : kind === "listening"
-                ? "Talk it through. Locking can wait."
-                : "Reply to Pau, or tap a choice";
+              : "Reply to Pau, or tap a choice";
 
   // The opener: question, "one section at a time", edit link, prompt type and
   // section chips. It is the top of Pau's FIRST reply, never its own bubble.
@@ -793,7 +716,7 @@ export function StanceChat(props: Props) {
         menu={introInCurrent || showIntro ? undefined : introControls}
       />
       {panel === "past" ? <PastChatPanel lines={withEarlier(props.earlier ?? [], pastLines(transcript, sections), "Stage 2 · Stance")} onClose={() => setPanel(null)} /> : null}
-      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau" data-listening={kind === "listening" ? "true" : undefined} data-keep-confirm={kind === "keep_confirm" ? "true" : undefined}>
+      <div className="mt-4 space-y-4" role="log" aria-label="Conversation with Pau">
         {/* PC-28: the return's one opener comes first, then the exact turn they were on. */}
         <FocusOpener line={welcomeLine} scope={`${paperId}:stage2`} signal={`${transcript.length}:${kind}:${active}`} silent={rtMode} onProgress={openSkeleton} onOpen={setOpenerOpen} />
         {history}
@@ -902,7 +825,7 @@ export function StanceChat(props: Props) {
             </p>
           ) : kind === "pick_lead" && props.batch ? (
             <ul className="space-y-3" aria-label="Directions to check" data-lead-batch>
-              {(visibleBatch?.ranked ?? []).map((lead) => (
+              {props.batch.ranked.map((lead) => (
                 <li key={lead.name} className="rounded-[8px] border border-ds-border bg-ds-page p-3 text-[16px]">
                   <p className="font-semibold">
                     {lead.rank === 1 ? <span className="mr-2 text-[13px] uppercase text-ds-accent">Best fit</span> : null}
@@ -915,27 +838,27 @@ export function StanceChat(props: Props) {
                   </DsButton>
                 </li>
               ))}
-              {visibleBatch.wildcard ? (
+              {props.batch.wildcard ? (
                 <li className="rounded-[8px] border border-dashed border-ds-border p-3 text-[16px]">
                   <p className="text-ds-muted">The ones above are usually cited. Here's one outside the box that shows the same pattern.</p>
-                  <p className="font-semibold">{visibleBatch.wildcard.name}</p>
-                  <p className="text-ds-muted">{visibleBatch.wildcard.wildcardWhy}</p>
-                  {visibleBatch.wildcard.controversyNote ? <p className="text-ds-muted">{visibleBatch.wildcard.controversyNote}</p> : null}
+                  <p className="font-semibold">{props.batch.wildcard.name}</p>
+                  <p className="text-ds-muted">{props.batch.wildcard.wildcardWhy}</p>
+                  {props.batch.wildcard.controversyNote ? <p className="text-ds-muted">{props.batch.wildcard.controversyNote}</p> : null}
                   <DsButton
                     type="button"
                     size="sm"
                     variant="secondary"
                     className="mt-1"
-                    onClick={() => h.pickLead(visibleBatch.wildcard!, [pau(paras[0] ?? ""), pick(visibleBatch.wildcard!.name)])}
+                    onClick={() => h.pickLead(props.batch!.wildcard!, [pau(paras[0] ?? ""), pick(props.batch!.wildcard!.name)])}
                   >
                     Try this stretch
                   </DsButton>
                 </li>
               ) : null}
-              {visibleBatch.capReached && visibleBatch.searchPrompt ? (
+              {props.batch.capReached && props.batch.searchPrompt ? (
                 <li className="text-[16px]">
                   <p className="font-semibold">Search it yourself</p>
-                  <p className="text-ds-muted">{visibleBatch.searchPrompt}</p>
+                  <p className="text-ds-muted">{props.batch.searchPrompt}</p>
                 </li>
               ) : null}
             </ul>
@@ -945,16 +868,10 @@ export function StanceChat(props: Props) {
             <>
               {section.mode !== "memory" ? (
                 <dl className="space-y-1 text-[16px] leading-[1.6]">
-                  {(() => {
-                    const lead = section.chosenLead?.trim() ?? "";
-                    const real = Boolean(lead) && !isConfirmOnly(lead) && !/^(your lead|your angle|your (source|example)|n\/?a|tbd|placeholder)$/i.test(lead);
-                    return real ? (
-                      <div>
-                        <dt className="inline font-semibold">Lead: </dt>
-                        <dd className="inline">{lead}</dd>
-                      </div>
-                    ) : null;
-                  })()}
+                  <div>
+                    <dt className="inline font-semibold">Lead: </dt>
+                    <dd className="inline">{section.chosenLead ?? "your lead"}</dd>
+                  </div>
                   {(() => {
                     // QA 1:11 AM minor: "Something else" is a button, never an angle.
                     const angle = [section.teachAspect, section.concept].find((item) => item && item !== SOMETHING_ELSE && !/^(the )?(assigned )?concept$|^something else$/i.test(item)) ?? null;
@@ -1045,14 +962,6 @@ export function StanceChat(props: Props) {
             </div>
           ) : null}
 
-          {kind === "keep_confirm" ? (
-            <Choices label="Confirm your angle">
-              <DsButton type="button" size="sm" onClick={() => h.logicResult("keep", [pau(paras[0] ?? ""), pick("Yes, keep this and move on")])}>
-                Yes, keep this and move on
-              </DsButton>
-            </Choices>
-          ) : null}
-
           {props.thinNote ? (
             <p className="border-t border-ds-border pt-3" role="status" data-thin-note>
               {props.thinNote}
@@ -1095,10 +1004,10 @@ export function StanceChat(props: Props) {
         </PauPauGroup>
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
-        <IntentWarm idea={isPlainYes(idea) || isConfirmOnly(idea) ? "" : idea} ask={ask} classify={props.classify} />
-        {lookupNote && (checking || props.busy) ? (
+        <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
+        {(props.busy && props.busyNote) || (lookupNote && (checking || props.busy)) ? (
           <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
-            {lookupNote}
+            {props.busy && props.busyNote ? props.busyNote : lookupNote}
           </p>
         ) : null}
       </div>
@@ -1139,24 +1048,24 @@ export const STOCK_POOLS = {
   /** Probe ask (lesson path). The first section always gets the canonical line. */
   lesson_probe: [
     LESSON_PROBE_OPENER,
-    "Where's this part headed for you?",
-    "What direction feels right for this one?",
-    "What are you thinking for this part?",
-    "What's your plan here?",
-    "What do you think goes here?",
-    "What's your hunch for this part?",
-    "What do you want to say here?",
+    "Where's this part headed for you? If you'd like questions first, just say so.",
+    "What direction feels right for this one? If you're stuck, I'll start asking questions.",
+    "What are you thinking for this part? I can ask a few questions if you'd like.",
+    "What's your plan here? If you want, I'll grill you a little first. Nicely.",
+    "What do you think goes here? I can point you at research with a few questions too.",
+    "What's your hunch for this part? Trust it. I can ask a few questions too.",
+    "What do you want to say here? If nothing clicks yet, I'll ask a few questions.",
   ],
   /** Probe ask (memory path). */
   memory_probe: [
     MEMORY_PROBE_OPENER,
-    "What moment from your life fits here?",
-    "What memory fits this one?",
-    "Which moment fits here?",
-    "What moment are you thinking of for this part?",
-    "What from your own life fits here?",
-    "What story goes in this section?",
-    "What moment comes to mind for this part?",
+    "What moment from your life fits here? I can ask a few questions to shake one loose.",
+    "What memory fits this one? If none comes, I'll play detective with a few questions.",
+    "Which moment fits here? I'm happy to help dig one up.",
+    "What moment are you thinking of for this part? A few questions can jog it, too.",
+    "What from your own life fits here? I can ask around first if you'd like.",
+    "What story goes in this section? I can ask questions to help you find one.",
+    "What moment comes to mind for this part? I can nudge you with a few questions.",
   ],
   /** Leads intro; {x} is the section title, {q} the optional quip. */
   pick_lead: [
