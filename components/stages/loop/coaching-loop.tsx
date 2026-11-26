@@ -109,7 +109,7 @@ import {
   type LoopLine,
 } from "@/lib/stages/stance-turn";
 import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
-import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, oneOptionLeadBatch, type ListeningState } from "@/lib/stages/explore-intent";
+import { exploreNote, exploreTopic, isClosingPhrase, listeningClaim, oneOptionLeadBatch, type ListeningState, specificPressureTest, isGenericPressureReason } from "@/lib/stages/explore-intent";
 import { fetchListenClaim } from "@/lib/stages/listen-client";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
@@ -970,18 +970,39 @@ export function CoachingLoop({
         (await fetchListenClaim(paperId, notes, section.title)) ?? listeningClaim([...notes, ...prior], section.title);
       if (claim && !isClosingPhrase(claim)) patch.ideas = [claim];
       else if (prior.length) patch.ideas = prior;
-      // Done talking: go to the confirm, never a fresh lead menu, never save the confirm phrase.
-      if (
-        ((patch.ideas && patch.ideas.length > 0) || prior.length > 0) &&
-        (live.loopStep === "probe" || live.loopStep === "teach" || live.loopStep === "search")
-      ) {
-        patch.loopStep = "summarize";
+      // The confirm phrase is the confirm: summarize once and offer the pressure test.
+      // No second "go with it?" question and no downgrade of the idea.
+      const ideaText = (patch.ideas ?? prior).join(" ");
+      if (ideaText) {
+        const current = { ...live, ideas: patch.ideas ?? prior };
+        relevance.current = { key: `${section.key}:${ideaText}`, verdict: fetchRelevance(ideaText, section.title) };
+        let logic = checkNotes(current, ideaText, null);
+        if (logic.result.tier !== "strong") {
+          const reason = logic.result.reason ?? "";
+          const keepNamed =
+            logic.result.tier === "moderate" &&
+            (logic.result.basis === "defies_logic" || logic.result.basis === "contradicts_assignment") &&
+            !isGenericPressureReason(reason);
+          if (!keepNamed) {
+            logic = {
+              ...logic,
+              result: {
+                ...logic.result,
+                tier: "moderate",
+                basis: logic.result.tier === "pass" ? "debatable_interpretation" : logic.result.basis,
+                reason: specificPressureTest(ideaText),
+              },
+            };
+          }
+        }
+        patch.loopStep = "logic_check";
+        patch.logic = logic;
+        patch.logicRevealed = true;
       }
       updateSection(section.key, patch, { transcript: withLines(more) });
       paste.reset();
       clearSent(idea);
       setThinNote(null);
-      if (opts.lock) onConfirm([]);
       return;
     }
     updateSection(

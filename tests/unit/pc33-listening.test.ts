@@ -15,10 +15,14 @@ import {
   isGenericPressureReason,
   keepAngleSummary,
   officialListenNote,
+  listenConfirmOffer,
   listeningClaim,
   oneOptionLeadBatch,
+  parseListenModelClaim,
   parseListenModelReply,
   pressureTestLine,
+  specificPressureTest,
+  stripLeadIns,
 } from "@/lib/stages/explore-intent";
 import { isUnquotableLeadIdea } from "@/lib/coaching/exampleLeads";
 import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
@@ -302,13 +306,13 @@ describe("PC-33: confirm phrases never become notes or claims", () => {
   it("synthesizes the locked claim from listening turns, ignoring the confirm phrase", () => {
     const claim = listeningClaim([hint, press, QA.done], "Introduction");
     expect(claim).toBeTruthy();
-    expect(claim!).toMatch(/transformational leaders get more credit/i);
+    expect(claim!).toMatch(/transformational leaders get more(?: of the)? credit/i);
     expect(claim!).toMatch(/servant leaders.*less press/i);
     expect(claim!).not.toMatch(/yeah that's what I want for now/i);
     expect(isClosingPhrase(claim!)).toBe(false);
     expect(listeningClaim([QA.done], "Introduction")).toBeNull();
     const recap = keepAngleSummary(officialListenNote([claim!], QA.done), "Introduction");
-    expect(recap).toMatch(/transformational leaders get more credit/i);
+    expect(recap).toMatch(/transformational leaders get more(?: of the)? credit/i);
     expect(recap).not.toMatch(/yeah that's what I want for now/i);
     expect(keepAngleSummary(QA.done, "Introduction")).not.toMatch(/yeah that's what I want for now/i);
     expect(pressureTestLine({ claim: QA.done, reason: "This doesn't answer the question your prompt asks." })).not.toMatch(/yeah that's what I want for now/i);
@@ -406,5 +410,94 @@ describe("PC-33: default Intro and Body direction flow is one option set", () =>
     expect(chat).toContain("visibleBatch");
     expect(chat).toMatch(/visibleBatch\.wildcard \?/);
     expect(chat).not.toMatch(/props\.batch\.wildcard/);
+  });
+});
+
+describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", () => {
+  const hint =
+    "Hmm, can I talk through the counterargument idea? I'm not sure yet if the intro should hint that transformational leaders get more credit.";
+  const press = "hear me out: maybe servant leaders just get less press";
+  const done = "yeah that's what I want for now";
+
+  it("strips colons and lead-ins like maybe, hear me out, and I think", () => {
+    expect(stripLeadIns("hear me out: maybe servant leaders just get less press")).toBe(
+      "servant leaders just get less press",
+    );
+    expect(stripLeadIns(": maybe servant leaders just get less press")).toBe("servant leaders just get less press");
+    expect(stripLeadIns("I think the intro should hint that they get more credit")).toBe(
+      "the intro should hint that they get more credit",
+    );
+    expect(exploreNote(press)).toBe("Servant leaders just get less press");
+  });
+
+  it("synthesizes one clean Pau sentence from the exact QA listening turns", () => {
+    const claim = listeningClaim([hint, press, done], "Introduction");
+    expect(claim).toBe(
+      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.",
+    );
+    expect(claim!).not.toMatch(/;:|;\s*:|maybe|hear me out|I think|that's a start/i);
+    expect((claim!.match(/[.!?]/g) ?? []).filter((ch) => ch !== ",").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("falls back to that clean sentence when the model returns a raw join or leftover maybe", () => {
+    const fallback = listeningClaim([hint, press, done], "Introduction");
+    expect(
+      parseListenModelClaim(
+        "The introduction could hint that transformational leaders get more credit;: maybe servant leaders just get less press.",
+        fallback,
+      ),
+    ).toBe(fallback);
+    expect(parseListenModelClaim('{"claim":"maybe servant leaders just get less press"}', fallback)).toBe(fallback);
+  });
+
+  it("paraphrases the less-press turn instead of sitting with a verbatim colon join", () => {
+    const reply = exploreReply(press, "Introduction");
+    expect(reply).toMatch(/so your hunch is that servant leaders just don't get as much press/i);
+    expect(reply).not.toMatch(/sitting with the idea that/i);
+    expect(reply).not.toMatch(/that:\s*maybe/i);
+    expect(reply).not.toMatch(/hear me out/i);
+    expect(reply).not.toMatch(/maybe servant leaders just get less press/i);
+    expect((reply.match(/\?/g) ?? []).length).toBeLessThanOrEqual(1);
+    const messy = "You're sitting with the idea that: maybe servant leaders just get less press. Want to unpack why they get less press, or keep going?";
+    expect(parseListenModelReply(messy, reply)).toBe(reply);
+  });
+
+  it("treats the confirm phrase as the confirm: one summary, then a specific pressure-test offer", () => {
+    const claim = listeningClaim([hint, press, done], "Introduction")!;
+    const offer = listenConfirmOffer(claim, "Introduction");
+    expect(offer).toMatch(/^Your intro hints that transformational leaders get more of the credit, while servant leaders get less press\./);
+    expect(offer).toMatch(/A reader might ask whether servant leaders really get less press, or whether it just feels that way\./);
+    expect(offer).toMatch(/Do you have an example, like Walton, where the press credited something else\?/);
+    expect(offer).not.toMatch(/that's a start/i);
+    expect(offer).not.toMatch(/want to go with it/i);
+    expect(offer).not.toMatch(/same evidence also supports the opposite reading/i);
+    expect((offer.match(/\?/g) ?? []).length).toBe(1);
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const onListen = loop.slice(loop.indexOf("async function onListen"), loop.indexOf("function onTeachSkip"));
+    expect(onListen).toContain("patch.logicRevealed = true");
+    expect(onListen).toContain("specificPressureTest");
+    expect(onListen).not.toContain('loopStep = "summarize"');
+    expect(onListen).not.toContain("that's a start");
+  });
+
+  it("makes the pressure test specific to the less-press claim, in one line and one question", () => {
+    const claim =
+      "Your intro hints that transformational leaders get more of the credit, while servant leaders get less press.";
+    const line = specificPressureTest(claim);
+    expect(line).toBe(
+      "A reader might ask whether servant leaders really get less press, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?",
+    );
+    expect((line.match(/\?/g) ?? []).length).toBe(1);
+    const generic = pressureTestLine({
+      claim,
+      reason: "A reasonable reader could see this another way.",
+      counterpoint: "the same evidence also supports the opposite reading",
+    });
+    expect(generic).toBe(line);
+    expect(generic).not.toMatch(/same evidence also supports the opposite reading/i);
+    const client = readFileSync("lib/stages/listen-client.ts", "utf8");
+    const route = readFileSync("app/api/papers/[paperId]/stance/listen/route.ts", "utf8");
+    expect(client).toMatch(/LISTEN_CLIENT_MS = 11_000/);
+    expect(route).toMatch(/LISTEN_MODEL_TIMEOUT_MS = 8_000/);
   });
 });

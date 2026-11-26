@@ -1,6 +1,7 @@
 /**
- * Client helper for listening paraphrases and claims. The model is optional;
- * deterministic fallbacks in explore-intent always win if it fails or quotes.
+ * Client helper for listening paraphrases and claims. The model is the
+ * intended path; a 3.5s/5s window was too tight and forced the fallback.
+ * Deterministic fallbacks still win if the model fails, times out, or is messy.
  */
 import {
   exploreReply,
@@ -9,7 +10,7 @@ import {
   parseListenModelReply,
 } from "@/lib/stages/explore-intent";
 
-const LISTEN_CLIENT_MS = 5_000;
+const LISTEN_CLIENT_MS = 11_000;
 
 async function postListen(
   paperId: string,

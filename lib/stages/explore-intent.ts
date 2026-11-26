@@ -156,6 +156,22 @@ function splitSentences(text: string): string[] {
   return (t.match(/[^.!?…]+(?:[.!?…]+|$)/g) ?? [t]).map((s) => s.trim()).filter(Boolean);
 }
 
+const LEAD_IN =
+  /^(?:(?:well|so|um+|uh+|hmm+|ooh+|honestly|look|like)\s+)*(?:hear me out\b[:\s,.!—–…-]*|(?:I think|I feel(?: like)?|I believe|I guess)(?: that)?\s+|maybe\s+|perhaps\s+|possibly\s+)/i;
+
+/** Strip colons, "maybe", "hear me out", "I think", and similar lead-ins. */
+export function stripLeadIns(text: string): string {
+  let t = (text ?? "").replace(/\s+/g, " ").trim();
+  t = t.replace(/\s*;:\s*/g, " ").replace(/;:/g, " ");
+  t = t.replace(/^[:;,\s—–…-]+/, "");
+  for (let i = 0; i < 4; i++) {
+    const next = t.replace(LEAD_IN, "").replace(/^[:;,\s—–…-]+/, "").trim();
+    if (next === t) break;
+    t = next;
+  }
+  return t.replace(/\s{2,}/g, " ").trim();
+}
+
 function stripExploreWrapper(raw: string): string {
   let t = raw.replace(/\s+/g, " ").trim();
   t = t
@@ -166,7 +182,17 @@ function stripExploreWrapper(raw: string): string {
     .replace(/^[,.\s—–…-]+/, "")
     .replace(/[,.\s—–…-]+$/, "")
     .trim();
-  return t;
+  return stripLeadIns(t);
+}
+
+/** Model or fallback copy that still has join artifacts or leftover lead-ins. */
+export function isMessyListenCopy(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return true;
+  if (/;:|\s*;\s*:|that:\s|idea that:/.test(t)) return true;
+  if (/\bhear me out\b/i.test(t)) return true;
+  if (/you're sitting with the idea that/i.test(t)) return true;
+  return false;
 }
 
 /**
@@ -203,17 +229,29 @@ function lowerFirst(text: string): string {
 
 /** Deterministic paraphrase in Pau's words. Never a verbatim quote, never mid-sentence. */
 export function fallbackParaphrase(note: string): string {
-  let t = note.replace(/\s+/g, " ").trim();
-  t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "You're still weighing whether ");
-  t = t.replace(/^I'?m not sure(?: yet)?\s+/i, "You're still unsure ");
-  t = t.replace(/^I don't know if\s+/i, "You're not sure if ");
-  t = t.replace(/^I think\s+/i, "You're thinking ");
-  t = t.replace(/^I wonder(?: if)?\s+/i, "You're wondering whether ");
-  t = t.replace(/^maybe\s+/i, "You're considering that ");
-  if (!/^you're /i.test(t)) t = `You're sitting with the idea that ${lowerFirst(t)}`;
+  let t = stripLeadIns(note.replace(/\s+/g, " ").trim());
+  const lessPress = t.match(/^(.+?)\s+just get(?:s)? less press\.?$/i);
+  if (lessPress || /just get(?:s)? less press/i.test(t)) {
+    const whoRaw = (lessPress?.[1] ?? t.replace(/\s+just get(?:s)? less press\.?$/i, "")).trim() || "they";
+    const who = lowerFirst(stripLeadIns(whoRaw).replace(/^that\s+/i, "")) || "they";
+    return finishSentence(`So your hunch is that ${who} just don't get as much press`);
+  }
+  if (/^I'?m not sure(?: yet)? if\s+/i.test(t) || /should hint that/i.test(t)) {
+    t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "");
+    t = t.replace(/\bthe intro\b/gi, "the introduction");
+    const hinted = t.match(/hint that\s+(.+)/i);
+    if (hinted) {
+      return finishSentence(`You're still weighing whether the introduction should hint that ${lowerFirst(hinted[1]!.replace(/[.]+$/, ""))}`);
+    }
+  }
+  t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "");
+  t = t.replace(/^I'?m not sure(?: yet)?\s+/i, "");
+  t = t.replace(/^I don't know if\s+/i, "");
+  t = t.replace(/^I think\s+/i, "");
+  t = t.replace(/^I wonder(?: if)?\s+/i, "");
   t = t.replace(/\bthe intro\b/gi, "the introduction");
   t = t.replace(/\bhint that\.$/i, "hint at that.");
-  return finishSentence(t);
+  return finishSentence(`So your hunch is that ${lowerFirst(t)}`);
 }
 
 function specificFollowUp(note: string): string {
@@ -243,7 +281,7 @@ export function exploreReply(text: string, sectionTitle: string): string {
 
 const GENERIC_HOLD_Q = /what'?s the one piece of this you want me to hold onto/i;
 
-/** Accept a model listen reply, or fall back if it quotes, truncates, or is empty. */
+/** Accept a model listen reply, or fall back if it quotes, truncates, or is messy. */
 export function parseListenModelReply(raw: string, fallback: string): string {
   let text = (raw ?? "").trim();
   if (!text) return fallback;
@@ -257,46 +295,62 @@ export function parseListenModelReply(raw: string, fallback: string): string {
   text = text.replace(/\s+/g, " ").trim();
   if (text.length < 12) return fallback;
   if (/I'?m hearing\s*[“"']/.test(text) || /“[^”]{0,200}$/.test(text)) return fallback;
+  if (isMessyListenCopy(text)) return fallback;
+  if ((text.match(/\?/g) ?? []).length > 1) return fallback;
   if (GENERIC_HOLD_Q.test(text)) text = text.replace(GENERIC_HOLD_Q, "").replace(/\s+/g, " ").trim();
   const sentences = text.match(/[^.!?]+[.!?]+/g);
   if (sentences?.length) text = sentences.slice(0, 3).join(" ").trim();
   else text = finishSentence(text);
-  return text || fallback;
+  if (!text || isMessyListenCopy(text)) return fallback;
+  return text;
 }
 
-function tidyClaimBit(note: string): string {
-  let t = note.replace(/\s+/g, " ").trim();
+function shapeClaimBit(note: string): string {
+  let t = stripLeadIns(note.replace(/\s+/g, " ").trim());
   t = t.replace(/^I'?m not sure(?: yet)? if\s+/i, "");
-  t = t.replace(/^maybe\s+/i, "");
-  t = t.replace(/\bthe intro should hint that\b/i, "the introduction could hint that");
-  t = t.replace(/\bthe intro\b/gi, "the introduction");
-  t = finishSentence(t);
+  t = t.replace(/^(?:the )?(?:intro(?:duction)?|this section) (?:should|could) hint that\s+/i, "");
+  t = t.replace(/^the introduction could hint that\s+/i, "");
+  t = t.replace(/\bjust get less press\b/i, "get less press");
+  t = t.replace(/\bget more credit\b/i, "get more of the credit");
+  t = t.replace(/[.]+$/, "").trim();
   return t;
+}
+
+function frameIntroHint(bit: string, sectionTitle: string, original: string): string {
+  const core = bit.replace(/^your intro hints that\s+/i, "").replace(/[.]+$/, "").trim();
+  if (!core) return bit.replace(/[.]+$/, "");
+  if (/^your intro hints that/i.test(bit)) return `Your intro hints that ${lowerFirst(core)}`;
+  const looksLikeHint =
+    /(?:intro(?:duction)?).*(?:hint)|(?:should|could)\s+hint/i.test(original) || /intro/i.test(sectionTitle);
+  if (looksLikeHint) return `Your intro hints that ${lowerFirst(core)}`;
+  return core;
 }
 
 /**
  * Synthesize the locked note / pressure-tested claim from listening turns.
- * Confirm phrases and fragments are ignored.
+ * Confirm phrases and fragments are ignored. One clean sentence in Pau's words.
  */
 export function listeningClaim(notes: string[], sectionTitle = ""): string | null {
-  void sectionTitle;
   const bits: string[] = [];
+  const originals: string[] = [];
   const seen = new Set<string>();
   for (const raw of notes) {
     if (!raw || isClosingPhrase(raw)) continue;
     const note = exploreNote(raw) ?? (isNoteFragment(raw) || isExploreIntent(raw) ? null : raw.replace(/\s+/g, " ").trim());
     if (!note || isClosingPhrase(note) || isNoteFragment(note)) continue;
-    const bit = tidyClaimBit(note);
+    const bit = shapeClaimBit(note);
+    if (!bit) continue;
     const key = bit.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     bits.push(bit);
+    originals.push(note);
   }
   if (!bits.length) return null;
-  if (bits.length === 1) return bits[0]!;
-  const first = bits[0]!.replace(/[.]+$/, "");
+  const first = frameIntroHint(bits[0]!, sectionTitle, originals[0] ?? "");
+  if (bits.length === 1) return finishSentence(first);
   const rest = bits.slice(1).map((b) => lowerFirst(b.replace(/[.]+$/, "")));
-  return finishSentence(`${first}; ${rest.join("; ")}`);
+  return finishSentence(`${first.replace(/[.]+$/, "")}, while ${rest.join(", and ")}`);
 }
 
 export function parseListenModelClaim(raw: string, fallback: string | null): string | null {
@@ -313,7 +367,10 @@ export function parseListenModelClaim(raw: string, fallback: string | null): str
   text = text.replace(/\s+/g, " ").trim();
   if (!text || isClosingPhrase(text) || isNoteFragment(text) || text.length < 12) return fallback;
   if (/I'?m hearing\s*[“"']/.test(text)) return fallback;
-  return finishSentence(text);
+  if (isMessyListenCopy(text) || /\b(?:maybe|hear me out|I think)\b/i.test(text)) return fallback;
+  const cleaned = finishSentence(stripLeadIns(text).replace(/\s*;\s+/g, ", "));
+  if (!cleaned || isMessyListenCopy(cleaned) || /\b(?:maybe|hear me out|I think)\b/i.test(cleaned)) return fallback;
+  return cleaned;
 }
 
 /** First-tap recap before "Keep my angle" actually advances. */
@@ -336,11 +393,46 @@ export function officialListenNote(sectionIdeas: string[] | undefined, lastYou =
   return "";
 }
 
-const GENERIC_PRESSURE = /^a reasonable reader could see this another way\.?$/i;
+const GENERIC_PRESSURE =
+  /a reasonable reader could see this another way|the same evidence also supports the opposite reading|push back on (that|this) claim/i;
 
 /**
- * Pressure-test copy that quotes the student's claim and names a specific
- * counterpoint. Never the generic "another way" line alone.
+ * One-line, one-question pressure test tied to the claim itself.
+ * Never the generic "same evidence / opposite reading" line.
+ */
+export function specificPressureTest(claim: string): string {
+  const t = (claim ?? "").replace(/\s+/g, " ").trim();
+  if (/less press/i.test(t)) {
+    const pressWho = /servant leaders?/i.test(t) ? "servant leaders" : "they";
+    return `A reader might ask whether ${pressWho} really get less press, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?`;
+  }
+  if (/more (of the )?credit/i.test(t)) {
+    return "A reader might ask whether they really get more of the credit, or whether it just feels that way. Do you have an example, like Walton, where the press credited something else?";
+  }
+  if (/costco/i.test(t)) {
+    return "A reader might ask whether a Costco comparison really belongs here, or whether it just feels like a fit. What one fact about Costco would actually support your point?";
+  }
+  const gist = quoteOnWordBoundary(t.replace(/^your intro hints that\s+/i, ""), 80).replace(/[.]+$/, "");
+  if (gist && !isClosingPhrase(gist) && !isNoteFragment(gist)) {
+    return `A reader might ask whether “${gist}” really holds, or whether it just feels that way. What's one example that would show it?`;
+  }
+  return "A reader might ask whether this really holds, or whether it just feels that way. What's one example that would show it?";
+}
+
+/** After a confirm phrase: summarize the idea once, then the pressure-test offer. */
+export function listenConfirmOffer(claim: string, _title = ""): string {
+  void _title;
+  const summary = (claim ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
+  const pressure = specificPressureTest(claim);
+  if (summary && !isClosingPhrase(summary) && !isNoteFragment(summary)) {
+    return `${finishSentence(summary)} ${pressure}`.replace(/\s+/g, " ").trim();
+  }
+  return pressure;
+}
+
+/**
+ * Pressure-test copy specific to the claim. A named counterpoint stays;
+ * a generic "opposite reading" line is replaced with a claim-specific question.
  */
 export function pressureTestLine(input: {
   claim?: string | null;
@@ -352,14 +444,20 @@ export function pressureTestLine(input: {
     ? quoteOnWordBoundary(rawClaim, 120)
     : "";
   const reason = (input.reason ?? "").replace(/\s+/g, " ").trim();
-  const specificReason = reason && !GENERIC_PRESSURE.test(reason) ? (/[.!?]$/.test(reason) ? reason : `${reason}.`) : "";
   const counter = asCounterpoint(input.counterpoint);
-  if (claim && counter) return `You said “${claim}.” A reasonable reader might counter that ${counter}.`;
-  if (claim && specificReason) return `You said “${claim}.” ${specificReason}`;
-  if (claim) return `You said “${claim}.” A reasonable reader might push back on that claim — what would they say first?`;
-  if (specificReason) return specificReason;
-  if (counter) return `A reasonable reader might counter that ${counter}.`;
-  return "A reasonable reader might push back on this claim. What would they say first?";
+  const genericCounter = !counter || isGenericPressureReason(counter);
+  const genericReason = !reason || isGenericPressureReason(reason);
+  if (claim && !genericCounter) {
+    return `You said “${claim}.” A reasonable reader might counter that ${counter}.`;
+  }
+  if (claim && !genericReason && !/you said /i.test(reason)) {
+    const specificReason = /[.!?]$/.test(reason) ? reason : `${reason}.`;
+    return `You said “${claim}.” ${specificReason}`;
+  }
+  if (claim) return specificPressureTest(rawClaim);
+  if (!genericReason) return /[.!?]$/.test(reason) ? reason : `${reason}.`;
+  if (!genericCounter) return `A reasonable reader might counter that ${counter}.`;
+  return specificPressureTest(rawClaim);
 }
 
 export function isGenericPressureReason(reason: string | null | undefined): boolean {

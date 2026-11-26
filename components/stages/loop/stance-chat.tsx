@@ -33,7 +33,7 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { discussionLine, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint } from "@/lib/stages/explore-intent";
+import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint, listenConfirmOffer, specificPressureTest } from "@/lib/stages/explore-intent";
 import { fetchListenReply } from "@/lib/stages/listen-client";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
@@ -286,8 +286,13 @@ function stanceTurnParasRaw(
       if (r.tier === "pass") return [logicPassText(ctx.seed, ctx.index)];
       if (isOffPrompt(r)) return [`${LOGIC_ALERT_LABEL}: ${r.reason}`, "Let's make this section answer what your prompt asks."];
       // The concern is named in the same line as the flag (QA 11/23: "Here's a wrinkle." alone was hollow).
-      if (r.tier === "moderate")
-        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${moderateConcern(r, officialListenNote(section.ideas, ctx.lastNote), section.title)}`, stockLine("logic_writer", ctx.seed, ctx.index)];
+      if (r.tier === "moderate") {
+        const note = officialListenNote(section.ideas, ctx.lastNote);
+        const concern = moderateConcern(r, note, section.title);
+        const offer = note && (/A reader might ask whether/i.test(concern) || /less press|more (of the )?credit/i.test(note));
+        if (offer) return [listenConfirmOffer(note, section.title), stockLine("logic_writer", ctx.seed, ctx.index)];
+        return [`${stockLine("logic_moderate", ctx.seed, ctx.index)}: ${concern}`, stockLine("logic_writer", ctx.seed, ctx.index)];
+      }
       return [`${LOGIC_ALERT_LABEL}: ${LOGIC_STRONG_HEADLINE}`, LOGIC_STRONG_DETAIL, ...(r.reason ? [r.reason] : [])];
     }
     case "keep_confirm":
