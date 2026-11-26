@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { DsButton } from "@/components/ui/ds-button";
 import { clipWords } from "@/lib/copy/clip";
 import { optionsAgain, stage2Earlier, stage2IntroText } from "@/lib/stages/stage2-intro";
+import { stage2StartingLine } from "@/lib/stage1/starting-point";
+import { fitKey, fitPairForNote, fitPairFromContext, type FitPair } from "@/lib/stage2/fit-check";
 import { isQuestionTopic } from "@/lib/copy/topic-phrase";
 import { dsBody, dsCaption, dsCard, dsEyebrow, dsH1, dsLabel, dsTextarea } from "@/lib/ds/classes";
 import { VoiceNote } from "@/components/coaching/voice-note";
@@ -108,11 +110,7 @@ import {
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
-import { finalStanceIntent, intentReply, isWriteRequest, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
-import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
-import { sourcesLine } from "@/lib/coach/sources-line";
-import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
-import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
+import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -134,6 +132,8 @@ type PaperBrief = {
   leader?: PaperContext["leader"] | null;
   readback?: ReadbackPlain | null;
   missingAsk?: string | null;
+  /** PC-32: where they start after the short Stage 1 (has ideas / read the material / no clue). */
+  startingPoint?: PaperContext["startingPoint"] | null;
 };
 
 type RuntimeSection = {
@@ -300,6 +300,10 @@ export function CoachingLoop({
   // PC-29 QA round 3: the Stage 2 opener (the plain-words assignment, "Earlier you picked …") waits
   // for the paper context instead of showing (and saying) the parsed-topic fallback first.
   const [pctxSettled, setPctxSettled] = useState(false);
+  /** QA 4:57 PM: the entry fit check's lines, shown with the Stage 2 opener. */
+  const [entryFit, setEntryFit] = useState<string[]>([]);
+  /** The style + leader known so far (entry, then each checked note), so a note can change one half. */
+  const fitPair = useRef<FitPair | null>(null);
   const [asideChips, setAsideChips] = useState<string[]>([]);
   useEffect(() => {
     if (!persist || stage < 2 || stage > 3) return;
@@ -311,8 +315,11 @@ export function CoachingLoop({
       body: JSON.stringify({ action: "context" }),
     })
       .then((r) => (r.ok ? (r.json() as Promise<PaperBrief & { ok?: boolean }>) : null))
-      .then((d) => {
+      .then(async (d) => {
         if (live && d?.ok) setPctx(d);
+        // QA 4:57 PM: the style + leader they already gave (Stage 1 ideas, an older pick) gets its
+        // fit check once, on Stage 2 entry, shown inline with the opener before the Intro.
+        if (live && d?.ok && stage === 2) await entryFitCheck(d, () => live);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -323,6 +330,7 @@ export function CoachingLoop({
       live = false;
       clearTimeout(cap);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, persist, stage]);
   const introReady = !persist || pctxSettled;
   // PC-28: the skeleton (ghost paper #1 shape, ghost #2 body titles) plus the student's own words.
@@ -390,11 +398,11 @@ export function CoachingLoop({
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
   const [answering, setAnswering] = useState(false);
-  /** PC-31 t213u: her live "thinking" line while an answer streams in. */
-  const [answerStatus, setAnswerStatus] = useState<string | null>(null);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
+  /** Fit checks already started this visit (the session events keep them across reloads). */
+  const fitAsked = useRef(new Set<string>());
   const stageProgressRef = useRef(stageProgress);
   useEffect(() => {
     stageProgressRef.current = stageProgress;
@@ -850,29 +858,98 @@ export function CoachingLoop({
 
   /** A request or question is answered in her next turn and never saved as a note. */
   /** Her real answer (content question, "idk", a vague note), from the paper context; null = fall back. */
-  async function coachAnswer(mode: CoachMode, message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+  /** Their own words so far (notes and answers): never counted as ghost overlap. */
+  function studentNotes(): string {
+    const cur = sessionRef.current ?? session;
+    if (!cur) return "";
+    return [...cur.answers.map((x) => x.text), ...cur.sections.flatMap((x) => keptIdeas(x.ideas))].join("\n");
+  }
+
+  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
     try {
-      // PC-31 t213u: streamed, with her live steps as the busy line ("Searching for …", "Reading …").
-      const d = await fetchPauAnswer(
-        `/api/papers/${paperId}/coach/answer`,
-        { mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000) },
-        { kind: statusKindFor(mode), idleMs: 22_000, maxMs: 55_000, onStatus: (line) => setAnswerStatus(line) },
-      );
-      setAnswerStatus(null);
-      if (!d?.paras?.length) return null;
-      const src = sourcesLine(d.sources);
-      return [...d.paras.map((p) => oneQuip(p)), ...(src ? [src] : [])];
+      const controller = new AbortController();
+      // A blocked first draft is retried once on the server (PC-32 QA 5:15 PM), so allow for two calls.
+      const timer = setTimeout(() => controller.abort(), 16000);
+      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000), notes: studentNotes().slice(0, 8000) }),
+        signal: controller.signal,
+      });
+      // The cap covers reading the body too (a stalled body kept the buttons busy).
+      if (!res.ok) {
+        clearTimeout(timer);
+        return null;
+      }
+      const d = (await res.json()) as { paras?: string[] };
+      clearTimeout(timer);
+      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
     } catch {
       return null;
     }
   }
 
+  /**
+   * PC-32 FIT CHECK (Colton t227u): a note that names a style and a leader gets a quick fit check,
+   * once per pair. Solid: one affirming line. Weak: kind feedback, the concept in plain words,
+   * 1-2 better fits, theirs to keep (their note is never changed). Runs after the save, so the
+   * flow never waits on it; the lines join the chat above the next ask.
+   */
+  /** POST /coach/fit for one pair (the server keeps each result: once per pair, reload-safe). */
+  async function fetchFit(pair: FitPair, source: "entry" | "note", note?: string): Promise<{ verdict?: string | null; paras?: string[] } | null> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(`/api/papers/${paperId}/coach/fit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pair, source, ...(note ? { note: note.slice(0, 4000) } : {}) }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      return res.ok ? ((await res.json()) as { verdict?: string | null; paras?: string[] }) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Stage 2 entry: the pair from Stage 1 (or an older pick), checked once and shown with the opener. */
+  async function entryFitCheck(ctx: PaperBrief, alive: () => boolean) {
+    const pair = fitPairFromContext(ctx, sessionRef.current?.assignmentText ?? "");
+    if (!pair) return;
+    fitPair.current = pair;
+    fitAsked.current.add(fitKey(pair));
+    const d = await fetchFit(pair, "entry");
+    if (alive() && d?.paras?.length) setEntryFit(d.paras);
+  }
+
+  /**
+   * A later Stage 2 note that introduces or changes the pair gets its own fit check, once per pair.
+   * Their note is never changed; the lines join the chat above the next ask.
+   */
+  async function fitCheck(note: string, sectionKey: string) {
+    if (stage !== 2) return;
+    const pair = fitPairForNote(note, fitPair.current, sessionRef.current?.assignmentText ?? "");
+    if (!pair) return;
+    const key = fitKey(pair);
+    const base0 = sessionRef.current ?? session;
+    if (!base0 || base0.events.includes(key) || fitAsked.current.has(key)) return;
+    fitAsked.current.add(key);
+    fitPair.current = pair;
+    const d = await fetchFit(pair, "note", note);
+    const base = sessionRef.current;
+    if (!d?.paras?.length || !base) return;
+    const next: Session = {
+      ...base,
+      transcript: appendLines(base.transcript, d.paras.map((text): LoopLine => ({ k: sectionKey, who: "pau", text }))),
+      events: [...base.events, key, `stance_fit_${d.verdict ?? "none"}`],
+    };
+    commit(next);
+    syncSession(next, sectionKey);
+  }
+
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
-  function answerModeFor(intent: StanceIntent, text: string): CoachMode | null {
-    // PC-31: "write my intro" gets her reframe (a question about their point); "find me examples" gets real research.
-    if (isWriteRequest(text)) return "reframe";
-    if (RESEARCH_ASK.test(text)) return "research";
-    if (SUMMARY_ASK.test(text)) return "summary";
+  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
     if (intent === "content_question") return "answer";
     if (intent === "request_help" || isLostSaying(text)) return "lost";
     return null;
@@ -1005,6 +1082,7 @@ export function CoachingLoop({
     );
     paste.reset();
     clearSent(note);
+    void fitCheck(note, section.key);
   }
 
   async function onProbeSave(more: LoopLine[], opts?: { fromTeach?: boolean; replace?: boolean; text?: string; append?: boolean }) {
@@ -1072,6 +1150,7 @@ export function CoachingLoop({
     );
     paste.reset();
     clearSent(note);
+    void fitCheck(note, section.key);
   }
 
   function onNameLead(text: string, more: LoopLine[]) {
@@ -1421,7 +1500,8 @@ export function CoachingLoop({
                       : assignmentPurposeLine(subject),
             }),
             purpose: STAGE_PURPOSE[2],
-            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? []),
+            earlier: stage2Earlier(pctx?.decision, pctx?.leader, pctx?.options?.options ?? [], pctx ? (fitPairFromContext(pctx, sessionRef.current?.assignmentText ?? "")?.leader ?? null) : null) ?? stage2StartingLine(pctx?.startingPoint),
+            fit: entryFit,
             material: materialList(pctx),
           }}
           promptType={session.extraction.promptType}
@@ -1476,7 +1556,6 @@ export function CoachingLoop({
           classify={classifyIntent}
           onAside={onAside}
           busy={checkingLogic || answering}
-          busyNote={answering ? answerStatus : null}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
