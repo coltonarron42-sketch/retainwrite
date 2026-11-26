@@ -45,19 +45,72 @@ describe("ghost gate: distinctive runs only (QA 5:15 PM)", () => {
     expect(r.rule).toBe("ngram8");
     expect(r.hits8).toBeGreaterThan(0);
   });
-  it("two distinct distinctive 5-word runs block; a single one doesn't", () => {
-    const one = ghostLeakCheck("You could look at the Saturday morning meetings in Bentonville as a moment to study.", GHOST, ASSIGNMENT);
+  it("two distinct distinctive 5-word runs from the ghost's argument block; a single one doesn't", () => {
+    const one = ghostLeakCheck("Maybe he kept asking store associates what bugged them?", GHOST, ASSIGNMENT);
     expect(one).toMatchObject({ ok: true, hits5: 1 });
-    const two = ghostLeakCheck("Think about the Saturday morning meetings in Bentonville, and profit sharing for hourly associates in 1971.", GHOST, ASSIGNMENT);
+    const two = ghostLeakCheck("He kept asking store associates, and that carried Walmart through rapid change.", GHOST, ASSIGNMENT);
     expect(two.ok).toBe(false);
     expect(two.rule).toBe("ngram5");
     expect(two.hits5).toBeGreaterThanOrEqual(2);
+  });
+  it("plain facts shared with the ghost's fact sentences pass; reproducing one is blocked", () => {
+    expect(ghostLeakCheck("Walton held Saturday morning meetings in Bentonville where he quizzed managers.", GHOST, ASSIGNMENT).ok).toBe(true);
+    const copy = ghostLeakCheck(`Fun fact: ${GHOST.paper.split(". ")[3]}.`, GHOST, ASSIGNMENT);
+    expect(copy.ok).toBe(false);
+    expect(copy.rule).toBe("copy12");
   });
   it("overlap with the student's own words, the assignment or the readings never counts", () => {
     const student = "I want to write about Sam Walton's servant leadership carried Walmart through rapid change because he kept asking store associates";
     expect(ghostLeakCheck("You said Sam Walton's servant leadership carried Walmart through rapid change because he kept asking store associates. Nice.", GHOST, student).ok).toBe(true);
     const reading = "Made in America: at the Saturday morning meetings in Bentonville, Walton would quiz managers about which shelves had sat empty";
     expect(ghostLeakCheck("Your reading says that at the Saturday morning meetings in Bentonville, Walton would quiz managers about which shelves had sat empty.", GHOST, reading).ok).toBe(true);
+  });
+});
+
+// QA 5:33 PM (paper e4020731): "How did Sam Walton show servant leadership?" got the fallback because
+// a factual answer shared runs with the ghost's own Walton facts. A Walton/servant ghost written the way
+// the generator writes (facts + argument).
+const WALTON: GhostScript = {
+  ...GHOST,
+  thesis: "Servant leadership is the most effective style for leading a team through change because it earns the trust people need to follow a leader into uncertainty, as Sam Walton showed at Walmart.",
+  outline: [
+    { section: "Introduction", points: ["servant leadership defined", "Sam Walton at Walmart as the example"] },
+    { section: "Body 1", points: ["Walton visited stores and listened to associates", "profit sharing and calling employees associates"] },
+  ],
+  paper: [
+    "Servant leadership is the most effective style for leading a team through change because it earns the trust people need to follow a leader into uncertainty, as Sam Walton showed at Walmart.",
+    "Sam Walton founded Walmart in 1962 in Rogers, Arkansas.",
+    "Walton called his employees associates and introduced a profit sharing plan for them in 1971.",
+    "He flew his own plane to visit stores, walked the aisles and asked associates on the floor what customers wanted.",
+    "He held Saturday morning meetings where managers shared what was working and what was not.",
+    "These habits prove that serving employees first builds the loyalty a company needs when it grows fast, which is why servant leadership outperforms command and control during change.",
+  ].join(" "),
+};
+const WALTON_Q = "How did Sam Walton show servant leadership?";
+const WALTON_NOTES = "Sam Walton, servant leadership";
+
+describe("QA 5:33 PM: on-topic questions about the student's own leader get a real answer", () => {
+  it("a factual Walton answer passes the gate", () => {
+    const answer = [
+      "Sam Walton showed servant leadership in very hands-on ways (general background): he called his employees associates and started a profit sharing plan for them in 1971.",
+      "He flew his own plane out to visit stores and talked with associates on the floor about what customers wanted, and he ran Saturday morning meetings where managers said what was and wasn't working.",
+      "Which of those habits feels most like serving the team to you?",
+    ];
+    for (const p of answer) expect(ghostLeakCheck(p, WALTON, ASSIGNMENT, `${WALTON_Q}\n${WALTON_NOTES}`), p).toMatchObject({ ok: true });
+  });
+  it("a near-copy of the ghost's argument is still blocked", () => {
+    const near = ghostLeakCheck(
+      "Walton's habits prove serving employees first builds loyalty companies need growing fast, which is why servant leadership outperforms command and control.",
+      WALTON,
+      ASSIGNMENT,
+      `${WALTON_Q}\n${WALTON_NOTES}`,
+    );
+    expect(near.ok).toBe(false);
+    expect(near.rule === "ngram8" || near.rule === "ngram5" || near.rule === "near").toBe(true);
+  });
+  it("pasting the ghost's thesis or one of its fact sentences is still blocked", () => {
+    expect(ghostLeakCheck(WALTON.thesis, WALTON, ASSIGNMENT, WALTON_Q).ok).toBe(false);
+    expect(ghostLeakCheck("He flew his own plane to visit stores, walked the aisles and asked associates on the floor what customers wanted.", WALTON, ASSIGNMENT, WALTON_Q).ok).toBe(false);
   });
 });
 

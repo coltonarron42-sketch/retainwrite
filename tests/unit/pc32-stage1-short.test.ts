@@ -32,6 +32,8 @@ import {
   ideaStepId,
   ideasAck,
   ideasPlan,
+  ideaTopic,
+  ideasConfirm,
   ideasSaid,
   isDoneSaying,
   stage2StartingLine,
@@ -134,12 +136,12 @@ describe("PC-32 ghost script: server-only, never serialized (Colton t221u)", () 
   });
   it("the output gate blocks copied runs and near-copies, but not the student's own words or plain coaching", () => {
     expect(ghostLeakCheck("Here's a thought: it builds the trust that employees need before change.", GHOST).ok).toBe(false);
-    // A close paraphrase of one distinctive ghost sentence is still a near-copy.
-    expect(ghostLeakCheck("One regional hospital manager rebuilt morale post-merger, meeting each nurse individually.", GHOST).ok).toBe(false);
+    // A reproduced fact sentence is a copy (paraphrased ARGUMENT near-copies: pc32-ghost-gate.test.ts).
+    expect(ghostLeakCheck("A manager at a regional hospital rebuilt morale after a merger by meeting each nurse individually.", GHOST).ok).toBe(false);
     expect(ghostLeakCheck("What's one moment when a boss earned your trust? That could be a great example.", GHOST).ok).toBe(true);
     const student = "I think it builds the trust that employees need";
     expect(ghostLeakCheck("You said it builds the trust that employees need. Nice.", GHOST, student).ok).toBe(true);
-    expect(src("app/api/papers/[paperId]/coach/answer/route.ts")).toContain("const r = ghostLeakCheck(p, ghost, allowed);");
+    expect(src("app/api/papers/[paperId]/coach/answer/route.ts")).toContain("const r = ghostLeakCheck(p, ghost, allowed, topic);");
   });
   it("targets the instructor's word range (words, pages, estimate, default)", () => {
     expect(ghostTargets({ wordsMin: 1200, wordsMax: 1500 })).toEqual({ min: 1200, max: 1500 });
@@ -206,7 +208,7 @@ describe("PC-32 short Stage 1: starting point (Colton t221u)", () => {
   });
   it("Stage 2 meets them where they are", () => {
     expect(stage2StartingLine({ kind: "has_ideas", ideas: "I'm thinking about my manager at work", readMaterial: false, at: 1 })).toBe(
-      "In Stage 1 you said you're thinking about your manager at work. We'll start there.",
+      "In Stage 1 you said you're thinking about your manager. We'll start there.",
     );
     expect(stage2StartingLine({ kind: "no_clue", readMaterial: false, at: 1 })).toMatch(/fine place to start/);
     expect(src("components/stages/loop/coaching-loop.tsx")).toContain("?? stage2StartingLine(pctx?.startingPoint)");
@@ -250,7 +252,7 @@ describe("PC-32 Stage 1 ideas: acknowledge, summarize back, note, move on (Colto
   it("an idea → summarized back for confirmation (no probe); yes → done", () => {
     const { plan } = say([], ["I want to write about my old soccer coach and how he kept the team together after we lost our captain", "yes"]);
     expect(plan.map((s) => s.kind)).toEqual(["ask", "confirm"]);
-    expect(plan[1]!.text).toMatch(/^Ooh, I like that\. So you're thinking: your old soccer coach/);
+    expect(plan[1]!.text).toBe("Got it. So you're thinking about your old soccer coach. Did I get that right?");
     expect(plan[1]!.text).toMatch(/Did I get that right\?$/);
     expect(plan[1]!.text).not.toMatch(PROBE);
   });
@@ -267,7 +269,9 @@ describe("PC-32 Stage 1 ideas: acknowledge, summarize back, note, move on (Colto
       "that's it for now",
     ]);
     expect(plan.map((s) => s.kind)).toEqual(["ask", "confirm", "confirm", "confirm"]);
-    expect(plan[2]!.text).toMatch(/^Got it, I noted that too: she trained every new hire herself/);
+    // QA 5:33 PM: paraphrased, never their raw text spliced in.
+    expect(plan[2]!.text).toBe("Got it, I noted that detail too. Is that it for now, or is there more you want to add?");
+    expect(plan[2]!.text).not.toContain("trained every new hire");
     expect(plan.length).toBeLessThanOrEqual(1 + MAX_IDEA_TURNS);
     const long = say([], ["I want to write about my coach and the way she ran practice", ...Array.from({ length: 10 }, (_, i) => `more detail number ${i} about practice drills and teamwork`)]);
     expect(long.plan.length).toBe(1 + MAX_IDEA_TURNS);
@@ -338,7 +342,11 @@ describe("PC-32 QA 4:57 PM: terse ideas, confirm phrases, no ideas", () => {
     expect(isUnclearIdea("Sam Walton")).toBe(false);
     const plan = ideasPlan(says("Elon Musk, servant leadership", "Yes, that's right"));
     expect(plan.map((s) => s.kind)).toEqual(["ask", "confirm"]);
-    expect(plan[1]!.text).toBe("Ooh, I like that. So you're thinking: Elon Musk, servant leadership. Did I get that right?");
+    expect(plan[1]!.text).toBe("Got it. So you're thinking about Elon Musk as an example of servant leadership. Did I get that right?");
+    expect(plan[1]!.text).not.toMatch(/Ooh|I like that/);
+    expect(ideaTopic("I'm thinking about my old manager Mandy at the grocery store, she was a servant leader")).toBe("your old manager, Mandy, as an example of servant leadership");
+    expect(ideasConfirm("honestly something with how people treat each other", true)).not.toContain("treat each other");
+    expect(stage2StartingLine({ kind: "has_ideas", ideas: "Sam Walton, servant leadership", readMaterial: false, at: 1 })).toBe("In Stage 1 you said you're thinking about Sam Walton as an example of servant leadership. We'll start there.");
     expect(plan.some((s) => /what's the part/.test(s.text))).toBe(false);
   });
   it("no ideas yet: no reflection, no praise", () => {

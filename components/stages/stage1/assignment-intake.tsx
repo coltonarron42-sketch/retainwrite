@@ -1,11 +1,13 @@
 "use client";
 
 import type { DecisionOption } from "@/lib/stage1/paper-context";
-import { diagnoseQuestion, informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
+import { informedAffirm, informedStoryAsk, lostOffer, informedNext, informedSaying, lostLead } from "@/lib/stage1/north-turns";
 import { chosenStyles, gutPickOf, narrowedTwo, isFillerOnly, isNoLeaderSaying, keepSubstance, namedPerson, noLeaderReply, stylesIn } from "@/lib/stage1/north-turns";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
-import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation, scrubUnreadRefs } from "@/lib/stage1/north-turns";
+import { fillerNudge, isFillerSaying, withoutFiller, isAmbiguousReply, isConfusedSaying, isNoSaying, isUnsureReadSaying, isYesSaying, pickEscalation } from "@/lib/stage1/north-turns";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+/** QA 4:57 PM: the short Stage 1 ends on the Start Stage 2 button, not a question. */
+const SHORT_GATE_LINE = "That's everything for Stage 1. Tap Start Stage 2 whenever you're ready.";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DsButton } from "@/components/ui/ds-button";
@@ -17,12 +19,10 @@ import { LiveTurns } from "@/components/stages/loop/live-turns";
 import { appendSpoken, asideSpoken, AsideVoice, sideAnswerParas, isControlPhrase, isSaidToCoach, questionsRendered, Stage1VoicePacer, stage1VoiceScreen, withoutNote } from "@/lib/stage1/voice-turn";
 import {
   decisionHasReason,
-  decisionQuestion,
   isLostSaying,
   isPreparedSaying,
   isSkipSaying,
   isGetToKnowSkip,
-  assignmentDecisionAsk,
   parseStance,
   mayNeedLookup,
   guessPick,
@@ -110,9 +110,6 @@ import {
   type RequiredSourcesValue,
 } from "@/lib/assignment/schema";
 import {
-  STAGE1_VOICE_MIN_WORDS,
-} from "@/lib/config";
-import {
   getDemoPaper,
   upsertDemoPaper,
   type DemoPaper,
@@ -122,15 +119,8 @@ import { extractInterestTags } from "@/lib/stage1/interest-tags";
 import { preferLocalPosition, readLocalPosition, saveLocalPosition } from "@/lib/stage1/local-position";
 import { createLead, exampleLeadWhy, interestDisplay, LEADS_INTRO, leadLinks, leadSearchTerms, practitionerReason, practitionerSearchTerms, type ResearchLeadDraft } from "@/lib/stage1/leads";
 import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angles";
-import { clipWords } from "@/lib/copy/clip";
 import { isContentQuestion } from "@/lib/coach/answer";
 import { displayWork, namedWorksFrom } from "@/lib/stage1/readings";
-import {
-  evaluateStage1VoiceMinimum,
-  readyVoiceLine,
-  tallyVoiceWords,
-  type VoiceAnswer,
-} from "@/lib/stage1/voice";
 import { usePasteMeta } from "@/lib/hooks/use-paste-meta";
 import { persistField } from "@/lib/papers/persist";
 import { useTurnRecorder } from "@/lib/chat/turn-recorder";
@@ -143,12 +133,14 @@ import {
   intakeScreenAfterLoad,
   resumeIntake,
   stanceStartBlockers,
-  voiceShortNote,
   materialGateLabel, northstarChecklist,
   northstarGateFrom,
   shortNoteNudge,
+  shortStage1Checklist,
 } from "@/lib/stage1/intake-resume";
+import { classifyStartingPoint, ideasAck, ideasPlan, ideasSaid } from "@/lib/stage1/starting-point";
 import { computeStyleMetrics } from "@/lib/style/metrics";
+import { buildVoiceCorpus, collectVoicePieces } from "@/lib/style/voice-capture";
 import { cn, wordCount } from "@/lib/utils";
 import { Check, Info } from "lucide-react";
 import { citationComfortQuestion } from "@/lib/stage1/comfort";
@@ -164,7 +156,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
-import { asOnSheet, longEnough, studentTurns, studentWordTotal, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
+import { asOnSheet, studentTurns, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
 import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
@@ -543,7 +535,6 @@ export function AssignmentIntake({
   const [submitting, setSubmitting] = useState(false);
   const sendLock = useRef(false);
   const [skippedInterest, setSkippedInterest] = useState(false);
-  const [needFallback, setNeedFallback] = useState(false);
   const [error, setErrorRaw] = useState<string | null>(null);
   // QA 1:16 (composer): a send that's turned back (an error) puts their words back in the box.
   const rejectedRef = useRef(false);
@@ -1039,91 +1030,16 @@ export function AssignmentIntake({
     const plan: { id: string; kind: IntakeAnswer["kind"]; text: string }[] = [];
     const northstar = Boolean(brief?.northstar);
     const has = (id: string) => answers.some((a) => a.questionId === id && a.answerText.trim());
-    // A prepared student who already said what they think (QA 6:03 AM): no hobby, story or APA-comfort detour.
-    const materialSaid = answers.find((a) => a.questionId === "material_check")?.answerText ?? "";
-    const stated = brief?.decision?.source === "stated";
-    const prepared = northstar && (stated || (Boolean(materialSaid) && isPreparedSaying(materialSaid) && !materialLost(materialSaid)));
-    // QA 11:40 #4: no question points at material they haven't read and haven't been caught up on.
-    const unread = northstar && !prepared && !caughtUp;
-    const clean = (t: string) => (unread ? scrubUnreadRefs(t) : t);
-    // QA 7:02 AM: "skip the get-to-know-you questions" skips all of them (never the gate steps).
-    const getToKnowOff = skippedInterest && northstar;
     if (northstar) {
-      // Meet them where they are (Colton t161u): the material first, then a real decision.
-      // Already shown before the confirm (QA 7:02 AM): never re-ask "have you read it yet?".
-      if (!brief?.materialShown || has("material_check")) plan.push({
-          id: "material_check",
-          kind: "background",
-          // Colton 12:08: diagnose first. What's really asked, in plain words, then where they are.
-          text: answers.find((a) => a.questionId === "material_check")?.questionText || diagnoseQuestion(brief?.readback?.ask || requirements.promptQuestion.value || requirements.topic.value),
-        });
-      // Their stated stance is the decision: never re-asked, only its reason when it's missing.
-      if (!stated || has("decision_pick")) {
-        plan.push({
-          id: "decision_pick",
-          kind: "coaching",
-          text: brief?.options?.options.length
-            ? clean(decisionQuestion(brief.options, { prepared, ask: brief.readback?.ask ?? requirements?.promptQuestion.value }))
-            : [requirements.promptQuestion.value, brief?.readback?.ask, requirements.topic.value]
-                .map((t) => (t ? assignmentDecisionAsk(t) : null))
-                .find(Boolean) ??
-              "Let's start small: what's your gut answer to the assignment's question right now, even a guess? One sentence and one reason is plenty.",
-        });
-      }
-      const pickSaid = answers.find((a) => a.questionId === "decision_pick")?.answerText ?? "";
-      const shortPick = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && wordCount(pickSaid) < 15;
-      // QA 10:21 walk C: a long pick with no reason ("I read both… I want to argue transformational,
-      // using Satya Nadella") still needs its why, or the gate can never pass.
-      const noReason = Boolean(pickSaid.trim()) && !isSkipSaying(pickSaid) && !decisionHasReason(pickSaid);
-      // QA 11:08 (Walton): a pick that already carries a real reason is never asked "say a bit more about why".
-      if (!stated && (has("decision_why") || ((shortPick || noReason) && !isSolidReason(pickSaid)))) {
-        plan.push({
-          id: "decision_why",
-          kind: "coaching",
-          text: decisionHasReason(pickSaid)
-            ? "Say a bit more about why that one. What would it let you show in your paper?"
-            : "What's your main reason for that pick? One or two sentences is plenty.",
-        });
-      }
-      // Colton 12:08 (INFORMED): what they gave is locked in; no re-ask for its reason here. The
-      // early take (the next requirement) carries the why; the gate recovery still asks if it never comes.
-      // QA 3:00 BLOCKER: the gate found no reason behind a locked-in pick: Pau asks for it in the chat.
-      if (stated && !has("decision_why") && needWhy) {
-        plan.push({
-          id: "decision_why",
-          kind: "coaching",
-          text: "One thing before the stance interview: what's your main reason that's the right call for this assignment? One or two sentences is plenty.",
-        });
-      }
-      if (stated && has("decision_why")) {
-        // Once answered, the question stays as it was asked (the decision now carries the reason too).
-        const askedWhy = answers.find((a) => a.questionId === "decision_why")?.questionText;
-        if (askedWhy) plan.push({ id: "decision_why", kind: "coaching", text: askedWhy });
-        else plan.push({
-          id: "decision_why",
-          kind: "coaching",
-          text: `Got it, you're going with ${clipWords(
-            (brief?.decision?.answer ?? "")
-              // "I read both… I want to argue X": only the stance part is read back (QA 10:21 suite).
-              .replace(/^[\s\S]*?(?=\b(?:i (?:want|plan|intend) to|i'?m going (?:to|with)|i'?d (?:argue|go with|pick)|my (?:pick|stance|choice) is)\b)/i, "")
-              .replace(/^\s*(?:i'?m|i am)?\s*(?:going with|go with|i'?ll go with|picking|leaning toward|arguing for|my (?:pick|stance|choice) is|i (?:pick|chose|choose|picked)|i (?:want|plan|intend) to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?m going to (?:argue(?: for| that)?|use|go with|write about|focus on)|i'?d (?:argue(?: for)?|go with|pick|choose|use))\s*:?\s*/i, "")
-              .replace(/[.!?\s]+$/, ""),
-            160,
-          )}. ${decisionHasReason(brief?.decision?.answer ?? "") ? "Say a bit more about why: what would it let you show in your paper?" : "What's your main reason? One or two sentences is plenty."}`,
-        });
-      }
-      // The assignment needs one real person: a leader choice grounded in the readings.
-      const people = brief?.options?.people ?? [];
-      // QA full prod walk (8979326a): a leader they already named in any turn ("Sam Walton") fills the slot: no menu.
-      const leaderStated = brief?.leader?.question === "stated" || Boolean(leaderAlready);
-      if (people.length >= 2 && (!leaderStated || has("leader_pick"))) {
-        plan.push({
-          id: "leader_pick",
-          kind: "coaching",
-          text: clean(`This one needs a real leader as your example. Who fits your pick best? ${people.slice(0, 3).map((p) => `${p.label} (${p.why.replace(/[.\s]+$/, "")})`).join("; ")}. Or name someone else, even a leader from your own life like a coach or a boss, and say why.`),
-        });
-      }
+      // PC-32 (Colton t221u/t222u): Stage 1 is short and sweet. After the confirmed read-back, one
+      // light "have you thought about what to write?" and, only if they share an idea, a reflect-back
+      // to confirm (at most one light clarifying question). No material quiz, pick, leader, story or
+      // early take here any more: those live in Stage 2's stance interview.
+      for (const step of ideasPlan(answers)) plan.push({ id: step.id, kind: "coaching", text: step.text });
+      return plan;
     }
+    const prepared = false;
+    const getToKnowOff = false;
     // Colton 11:41: no get-to-know-you questions on north-star papers, for any student
     // (hobbies, story/show/sport, APA comfort, the generic "seen it in real life"). Every early
     // question serves the assignment: read-back, catch-up, decision with its reason, early take.
@@ -1145,7 +1061,10 @@ export function AssignmentIntake({
         kind: "coaching",
         text: "In your own words, what do you think this assignment wants you to figure out?",
       });
-    if (!northstar && ((!getToKnowOff && !prepared) || has("personal_1"))) plan.push({
+    // PC-32 (Colton t219u, Nov 25): no "write a few sentences" voice question in Stage 1 any more.
+    // Voice is captured in the background from every answer; an older paper that already
+    // answered it keeps it (its history and resume stay intact).
+    if (!northstar && has("personal_1")) plan.push({
       id: "personal_1",
       kind: "personal",
       // QA 11/23: never paste the whole assignment clause into the template.
@@ -1158,7 +1077,8 @@ export function AssignmentIntake({
             : `When have you seen an idea like ${topicMidSentence(topic)} show up in real life — school, work, family, or something you follow? Write at least a few sentences.`,
     });
     // Early stance is asked after Pick your story (3.4a → stance on the angle).
-    if (!northstar && needFallback && ((!getToKnowOff && !prepared) || has("fallback_voice"))) {
+    // PC-32: the extra "write a little more" voice question is gone; kept only where it was answered.
+    if (!northstar && has("fallback_voice")) {
       plan.push({
         id: "fallback_voice",
         kind: "fallback_voice",
@@ -1166,7 +1086,7 @@ export function AssignmentIntake({
       });
     }
     return plan;
-  }, [requirements, skippedInterest, needFallback, briefLoaded, brief?.northstar, brief?.northstarSet, northstarWaitOver, brief?.options, brief?.decision, brief?.leader, answers, caughtUp, needWhy, leaderAlready]);
+  }, [requirements, skippedInterest, briefLoaded, brief, northstarWaitOver, answers]);
   // Prepared or get-to-know-skipped north-star students never get the extra voice question
   // (the plan leaves it out), so nothing may wait on it (QA 7:02 AM walk: a blank screen after the reason).
   // QA 10:21 walk C (root cause of the hang): the plan can shrink under the current index
@@ -1179,24 +1099,11 @@ export function AssignmentIntake({
     leader: leaderAlready,
     styles: chosenStyles([brief?.decision?.answer, ...answers.map((a) => a.answerText)]),
   });
-  // North star (Colton 11:41): there is no extra voice question at all.
-  const fallbackOff = Boolean(brief?.northstar);
 
   useEffect(() => {
     if (demoMode || resumedIntake.current || coachingPlan.length === 0) return;
     if (answers.length === 0 && !storyAngle && !pendingQuestion.current) {
       if (resumeReady) setResumePending(false);
-      return;
-    }
-    // needFallback is not saved; a reload must rebuild the plan with the
-    // fallback question before resuming, whether it was answered or was the
-    // question being typed when the page reloaded.
-    if (
-      !needFallback &&
-      (pendingQuestion.current === "fallback_voice" ||
-        answers.some((answer) => answer.questionId === "fallback_voice"))
-    ) {
-      setNeedFallback(true);
       return;
     }
     // Same for a skipped get-to-know-you: rebuild the shorter plan first, so
@@ -1257,15 +1164,7 @@ export function AssignmentIntake({
         while (next < coachingPlan.length && answers.some((answer) => answer.questionId === coachingPlan[next]?.id)) next++;
         if (next >= coachingPlan.length) {
           settleRestore();
-          const voice = evaluateStage1VoiceMinimum({
-            answers: answers.map((a) => ({ text: a.answerText, isVoiceSample: a.isVoiceSample, kind: a.kind, pasteRatio: a.pasteRatio })),
-          });
-          if (voice.needsFallback && !fallbackOff && !needFallback && !answers.some((a) => a.kind === "fallback_voice") && !storyAngle) {
-            setNeedFallback(true);
-            setQIndex(coachingPlan.length);
-            setScreen("coaching");
-            return;
-          }
+          // PC-32: no extra voice question after the plan; straight on.
           if (storyAngle) goToStanceOnStory();
           else finishCoaching(answers);
           return;
@@ -1286,7 +1185,7 @@ export function AssignmentIntake({
       }
     }
     settleRestore();
-  }, [demoMode, answers, coachingPlan, storyAngle, needFallback, fallbackOff, skippedInterest, resumeReady]);
+  }, [demoMode, answers, coachingPlan, storyAngle, skippedInterest, resumeReady]);
 
   const draftQuestionId = coachingPlan[qIndex]?.id ?? (qIndex < 0 ? "stance_early" : "draft");
   const draftStatus = useDraftSave({
@@ -1298,30 +1197,6 @@ export function AssignmentIntake({
     localCopy: true,
   });
 
-  const voiceEval = useMemo(() => {
-    const latest = new Map<string, (typeof answers)[number]>();
-    for (const answer of answers) {
-      if (!answer.isVoiceSample || !answer.answerText.trim()) continue;
-      latest.set(answer.questionId, answer);
-    }
-    const voiceAnswers: VoiceAnswer[] = [...latest.values()].map((answer) => ({
-      text: answer.answerText,
-      isVoiceSample: true,
-      kind: answer.kind,
-      pasteRatio: answer.pasteRatio,
-    }));
-    const evaluated = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    return {
-      ...evaluated,
-      totalWords: tallyVoiceWords(
-        [...latest.values()].map((answer) => ({
-          questionId: answer.questionId,
-          text: answer.answerText,
-          isVoiceSample: true,
-        })),
-      ),
-    };
-  }, [answers]);
 
   // Coming back to a conversation with turns: one welcome-back line, decided
   // once when the restore settles (Colton 3:46 PM). Nothing old is re-run.
@@ -1407,7 +1282,9 @@ export function AssignmentIntake({
     brief?.northstar && !answers.some((a) => a.questionId === "decision_pick")
       ? informedSaying(answers.find((a) => a.questionId === "material_check")?.answerText ?? "", brief.options?.options ?? [])?.stance ?? null
       : null;
-  const northstarGate = brief?.northstar
+  // Short Stage 1 (PC-32): the only gate is the confirmed assignment; their idea is optional.
+  const shortStage1 = Boolean(brief?.northstar);
+  const northstarGate = brief?.northstar && !shortStage1
     ? northstarGateFrom({
         answers,
         // QA 3:00 BLOCKER: the informed lock-in on screen and the gate read the same decision.
@@ -1450,7 +1327,6 @@ export function AssignmentIntake({
       setQIndex(next);
       return;
     }
-    if (needFallback) return;
     curQId.current = null;
     if (storyAngle) goToStanceOnStory();
     else finishCoaching(answers);
@@ -1458,7 +1334,7 @@ export function AssignmentIntake({
   }, [planKey, qIndex, screen]);
   // A plain empty step (index past the plan, nothing pending) never strands them either.
   useEffect(() => {
-    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey || needFallback) return;
+    if (screen !== "coaching" || qIndex < 0 || editReturn !== null || !planKey) return;
     if (coachingPlan[qIndex]) { curQId.current = coachingPlan[qIndex].id; return; }
     const t = setTimeout(() => {
       const next = coachingPlan.findIndex((x) => !answers.some((a) => a.questionId === x.id));
@@ -1468,7 +1344,7 @@ export function AssignmentIntake({
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planKey, qIndex, screen, needFallback]);
+  }, [planKey, qIndex, screen]);
   // Server-side recovery (QA 10:21): a gate that can't pass on the decision re-asks it, with the
   // composer, instead of a disabled Start and no way forward. `forceRecover` is set when the
   // server's /intake/complete says the decision is missing.
@@ -1528,7 +1404,7 @@ export function AssignmentIntake({
     // A send empties the box: that's not a hesitation (QA round 6: the spark showed up right after a side question).
     resetKey: `${qaAsides.length}:${answers.length}:${pendingSaid ?? ""}:${queuedSaid ?? ""}:${submitting ? 1 : 0}`,
     enabled:
-      Boolean(hesitationKey) && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]) && !(hesitationKey === "stance_early" && (shortEcho || stanceTries.length)),
+      Boolean(hesitationKey) && !shortStage1 && !submitting && !chatPrefs.sparkOff && !(hesitationKey && sparks[hesitationKey]) && !(hesitationKey === "stance_early" && (shortEcho || stanceTries.length)),
     onHesitate: (key) => {
       if (sparksRef.current[key] || chatPrefs.sparkOff) return;
       updateSpark(key, { status: "offer" });
@@ -1699,8 +1575,6 @@ export function AssignmentIntake({
           northstar: northstarGate,
           checklistConfirmed: cardGate.ok,
           hasStory: Boolean(storyAngle),
-          voiceOk: voiceEval.ok,
-          voiceReason: voiceEval.reasons[0],
           stanceOk,
         });
         if (!isQuickConfirm(text) || blocked.length > 0) return "aside";
@@ -2074,6 +1948,11 @@ export function AssignmentIntake({
   }
 
   function finishCoaching(nextAnswers: IntakeAnswer[]) {
+    // Short Stage 1 (north star, PC-32): no story screen, no early take; straight to the wrap-up.
+    if (shortStage1) {
+      setScreen("gate");
+      return;
+    }
     // North star: their decision (their words, with their reason) IS the direction; no second angle picker.
     const said = (id: string) => nextAnswers.find((a) => a.questionId === id)?.answerText.trim() ?? "";
     // Their stated stance plus its reason (and leader) when they came in prepared.
@@ -2701,11 +2580,8 @@ export function AssignmentIntake({
       return;
     }
 
-    const isVoice =
-      q.kind === "interest" ||
-      q.kind === "coaching" ||
-      q.kind === "personal" ||
-      q.kind === "fallback_voice";
+    // PC-32 (Colton t219u): every answer they write or say feeds the background voice profile.
+    const isVoice = !opts?.skip;
 
     const existing = answers.find((a) => a.questionId === q.id);
     const nextAnswers = [
@@ -2916,6 +2792,19 @@ export function AssignmentIntake({
       return;
     }
 
+    // Short Stage 1: the ideas steps grow from this very answer, so read the plan from it (not the
+    // previous render's plan). No more steps (no idea, or "that's it"): the wrap-up.
+    if (shortStage1) {
+      const fresh = ideasPlan(nextAnswers);
+      const open = fresh.findIndex((s) => !nextAnswers.some((a) => a.questionId === s.id && a.answerText.trim()));
+      if (open >= 0 && open !== qIndex) {
+        setBoxUnlessTyped("", sentBox);
+        setQIndex(open);
+        return;
+      }
+      setScreen("gate");
+      return;
+    }
     if (qIndex + 1 < coachingPlan.length) {
       const nextQuestion = coachingPlan[qIndex + 1];
       setBoxUnlessTyped(nextAnswers.find((answer) => answer.questionId === nextQuestion.id)?.answerText ?? "", sentBox);
@@ -2929,23 +2818,6 @@ export function AssignmentIntake({
       return;
     }
 
-    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
-      text: a.answerText,
-      isVoiceSample: a.isVoiceSample,
-      kind: a.kind,
-      pasteRatio: a.pasteRatio,
-    }));
-    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    if (
-      evalResult.needsFallback &&
-      !fallbackOff &&
-      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
-      !needFallback
-    ) {
-      setNeedFallback(true);
-      setQIndex(coachingPlan.length);
-      return;
-    }
     // The story angle is already picked (the checklist says so): go on to the
     // early take instead of asking for the story again.
     if (storyAngle) {
@@ -2971,6 +2843,10 @@ export function AssignmentIntake({
   }
 
   function goToStanceOnStory() {
+    if (shortStage1) {
+      setScreen("gate");
+      return;
+    }
     // QA 5:46: this runs after her reply lands; words typed since Enter stay in the box.
     setBoxUnlessTyped(savedAnswerText("stance_early"));
     setError(null);
@@ -3189,24 +3065,6 @@ export function AssignmentIntake({
       setLeads(suggested);
     }
 
-    const voiceAnswers: VoiceAnswer[] = nextAnswers.map((a) => ({
-      text: a.answerText,
-      isVoiceSample: a.isVoiceSample,
-      kind: a.kind,
-      pasteRatio: a.pasteRatio,
-    }));
-    const evalResult = evaluateStage1VoiceMinimum({ answers: voiceAnswers });
-    if (
-      evalResult.needsFallback &&
-      !fallbackOff &&
-      !nextAnswers.some((a) => a.kind === "fallback_voice") &&
-      !needFallback
-    ) {
-      setNeedFallback(true);
-      setQIndex(coachingPlan.length);
-      setScreen("coaching");
-      return;
-    }
     setScreen("gate");
   }
 
@@ -3286,7 +3144,7 @@ export function AssignmentIntake({
       setError("Confirm the assignment card first.");
       return;
     }
-    if (!stanceOk) {
+    if (!shortStage1 && !stanceOk) {
       setError("Add a couple more sentences to your early take.");
       return;
     }
@@ -3333,7 +3191,7 @@ export function AssignmentIntake({
       /* fall through to local demo complete */
     }
 
-    if (!storyAngle) {
+    if (!storyAngle && !shortStage1) {
       setError("Pick a story angle before continuing.");
       setScreen("story");
       return;
@@ -3341,10 +3199,10 @@ export function AssignmentIntake({
     // PC-29 QA minor: Stage 1 is finished; the voice call ends cleanly (after her short "Let's go.").
     if (rt.on) window.setTimeout(() => rt.stop(), 1_500);
 
-    const sample = answers
-      .filter((a) => a.isVoiceSample)
-      .map((a) => a.answerText)
-      .join("\n");
+    // PC-32: the demo profile comes from every answer they wrote (background capture).
+    const sample = buildVoiceCorpus(
+      collectVoicePieces({ intake: answers.map((a) => ({ questionId: a.questionId, kind: a.kind, text: a.answerText })) }),
+    ).text;
     const metrics = computeStyleMetrics(sample);
 
     const progress = paper.stage_progress.map((s) => {
@@ -4164,7 +4022,7 @@ export function AssignmentIntake({
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={() => setDraftAnswer((d) => (d.trim() ? d : `I'd pick ${o.label} because `))}
+                      onClick={() => setDraftAnswer((d) => (!d.trim() || /^I'd pick [^.]{1,60} because\s*$/.test(d) ? `I'd pick ${o.label} because ` : d))}
                     >
                       {o.label}
                     </DsButton>
@@ -4265,36 +4123,26 @@ export function AssignmentIntake({
     const reach = beyondPlan
       ? coachingPlan.length
       : Math.max(lastAnswered + 1, qIndex);
-    const sample = answers
-      .filter((a) => a.isVoiceSample)
-      .map((a) => a.answerText)
-      .join("\n");
-    const metrics = screen === "gate" && sample ? computeStyleMetrics(sample) : null;
-    // The student sees words against the 200-word target, so that is what the
-    // check mark and the "short side" note follow.
-    // QA full prod walk (8979326a): "on the short side" counts every word they wrote across Stage 1 turns
-    // (asides, replies to Pau, the leader answer), and is hidden once that's long enough.
-    const allStudentWords = studentWordTotal([
-      ...answers.map((a) => a.answerText),
-      brief?.decision?.answer,
-      brief?.leader?.answer,
-      lastStory.current,
-      ...qaAsides.map((x) => x.said),
-      ...stanceTries.map((x) => x.said),
-    ]);
-    const voiceWordsMet = voiceEval.totalWords >= STAGE1_VOICE_MIN_WORDS || allStudentWords >= STAGE1_VOICE_MIN_WORDS;
-    const voiceWordsSeen = Math.max(voiceEval.totalWords, allStudentWords);
-    const blockers = stanceStartBlockers({
+    const blockers = shortStage1
+      ? cardGate.ok ? [] : ["Confirm the assignment card first."]
+      : stanceStartBlockers({
           northstar: northstarGate,
-      checklistConfirmed: cardGate.ok,
-      hasStory: Boolean(storyAngle),
-      voiceOk: voiceEval.ok,
-      voiceReason: voiceEval.reasons[0],
-      stanceOk,
-    });
+          checklistConfirmed: cardGate.ok,
+          hasStory: Boolean(storyAngle),
+          stanceOk,
+        });
     const draftWords = wordCount(screen === "story" ? ownStory : draftAnswer);
     // The gate checklist (north star: confirmed, material, decision with reason, early take).
-    const gateChecks = northstarGate ? (
+    const startingNow = shortStage1 ? classifyStartingPoint({ ...ideasSaid(answers), lostAtStart: Boolean(brief?.lostAtStart) }) : null;
+    const gateChecks = startingNow ? (
+                  <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]" data-gate-checklist>
+                    {shortStage1Checklist({ confirmed: cardGate.ok, kind: startingNow.kind }).map((item) => (
+                      <li key={item.label}>
+                        {item.done ? "✓" : "○"} {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : northstarGate ? (
                   <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]" data-gate-checklist>
                     {northstarChecklist({
                       confirmed: cardGate.ok,
@@ -4328,14 +4176,6 @@ export function AssignmentIntake({
                 <ul key="checks" className="space-y-1 text-[16px] leading-[1.6]">
                   <li>{cardGate.ok ? "✓" : "○"} Assignment checklist confirmed</li>
                   <li>{storyAngle ? "✓" : "○"} Story angle picked</li>
-                  <li>
-                    {voiceWordsMet
-                      ? "✓ Voice sample: plenty to match your voice"
-                      : "· Voice sample: a good start. More of your own writing helps me match your voice (optional)"}
-                    <span className="sr-only">
-                      {` (${voiceWordsSeen} of ${STAGE1_VOICE_MIN_WORDS} words)`}
-                    </span>
-                  </li>
                   <li>{stanceOk ? "✓ Early take: a few sentences in your own words" : "○ Early take: a few sentences in your own words"}</li>
                 </ul>
                 );
@@ -4344,7 +4184,6 @@ export function AssignmentIntake({
     // while a message is pending or queued, and whenever her reply is on screen.
     const hintQuiet = Boolean(error) || submitting || Boolean(pendingSaid) || Boolean(queuedSaid);
     const minNote = hintQuiet ? null : stanceMode ? shortNoteNudge("stance", draftWords) : screen === "story" ? shortNoteNudge("story", draftWords) : null;
-    const isVoiceQuestion = Boolean(q && q.kind !== "background");
     // Photos, a paste or a link to the reading (north star B; Colton 11:41 PM).
     const readingTools = q ? (readingOpen ? (
                     <div className="space-y-2">
@@ -4635,10 +4474,9 @@ export function AssignmentIntake({
       : screen === "story"
         ? ["Here are a few directions your paper could take, built from what you told me."]
         : screen === "gate"
-          ? [
-              "That's everything for Stage 1. Ready for the stance interview?",
-              ...(metrics && voiceWordsMet && readyVoiceLine(voiceWordsSeen) ? [readyVoiceLine(voiceWordsSeen) as string] : []),
-            ]
+          ? startingNow
+            ? [ideasAck(startingNow), SHORT_GATE_LINE]
+            : ["That's everything for Stage 1. Ready for the stance interview?"]
           : [];
     // PC-29 QA round 2: what the call says is the copy this turn shows, word for word.
     // QA 11:51 (b): with a nudge or error up, the call says only that, never the whole prompt again.
@@ -4983,12 +4821,8 @@ export function AssignmentIntake({
             <PauPauGroup
               bubbles={[
                 ...leadsBubbles,
-                "That's everything for Stage 1. Ready for the stance interview?",
-                metrics && voiceWordsMet && readyVoiceLine(voiceWordsSeen)
-                  ? readyVoiceLine(voiceWordsSeen)
-                  : null,
+                ...(startingNow ? [ideasAck(startingNow), SHORT_GATE_LINE] : ["That's everything for Stage 1. Ready for the stance interview?"]),
                 gateChecks,
-                voiceShortNote({ voiceOk: voiceWordsMet || longEnough(allStudentWords) }) || null,
               ].filter((b) => b !== null)}
               headingIndex={leadsBubbles.length}
               headingId="gate-ask"
@@ -5000,7 +4834,7 @@ export function AssignmentIntake({
                   disabled={startingStance || blockers.length > 0}
                   onClick={() => void completeStage1()}
                 >
-                  {startingStance ? "Starting the stance interview…" : "Start stance interview"}
+                  {shortStage1 ? (startingStance ? "Starting Stage 2…" : "Start Stage 2") : startingStance ? "Starting the stance interview…" : "Start stance interview"}
                 </DsButton>
                 {blockers.map((reason) => (
                   <p key={reason} className="mt-2 text-[13px] leading-[1.6] text-ds-muted" role="status">
@@ -5025,7 +4859,7 @@ export function AssignmentIntake({
                     {/* PC-29 QA minor: Stage 1 is done here; say what voice is waiting for (no text box). */}
                     <RealtimeControls
                       call={rt}
-                      listenHint={startingStance ? "Starting the stance interview…" : blockers.length ? "Voice is on. Tap an answer above to change it." : "Say “yes” or tap Start stance interview."}
+                      listenHint={startingStance ? "Starting the stance interview…" : blockers.length ? "Voice is on. Tap an answer above to change it." : shortStage1 ? "Say “yes” or tap Start Stage 2." : "Say “yes” or tap Start stance interview."}
                     />
                   </div>
                 ) : null}
@@ -5143,21 +4977,6 @@ export function AssignmentIntake({
               <p className="flex shrink-0 items-center gap-2 whitespace-nowrap px-2">
                 {restoringDraft && !draftAnswer ? <span role="status">Restoring your draft… </span> : null}
                 {submitting ? <span role="status">Saving… </span> : null}
-                {isVoiceQuestion || stanceMode ? (
-                  <span
-                    className="inline-flex items-center gap-1"
-                    title="Your voice sample: how much of your own writing Pau has so far"
-                  >
-                    <span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>
-                    <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-ds-border">
-                      <span
-                        className="block h-full bg-ds-sage"
-                        style={{ width: `${Math.min(100, (voiceEval.totalWords / STAGE1_VOICE_MIN_WORDS) * 100)}%` }}
-                      />
-                    </span>
-                    <span aria-hidden>{voiceWordsMet ? "Voice ✓" : "Voice"}</span>
-                  </span>
-                ) : null}
                 <SaveStatus status={draftStatus} />
               </p>
             </div>
