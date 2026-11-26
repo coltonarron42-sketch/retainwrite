@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { readingNames } from "@/lib/copy/name-case";
 import { pickedLeader, pickedStyles } from "@/lib/stage1/paper-context";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -66,7 +67,7 @@ async function handle(request: Request, ctx: Ctx, post: z.infer<typeof postSchem
       outline = await ensureOutline({ paperId, userId: user.id, shape, facts, choices, bodyNotes, existing: post ? existing : shapeChanged ? null : existing, later: (task) => after(task), refine: shape.source === "model", shown: existing?.outline ?? null });
     }
     // Round 4 #1: the rules stand-in while the real shape is made: the client shows "Building…" and asks again.
-    return NextResponse.json({ view: viewFor(shape, outline), building: shape.source !== "model" && hasGrokKey() });
+    return NextResponse.json({ view: viewFor(shape, outline, readingNames(text)), building: shape.source !== "model" && hasGrokKey() });
   } catch {
     return NextResponse.json({ view: null, reason: "error" });
   }

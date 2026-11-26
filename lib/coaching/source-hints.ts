@@ -6,6 +6,7 @@
  * labelled summaries of the assigned readings) (already stored), no new storage.
  * // SOP: coaching only, never generate submission text (the points are the source's, labelled).
  */
+import { lowerTitle } from "@/lib/copy/name-case";
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
 
 export type HintSection = { key: string; title: string; needs?: string; concept?: string | null; ideas?: string[]; kind?: string };
@@ -118,7 +119,7 @@ export function sourceHintsFor(section: HintSection, sections: HintSection[], su
 
 /** The lead line: when (before writing this part) and where (this section). */
 export function sourceHintLead(stage: 2 | 3, sectionTitle: string): string {
-  const part = sectionTitle.trim().toLowerCase() || "this section";
+  const part = lowerTitle(sectionTitle) || "this section";
   return stage === 2
     ? `Here's the source if you want to refresh before writing your ${part}. This is the section to reference it in.`
     : `Here's the source to cite in your ${part}. Put it on the outline line where you use one of these points.`;

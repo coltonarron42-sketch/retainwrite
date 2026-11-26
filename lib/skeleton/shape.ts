@@ -3,6 +3,7 @@
 // theories, transitions) from the real assignment; ghost paper #2 adds short body titles
 // once the student has made their choices. The client only ever gets labels, subheadings
 // and short titles from here, never the private plan.
+import { lowerTitle, restoreNames } from "@/lib/copy/name-case";
 import { z } from "zod";
 
 export type SkeletonGroup = "intro" | "body" | "conclusion";
@@ -121,14 +122,27 @@ function lenientShape(raw: unknown): unknown {
   };
 }
 
+/** QA (after #81): the client view with the readings' names in their own case (titles, subs, transitions). */
+export function withNameCaseView(view: SkeletonView, names: string[]): SkeletonView {
+  if (!names.length) return view;
+  return { ...view, blocks: view.blocks.map((b) => ({ ...b, sub: restoreNames(b.sub, names), title: b.title ? restoreNames(b.title, names) : b.title })), transitions: view.transitions.map((t) => restoreNames(t, names)) };
+}
+
+/** QA (after #81): a stored shape's lines with the readings' names in their own case. */
+export function withNameCase(shape: PaperShape, names: string[]): PaperShape {
+  if (!names.length) return shape;
+  return { ...shape, blocks: shape.blocks.map((b) => ({ ...b, sub: restoreNames(b.sub, names) })), decisions: (shape.decisions ?? []).map((d) => restoreNames(d, names)) };
+}
+
 /** A model shape, checked and capped. Labels stay generic (no names: it's shape only). */
-export function shapeFromModel(raw: unknown): PaperShape | null {
+export function shapeFromModel(raw: unknown, names: string[] = []): PaperShape | null {
   const parsed = modelShapeSchema.safeParse(lenientShape(raw));
   if (!parsed.success) return null;
   const body = parsed.data.body;
   const blocks: ShapeBlock[] = [{ key: "intro", group: "intro", label: "Introduction", sub: INTRO_SUB }];
   body.forEach((b, i) => {
-    const sub = clean(b.focus, 60).toLowerCase() || `main point ${i + 1}`;
+    // QA (after #81): lowercase the common words only; reading names keep their capitals ("Northouse's").
+    const sub = restoreNames(lowerTitle(clean(b.focus, 60)), names) || `main point ${i + 1}`;
     blocks.push({ key: `body-${i + 1}`, group: "body", label: `Paragraph ${i + 1}`, sub });
   });
   blocks.push({ key: "conclusion", group: "conclusion", label: "Conclusion", sub: CONCLUSION_SUB });

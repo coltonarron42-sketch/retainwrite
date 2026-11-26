@@ -170,7 +170,7 @@ import {
 } from "@/components/stages/stage1/hesitation";
 import { setChatPref, useChatPrefs } from "@/lib/voice/prefs";
 import { SPARK_OFFER } from "@/lib/stage1/spark";
-import { asOnSheet, longEnough, studentTurns, studentWordTotal, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
+import { checklistLabel, longEnough, studentTurns, studentWordTotal, leaderAcross, yesWithMore } from "@/lib/stage1/lock-in";
 import { isRichStory, proposalReply, reflectParas, reflectStory, storyAngleText, storySummaryParas, storyWho, type StoryReflect } from "@/lib/stage1/story-reflect";
 import type { SpeakItem } from "@/lib/voice/speech";
 import { dsCaption, dsEyebrow, dsH1, dsInput, dsLink, dsSelect, dsTextarea } from "@/lib/ds/classes";
@@ -2823,7 +2823,7 @@ export function AssignmentIntake({
         // QA full prod walk (8979326a): what they said in earlier turns counts too (styles add up).
         informedAffirm(studentTurns([lastStory.current, answers.find((a) => a.questionId === "material_check")?.answerText, text]).join("\n"), {
           leader: said.leader,
-          mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => asOnSheet(x, rawText)),
+          mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => checklistLabel(x, rawText)),
           needsPerson: true,
         }),
       );
@@ -2857,7 +2857,7 @@ export function AssignmentIntake({
         setInformedLead(
           informedAffirm(pool, {
             leader: early.leader,
-            mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => asOnSheet(x, rawText)),
+            mustInclude: (bNow?.readback?.mustInclude ?? []).map((x) => checklistLabel(x, rawText)),
             needsPerson: people.length > 0 || /\b(?:real|one)\s+(?:leader|person)\b/i.test(bNow?.readback?.ask ?? ""),
           }),
         );

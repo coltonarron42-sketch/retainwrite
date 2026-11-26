@@ -1,5 +1,6 @@
 "use client";
 
+import { lowerTitle } from "@/lib/copy/name-case";
 import { SourceHintCard } from "@/components/stages/source-hint";
 import { sourceHintsFor } from "@/lib/coaching/source-hints";
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
@@ -235,7 +236,7 @@ export function quipSlotFor(index: number | undefined): "pick_lead" | "logic_ope
 
 /** The probe opener: a first-section start, a short hand-off for later sections. */
 export function probeLead(index: number | undefined, title: string): string {
-  const part = title.toLowerCase();
+  const part = lowerTitle(title);
   return index === undefined || index <= 0 ? `Let's start with your ${part}.` : `On to your ${part}.`;
 }
 
@@ -272,7 +273,7 @@ function stanceTurnParasRaw(
     case "pick_lead":
     {
       const q = quipSlotFor(ctx.index) === "pick_lead" && !(ctx.lastNote && isVagueNote(ctx.lastNote)) ? quipFor(ctx.seed, ctx.index, "pick_lead") : null;
-      return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", section.title.toLowerCase()).replace("{q}", q ? ` ${q}` : "")];
+      return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", lowerTitle(section.title)).replace("{q}", q ? ` ${q}` : "")];
     }
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
@@ -303,7 +304,7 @@ export function moderateConcern(r: { reason?: string; alternativeAngles?: { ques
   const reason = (r.reason ?? "").trim();
   const ask = r.alternativeAngles?.[0]?.question?.trim();
   if (reason) return /[.?!”"]$/.test(reason) ? reason : `${reason}.`;
-  const part = title.toLowerCase();
+  const part = lowerTitle(title);
   if (note && isVagueNote(note)) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
   return ask ?? `Your ${part} could use one more specific detail. What example would show it best in your ${part}?`;
 }
