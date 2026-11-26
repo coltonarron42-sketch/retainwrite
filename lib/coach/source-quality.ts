@@ -147,6 +147,21 @@ export function supportedBy(bullet: string, evidence: string): boolean {
   return hit >= Math.min(3, Math.ceil(words.length * 0.5));
 }
 
+
+// QA 6:20: every example bullet names a real person (the leader) and what they did.
+const ORG_WORDS = new Set("college university school institute center centre clinic hospital bank group company corporation corp inc llc ltd airlines airline foundation association society council department agency library review journal press times news post magazine partners capital holdings systems services solutions communications technologies labs network networks restaurants kitchen stores markets motors electric energy health care government city county state church".split(" "));
+const NAME_STOP = new Set("the a an at in on of for and from by with as this that these those his her their its our library libraries leaders leader leadership team teams staff managers employees ceo cfo coo founder president chief executive director professor dr mr mrs ms".split(" "));
+/** Does the bullet name a person: two or three capitalized words in a row that aren't an organization ("Satya Nadella", "Tony Hsieh")? */
+export function namesPerson(bullet: string): boolean {
+  const body = stripCites(bullet.replace(BULLET, "")).replace(/\([^)]*\)\.?$/, "");
+  for (const m of body.matchAll(/\b([A-Z][a-zà-ÿ'’.-]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-zà-ÿ'’-]+){1,2})\b/g)) {
+    const words = m[1]!.split(/\s+/).map((w) => w.toLowerCase().replace(/['’]s$/, "").replace(/\.$/, ""));
+    if (NAME_STOP.has(words[0]!) || words.some((w) => ORG_WORDS.has(w))) continue;
+    if (words.filter((w) => w.length > 1).length >= 2) return true;
+  }
+  return false;
+}
+
 /** The evidence for a page: what we fetched, plus the citation's own title and the URL's words. */
 export function evidenceFor(url: string, o: { fetched?: Map<string, { title: string; text: string }>; titles?: Map<string, string> }): { title: string; text: string } {
   const f = o.fetched?.get(url);
@@ -289,6 +304,11 @@ export function applySourceQuality(
     const seenLead = new Set<string>();
     for (let i = 0; i < out.length; i++) {
       if (!out[i]!.startsWith("• ")) continue;
+      if (!namesPerson(out[i]!)) {
+        checks.push({ bullet: out[i]!.slice(2, 162), tag: "unnamed", page: "", pageTitle: "", supported: false, retagged: false, terms: [] });
+        out.splice(i--, 1);
+        continue;
+      }
       const lead = keyTerms(out[i]!).entities[0];
       if (!lead) continue;
       if (seenLead.has(lead)) {
@@ -348,35 +368,29 @@ export function bestExcerpt(text: string, words: string[], size = 1500): string 
 
 /** When nothing citable came back: say so plainly, keep the gist as labeled background (no sites). */
 export function noGoodSourcesParas(
-  dropped: { line: string; why?: "weak" | "unsupported" }[],
+  _dropped: { line: string; why?: "weak" | "unsupported" }[],
   question: string | null,
-  background: string[] = [],
+  examples: string[] = [],
 ): string[] {
-  const unsupported = dropped.length > 0 && dropped.every((d) => d.why === "unsupported");
-  // QA retest (da13848): never promise background and deliver nothing. The dropped bullets' gist, else
-  // general background written without any sources (concepts only, no names, numbers or studies), else no promise.
-  // QA 5:13 walk: only bullets from a real but non-citable page (weak) show as background; one no page
-  // backed (unsupported) never does, since its specifics may be wrong.
-  const gist = dropped
-    .filter((d) => d.why !== "unsupported")
-    .slice(0, 3)
-    .map((d) => `• ${stripCites(d.line.replace(BULLET, "")).replace(/\.$/, "")}.`)
-    .filter((l) => l.length > 12);
-  const bg = background.map((l) => l.trim()).filter((l) => /^[•*-]\s+\S/.test(l) && l.length > 12)
-    // Unsourced background never carries specifics: no figures, no named people or companies, no links.
-    .filter((l) => !/\d|https?:|\[|\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(l.replace(/^[•*-]\s+\S+/, ""))).map((l) => `• ${l.replace(/^[•*-]\s+/, "")}`).slice(0, 4);
-  const body = gist.length ? gist : bg;
-  const lead = !body.length
-    ? "I couldn't find sources I'd want you to cite on this one."
-    : unsupported && gist.length
-      ? "I couldn't match these to a page that actually backs them up, so treat this as general background, not something to cite:"
-      : "I couldn't find sources I'd want you to cite on this one. What came up were summary and blog sites, so here's general background instead (not something to cite):";
+  // QA 6:20: when nothing passes, no bullet is pinned on a weak site. At most 2 widely documented examples,
+  // each a named leader and what they did, labeled as general background, with no site attribution.
+  const ex = backgroundExamples(examples);
   return [
-    lead,
-    ...body,
+    "I couldn't find sources I'd want you to cite on this one.",
+    ...(ex.length ? ["From general background (check before citing):", ...ex] : []),
     "For citable examples, try Google Scholar or your library's business databases, or ask me to look for a specific leader or company.",
     ...(question ? [question] : []),
   ];
+}
+
+/** Background example lines kept: a bullet, a named person, no figures, links, site tags or attributions; at most 2. */
+export function backgroundExamples(lines: string[]): string[] {
+  return lines
+    .map((l) => l.trim())
+    .filter((l) => /^[•*-]\s+\S/.test(l))
+    .map((l) => stripCites(l.replace(/^[•*-]\s+/, "• ")).replace(/\s*\((?:[^()]*\.(?:com|org|edu|net|gov)[^()]*|Harvard Business Review|Forbes|[A-Z][\w&. ]{2,40})\)\s*\.?\s*$/, "").replace(/\.?\s*$/, "."))
+    .filter((l) => l.length > 20 && !/\d|https?:|\[|\]/.test(l) && namesPerson(l))
+    .slice(0, 2);
 }
 
 /** True when noGoodSourcesParas would have nothing to show under its lead (so the route writes general background). */

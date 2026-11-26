@@ -64,10 +64,10 @@ describe("QA 3:46: bullets only from sources that pass", () => {
     expect(q.goodUnused).toEqual(["sloanreview.mit.edu"]);
   });
   it("reads xAI inline citations per bullet", () => {
-    const raw = "• Bachelder at Popeyes [[1]](https://hbr.org/2018/x)\n• Kelleher at Southwest [[2]](https://www.strategypunk.com/x)";
+    const raw = "• Cheryl Bachelder at Popeyes [[1]](https://hbr.org/2018/x)\n• Herb Kelleher at Southwest [[2]](https://www.strategypunk.com/x)";
     const q = applySourceQuality(raw, { mode: "research", sources });
     expect(q.kept).toBe(1);
-    expect(q.text).toBe("• Bachelder at Popeyes (Harvard Business Review).");
+    expect(q.text).toBe("• Cheryl Bachelder at Popeyes (Harvard Business Review).");
   });
   it("reading: a lead resting on a pirated PDF is replaced and its bullets go", () => {
     const raw = "From library.uniq.edu.iq, not your copy:\n• Chapter 4 covers the style approach.\n• It reviews the Ohio State studies.\nWhat style are you leaning toward?";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { reflectsSetAside, setAsideStyles } from "@/lib/stage1/style-negation";
 import { chosenStyles, stylesIn } from "@/lib/stage1/north-turns";
 import { asOnSheet } from "@/lib/stage1/lock-in";
-import { needsBackground, noGoodSourcesParas, offTopicPages, topicTerms } from "@/lib/coach/source-quality";
+import { noGoodSourcesParas, offTopicPages, topicTerms } from "@/lib/coach/source-quality";
 import { publisherName, sourcesLine } from "@/lib/coach/sources-line";
 
 const SAID = "Servant, not transformational, because Walton put associates first and didn't really sell a big vision.";
@@ -29,17 +29,20 @@ describe("QA retest: background promise is always kept", () => {
     const p = noGoodSourcesParas([], null);
     expect(p[0]).toBe("I couldn't find sources I'd want you to cite on this one.");
     expect(p.join(" ")).not.toMatch(/general background/);
-    expect(needsBackground([])).toBe(true);
   });
-  it("written background fills the promise; specifics are dropped", () => {
+  it("QA 6:20: background shows at most 2 named, unattributed examples; specifics and org-only lines drop", () => {
     const p = noGoodSourcesParas([], "Which fits your story?", [
-      "• Transformational leaders raise a shared vision and push people to grow past what they thought they could do.",
-      "• Jack Welch at General Electric is the classic case.",
-      "• Studies show 72% of teams improve.",
+      "• Tony Hsieh at Zappos built the company around service to employees and customers (zappos.com).",
+      "• Library leaders at Three Rivers College used servant leadership themes.",
+      "• Studies show 72% of teams improve under Jack Welch.",
+      "• Cheryl Bachelder at Popeyes treated franchisees as the customers she served.",
+      "• Herb Kelleher at Southwest Airlines put employees first.",
     ]);
-    expect(p[0]).toMatch(/here's general background instead/);
-    expect(p[1]).toMatch(/^• Transformational leaders/);
-    expect(p.join(" ")).not.toMatch(/Welch|72%/);
+    expect(p[0]).toBe("I couldn't find sources I'd want you to cite on this one.");
+    expect(p[1]).toBe("From general background (check before citing):");
+    expect(p[2]).toBe("• Tony Hsieh at Zappos built the company around service to employees and customers.");
+    expect(p[3]).toMatch(/^• Cheryl Bachelder at Popeyes/);
+    expect(p.join(" ")).not.toMatch(/Three Rivers|72%|Kelleher|zappos\.com/);
     expect(p.at(-1)).toBe("Which fits your story?");
   });
 });
@@ -106,17 +109,22 @@ describe("QA retest (bd66554 walk): the lead name must be on the page", () => {
   });
 });
 
-describe("QA 5:13 walk: unsupported bullets never show as background", () => {
-  it("weak-site gist shows; an unsupported one is left out; all-unsupported writes concept background", () => {
-    const d = [
-      { line: "• Cheryl Bachelder at Popeyes focused on franchisees [hbr.org]", why: "unsupported" as const },
-      { line: "• Herb Kelleher at Southwest put employees first [online.ben.edu]", why: "weak" as const },
-    ];
-    const p = noGoodSourcesParas(d, null);
-    expect(p.join(" ")).toMatch(/Kelleher/);
-    expect(p.join(" ")).not.toMatch(/Bachelder/);
-    expect(needsBackground([d[0]!])).toBe(true);
-    expect(needsBackground(d)).toBe(false);
+describe("QA 6:20: every example names a real person", () => {
+  it("org-only bullets drop from research results", async () => {
+    const { applySourceQuality, namesPerson } = await import("@/lib/coach/source-quality");
+    expect(namesPerson("• Library leaders at Three Rivers College used servant themes")).toBe(false);
+    expect(namesPerson("• Leaders at Cleveland Clinic implemented servant leadership")).toBe(false);
+    expect(namesPerson("• Satya Nadella at Microsoft shifted the culture")).toBe(true);
+    expect(namesPerson("• Joseph M. Patrnchak at Cleveland Clinic led the change")).toBe(true);
+    const U = "https://trace.tennessee.edu/utk_libpub/13";
+    const q = applySourceQuality("• Library leaders at Three Rivers College applied servant leadership themes [trace.tennessee.edu]", {
+      mode: "research",
+      sources: [{ title: "Rapid Organizational Change Through Servant Leadership", url: U }],
+      read: [U],
+      fetched: new Map([[U, { title: "Rapid Organizational Change Through Servant Leadership", text: "Three Rivers College library servant leadership themes ".repeat(10) }]]),
+    });
+    expect(q.kept).toBe(0);
+    expect(q.checks.some((c) => c.tag === "unnamed")).toBe(true);
   });
 });
 

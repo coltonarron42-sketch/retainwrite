@@ -3,7 +3,7 @@ import { z } from "zod";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { grokResearch, RESEARCH_SEARCH_CALLS, READING_SEARCH_CALLS, type ResearchSource } from "@/lib/ai/grok-research";
 import { sourceHost } from "@/lib/coach/sources-line";
-import { applySourceQuality, bestExcerpt, lineUrls, needsBackground, noGoodSourcesParas, offTopicPages, topicTerms, sourceTier, type QualityResult } from "@/lib/coach/source-quality";
+import { applySourceQuality, bestExcerpt, lineUrls, noGoodSourcesParas, offTopicPages, topicTerms, sourceTier, type QualityResult } from "@/lib/coach/source-quality";
 import { fetchEvidence } from "@/lib/coach/page-evidence";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
@@ -177,6 +177,19 @@ export async function POST(request: Request, ctx: Ctx) {
         // QA 5:32: grounded extraction. After the (max 2) searches, the example bullets are written ONLY from the
         // fetched text of passing pages, each tied to its page; the lead-name-on-page check stays as the final guard.
         const offTopicOf = (f: Map<string, { url: string; title: string; text: string }>) => (qmode === "research" ? offTopicPages(f, topicTerms(askTopic(body.message) ?? body.message)) : undefined);
+        // QA 6:20: the background fallback: at most 2 widely documented examples (a named leader and what they
+        // did), no sites, no figures; none when the model isn't sure (R2: never invent).
+        let bgPromise: Promise<string[]> | null = null;
+        const knownExamples = async (): Promise<string[]> => {
+          const bgr = await grokResearch({
+            system: `You help a student find examples for a paper (coaching only; never write their paper). No sources this turn. Give at most 2 bullets (each starting with "• "), each a widely documented real-world example of the leadership style they asked about: the leader's full name, the organization, and in one sentence what they did. Use only examples covered widely in major business press or textbooks; if you aren't sure of one, leave it out (zero is fine). No numbers, dates, quotes or statistics. No site names or sources. Nothing else.`,
+            user: JSON.stringify({ ask: body.message.slice(0, 500) }),
+            effort: "low",
+            search: false,
+            timeoutMs: 9_000,
+          });
+          return bgr.ok ? bgr.raw.split(/\n+/) : [];
+        };
         const EXAMPLE_WORDS = [...topicWords, "ceo", "led", "leader", "company", "employees", "team", "president", "founder"];
         const grounded = async (
           read: string[],
@@ -194,7 +207,7 @@ export async function POST(request: Request, ctx: Ctx) {
           if (!pages.length) return null;
           emit(WRITING_LINE);
           const r3 = await grokResearch({
-            system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search is done for this turn. Write 1-3 example bullets using ONLY facts stated in the excerpts in "pages". Each bullet comes from one page: name the real leader and organization exactly as that excerpt does, say in one sentence what they did and how it fits the style asked about, and end with that page's site in square brackets, like [hbr.org]. Skip a page that has no named real-world example. Never add a fact, name, number or date that isn't in the excerpt. If no excerpt has a named example, write no bullets. Then one short question about their paper.`,
+            system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search is done for this turn. Write 1-3 example bullets using ONLY facts stated in the excerpts in "pages". Each bullet comes from one page: name the real leader (a person, by full name) and organization exactly as that excerpt does, say in one sentence what they did and how it fits the style asked about, and end with that page's site in square brackets, like [hbr.org]. Skip a page that has no named real-world example. Never add a fact, name, number or date that isn't in the excerpt. If no excerpt has a named example, write no bullets. Then one short question about their paper.`,
             user: JSON.stringify({ ...JSON.parse(userJson), pages }),
             effort: "low",
             search: false,
@@ -216,6 +229,8 @@ export async function POST(request: Request, ctx: Ctx) {
             const tagged = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read, fetched, titles: r.titles, offTopic: offTopicOf(fetched) });
             // Live (9552ba3): with page text read properly (JSON-LD), her checked draft usually keeps 1-3 bullets, and a
             // second model pass costs ~8s+ (over the ~20s budget). So the grounded pass runs when the check left nothing.
+            // When the check kept nothing: the grounded pass and the labeled background run side by side (one wait).
+            if (tagged.kept === 0) bgPromise = knownExamples();
             const fromPages = tagged.kept === 0 ? await grounded(r.read, r.titles, fetched) : null;
             q = fromPages && fromPages.kept > 0 ? fromPages : tagged;
             groundedUsed = q === fromPages;
@@ -237,19 +252,7 @@ export async function POST(request: Request, ctx: Ctx) {
           };
           if (none) {
             const lastQ = (r.ok ? r.text : "").split(/\n+/).map((l) => l.trim()).filter((l) => /\?\s*$/.test(l)).at(-1) ?? null;
-            // QA retest: the "general background" promise always has background under it.
-            let background: string[] = [];
-            if (needsBackground(q.dropped)) {
-              emit("Pulling it together…");
-              const bgr = await grokResearch({
-                system: `${coachAnswerSystem(mode, { plain: true })}\nNo sources this turn. Give 2-3 short bullets (each starting with "• ") of general background on the concept they asked about: what it is and how it tends to show up at work. Concepts only: never name real people, companies, studies, statistics or quotes, and never write their paper. No question, no sources.`,
-                user: userJson,
-                effort: "low",
-                search: false,
-                timeoutMs: 9_000,
-              });
-              if (bgr.ok) background = bgr.raw.split(/\n+/);
-            }
+            const background = await (bgPromise ?? knownExamples());
             paras = noGoodSourcesParas(q.dropped, lastQ, background);
             sources = [];
           } else {
