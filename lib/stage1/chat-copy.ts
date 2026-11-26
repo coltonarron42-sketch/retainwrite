@@ -9,19 +9,15 @@ export const PLACEHOLDERS: Record<string, string> = {
   interest_2: "Tell me about it, even a sentence helps",
   bg_comfort: "Tap one above, or tell me in your own words",
   coaching_take: "Your first guess is fine; there's no wrong answer",
-  // Legacy questions (PC-32): only shown on older papers that already answered them.
   personal_1: "A moment you remember, in a few sentences",
   fallback_voice: "Write it the way you'd say it out loud",
   stance_early: "What do you think right now, and why?",
 };
 
-/**
- * Short opening bubble after "Let's go". PC-32 (Colton t219u, Nov 25): Stage 1 is the assignment,
- * its summary and a first direction; how they write is learned quietly in the background, so it
- * is never announced as a task here.
- */
+/** Short opening bubbles after "Let's go": one idea each; the voice sample is mentioned once, here. */
 export const INTRO_BUBBLES = [
   "Okay, a few quick questions so I can actually coach you on this one.",
+  "Your answers also show me how you write. So just use your own words. No polish needed.",
 ];
 
 /** Pau's nudge when an answer is under its minimum. */
