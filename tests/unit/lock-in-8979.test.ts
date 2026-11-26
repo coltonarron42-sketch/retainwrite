@@ -58,12 +58,13 @@ describe("QA full prod walk 8979326a: what they said is what's locked in", () =>
     expect(saidReadIt(pool)).toBe(false);
     const lines = requirementLines(pool, { leader: "Sam Walton", styles: ["servant", "transformational"], mustInclude: MUST, needsPerson: true });
     expect(lines.join("\n")).not.toContain("you've read it");
-    expect(lines).toContain("○ HBR article 'What Makes a Leader?' by Daniel Goleman. You brought it up; I'll help you use it.");
+    // QA prod smoke (after #83): requirementLines pins every reading label itself.
+    expect(lines).toContain("○ The assigned article: ‘What Makes a Leader?’ by Daniel Goleman (HBR). You brought it up; I'll help you use it.");
     expect(saidReadIt("I read the Goleman article last week")).toBe(true);
     expect(saidReadIt("I've already read both")).toBe(true);
     expect(saidReadIt("I haven't read the Goleman article yet")).toBe(false);
     const read = requirementLines("I read the Goleman article and I want servant leadership", { leader: null, styles: ["servant"], mustInclude: MUST });
-    expect(read).toContain("✓ HBR article 'What Makes a Leader?' by Daniel Goleman: you've read it.");
+    expect(read).toContain("✓ The assigned article: ‘What Makes a Leader?’ by Daniel Goleman (HBR): you've read it.");
   });
 
   it("the gate names the leader and every style", () => {

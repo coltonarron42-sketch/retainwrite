@@ -94,8 +94,8 @@ describe("QA prod: the skeleton view's bold titles keep reading names too", () =
     expect(v.blocks[1]!.sub).toBe("Goleman's emotional intelligence link");
   });
   it("the route passes the readings' names (viewFor applies them)", () => {
-    expect(readFileSync("lib/server/skeleton/ghost.ts", "utf8")).toContain("withNameCaseView(varyTitles(projectSkeleton(shape, outline), extra.leader), names)");
+    expect(readFileSync("lib/server/skeleton/ghost.ts", "utf8")).toContain("withNameCaseView(varyTitles(fixTitles(projectSkeleton(shape, outline), extra.readings ?? [], extra.leader), extra.leader), names)");
     const src = readFileSync("app/api/papers/[paperId]/skeleton/route.ts", "utf8");
-    expect(src).toContain("viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary })");
+    expect(src).toContain("viewFor(shape, outline, readingNames(text), { leader: facts.leader, summary, readings: requiredReadings(text, readingNames(text)) })");
   });
 });
