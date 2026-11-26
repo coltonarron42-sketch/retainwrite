@@ -21,14 +21,15 @@ describe("QA 2:31 #3a: no template '?' inside a student quote", () => {
         for (const c of b.candidates) {
           // The quote's own end mark stays; nothing is added after or inside it.
           expect(c.name).not.toMatch(/[”"]\?/);
-          if (c.name.includes("“")) expect(c.name).toMatch(/^You wrote “/);
+          if (c.name.startsWith("Your point:")) expect(c.name).toMatch(/^Your point: /);
+          expect(c.name).not.toMatch(/^You wrote “/);
         }
       });
     }
   }
   it("keeps the student's own punctuation", () => {
     const b = exampleLeadBatch({ concept: null, assignmentText: sheet, studentIdea: "My own idea is about sleep.", rubricRef: "prompt", section: { key: "intro", title: "Introduction" } });
-    expect(b.candidates[0]!.name).toMatch(/^You wrote “My own idea is about sleep\.” .+\?$/);
+    expect(b.candidates[0]!.name).toBe("Your point: My own idea is about sleep.");
   });
   it("tidy only dedupes", () => {
     expect(tidyQuotePunct("You wrote “sleep.” Why?")).toBe("You wrote “sleep.” Why?");
@@ -49,7 +50,7 @@ describe("QA 2:31 #3b: whole-sentence quotes", () => {
   });
   it("conclusion title quotes the whole sentence", () => {
     const b = exampleLeadBatch({ concept: null, assignmentText: sheet, studentIdea: "My first period class is half asleep, so starting at 8:30 would help us actually learn.", rubricRef: "prompt", section: { key: "conclusion", title: "Conclusion" } });
-    expect(b.candidates[0]!.name).toContain("so starting at 8:30 would help us actually learn.”");
+    expect(b.candidates[0]!.name).toBe("Your point: My first period class is half asleep, so starting at 8:30 would help us actually learn.");
   });
 });
 

@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import type { PreparedLead } from "@/lib/coaching/leadBatch";
+import { oneOptionLeadBatch } from "@/lib/stages/explore-intent";
 
 type Props = {
   ranked: PreparedLead[];
@@ -11,7 +12,11 @@ type Props = {
   onPick: (lead: PreparedLead) => void;
 };
 
-export function LeadBatchView({ ranked, wildcard, capReached, searchPrompt, onPick }: Props) {
+export function LeadBatchView(props: Props) {
+  const { capReached, searchPrompt, onPick } = props;
+  const visible = oneOptionLeadBatch({ ranked: props.ranked, wildcard: props.wildcard });
+  const ranked = visible.ranked;
+  const wildcard = visible.wildcard;
   return (
     <div className="space-y-4">
       <ul className="space-y-2">

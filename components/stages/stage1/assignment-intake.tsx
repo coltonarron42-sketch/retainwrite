@@ -27,6 +27,8 @@ import {
   mayNeedLookup,
   guessPick,
   isReadingQuestion,
+  isReadingComment,
+  readingCommentAck,
   looksLikePastedReading,
   isVaguePick,
   overlapsTeaching,
@@ -2474,6 +2476,14 @@ export function AssignmentIntake({
       await answerAside(q.id, q.text, text);
       return;
     }
+    // t222u: a comment about a reading is acknowledged lightly and noted, never an example-moment probe.
+    if (!opts?.skip && text && brief?.northstar && isReadingComment(text)) {
+      dropSent(sentBox);
+      setError(null);
+      setShortEcho(null);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: q.id, said: text, paras: [readingCommentAck(text)] }].slice(-12));
+      return;
+    }
     // QA 11:40 #2/#3: a vague or confused pick. Round 1 names the options; from round 2 (or right away
     // when confused) she teaches the differences, recommends a starting point and asks yes or no plus why.
     // A yes to her recommendation is their pick; the same question is never sent twice in a row.
@@ -2925,6 +2935,15 @@ export function AssignmentIntake({
       if (!spoken) setOwnStory("");
       return;
     }
+    if (brief?.northstar && isReadingComment(text)) {
+      // The story screen has no `q`, so asides would not render. Show it the same way a short-nudge does.
+      const ack = readingCommentAck(text);
+      if (!spoken) setOwnStory("");
+      setShortEcho(text);
+      setError(ack);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: "own_story", said: text, paras: [ack] }].slice(-12));
+      return;
+    }
     if (wordCount(text) < 15) {
       setShortEcho(text);
       // QA prod smoke (51dddefe): on the informed path this step asks for their example ("When did … lead people through a big change"): example nudges.
@@ -3026,6 +3045,13 @@ export function AssignmentIntake({
     }
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
     const text = earlyTakeFull(joined) ?? joined;
+    if (isReadingComment(fresh || joined)) {
+      if (!spoken) setDraftAnswer("");
+      setError(null);
+      setShortEcho(prevShort || null);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: "stance_early", said: fresh || joined, paras: [readingCommentAck(fresh || joined)] }].slice(-12));
+      return;
+    }
     if (wordCount(text) < 25) {
       const nudge = moreWordsNote(wordCount(text), 25, "Your early take", text, shortTries.current++, askKind(stanceAskRef.current));
       setShortEcho(text);

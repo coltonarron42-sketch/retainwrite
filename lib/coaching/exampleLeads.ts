@@ -1,10 +1,13 @@
 import { tidyQuotePunct } from "@/lib/copy/quote-punct";
 import { asHeading, isClauseTopic, isQuestionTopic, topicMidSentence, topicRef, topicSearchTerms } from "@/lib/copy/topic-phrase";
+import { cardTopicPhrase } from "@/lib/copy/topic-keywords";
 import { clipWords } from "@/lib/copy/clip";
 // SOP: coaching only, never generate submission text
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
 import { keptIdeas } from "@/lib/coaching/thin";
+import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
+import { pointLeadTitle } from "@/lib/stages/explore-intent";
 
 const GENERIC_TITLES = [
   "a source your field usually cites",
@@ -34,7 +37,7 @@ export function coachingSubject(input: {
 /** Course-title leads are not something a student can look up. */
 export function visibleSourceLead(lead: string | null | undefined): string | null {
   const text = lead?.trim() ?? "";
-  if (!text) return null;
+  if (!text || isConfirmOnly(text)) return null;
   if (/^research on\b/i.test(text) && /\b(soc\s+\d+|argumentative essay|the assigned concept|your topic)\b/i.test(text)) {
     return null;
   }
@@ -147,14 +150,16 @@ function exampleLeadBatchRaw(input: {
   if (!rawSubject) {
     return { personalized: false, candidates: [], wildcard: null };
   }
-  const subject = topicRef(rawSubject);
+  const subject = /…/.test(topicRef(rawSubject)) ? cardTopicPhrase(rawSubject) : topicRef(rawSubject);
   const question = isQuestionTopic(rawSubject);
   const search = topicSearchTerms(rawSubject) || subject;
 
   const ref = input.rubricRef;
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
-    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea, ref, searchTerm: input.searchTerm ?? null });
+    const cleanedIdea = idea ? stripReplyFillers(idea) : "";
+    const ideaForCards = cleanedIdea && !isUnquotableLeadIdea(cleanedIdea) && !isUnquotableLeadIdea(noteFocus(cleanedIdea)) ? cleanedIdea : "";
+    return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null, topicSource: input.concept?.trim() || input.assignmentText || rawSubject });
   }
   const candidates: LeadCandidate[] = [
     {
@@ -182,7 +187,7 @@ function exampleLeadBatchRaw(input: {
       lessonLink: question ? "Fits your question" : `Fits ${subject}`,
       whyFits: idea
         ? `You already have a note. Find one source that speaks to the claim you are least sure about, then explain that connection in your own words.`
-        : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+        : `Something this assignment would recognize as about ${isQuestionTopic(input.concept || rawSubject) || isClauseTopic(input.concept || rawSubject) ? "your question" : cardTopicPhrase(input.concept?.trim() || input.assignmentText || rawSubject)}. Verify it before you cite it.`,
       ...(idea ? { studentNamed: true } : {}),
     },
   ];
@@ -206,9 +211,31 @@ function exampleLeadBatchRaw(input: {
 
 const NOTE_LEAD_IN = /^(i think( that)?|i believe( that)?|my point is( that)?|in my opinion,?|i feel( like)?|honestly,?|so,?|basically,?)\s+/i;
 
+/**
+ * A student question is never a claim to quote on a direction card
+ * (QA on main: "You wrote “can I talk through the counterargument idea…?”").
+ */
+export function isQuotedStudentQuestion(text: string): boolean {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (/\?/.test(t)) return true;
+  return /^(can|could|would|should|may|will|do|does|did|is|are|was|were)\s+(i|we|you|it|this|that)\b/i.test(t);
+}
+
+/** Fragments and interjections ("Ooh, honestly both!") are not claims to quote on a card. */
+export function isUnquotableLeadIdea(text: string): boolean {
+  const t = stripReplyFillers((text ?? "").replace(/\s+/g, " ").trim());
+  if (!t || isConfirmOnly(text) || isConfirmOnly(t)) return true;
+  if (isQuotedStudentQuestion(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (/^(ooh|hmm+|huh|wow|lol)[,.!]*/i.test(t)) return true;
+  if (/^(honestly|ok|okay|yeah|yes)\b/i.test(t) && words.length <= 4 && !/\b(because|so|should|need|think|believe)\b/i.test(t)) return true;
+  return false;
+}
+
 /** The student's note as a short focus: “Social Security made the federal government…”. */
 export function noteFocus(idea: string, words = 24): string {
-  const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
+  const t = stripReplyFillers(idea.replace(/\s+/g, " ").trim()).replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
   if (!t) return "";
   // The whole first sentence, with the student's own end mark (QA 2:31 #3b):
   // never cut at a comma mid-thought.
@@ -234,21 +261,25 @@ function sectionLeadBatch(ctx: {
   idea: string;
   ref: string;
   searchTerm?: string | null;
+  topicSource?: string;
 }): { personalized: true; candidates: LeadCandidate[]; wildcard: LeadCandidate } {
   const { section, subject, question, idea, ref } = ctx;
+  const topicPhrase = (isQuestionTopic(ctx.topicSource) || isClauseTopic(ctx.topicSource) || isQuestionTopic(subject) || isClauseTopic(subject))
+    ? "your question"
+    : cardTopicPhrase(ctx.topicSource || subject);
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
-  const focus = idea ? noteFocus(idea) : "";
-  // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
-  // added inside the marks) and is never last in a question, so a template '?'
-  // can't turn it into one (QA 2:31 #3a). One framing rule for every section:
-  // the first title opens with "You wrote “…”" and every later mention of the
-  // note says "your point".
-  // No mark is added after the closing quote either (QA 4:42 #4): a dash joins
-  // the quote to the question instead of a stray "”.".
-  const quoted = focus ? `“${focus}”` : "";
+  const cleanedIdea = idea ? stripReplyFillers(idea) : "";
+  const rawFocus = cleanedIdea ? noteFocus(cleanedIdea) : "";
+  const focus = rawFocus && !isUnquotableLeadIdea(rawFocus) && !isUnquotableLeadIdea(cleanedIdea || idea) ? rawFocus : "";
+  // QA #76: the first title is a synthesized Lead ("Your point: …"), never a
+  // raw "You wrote" quote of the student's sentence. Later mentions say
+  // "your point". Leading yes/also/so/and fillers and meta phrasing
+  // ("is my body example", "my point is") are stripped first.
   const about = focus ? "your point" : question ? "your question" : subject;
-  const youWrote = (ask: string) => (quoted ? `You wrote ${quoted} — ${ask.charAt(0).toLowerCase()}${ask.slice(1)}` : ask);
+  const pointTitle = focus ? pointLeadTitle(focus) || pointLeadTitle(cleanedIdea) : "";
+  // QA #76: a synthesized Lead, never a raw "You wrote" quote. The evidence ask stays in whyFits.
+  const youWrote = (ask: string) => (pointTitle ? pointTitle : ask);
   // Keywords only: never the student's raw sentence in a search box.
   const topicTerm = searchPhrase(ctx.search);
   const extra = idea ? noteKeywords(idea, topicTerm) : [];
@@ -309,7 +340,7 @@ function sectionLeadBatch(ctx: {
         lessonLink: `Fits your ${part}`,
         whyFits: idea
           ? "Find one source that speaks to the claim you are least sure about, then explain that connection in your own words."
-          : `Something this assignment would recognize as about ${subject}. Verify it before you cite it.`,
+          : `Something this assignment would recognize as about ${topicPhrase}. Verify it before you cite it.`,
         ...(idea ? { studentNamed: true } : {}),
       },
     ],

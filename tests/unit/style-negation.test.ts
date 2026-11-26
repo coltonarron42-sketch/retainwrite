@@ -4,6 +4,9 @@ import { chosenStyles, informedAffirm, informedNext, lockedPicks, stylesIn } fro
 import { answerNamesOption, pickFrom, pickedStyles } from "@/lib/stage1/paper-context";
 import { northstarChecklist } from "@/lib/stage1/intake-resume";
 import { askKind, moreWordsNote } from "@/lib/stage1/chat-copy";
+import { isReadingComment, readingCommentAck } from "@/lib/stage1/paper-context";
+import { ideaTopic } from "@/lib/stage1/starting-point";
+import { readFileSync } from "node:fs";
 
 const heads = (xs: string[]) => xs.map((x) => x.toLowerCase().split(" ")[0]).sort();
 const QA = "Servant, not transformational, because Walton put associates first and didn't really sell a big vision.";
@@ -107,5 +110,66 @@ describe("QA prod smoke 51dddefe: nudges match the question on screen", () => {
   });
   it("a case question with no pick asks to tie it to the pick", () => {
     expect(moreWordsNote(1, 25, "Your early take", "he went to stores", 0, "case")).toContain("Tie it to your pick");
+  });
+});
+
+
+describe("QA #76 re-verify: a known leader is never a style", () => {
+  it("Sam Walton, servant leadership lists servant only, never walton as a style", () => {
+    const t = "Sam Walton, servant leadership";
+    expect(stylesIn(t)).toEqual(["servant"]);
+    expect(stylesIn(t, "Sam Walton")).toEqual(["servant"]);
+    expect(chosenStyles([t, "yes"])).toEqual(["servant"]);
+    const turn = informedAffirm(t, { leader: "Sam Walton", mustInclude: [], needsPerson: true }).join("\n");
+    expect(turn).toMatch(/✓ Your style: servant/);
+    expect(turn).not.toMatch(/Your styles: walton and servant/i);
+    expect(turn).not.toMatch(/walton and servant/i);
+    expect(turn).toMatch(/✓ A real leader as your example: Sam Walton/);
+    expect(informedNext(t, "Sam Walton")).toMatch(/servant leadership/);
+    expect(informedNext(t, "Sam Walton")).not.toMatch(/walton and servant/i);
+    expect(ideaTopic(t)).toBe("Sam Walton as an example of servant leadership");
+    expect(ideaTopic(t)).not.toMatch(/walton leadership/i);
+  });
+});
+
+describe("QA #76: a comment about a reading is light engagement, never an example-moment probe (t222u)", () => {
+  const QA = "Northouse ch 4 covers the behavioral approach, which I found interesting.";
+  it("detects the QA reading comment and does not treat it as a leader moment", () => {
+    expect(isReadingComment(QA)).toBe(true);
+    const ack = readingCommentAck(QA);
+    expect(ack).toBe("Good catch, the behavioral approach is in your chapter; I'll keep it in mind.");
+    expect(ack).toMatch(/behavioral approach/i);
+    expect(ack).not.toMatch(/I'd write it for you/i);
+    expect(ack).not.toMatch(/When was it\?/i);
+    expect(ack).not.toMatch(/Name the moment/i);
+    expect(ack).not.toMatch(/what they did/i);
+    // The old example-step nudge is exactly what QA heard, and must not be used for this comment.
+    const probe = moreWordsNote(1, 15, "Your own angle", QA, 0, "example");
+    expect(probe).toMatch(/When was it\? Name the moment, then what they did/);
+    expect(ack).not.toBe(probe);
+    expect(isReadingComment("he went to stores")).toBe(false);
+    expect(isReadingComment("Sam Walton, servant leadership")).toBe(false);
+    expect(isReadingComment("When Walton visited stores he listened, which I found interesting.")).toBe(false);
+    expect(
+      isReadingComment(
+        "I think servant leadership works best because Northouse ch 4 covers the behavioral approach, which I found interesting, and I'd use Walton as my example.",
+      ),
+    ).toBe(false);
+  });
+  it("Stage 1 notes a reading comment as an aside before the example-moment moreWordsNote", () => {
+    const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
+    expect(intake).toMatch(/isReadingComment\(text\)/);
+    expect(intake).toMatch(/readingCommentAck/);
+    const own = intake.indexOf("async function submitOwnStory");
+    const comment = intake.indexOf("isReadingComment(text)", own);
+    const nudge = intake.indexOf('exampleStep ? "example" : "claim"', own);
+    const visible = intake.indexOf("setError(ack)", own);
+    const echo = intake.indexOf("setShortEcho(text)", own);
+    expect(own).toBeGreaterThan(0);
+    expect(comment).toBeGreaterThan(own);
+    expect(visible).toBeGreaterThan(comment);
+    expect(echo).toBeGreaterThan(comment);
+    expect(nudge).toBeGreaterThan(visible);
+    expect(intake.slice(own, nudge)).toMatch(/The story screen has no `q`/);
   });
 });

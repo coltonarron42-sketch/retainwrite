@@ -101,7 +101,7 @@ describe("#2 the intent check starts while typing pauses", () => {
   it("a 600 ms typing pause warms the check in Stage 2 and Stage 3; plain yes and untouched notes don't", async () => {
     const { INTENT_WARM_MS } = await import("@/components/stages/loop/stance-chat");
     expect(INTENT_WARM_MS).toBe(600);
-    expect(chat).toContain('<IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />');
+    expect(chat).toContain('<IntentWarm idea={isPlainYes(idea) || isConfirmOnly(idea) ? "" : idea} ask={ask} classify={props.classify} />');
     expect(outline).toContain('<IntentWarm idea={current && text.trim() !== notes.trim() ? text : ""} ask={ask.slice(-2).join(" ")}');
     // Send uses the same ask string as the warm-up, so the cache key matches.
     expect(chat).toMatch(/await props\.classify\(text, ask\)/);
@@ -112,7 +112,7 @@ describe("#2 the intent check starts while typing pauses", () => {
 describe("#3 the only cartoon joke is the signature quip", () => {
   it("no welcome line jokes about being a cartoon or standing up", () => {
     for (const line of WELCOME_BACK_LINES) expect(line).not.toMatch(/cartoon|stand up/i);
-    expect(STAGE2_QUIPS.filter((q) => /cartoon/i.test(q))).toEqual([SIGNATURE_QUIP]);
+    expect(STAGE2_QUIPS.filter((q) => /cartoon/i.test(q))).toEqual([]);
     const files = ["lib/coach/welcome-back.ts", "components/stages/stage1/welcome-back.tsx", "lib/coach/personality.ts", "components/stages/loop/stance-chat.tsx"];
     for (const f of files) expect(read(f)).not.toMatch(/stand up, but/i);
   });

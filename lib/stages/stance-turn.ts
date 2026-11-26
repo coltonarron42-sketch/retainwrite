@@ -12,6 +12,9 @@
  */
 import { keptIdeas } from "@/lib/coaching/thin";
 import { replaceClaim } from "@/lib/coaching/logicRevision";
+import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
+
+export { isConfirmOnly, officialLeadName, stripReplyFillers, looksLikeNewPoint } from "@/lib/stages/confirm-only";
 
 export type StanceTurnKind =
   | "teach_card"
@@ -22,6 +25,8 @@ export type StanceTurnKind =
   | "confirm"
   | "logic_opener"
   | "logic_result"
+  | "keep_confirm"
+  | "listening"
   | "locked_in"
   | "none";
 
@@ -31,6 +36,10 @@ export type StanceTurnInput = {
   status: string;
   hasLogic: boolean;
   logicRevealed: boolean;
+  /** Exploring an option: listen, don't lock or offer a new menu. */
+  listening?: boolean;
+  /** "Keep my angle" is waiting on a one-tap confirm. */
+  pendingKeep?: boolean;
 };
 
 /**
@@ -43,6 +52,8 @@ export function stanceTurnFor(
   s: StanceTurnInput,
   opts: { hasCard: boolean; personalized: boolean; hasBatch: boolean },
 ): StanceTurnKind {
+  if (s.listening) return "listening";
+  if (s.pendingKeep) return "keep_confirm";
   if (s.loopStep === "teach") {
     if (s.mode === "lesson") return opts.hasCard ? "teach_card" : "none";
     return "mirror";
@@ -67,13 +78,20 @@ export function afterProbe(
   idea: string,
   replacing: boolean,
 ): { ideas: string[]; loopStep: "summarize" | "search" } {
-  const ideas = replacing ? replaceClaim(section.ideas, idea) : [...keptIdeas(section.ideas), idea];
+  const note = stripReplyFillers(idea);
+  const ideas = !note || isConfirmOnly(idea) || isConfirmOnly(note)
+    ? keptIdeas(section.ideas)
+    : replacing
+      ? replaceClaim(section.ideas, note)
+      : [...keptIdeas(section.ideas), note];
   return { ideas, loopStep: section.searchStatus === "not_needed" ? "summarize" : "search" };
 }
 
 /** The step after the memory mirror (old "Save what it means to you"). */
 export function afterMirror(section: { ideas: string[] }, idea: string): { ideas: string[]; loopStep: "probe" } {
-  return { ideas: [...keptIdeas(section.ideas), idea], loopStep: "probe" };
+  const note = stripReplyFillers(idea);
+  const ideas = !note || isConfirmOnly(idea) || isConfirmOnly(note) ? keptIdeas(section.ideas) : [...keptIdeas(section.ideas), note];
+  return { ideas, loopStep: "probe" };
 }
 
 /**
@@ -86,7 +104,7 @@ export function outlineSectionsForContinue<T extends { key: string; ideas: strin
 ): T[] {
   return sections.map((item) => {
     const text = drafts[item.key]?.trim();
-    if (!text || text === keptIdeas(item.ideas).join("\n")) return item;
+    if (!text || isConfirmOnly(text) || text === keptIdeas(item.ideas).join("\n")) return item;
     return { ...item, ideas: [text] };
   });
 }
@@ -126,8 +144,12 @@ function uniqueNotes(notes: string[]): string[] {
  * that was already kept, unless this is an explicit replace ("change it to").
  */
 export function mergeSectionIdeas(current: string[] | undefined, incoming: string[] | undefined, replacing = false): string[] {
-  if (replacing) return uniqueNotes(incoming ?? []);
-  return uniqueNotes([...(current ?? []), ...(incoming ?? [])]);
+  const clean = (notes: string[] | undefined) => uniqueNotes((notes ?? []).filter((n) => n.trim() && !isConfirmOnly(n)));
+  if (replacing) {
+    const next = clean(incoming);
+    return next.length ? next : clean(current);
+  }
+  return uniqueNotes([...clean(current), ...clean(incoming)]);
 }
 
 export function mergeTranscript(current: LoopLine[] | undefined, incoming: LoopLine[] | undefined): LoopLine[] {
@@ -243,7 +265,7 @@ export function discussionLine(seed: number): string {
 export function substantiveNote(text: string): boolean {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t || /\?\s*$/.test(t)) return false;
-  if (isPlainYes(t) || isSwapNo(t) || replacementText(t)) return false;
+  if (isPlainYes(t) || isConfirmOnly(t) || isSwapNo(t) || replacementText(t)) return false;
   if (/^(no|nope|nah|ok(?:ay)?|sure|thanks?|cool|idk|i don'?t know)\b[\s.!,]*$/i.test(t)) return false;
   return t.split(" ").filter((w) => /[a-z]/i.test(w)).length >= 8;
 }

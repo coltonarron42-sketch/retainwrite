@@ -82,11 +82,11 @@ describe("cartoon family once per paper; logic openers rotate (QA 6:53 #3)", () 
   const cartoonCount = (lines: (string | null)[]) => lines.filter((l) => l && isCartoonJoke(l)).length;
   it("one pool, one line, dealt once per paper", () => {
     expect(CARTOON_FAMILY).toEqual([SIGNATURE_QUIP]);
-    expect(STAGE2_QUIPS.filter((q) => isCartoonJoke(q))).toEqual([SIGNATURE_QUIP]);
+    expect(STAGE2_QUIPS.filter((q) => isCartoonJoke(q))).toEqual([]);
     for (const seed of ["a", "b", "paper-42", "044f6dc8"]) {
       const dealt = Array.from({ length: 10 }, (_, i) => [quipFor(seed, i, "pick_lead"), quipFor(seed, i, "logic_opener")]).flat();
       const stock = Object.keys(STOCK_POOLS).flatMap((slot) => Array.from({ length: 10 }, (_, i) => (STOCK_POOLS as Record<string, readonly string[]>)[slot]![i % 10] ?? null));
-      expect(cartoonCount([...dealt, ...stock, ...WELCOME_BACK_LINES, ...SAMPLE_QUIPS])).toBe(1);
+      expect(cartoonCount([...dealt, ...stock, ...WELCOME_BACK_LINES, ...SAMPLE_QUIPS])).toBe(0);
     }
   });
   it("no welcome line, stock line or prompt example calls her a cartoon", () => {

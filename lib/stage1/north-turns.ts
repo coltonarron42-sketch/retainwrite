@@ -448,24 +448,36 @@ export function informedSaying(text: string, options: DecisionOption[] = []): { 
 }
 
 const STYLE_STOP = /^(?:the|a|an|of|his|her|their|my|our|good|great|best|which|what|this|that|real|strong|effective|most|team|i|he|she|they|shows|show|both|any|some|every|one|two|different|kind|type|whole|bad|better|use|using)$/i;
+/** Real leadership-style vocabulary only. A leader's name is never a style. */
+const KNOWN_STYLE_WORD =
+  /^(transformational|transactional|servant|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting|coaching|behavioral)$/i;
+function leaderTokens(text: string, knownLeader?: string | null): Set<string> {
+  const out = new Set<string>();
+  const add = (name: string | null | undefined) => {
+    for (const w of String(name ?? "").toLowerCase().split(/[^a-z]+/).filter((part) => part.length > 1)) out.add(w);
+  };
+  add(knownLeader);
+  add(namedPerson(text));
+  return out;
+}
 /** The styles or approaches named in their words ("servant and transformational leadership"). */
-export function stylesIn(text: string): string[] {
+export function stylesIn(text: string, knownLeader?: string | null): string[] {
   const out: string[] = [];
+  const leaders = leaderTokens(text, knownLeader);
+  const add = (x: string) => {
+    const style = x.trim().toLowerCase();
+    if (!style || !KNOWN_STYLE_WORD.test(style) || leaders.has(style) || out.includes(style)) return;
+    out.push(style);
+  };
   for (const m of text.matchAll(/\b([a-z-]+(?:(?:\s*,\s*|\s+and\s+|\s+or\s+|\s*&\s*)[a-z-]+)*)\s+(?:leadership|styles?)\b/gi)) {
-    for (const w of m[1]!.split(/\s*,\s*|\s+and\s+|\s+or\s+|\s*&\s*/)) {
-      const x = w.trim().toLowerCase();
-      if (x.length > 3 && !STYLE_STOP.test(x) && !out.includes(x)) out.push(x);
-    }
+    for (const w of m[1]!.split(/\s*,\s*|\s+and\s+|\s+or\s+|\s*&\s*/)) add(w);
   }
   // QA 11:08 (Walton): a style named on its own ("I'd pick Servant because…") counts too.
-  for (const m of text.matchAll(KNOWN_STYLE)) {
-    const x = m[1]!.toLowerCase();
-    if (!out.includes(x)) out.push(x);
-  }
+  for (const m of text.matchAll(KNOWN_STYLE)) add(m[1] ?? "");
   // QA prod smoke (64a5b2bd): "Servant, not transformational" is one style; a style only set aside never counts.
   return out.filter((x) => affirmsStyle(text, x));
 }
-const KNOWN_STYLE = /\b(transformational|transactional|servant|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting)\b(?!\s+(?:leadership|styles?)\b)/gi;
+const KNOWN_STYLE = /\b(transformational|transactional|servant|situational|democratic|autocratic|authoritarian|authentic|charismatic|laissez-faire|participative|adaptive|visionary|affiliative|pacesetting|coaching|behavioral)\b(?!\s+(?:leadership|styles?)\b)/gi;
 
 const listJoin = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
@@ -477,8 +489,8 @@ export function informedAffirm(
   stance: string,
   ctx: { leader?: string | null; mustInclude?: string[]; needsPerson?: boolean } = {},
 ): string[] {
-  const styles = stylesIn(stance);
   const leader = ctx.leader?.trim() || null;
+  const styles = stylesIn(stance, leader);
   const named = leader && styles.length ? `${leader}, showing ${listJoin(styles)} leadership` : leader ? leader : styles.length ? `${listJoin(styles)} leadership` : null;
   const paras = [
     `Awesome, sounds like you have a good idea of what this paper needs${named ? `: ${named}` : ""}. I'll help with source material, structure and hitting every requirement.`,
@@ -546,7 +558,7 @@ export function informedStoryAsk(leader: string | null): string {
 }
 
 export function informedNext(stance: string, leader: string | null, afterStory = false): string {
-  const styles = stylesIn(stance);
+  const styles = stylesIn(stance, leader);
   if (afterStory && styles.length)
     return `Now your case: how did ${listJoin(styles)} leadership show up in that moment, and why does it work best for this assignment? A few sentences is your early take, rough is fine.`;
   if (afterStory) return "Now your case: why does that moment answer the assignment's question? A few sentences is your early take, rough is fine.";

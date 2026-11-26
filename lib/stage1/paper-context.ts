@@ -509,6 +509,59 @@ export function isReadingQuestion(text: string): boolean {
 }
 
 /**
+ * t222u light engagement: a comment about a reading (not a question, not their pick
+ * or example) should be acknowledged and noted, never treated as a short example-moment answer.
+ * "Northouse ch 4 covers the behavioral approach, which I found interesting."
+ */
+const READING_SOURCE =
+  /\b(?:northouse|goleman|textbook|handout|article|hbr|(?:the|this|our|my|assigned)\s+(?:reading|article|chapter|textbook|handout|book)|(?:chapter|ch\.?)\s*\d{1,2})\b/i;
+const READING_COMMENTARY =
+  /\b(?:covers?|discusses?|talks? about|explains?|describes?|goes over|focuses on|outlines?|presents?|I (?:found|thought|liked|loved|noticed)|interesting|stood out|useful|helpful|surprised me)\b/i;
+const READING_AS_ANSWER =
+  /\b(?:I (?:want to|would|'d) (?:argue|pick|use|write)|works? best|my (?:leader|example|pick|angle) is|when (?:he|she|they)\b|(?:visited|walked) (?:the )?stores?|profit sharing)\b/i;
+
+export function isReadingComment(text: string): boolean {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || /\?\s*$/.test(t) || isReadingQuestion(t)) return false;
+  if (!READING_SOURCE.test(t) || !READING_COMMENTARY.test(t)) return false;
+  const words = t.split(/\s+/).filter(Boolean).length;
+  // A real pick or example that happens to mention a reading stays their answer.
+  if (READING_AS_ANSWER.test(t) && words >= 18) return false;
+  return true;
+}
+
+/** Acknowledge the comment in their terms. Never claim what a chapter contains, and never ask for a leader-moment. */
+export function readingCommentAck(text: string): string {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  const ch = t.match(/\b(?:chapter|ch\.?)\s*(\d{1,2})\b/i)?.[1];
+  const work = /\bnorthouse\b/i.test(t)
+    ? "Northouse"
+    : /\bgoleman\b/i.test(t)
+      ? "Goleman"
+      : /\bhbr\b/i.test(t)
+        ? "the HBR article"
+        : /\btextbook\b/i.test(t)
+          ? "the textbook"
+          : /\bhandout\b/i.test(t)
+            ? "the handout"
+            : /\barticle\b/i.test(t)
+              ? "the article"
+              : ch
+                ? `ch ${ch}`
+                : "the reading";
+  const source = /\bnorthouse\b/i.test(t) && ch ? `Northouse ch ${ch}` : /\bgoleman\b/i.test(t) && ch ? `Goleman ch ${ch}` : work === `ch ${ch}` ? work : ch && work !== `ch ${ch}` ? `${work} ch ${ch}` : work;
+  const topic = t.match(/\bthe\s+([a-z]+(?:\s+[a-z]+){0,4}\s+approach)\b/i)?.[0]
+    ?? t.match(/\b((?:task|relationship|skills?|behavioral|trait|situational|transformational|servant|emotional intelligence|empathy)(?:\s+(?:vs\.?|versus|and|approach|style|leadership|intelligence)){0,4})\b/i)?.[0]
+    ?? null;
+  // QA #76: a light ack only, never lead options or a write-it-for-you quip.
+  if (topic && /behavioral approach/i.test(topic)) {
+    return "Good catch, the behavioral approach is in your chapter; I'll keep it in mind.";
+  }
+  if (topic) return `Good catch, ${topic} is in your chapter; I'll keep it in mind.`;
+  return "Good catch — I'll keep that in mind.";
+}
+
+/**
  * A pasted reading paragraph, not their own words (QA 6:03 AM): long, mostly
  * pasted, and barely any first person. It goes in as material, never as an answer or angle.
  */

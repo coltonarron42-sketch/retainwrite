@@ -246,12 +246,12 @@ describe("QA 5:44 PM: gates and copy", () => {
     expect(s3).toMatch(/useState<\{ key: string \| null; text: string \}>\(\(\) => \(\{/);
     expect(s3).not.toMatch(/!== forKey/);
   });
-  it("'legally a cartoon' is in the pool and every paper hears it once", () => {
-    expect(STAGE2_QUIPS).toContain(SIGNATURE_QUIP);
+  it("the 'legally a cartoon' line is retired and never dealt", () => {
+    expect(STAGE2_QUIPS).not.toContain(SIGNATURE_QUIP);
     for (const seed of ["a", "b", "paper-42"]) {
-      expect(quipFor(seed, 0, "pick_lead")).toBe(SIGNATURE_QUIP);
+      expect(quipFor(seed, 0, "pick_lead")).toBeNull();
       const all = [0, 1, 2, 3, 4].flatMap((i) => [quipFor(seed, i, "pick_lead"), quipFor(seed, i, "logic_opener")]);
-      expect(all.filter((q) => q === SIGNATURE_QUIP).length).toBe(1);
+      expect(all.filter((q) => q === SIGNATURE_QUIP).length).toBe(0);
     }
     expect(Object.values(STOCK_POOLS).flat().join(" ")).not.toContain("legally a cartoon");
   });

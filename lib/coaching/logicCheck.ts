@@ -6,6 +6,7 @@ import { assignmentQuestion, balanceQuotes, questionOf } from "@/lib/copy/senten
 import { z } from "zod";
 import { isVerbatimSubstring } from "@/lib/coaching/lesson";
 import { isThinAnswer } from "@/lib/coaching/thin";
+import { pressureTestLine } from "@/lib/stages/explore-intent";
 import { wordCount } from "@/lib/utils";
 
 export const LOGIC_OPENER = "Quick logic check. You feel good about this?";
@@ -298,7 +299,12 @@ export function logicCheckFromNotes(input: {
     input.confirmedPrompt?.trim() || input.confirmedTopic?.trim()
       ? assignmentQuestion({ prompt: input.confirmedPrompt, raw: input.assignmentText, topic: input.confirmedTopic })
       : "";
-  const onPrompt = typeof input.onPrompt === "boolean" ? input.onPrompt : notesOnPrompt(notes, promptText, input.assignmentText);
+  const promptOn = notesOnPrompt(notes, promptText, input.assignmentText);
+  const relatedOn = input.thesis ? notesOnPrompt(notes, "", "", input.thesis) : false;
+  // A thesis/leader overlap keeps a thin but on-topic claim on-prompt even if the
+  // model missed it (Walton store visits on a servant-leadership paper). Otherwise
+  // a model verdict still wins when it answered.
+  const onPrompt = relatedOn || (typeof input.onPrompt === "boolean" ? input.onPrompt : promptOn);
   // QA 11:40 suite: a note that turns against their own thesis is on their topic by definition, so the
   // specific contradiction wins over a (model) off-prompt verdict.
   const againstFirst = input.thesis ? contradictsThesis(notes, input.thesis) : null;
@@ -367,7 +373,11 @@ export function logicCheckFromNotes(input: {
       tier: "moderate",
       basis: "debatable_interpretation",
       confidence: 0.72,
-      reason: "A reasonable reader could see this another way.",
+      reason: pressureTestLine({
+        claim: notes,
+        reason: "A reasonable reader could see this another way.",
+        counterpoint: "the same evidence also supports the opposite reading",
+      }),
       citedTerm: { rubricRef: input.rubricRef, quote: assignmentQuote },
       studentClaimRef: { ideaId: "claim", quote: quoteOnWordBoundary(notes, 160) },
       logicFailure: null,
@@ -549,7 +559,7 @@ function stems(text: string, skip?: Set<string>): Set<string> {
 }
 
 /** Does the note touch the confirmed prompt (or, failing that, the sheet's own topic words)? */
-export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolean {
+export function notesOnPrompt(notes: string, prompt: string, sheet = "", related = ""): boolean {
   const said = stems(notes);
   if (said.size === 0) return true;
   // Everyday words ("school", "day", "people") don't make a note on-topic:
@@ -560,6 +570,10 @@ export function notesOnPrompt(notes: string, prompt: string, sheet = ""): boolea
   const hit = (w: string) => !TOPIC_GENERIC.has(w) && (said.has(w) || (w.length >= 4 && saidWords.some((x) => x.length > w.length && x.includes(w))));
   for (const w of stems(prompt)) if (hit(w)) return true;
   for (const w of stems(sheet, SHEET_GENERIC)) if (hit(w)) return true;
+  // A thin note that still names their locked leader, style, or thesis is on-topic.
+  if (related.trim()) {
+    for (const w of stems(related)) if (hit(w)) return true;
+  }
   return false;
 }
 
