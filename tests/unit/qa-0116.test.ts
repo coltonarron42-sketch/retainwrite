@@ -38,7 +38,9 @@ describe("QA 1:16: the lost recommendation stays stable", () => {
     const a = pickEscalation({ round: 2, options, recIndex: 0 } as never);
     const b = pickEscalation({ round: 3, options, recIndex: 0 } as never);
     expect(JSON.stringify(a)).toMatch(/Transformational/);
-    expect(JSON.stringify(b)).toMatch(/Start with Transformational|start with Transformational/);
+    // QA ethos (after #77): style turns 2 and 3 are neutral (no recommendation); leaders keep theirs.
+    expect(JSON.stringify(b)).not.toMatch(/start with Transformational/i);
+    expect(b.recommend).toBeNull();
     expect(intake).toContain("recIndex: recNos.current[q.id] ?? 0");
   });
 });

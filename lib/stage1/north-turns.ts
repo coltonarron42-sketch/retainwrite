@@ -1,4 +1,4 @@
-import { affirmsStyle } from "@/lib/stage1/style-negation";
+import { affirmsStyle, rejectsStyle } from "@/lib/stage1/style-negation";
 import { singleNamedLeader } from "@/lib/stage1/single-name";
 /**
  * QA 11:40 (preview retest): typed read-question replies, vague-pick escalation,
@@ -142,6 +142,102 @@ const plain = (s: string) => s.replace(/[.!?\s]+$/, "").replace(/^./, (c) => c.t
  * From round 2 (or right away when confused): teach the differences in 2-3 plain lines, recommend
  * one as a starting point with a reason, and ask yes or no plus why. Never the same text twice in a row.
  */
+/** What each style sounds like in a student's own words (only their words count, never the sheet). */
+const STYLE_CUES: Record<string, RegExp> = {
+  servant: /\b(?:servant|serv(?:e|ed|es|ing)|people first|put (?:people|the team|others|us|everyone) first|cared|car(?:e|es|ing) about|listen(?:ed|s|ing)?|help(?:ed|s|ing)? (?:people|others|everyone|us)|looked out for)\b/i,
+  transformational: /\b(?:transformational|vision|inspir\w*|big picture|motivat\w*|believe in|bought in|bigger goal)\b/i,
+  situational: /\b(?:situational|adapt\w*|adjust\w*|depend(?:s|ed|ing)? on|each person|flex\w*|fit(?:s|ted)? the (?:moment|situation|person))\b/i,
+  behavioral: /\b(?:behavioral|task|tasks|getting (?:the )?(?:work|job) done|deadlines|organized|relationships?)\b/i,
+  democratic: /\b(?:democratic|vot\w*|everyone (?:had|has|gets) a say|asked (?:us|everyone)|team decid\w*)\b/i,
+  transactional: /\b(?:transactional|rewards?|bonus\w*|consequences|incentives?)\b/i,
+  authentic: /\b(?:authentic|honest|real values|genuine)\b/i,
+};
+const listOr = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs.at(-1)}`);
+const cueKey = (label: string) => label.toLowerCase().match(/[a-z]+/)?.[0] ?? "";
+
+/**
+ * QA ethos should-fix (after #77): the two offered in a narrowed turn, and why those two, grounded in
+ * what the student actually said ("you said “he listened to everyone”"). Nothing said that points
+ * anywhere: the first two, and the rest is still on the table (never an invented reason).
+ */
+export function groundedTwo(opts: DecisionOption[], said: string): { two: DecisionOption[]; quote: string | null; rest: DecisionOption[] } {
+  const words = String(said ?? "");
+  const hits: { o: DecisionOption; at: number; phrase: string }[] = [];
+  for (const o of opts) {
+    const re = STYLE_CUES[cueKey(o.label)];
+    if (!re) continue;
+    const m = re.exec(words);
+    if (m && !rejectsStyle(words, m[0])) hits.push({ o, at: m.index, phrase: m[0] });
+  }
+  hits.sort((a, b) => a.at - b.at);
+  const picked = hits.slice(0, 2).map((h) => h.o);
+  for (const o of opts) if (picked.length < 2 && !picked.includes(o)) picked.push(o);
+  const quote = hits.length ? (() => {
+    const h = hits[0]!;
+    // Their phrase in their own words: the clause it sits in (never across a line or sentence), filler
+    // in front dropped ("hmm", "I guess", "maybe"), at most ~10 whole words around the cue.
+    const clauseStart = Math.max(...["\n", ".", "!", "?", ";", ","].map((c) => words.lastIndexOf(c, h.at - 1))) + 1;
+    const ends = ["\n", ".", "!", "?", ";", ","].map((c) => words.indexOf(c, h.at + h.phrase.length)).filter((i) => i >= 0);
+    const clause = words.slice(clauseStart, ends.length ? Math.min(...ends) : words.length);
+    const at = h.at - clauseStart;
+    const before = clause.slice(0, at).trim().split(/\s+/).filter(Boolean);
+    const after = clause.slice(at + h.phrase.length).trim().split(/\s+/).filter(Boolean);
+    const FILLER = /^(?:hmm+|um+|uh+|idk|i|guess|think|maybe|like|so|well|okay|ok|not|sure|just)$/i;
+    let b = before.slice(-5);
+    while (b.length && FILLER.test(b[0]!.replace(/[^a-z]/gi, ""))) b = b.slice(1);
+    return [...b, h.phrase, ...after.slice(0, 4)].join(" ").replace(/\s+/g, " ").replace(/^[\s,.;:!?]+|[\s,.;:!?]+$/g, "").trim();
+  })() : null;
+  return { two: picked.slice(0, 2), quote, rest: opts.filter((o) => !picked.slice(0, 2).includes(o)) };
+}
+
+/**
+ * QA (5:06 PM): every style definition has one shape, "a leader who…" / "a leader [verb]ing…".
+ * Used when an option's own line (e.g. a model-written "why") isn't in that shape.
+ */
+const STYLE_DEFS: Record<string, string> = {
+  servant: "a leader who puts the team's needs first so people come through the change together",
+  transformational: "a leader selling a shared vision so people want the change",
+  situational: "a leader shifting style to fit how ready the team is",
+  behavioral: "a leader balancing getting the work done with caring for the people",
+  democratic: "a leader who brings the team into the big decisions",
+  transactional: "a leader trading clear rewards for results",
+  authentic: "a leader who leads from their own values, openly",
+};
+const leaderShaped = (w: string) => /^a leader (?:who\b|\w+ing\b)/i.test(w);
+
+/** "lets you show a leader selling a shared vision…" → "a leader selling a shared vision…" (a plain picture of the style). */
+export const asLeader = (why: string, label = "") => {
+  const w0 = plain(why).replace(/^lets you (?:show|argue that|argue|weigh|focus on)\s+/i, "");
+  const w = /^(?:a |an |the )?leader\b/i.test(w0) ? w0.replace(/^(?:a |an |the )/i, "a ") : w0;
+  if (leaderShaped(w)) return w;
+  // Not a leadership style (e.g. "Primacy effect"): keep its own line whole, never a half-stripped one.
+  return STYLE_DEFS[cueKey(label)] ?? plain(why);
+};
+/** One definition line, the same in every turn: "• Servant: a leader who puts…". */
+const defLine = (o: DecisionOption) => `• ${o.label}: ${o.why ? asLeader(o.why, o.label) : STYLE_DEFS[cueKey(o.label)] ?? "a real, well-known choice"}.`;
+
+/**
+ * QA (after #80): the assignment's own focus, as a clause Pau can lean the narrow-to-two on
+ * ("…most effective for leading a team through change, using…" → "leading a team through change").
+ * Only what the parsed prompt literally says; null when there's no clear focus phrase (never invented).
+ */
+export function assignmentFocus(prompt: string | null | undefined): string | null {
+  const t = String(prompt ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const m = /\b(?:for|in|when|while|at)\s+((?:[a-z]+ing)\b[^,.;:?!()]{6,70}?)(?=\s*(?:[,.;:?!()]|$|\s+(?:using|with|citing|based on|drawing on|and use|in (?:an? )?(?:\d|essay|paper)|in apa)\b))/i.exec(t);
+  if (!m) return null;
+  const f = m[1]!.trim().replace(/\s+/g, " ");
+  const words = f.split(" ");
+  if (words.length < 2 || words.length > 10) return null;
+  // A gerund that's really a requirement, not the paper's focus ("for using APA", "in writing 1,200 words").
+  if (/^(?:using|writing|citing|including|following|making|getting)\b/i.test(f) || /\b(?:apa|mla|words?|pages?|sources?|citations?)\b/i.test(f)) return null;
+  return f.charAt(0).toLowerCase() + f.slice(1);
+}
+
+const FOCUS_STOP = /^(?:a|an|the|of|to|in|on|for|with|and|or|through|into|during|their|your|its|his|her|our|leading|leader|leaders|leadership|style|styles|one|real)$/i;
+const focusWords = (focus: string) => [...new Set(focus.toLowerCase().split(/[^a-z']+/).filter((w) => w.length > 2 && !FOCUS_STOP.test(w)))];
+const stem = (w: string) => w.replace(/'s$/, "").replace(/(?:ing|es|s)$/, "");
+
 export function pickEscalation(input: {
   options: DecisionOption[];
   round: number;
@@ -156,6 +252,10 @@ export function pickEscalation(input: {
   concept?: string | null;
   /** QA 1:16: the recommendation stays put between turns; it only moves on after a "no". */
   recIndex?: number;
+  /** QA ethos (after #77): everything the student has said so far, so the two offered are grounded in it. */
+  said?: string;
+  /** QA (after #80): the parsed assignment prompt/topic, for a real reason behind the two offered. */
+  focus?: string | null;
 }): { paras: string[]; recommend: DecisionOption | null; offerCatchUp: boolean } {
   const opts = input.options.slice(0, 3).map((o) => ({ ...o, why: input.unread ? scrubUnreadRefs(o.why) : o.why }));
   const what = input.kind === "leader" ? "leaders" : "options";
@@ -199,15 +299,61 @@ export function pickEscalation(input: {
   // the reading one tap away; round 5 is a different way in (someone they've seen lead); after
   // that, the two again in other words. No "ok" takes a pick here: they name one.
   const other = opts.find((o) => o.label !== rec.label) ?? null;
-  const two = other ? [rec, other] : [rec];
-  const line2 = (o: DecisionOption) => `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.`;
+  const grounded0 = input.kind === "leader" ? null : groundedTwo(opts, input.said ?? "");
+  // QA (after #80): nothing in their words points anywhere: lean on the assignment's own focus.
+  // The two are the ones whose definitions speak to that focus, only when that clearly sets them
+  // apart from the rest; otherwise the list order stays and the line names the focus neutrally.
+  const focus = grounded0 && !grounded0.quote && opts.length > 2 ? assignmentFocus(input.focus) : null;
+  const fw = focus ? focusWords(focus).map(stem) : [];
+  const score = (o: DecisionOption) => {
+    const d = asLeader(o.why ?? "", o.label).toLowerCase().split(/[^a-z']+/).map(stem);
+    return fw.filter((w) => d.includes(w)).length;
+  };
+  const ranked = focus ? opts.map((o, i) => ({ o, i, s: score(o) })).sort((a, b) => b.s - a.s || a.i - b.i) : [];
+  const sharper = ranked.length > 2 && ranked[1]!.s > 0 && ranked[1]!.s > ranked[2]!.s;
+  const grounded = grounded0 && sharper
+    ? { ...grounded0, two: ranked.slice(0, 2).sort((a, b) => a.i - b.i).map((r) => r.o), rest: ranked.slice(2).sort((a, b) => a.i - b.i).map((r) => r.o) }
+    : grounded0;
+  const two = grounded ? grounded.two : other ? [rec, other] : [rec];
+  // QA (5:06 PM): the two read as plain definitions ("• Transformational: a leader selling…"), never "lets you show…".
+  const line2 = (o: DecisionOption) => (input.kind === "leader" ? `• ${o.label}: ${o.why ? plain(o.why) : "a real, well-known choice"}.` : defLine(o));
   // The reading button sits under the style question (the reading-help row); a leader pick has none.
   const readFirst = input.kind === "leader" ? "" : " Or if you'd rather look at the reading first, tap “Catch me up on the reading first”.";
   const names = two.map((o) => o.label).join(" or ");
-  const narrow = [`Let's narrow it to two.`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
-  const narrow2 = [`No wrong answer here. Down to two:`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
+  // QA ethos (after #77): why these two, from their own words; otherwise the rest stays on the table (chips match the two).
+  const restLine = grounded?.rest.length
+    ? `${grounded.rest.map((o) => o.label).join(" and ")} ${grounded.rest.length > 1 ? "are" : "is"} still on the table if neither fits.`
+    : "";
+  const why2 = grounded?.quote
+    ? `You said “${grounded.quote}”, so these two are the closest fit.`
+    : focus && sharper
+      ? `Since your prompt is about ${focus}, these two speak to that most directly; ${restLine}`
+      : focus
+        ? `Your prompt is about ${focus}, and either of these is a real way to argue it; ${restLine}`
+        : grounded?.rest.length
+          ? `These two are a good place to start; ${restLine}`
+          : null;
+  const narrow = [`Let's narrow it to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Which one feels closer, just going with your gut: ${names}?${readFirst}`];
+  const narrow2 = [`No wrong answer here. Down to two.${why2 ? ` ${why2}` : ""}`, ...two.map(line2), `Gut call: ${names}?${readFirst}`];
   const otherWay = [`Let's come at it from a different side. Forget the labels for a second: think of someone who led a team you were on, at work, in sports, anywhere. What's one thing they did?`];
-  if (step >= 1 && !input.confused) {
+  // QA ethos (after #77): style turns 2 and 3 are neutral: plain definitions and one open question,
+  // never a recommendation or a lean toward one style. The gut pick between two waits for turn 4.
+  if (input.kind !== "leader" && step <= 1) {
+    const defs = opts.map(defLine);
+    const head = input.confused
+      ? `That's okay, that's why you're here! ${concept ? `${concept} ` : ""}Here's the short version of each:`
+      : step === 0
+        ? `No problem. Here's the short version of each:`
+        : `Another way in:`;
+    const q1 = `Which one sounds most like a leader you know?`;
+    // Example leaders only while teaching a confused student (Colton 12:08); never a style lean.
+    let paras = [head, ...defs, ...(exLine && input.confused && step === 0 ? [exLine] : []), q1];
+    // Turn 3: the list was just given (QA round 5: never a second copy), so one short, open question.
+    if (step === 1 && !input.confused) paras = [`Another way in, no wrong answer: which of these sounds closest to how you'd want to be led yourself: ${listOr(opts.map((o) => o.label))}?`];
+    if (paras.join("\n") === input.last) paras = [`Okay, a different angle.`, ...defs, `Which one sounds most like someone you've seen lead?`];
+    return { paras, recommend: null, offerCatchUp };
+  }
+  if (step >= 1 && (!input.confused || input.kind !== "leader")) {
     const short = [`No rush. Simplest way in: start with ${rec.label}${rec.why ? `, since it ${plain(rec.why).replace(/^lets you\s+/i, "lets you ")}` : ""}.`, ask];
     const pick = step === 1 ? short : step === 2 ? narrow : step === 3 ? otherWay : narrow2;
     const paras = pick.join("\n") === input.last ? (pick === narrow ? narrow2 : narrow) : pick;
@@ -223,7 +369,7 @@ export function pickEscalation(input: {
 /** The two labels of a narrowed turn ("Let's narrow it to two." / "No wrong answer here. Down to two:"), in order; [] otherwise. */
 export function narrowedTwo(last: string | null | undefined): string[] {
   const t = String(last ?? "");
-  if (!/^(?:Let's narrow it to two\.|No wrong answer here\. Down to two:)/.test(t)) return [];
+  if (!/^(?:Let's narrow it to two\.|No wrong answer here\. Down to two[.:])/.test(t)) return [];
   return [...t.matchAll(/^• ([^:\n]+):/gm)].map((m) => m[1]!.trim()).slice(0, 2);
 }
 

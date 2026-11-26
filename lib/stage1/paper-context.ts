@@ -337,8 +337,8 @@ const GENERAL_CATALOG: { when: RegExp; question: string; options: DecisionOption
     options: [
       { label: "Transformational", why: "Lets you show a leader selling a shared vision so people want the change." },
       { label: "Situational", why: "Lets you show a leader shifting style to fit how ready the team is." },
-      { label: "Servant", why: "Lets you argue that putting people's needs first carries a team through change." },
-      { label: "Behavioral: task vs. relationship (team management)", why: "Lets you weigh getting the work done against caring for the people." },
+      { label: "Servant", why: "Lets you show a leader who puts the team's needs first so people come through the change together." },
+      { label: "Behavioral: task vs. relationship (team management)", why: "Lets you show a leader balancing getting the work done with caring for the people." },
     ],
     people: [
       { label: "Satya Nadella", why: "Reshaped Microsoft's culture toward learning after taking over in 2014." },
