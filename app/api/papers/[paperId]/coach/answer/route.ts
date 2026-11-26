@@ -8,7 +8,19 @@ import { createClient } from "@/lib/supabase/server";
 import { loadPaperContextBlock } from "@/lib/server/paper-context/store";
 import { ghostGuidance, ghostLeakCheck, type GhostScript } from "@/lib/ghost/script";
 import { backfillGhost, readGhost } from "@/lib/server/ghost/store";
-import { COACH_ANSWER_SYSTEM, cleanCoachAnswer, oneQuestion, shapeContentAnswer, type CoachAnswerMode } from "@/lib/coach/answer";
+import {
+  COACH_ANSWER_STRUCTURED,
+  COACH_ANSWER_SYSTEM,
+  FACTS_RETRY_INSTRUCTION,
+  THESIS_FOR_THEM,
+  cleanCoachAnswer,
+  noFactsReply,
+  oneQuestion,
+  readingCatalog,
+  shapeStructuredAnswer,
+  type CoachAnswerMode,
+  type ReadingRef,
+} from "@/lib/coach/answer";
 import { isWriteRequest, writeRequestReply } from "@/lib/stages/stance-intent";
 import { fitPairFromContext } from "@/lib/stage2/fit-check";
 import { leaderAcross } from "@/lib/stage1/lock-in";
@@ -55,6 +67,7 @@ export async function POST(request: Request, ctx: Ctx) {
   const started = Date.now();
   let block = "";
   let leader: string | null = null;
+  let readings: ReadingRef[] = [];
   let ghost: GhostScript | null = null;
   if (!(await getDemoSession()) && hasSupabaseConfig()) {
     const supabase = await createClient();
@@ -71,6 +84,7 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!paper) return NextResponse.json({ error: "Not found" }, { status: 404 });
     block = loaded?.block ?? "";
     leader = loaded?.ctx ? (fitPairFromContext(loaded.ctx as never)?.leader ?? null) : null;
+    readings = readingCatalog((loaded?.ctx ?? null) as never);
     ghost = g;
     // No ghost yet (it failed or timed out at Stage 1): build it in the background (capped).
     if (body.stage >= 2 && !g) after(() => backfillGhost(supabase, paperId, userId));
@@ -81,38 +95,58 @@ export async function POST(request: Request, ctx: Ctx) {
     console.info("[coach-answer]", { mode: body.mode, stage: body.stage, ms: Date.now() - started, ok: true, writeRequest: true });
     return NextResponse.json({ paras: writeRequestReply(body.section ?? "", body.message) });
   }
-  const system = ghost ? `${COACH_ANSWER_SYSTEM}\n\n${ghostGuidance(ghost)}` : COACH_ANSWER_SYSTEM;
+  const structured = body.mode === "answer";
+  // QA 6:15 PM: content answers come back structured (readings, background facts, one question).
+  const base = structured ? `${COACH_ANSWER_SYSTEM}\n\n${COACH_ANSWER_STRUCTURED}` : COACH_ANSWER_SYSTEM;
+  const system = ghost ? `${base}\n\n${ghostGuidance(ghost)}` : base;
+  const askedLeader = leader ?? leaderAcross([body.message], "");
   const user = JSON.stringify({
     mode: body.mode as CoachAnswerMode,
     stage: body.stage,
     section: body.section ?? "",
     coach_asked: body.ask ?? "",
     student_message: body.message,
+    ...(structured ? { student_leader: askedLeader ?? "", readings: readings.map((r) => ({ id: r.id, title: r.title, author: r.author, key_points: r.points })) } : {}),
     paper_context: block,
   });
+  const schema = structured
+    ? {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          explain: { type: "string" },
+          readingPoints: {
+            type: "array",
+            items: { type: "object", additionalProperties: false, properties: { text: { type: "string" }, readingId: { type: "string" } }, required: ["text", "readingId"] },
+          },
+          leaderFacts: { type: "array", items: { type: "string" } },
+          question: { type: "string" },
+        },
+        required: ["explain", "readingPoints", "leaderFacts", "question"],
+      }
+    : { type: "object", additionalProperties: false, properties: { paras: { type: "array", items: { type: "string" } } }, required: ["paras"] };
+  let lastShape: { leaderFacts: number; aboutLeader: boolean } | null = null;
   const ask = async (extra = "") => {
     const res = await grokChatJson({
       model: MODEL_FAST,
       system: extra ? `${system}\n\n${extra}` : system,
       user,
-      jsonSchema: {
-        name: "coach_answer",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: { paras: { type: "array", items: { type: "string" } }, background: { type: "array", items: { type: "string" } } },
-          required: ["paras"],
-        },
-      },
+      jsonSchema: { name: "coach_answer", schema },
       timeoutMs: 7_000,
     });
     let out: string[] = [];
     if (res.ok) {
       try {
-        const j = JSON.parse(res.text) as { paras?: unknown; background?: unknown };
-        const cleaned = cleanCoachAnswer(j.paras, { mode: body.mode, message: body.message });
-        // QA 5:51 PM: readings part, then labelled general background, then exactly one question.
-        out = body.mode === "answer" ? shapeContentAnswer({ paras: cleaned, background: j.background, block, leader: leader ?? leaderAcross([body.message], ""), message: body.message }) : oneQuestion(cleaned);
+        const j = JSON.parse(res.text) as Record<string, unknown>;
+        if (structured) {
+          const shaped = shapeStructuredAnswer({ raw: j, readings, leader: askedLeader, message: body.message });
+          lastShape = shaped;
+          out = shaped.paras.map((p) => cleanCoachAnswer([p], { mode: body.mode, message: body.message })[0] ?? "").filter(Boolean);
+        } else {
+          out = oneQuestion(cleanCoachAnswer(j.paras, { mode: body.mode, message: body.message }));
+          // Never their thesis stated for them ("Your paper will argue…").
+          out = out.map((p) => p.split(/(?<=[.!?])\s+/).filter((x) => !THESIS_FOR_THEM.test(x)).join(" ")).filter(Boolean);
+        }
       } catch {
         out = [];
       }
@@ -143,12 +177,19 @@ export async function POST(request: Request, ctx: Ctx) {
   let ghostBlocked = false;
   let regen: ReturnType<typeof gate> | null = null;
   const first = ghost && paras.length ? gate(paras) : { ok: true, rule: null, hits5: 0, hits8: 0, hitsFact: 0 };
-  if (!first.ok) {
-    ghostBlocked = true;
-    // One retry in different words; the client's fallback only if that is blocked too.
-    const again = await ask(RETRY_INSTRUCTION);
-    regen = again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0, hitsFact: 0 };
-    paras = regen.ok ? again : [];
+  const shape1 = lastShape as { leaderFacts: number; aboutLeader: boolean } | null;
+  // QA 6:15 PM: a question about their leader with no leader facts gets one retry asking for 2-3.
+  const noFacts = Boolean(structured && shape1?.aboutLeader && shape1.leaderFacts === 0);
+  let factsRetry: { leaderFacts: number } | null = null;
+  if (!first.ok || noFacts) {
+    if (!first.ok) ghostBlocked = true;
+    // One retry (different words after a gate block; concrete facts when none came back).
+    const again = await ask([!first.ok ? RETRY_INSTRUCTION : "", noFacts ? FACTS_RETRY_INSTRUCTION : ""].filter(Boolean).join("\n\n"));
+    regen = !ghost ? { ok: again.length > 0, rule: again.length ? null : "empty", hits5: 0, hits8: 0, hitsFact: 0 } : again.length ? gate(again) : { ok: false, rule: "empty", hits5: 0, hits8: 0, hitsFact: 0 };
+    const shape2 = lastShape as { leaderFacts: number; aboutLeader: boolean } | null;
+    if (noFacts) factsRetry = { leaderFacts: shape2?.leaderFacts ?? 0 };
+    if (regen.ok && noFacts && askedLeader && (shape2?.leaderFacts ?? 0) === 0) paras = noFactsReply(askedLeader);
+    else paras = regen.ok ? again : !first.ok ? [] : noFacts && askedLeader ? noFactsReply(askedLeader) : paras;
   }
   console.info("[coach-answer]", {
     mode: body.mode,
@@ -158,6 +199,8 @@ export async function POST(request: Request, ctx: Ctx) {
     ghost: Boolean(ghost),
     ghostBlocked,
     gate: { rule: first.rule, hits5: first.hits5, hits8: first.hits8, hitsFact: first.hitsFact },
+    structured,
+    factsRetry,
     regen: regen ? { ok: regen.ok, rule: regen.rule, hits5: regen.hits5, hits8: regen.hits8, hitsFact: regen.hitsFact } : null,
   });
   return NextResponse.json({ paras });
