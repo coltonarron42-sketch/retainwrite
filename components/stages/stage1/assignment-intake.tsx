@@ -3019,10 +3019,12 @@ export function AssignmentIntake({
       return;
     }
     if (brief?.northstar && isReadingComment(text)) {
+      // The story screen has no `q`, so asides would not render. Show it the same way a short-nudge does.
+      const ack = readingCommentAck(text);
       if (!spoken) setOwnStory("");
-      setError(null);
-      setShortEcho(null);
-      setQaAsides((prev) => [...prev, { id: Date.now(), qid: "own_story", said: text, paras: [readingCommentAck(text)] }].slice(-12));
+      setShortEcho(text);
+      setError(ack);
+      setQaAsides((prev) => [...prev, { id: Date.now(), qid: "own_story", said: text, paras: [ack] }].slice(-12));
       return;
     }
     if (wordCount(text) < 15) {

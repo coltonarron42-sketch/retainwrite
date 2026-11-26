@@ -161,8 +161,13 @@ describe("QA #76: a comment about a reading is light engagement, never an exampl
     const own = intake.indexOf("async function submitOwnStory");
     const comment = intake.indexOf("isReadingComment(text)", own);
     const nudge = intake.indexOf('exampleStep ? "example" : "claim"', own);
+    const visible = intake.indexOf("setError(ack)", own);
+    const echo = intake.indexOf("setShortEcho(text)", own);
     expect(own).toBeGreaterThan(0);
     expect(comment).toBeGreaterThan(own);
-    expect(nudge).toBeGreaterThan(comment);
+    expect(visible).toBeGreaterThan(comment);
+    expect(echo).toBeGreaterThan(comment);
+    expect(nudge).toBeGreaterThan(visible);
+    expect(intake.slice(own, nudge)).toMatch(/The story screen has no `q`/);
   });
 });
