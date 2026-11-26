@@ -1174,6 +1174,11 @@ export function AssignmentIntake({
   // coachingPlan[qIndex] empty: no question, no reply, nothing to send. Track the question by id.
   const curQId = useRef<string | null>(null);
   const [recovering, setRecovering] = useState(false);
+  // QA (#78 gate): search links are built from their leader, their styles and the topic's keywords.
+  const searchPicks = () => ({
+    leader: leaderAlready,
+    styles: chosenStyles([brief?.decision?.answer, ...answers.map((a) => a.answerText)]),
+  });
   // North star (Colton 11:41): there is no extra voice question at all.
   const fallbackOff = Boolean(brief?.northstar);
 
@@ -2646,6 +2651,10 @@ export function AssignmentIntake({
             people: brief?.options?.people ?? [],
             recIndex: recNos.current[q.id] ?? 0,
             concept: brief?.options?.concept ?? null,
+            // QA ethos (after #77): the two offered are grounded in what they've said (their words only).
+            said: [materialAnswerNow, ...qaAsides.filter((x) => x.qid === q.id).map((x) => x.said), text].filter(Boolean).join("\n"),
+            // QA (after #80): the parsed assignment focus, for a real reason behind the two.
+            focus: requirements?.promptQuestion.value || requirements?.topic.value || null,
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
       // QA round 6: "think of someone who led a team you were on" is the boss/coach/teacher ask: their answer starts the interview.
@@ -2883,7 +2892,7 @@ export function AssignmentIntake({
           name: "A practitioner voice in this topic",
           whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
-          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
         }),
       ];
       if (tags[0]) {
@@ -2894,7 +2903,7 @@ export function AssignmentIntake({
             whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
-            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
           }),
         );
       }
@@ -3162,7 +3171,7 @@ export function AssignmentIntake({
           name: "A practitioner voice in this topic",
           whyAssignment: practitionerReason(requirements.topic.value || requirements.promptQuestion.value, shown),
           scholarlyRequired: scholarly,
-          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+          searchTerms: practitionerSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
         }),
       ];
       if (tags[0]) {
@@ -3173,7 +3182,7 @@ export function AssignmentIntake({
             whyInterest: `Touches on your interest in ${shown?.name ?? tags[0]}.`,
             steeredBy: "both",
             scholarlyRequired: scholarly,
-            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0]),
+            searchTerms: leadSearchTerms(requirements.topic.value || requirements.promptQuestion.value, tags[0], searchPicks()),
           }),
         );
       }
@@ -4148,7 +4157,8 @@ export function AssignmentIntake({
               ) : q.id === "decision_pick" && brief?.options?.options.length ? (
                 <div className="space-y-3 pt-1">
                 <div className={cn("flex flex-wrap gap-2", noLeaderAsked.current[q.id] && "hidden")} role="group" aria-label="Options" data-style-chips-hidden={noLeaderAsked.current[q.id] ? "" : undefined}>
-                  {brief.options.options.slice(0, 3).map((o) => (
+                  {/* QA ethos (after #77): after "narrow it to two", the chips are those two. */}
+                  {((two) => (two.length ? brief.options.options.filter((o) => two.includes(o.label)) : brief.options.options.slice(0, 3)))(narrowedTwo(lastProbe.current[q.id] ?? null)).map((o) => (
                     <DsButton
                       key={o.label}
                       type="button"

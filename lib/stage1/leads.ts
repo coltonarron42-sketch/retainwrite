@@ -1,5 +1,8 @@
 import { searchKeywords, searchPhrase } from "@/lib/coaching/exampleLeads";
 import { topicSearchTerms } from "@/lib/copy/topic-phrase";
+import { topicKeywords, trimAtWord } from "@/lib/copy/topic-keywords";
+
+export { topicKeywords, trimAtWord };
 export type ResearchLeadDraft = {
   name: string;
   whyAssignment: string;
@@ -70,9 +73,9 @@ export const LEADS_INTRO =
 export type LeadLink = { kind: "articles" | "news" | "videos"; label: string; href: string };
 
 function terms(lead: ResearchLeadDraft, topic: string | null | undefined): string {
+  // Saved terms from older leads may be cut mid-word ("…through ch"): never pass a broken last word on.
   if (lead.searchTerms?.trim()) return lead.searchTerms.trim();
-  const t = (topic ?? "").replace(/[?.!]+$/, "").replace(/\s+/g, " ").trim().slice(0, 90);
-  return t || lead.name;
+  return searchQuery(topic) || lead.name;
 }
 
 /** Search links (never made-up articles): scholarly articles, news stories, videos. */
@@ -85,10 +88,26 @@ export function leadLinks(lead: ResearchLeadDraft, topic?: string | null): LeadL
   ];
 }
 
-/** Search words for a lead: the topic, plus the student's interest when it steers the lead. */
-export function leadSearchTerms(topic: string | null | undefined, extra?: string | null): string | undefined {
-  const t = (topic ?? "").replace(/[?.!]+$/, "").replace(/\s+/g, " ").trim().slice(0, 90);
-  const out = [extra?.trim(), t].filter(Boolean).join(" ");
+/** What the student chose, for a sharper search: their leader and styles. */
+export type SearchPicks = { leader?: string | null; styles?: string[] };
+
+/**
+ * QA (#78 gate): a search query from keywords (their leader, their styles, the topic's core terms),
+ * trimmed at a word boundary: never "…leading a team through ch practitioner interview c…".
+ */
+export function searchQuery(topic: string | null | undefined, picks: SearchPicks = {}, tail: string[] = [], max = 90): string {
+  const lead = [picks.leader?.trim(), ...(picks.styles ?? []).map((s) => s.trim().toLowerCase())].filter((x): x is string => Boolean(x));
+  const have = lead.join(" ").toLowerCase();
+  const core = topicKeywords(topic).filter((w) => !have.split(/\s+/).includes(w.toLowerCase()));
+  const end = tail.map((x) => x.trim()).filter(Boolean).join(" ");
+  const room = Math.max(10, max - (end ? end.length + 1 : 0));
+  const head = trimAtWord([...lead, ...core].join(" "), room);
+  return trimAtWord([head, end].filter(Boolean).join(" "), max + (end ? end.length : 0));
+}
+
+/** Search words for a lead: the student's interest when it steers the lead, then their picks and the topic's keywords. */
+export function leadSearchTerms(topic: string | null | undefined, extra?: string | null, picks: SearchPicks = {}): string | undefined {
+  const out = [extra?.trim(), searchQuery(topic, picks)].filter(Boolean).join(" ");
   return out || undefined;
 }
 
@@ -101,10 +120,9 @@ function shortTopic(topic: string | null | undefined): string {
  * (interviews, case studies), plus the student's interest when there is one,
  * so it never repeats the plain topic search.
  */
-export function practitionerSearchTerms(topic: string | null | undefined, interest?: string | null): string | undefined {
-  const t = shortTopic(topic);
-  if (!t) return undefined;
-  return [t, "practitioner interview case study", interest?.trim()].filter(Boolean).join(" ");
+export function practitionerSearchTerms(topic: string | null | undefined, interest?: string | null, picks: SearchPicks = {}): string | undefined {
+  if (!shortTopic(topic)) return undefined;
+  return searchQuery(topic, picks, ["practitioner interview case study", interest?.trim() ?? ""], 100);
 }
 
 const MEDIA_CUE = /\b(watch(?:ing|ed)?|show|shows|series|movie|movies|film|films|cartoon|anime|episode|episodes|tv|netflix|disney|hulu|book|books|novel|novels|podcast|podcasts|youtube|youtuber|album|song|songs|band|video game|game called)\b/i;

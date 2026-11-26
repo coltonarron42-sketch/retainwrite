@@ -133,7 +133,7 @@ export function SparkExchange({
               className="ds-focus min-h-[48px] px-2 text-[13px] text-ds-muted underline-offset-4 hover:underline"
               onClick={onOff}
             >
-              Don't offer again
+              Don&apos;t offer again
             </button>
           </div>
         ) : null}
