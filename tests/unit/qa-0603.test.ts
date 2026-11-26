@@ -156,13 +156,13 @@ describe("3. decision", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     // PC-32 (Colton t221u): the leader and the decision's reason moved to Stage 2's stance interview.
     expect(intake).not.toContain('id: "leader_pick"');
-    expect(intake).toContain("for (const step of ideasPlan(answers))");
+    expect(intake).toContain("for (const step of ideasPlan(answers, nudgeContext(brief)))");
   });
   it("Stage 2 carries the actual decision and reason, never idk", () => {
     expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because it helps a team buy into change", at: 1 })).toBe("Earlier you picked transformational leadership, because it helps a team buy into change. That's a solid reason to build on.");
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "idk", at: 1 })).toBeNull();
     expect(stage2Earlier({ question: "q", pick: "their own", answer: "I read both", at: 1 })).toBeNull();
-    expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toMatch(/^Earlier you told me transformational, because Nadella/);
+    expect(stage2Earlier({ question: "q", pick: "their own", answer: "Transformational, because Nadella got Microsoft to change how it works", at: 1 })).toBe("You picked Nadella as a transformational leader, mainly because Nadella got Microsoft to change how it works."); // QA 6:53 PM: synthesized
   });
   it("Stage 2 'just tell me some options' reuses the Stage 1 options as chips", () => {
     expect(isOptionsRequest("just tell me some options")).toBe(true);

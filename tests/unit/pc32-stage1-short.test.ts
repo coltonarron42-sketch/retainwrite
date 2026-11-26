@@ -221,7 +221,7 @@ describe("PC-32 short Stage 1: starting point (Colton t221u)", () => {
     expect(route).toContain("startingPoint: point");
     const intake = src("components/stages/stage1/assignment-intake.tsx");
     for (const id of ["material_check", "decision_pick", "decision_why", "leader_pick"]) expect(intake).not.toContain(`id: "${id}",`);
-    expect(intake).toContain("for (const step of ideasPlan(answers)) plan.push(");
+    expect(intake).toContain("for (const step of ideasPlan(answers, nudgeContext(brief))) plan.push(");
     expect(intake).toContain("Boolean(hesitationKey) && !shortStage1"); // no spark offer in the short Stage 1
   });
 });
@@ -246,8 +246,11 @@ describe("PC-32 Stage 1 ideas: acknowledge, summarize back, note, move on (Colto
     expect(ideasPlan([])).toEqual([{ id: IDEAS_CHECK_ID, kind: "ask", text: IDEAS_CHECK_ASK }]);
     expect(IDEAS_CHECK_ASK).toMatch(/totally fine/);
   });
-  it("no idea → no follow-up at all", () => {
-    for (const r of ["no", "idk", "not really", "nothing yet"]) expect(say([], [r]).plan).toHaveLength(1);
+  it("no idea → one guiding nudge (QA 6:50 PM), then nothing more", () => {
+    for (const r of ["no", "idk", "not really", "nothing yet"]) {
+      expect(say([], [r]).plan.map((s) => s.id)).toEqual([IDEAS_CHECK_ID, "ideas_nudge"]);
+      expect(say([], [r, "still nothing"]).plan).toHaveLength(2);
+    }
   });
   it("an idea → summarized back for confirmation (no probe); yes → done", () => {
     const { plan } = say([], ["I want to write about my old soccer coach and how he kept the team together after we lost our captain", "yes"]);
@@ -283,7 +286,7 @@ describe("PC-32 Stage 1 ideas: acknowledge, summarize back, note, move on (Colto
     for (let run = 0; run < 300; run++) {
       const replies = Array.from({ length: 6 }, () => pool[Math.floor(rnd() * pool.length)]!);
       const { plan } = say([], replies);
-      const follow = plan.slice(1);
+      const follow = plan.slice(1).filter((s) => s.id !== "ideas_nudge"); // QA 6:50 PM: the one no-ideas nudge is an ask, not a probe
       expect(follow.filter((s) => s.kind === "clarify").length, replies.join(" | ")).toBeLessThanOrEqual(1);
       for (let i = 1; i < follow.length; i++) expect(follow[i]!.kind === "clarify" && follow[i - 1]!.kind === "clarify").toBe(false);
       if (follow.length) expect(follow[0]!.kind === "clarify" || follow.every((s) => s.kind === "confirm")).toBe(true);
@@ -352,7 +355,8 @@ describe("PC-32 QA 4:57 PM: terse ideas, confirm phrases, no ideas", () => {
   it("no ideas yet: no reflection, no praise", () => {
     for (const t of ["I don't have any ideas yet", "no ideas yet", "I haven't thought of anything", "nothing yet"]) {
       expect(hasIdea(t), t).toBe(false);
-      expect(ideasPlan(says(t)).map((s) => s.kind), t).toEqual(["ask"]);
+      expect(ideasPlan(says(t)).map((s) => s.kind), t).toEqual(["ask", "ask"]); // QA 6:50 PM: one guiding nudge
+      expect(ideasPlan(says(t))[1]!.text, t).not.toMatch(/love|great|I like/i);
       expect(classifyStartingPoint({ ideas: t }).kind, t).toBe("no_clue");
     }
     const ack = ideasAck({ kind: "no_clue" });
