@@ -1,5 +1,7 @@
 # RetainWrite — Coaching Philosophy (governing document)
 
+> **Superseded in part (Colton t219u, Nov 25, 2026; PC-32):** the Stage 1 voice sample is no longer a step, question, minimum, gate, checklist item or note. Voice, tone and language are captured in the background from every answer in every stage. Stage 1 is only assignment capture, the summary and an initial direction. PLAN.md §9 ("Voice capture runs in the background") wins over every voice-minimum / voice-question rule below.
+
 **Version:** v1.7 · Nov 20, 2026 (adds a pointer to project operating rules, including the no-idle bot rule, t69; earlier: appendix interaction design layer and hidden-draft scaffold across the pipeline, t57, updated with Colton's t58 decisions; earlier: hybrid voice-note threshold, t51, and gentle memory-trigger guideline, t52; earlier: Stage 2 brainstorm t47, gentle Stage 6 voice nudge t48; earlier: LOGIC CHECKPOINT t41/t42, paste-everywhere t44/t45; his text in sections 1–4 is unchanged) · Author: Colton Simmons (owner)
 
 **Status:** This is THE governing document for every stage, probe, summary, and interaction in RetainWrite. Where any spec or prompt conflicts with it **on philosophy**, this doc wins. The specs (`retainwrite-stage1-intake-spec.md`, `retainwrite-stage-specs.md`, `retainwrite-ai-checker-spec.md`) still hold the implementation details. Sections 1–4 are Colton's text, kept in his wording and only lightly organized. The appendix is ours.

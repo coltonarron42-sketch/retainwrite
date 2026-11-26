@@ -55,7 +55,27 @@ const REASON_RE = /\b(because|since|bc|cuz|'cause|so that|as it|it fits|it shows
  * QA 7:02 AM: Stage 2 paraphrases the Stage 1 decision ("Earlier you picked X with Y as your
  * example, because …") instead of quoting the raw answer.
  */
-export function stage2Earlier(decision: PaperContext["decision"] | null | undefined, leader?: PaperContext["leader"] | null, options: DecisionOption[] = []): string | null {
+const STYLE_WORD = /^(servant|transformational|transactional|situational|democratic|autocratic|authentic|charismatic|laissez-faire|participative|adaptive|visionary|coaching|leadership)$/i;
+
+/**
+ * QA 5:51 PM: style names read as plain words mid-sentence ("servant leadership", "servant and
+ * transformational leadership"), never "Servant"; a pick in their own words is left alone.
+ */
+export function styleText(pick: string): string {
+  const words = pick.replace(/\s+/g, " ").trim().split(" ");
+  const parts = words.filter((w) => !/^(and|or|&|,)$/i.test(w)).map((w) => w.replace(/,$/, ""));
+  if (!parts.length || !parts.every((w) => STYLE_WORD.test(w))) return pick;
+  const low = words.map((w) => (STYLE_WORD.test(w.replace(/,$/, "")) ? w.toLowerCase() : w)).join(" ");
+  return /leadership$/i.test(low) ? low : `${low} leadership`;
+}
+
+export function stage2Earlier(
+  decision: PaperContext["decision"] | null | undefined,
+  leader?: PaperContext["leader"] | null,
+  options: DecisionOption[] = [],
+  /** QA 5:51 PM: the leader they gave elsewhere (Stage 1 idea, fit pair) when the decision only says "he". */
+  knownLeader: string | null = null,
+): string | null {
   if (!decision) return null;
   const said = decision.answer.replace(/\s+/g, " ").trim();
   if (!decisionHasReason(decision.answer)) {
@@ -65,8 +85,8 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
     const named = pickedStyles(decision, options);
     const one = decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick) ? decision.pick : null;
     const pick0 = named.length > 1 ? andList(named) : one;
-    const who0 = leaderName(leader, said);
-    if (pick0) return `Earlier you picked ${pick0}${who0 ? ` with ${who0} as your example` : ""}.`;
+    const who0 = leaderName(leader, said) ?? knownLeader;
+    if (pick0) return `Earlier you picked ${styleText(pick0)}${who0 ? ` with ${who0} as your example` : ""}.`;
     return null;
   }
   // QA 1:11 AM #7: both picks when they named two ("servant and transformational").
@@ -77,21 +97,21 @@ export function stage2Earlier(decision: PaperContext["decision"] | null | undefi
       : decision.pick && decision.pick !== "their own" && answerNamesOption(decision.answer, decision.pick)
         ? decision.pick
         : null;
-  const who = leaderName(leader, said);
+  const who = leaderName(leader, said) ?? knownLeader;
   const m = said.match(REASON_RE);
   const tidy = (t: string) => toSecondPerson(wholeReason(smoothCause(t))).replace(/[\s.!,;:]+$/, "");
   const reason = m ? tidy(/^(because|since|bc|cuz|'cause)$/i.test(m[1]) ? m[2] : `${m[1]} ${m[2]}`) : "";
   if (pick) {
     const ex = who ? ` with ${who} as your example` : "";
     // QA 11:51: their reason is acknowledged, not just repeated.
-    return reason ? `Earlier you picked ${pick}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you picked ${pick}${ex}.`;
+    return reason ? `Earlier you picked ${styleText(pick)}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you picked ${styleText(pick)}${ex}.`;
   }
   // QA 9:37 AM: an answer that starts with its reason ("because teams need…") never reads
   // "Earlier you told me because…": the pick in their words, or "your reason:".
   if (m && m.index === 0 && reason) {
     const label = decisionLabel(decision);
     const ex = who ? ` with ${who} as your example` : "";
-    return label ? `Earlier you picked ${label}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you told me your reason: ${reason}.${who ? ` Your example: ${who}.` : ""}`;
+    return label ? `Earlier you picked ${styleText(label)}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you told me your reason: ${reason}.${who ? ` Your example: ${who}.` : ""}`;
   }
   const headRaw = m && m.index! > 0 ? said.slice(0, m.index).replace(/[\s.!,;:]+$/, "") : said;
   const told0 = tidy(headRaw).replace(/^(yeah|yes|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "");

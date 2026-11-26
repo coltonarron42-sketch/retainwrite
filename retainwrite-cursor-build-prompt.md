@@ -1,5 +1,7 @@
 # RetainWrite — Cursor Build Prompt (paste everything below this line into Cursor)
 
+> **Superseded in part (Colton t219u, Nov 25, 2026; PC-32):** the Stage 1 voice sample is no longer a step, question, minimum, gate, checklist item or note. Voice, tone and language are captured in the background from every answer in every stage. Stage 1 is only assignment capture, the summary and an initial direction. PLAN.md §9 ("Voice capture runs in the background") wins over every voice-minimum / voice-question rule below.
+
 ## Read these first, in this order
 
 1. **`retainwrite-coaching-philosophy.md` — THE governing document** (v1.6, Nov 20, 2026). It governs every stage, probe, summary, and interaction. It wins over every other doc, including the stage specs, **on philosophy**. The specs below still hold the implementation detail. If a spec rule would break a hard limit in the philosophy doc, follow the philosophy doc and flag the conflict in your PR description.

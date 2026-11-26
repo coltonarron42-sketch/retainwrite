@@ -8,7 +8,7 @@ import { STAGE_LABELS } from "@/lib/config";
 
 /** One line per stage for the inactive look under the gate. */
 const STAGE_PREVIEWS = [
-  "Intake: share the assignment and a little about how you write.",
+  "Intake: share the assignment, get the quick summary, and pick a first direction.",
   "Stance: find what you think, section by section, and lock it in.",
   "Outline: your locked-in ideas become the skeleton of the whole paper.",
   "Sources: find and check the sources that back up each section.",

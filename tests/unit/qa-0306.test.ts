@@ -25,7 +25,8 @@ describe("QA 3:06 #1 BLOCKER: the informed lock-in and the gate read one source"
   it("the gate reads the locked-in words when no decision was saved, and the lock-in saves the decision with its reason", () => {
     expect(intake).toContain("decisionAnswer: brief.decision?.answer || lockedInStance || null");
     expect(intake).toContain("const base = d?.answer || lockedInStance || \"\";");
-    expect(intake).toContain("One thing before the stance interview: what's your main reason that's the right call for this assignment?");
+    // PC-32 (Colton t221u): the short Stage 1 never asks for a decision's reason (Stage 2 does).
+    expect(intake).not.toContain("One thing before the stance interview: what's your main reason that's the right call for this assignment?");
   });
 });
 
