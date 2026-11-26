@@ -4,7 +4,7 @@
  * Pau's teaching content: never paper text, never a thesis for the student.
  * // SOP: coaching only, never generate submission text
  */
-import { dropInventedRestriction } from "@/lib/stage1/readback-tidy";
+import { dropInventedRestriction, groundedGraded } from "@/lib/stage1/readback-tidy";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { wellKnownWork } from "@/lib/stage1/well-known";
 import { assertCoachingOnly } from "@/lib/ai/guard";
@@ -63,7 +63,7 @@ export async function generateReadback(a: AssignmentBasics): Promise<ReadbackPla
   const r = await grokChatJson({
     model: MODEL_FAST,
     system: `${RULES}\nYou're playing an assignment sheet back to a student in plain words before they start.`,
-    user: `${basicsText(a)}\n\nReturn JSON: "ask" = what the assignment actually asks them to do, in 1-2 short plain sentences addressed to "you" (no thesis, no answer; name any required sources neutrally, and never add "only", "just" or any other limit the sheet doesn't state); "mustInclude" = 2-4 short phrases: what a strong answer must include (from the sheet); "graded" = 1-4 short phrases: how it's graded (from the rubric or sheet; empty if not stated).`,
+    user: `${basicsText(a)}\n\nReturn JSON: "ask" = what the assignment actually asks them to do, in 1-2 short plain sentences addressed to "you" (no thesis, no answer; name any required sources neutrally, and never add "only", "just" or any other limit the sheet doesn't state); "mustInclude" = 2-4 short phrases: what a strong answer must include (from the sheet); "graded" = 0-4 short phrases: how it's graded, ONLY when the sheet has a rubric or says how it's graded, in its own words; never infer grading from the length, format or prompt (empty if not stated). Never add a year to a date the sheet gives without one.`,
     jsonSchema: {
       name: "readback",
       schema: {
@@ -87,7 +87,7 @@ export async function generateReadback(a: AssignmentBasics): Promise<ReadbackPla
     const ask = dropInventedRestriction(clip(o.ask, 320), sheet);
     if (!ask || !safe(ask)) return null;
     const tidy = (xs: string[]) => xs.map((x) => dropInventedRestriction(x.replace(/\.$/, ""), sheet));
-    return { ask, mustInclude: tidy(cleanPoints(o.mustInclude, 4)), graded: tidy(cleanPoints(o.graded, 4)) };
+    return { ask, mustInclude: tidy(cleanPoints(o.mustInclude, 4)), graded: groundedGraded(tidy(cleanPoints(o.graded, 4)), sheet, a.rubric.length > 0) };
   } catch {
     return null;
   }

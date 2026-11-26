@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { isServerOnlyField } from "@/lib/ghost/script";
+import { refreshVoiceProfile } from "@/lib/server/voice/capture";
 import { z } from "zod";
 import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
@@ -79,7 +81,8 @@ export async function GET(_request: Request, ctx: Ctx) {
   }
   return NextResponse.json({
     drafts: rows
-      .filter((row) => row.field_key !== "loop_session")
+      // Server-only rows (the ghost script) never reach the browser (Colton t221u).
+      .filter((row) => row.field_key !== "loop_session" && !isServerOnlyField(row.field_key))
       .map((row) => ({
         fieldKey: row.field_key,
         text: row.draft_text,
@@ -101,6 +104,8 @@ export async function POST(request: Request, ctx: Ctx) {
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
+  // Reserved server-only keys can't be written (or overwritten) from the browser.
+  if (isServerOnlyField(body.fieldKey)) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   const now = new Date().toISOString();
   // The draft row, the session row and the resume pointer are independent
   // writes, so run them together instead of one after another. Any failure
@@ -160,6 +165,11 @@ export async function POST(request: Request, ctx: Ctx) {
   if (failed?.error) {
     console.error(`[autosave] ${failed.label} failed`, { code: failed.error.code, message: failed.error.message });
     return NextResponse.json({ error: "Could not save." }, { status: 500 });
+  }
+  // PC-32 (Colton t219u): a saved Stage 2/3 session carries the student's newest words; the voice
+  // profile picks them up quietly (throttled, after the response; never part of the save).
+  if (body.session !== undefined) {
+    after(() => refreshVoiceProfile(auth.supabase, paperId, auth.userId, { throttleMs: 60_000, reason: "session_save" }));
   }
   return NextResponse.json({ ok: true });
 }

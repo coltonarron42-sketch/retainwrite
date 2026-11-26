@@ -43,15 +43,16 @@ describe("Stage 1 is one chat thread", () => {
     expect(intake).not.toContain("Write or say it in your own words");
     expect(intake).toContain("Skip the get-to-know-you questions");
     expect(intake).toContain("Cancel edit");
-    expect(intake).toContain('<span className="sr-only">{`Voice sample: ${voiceEval.totalWords} of ${STAGE1_VOICE_MIN_WORDS} words`}</span>');
+    // PC-32: no voice meter in the composer.
+    expect(intake).not.toContain("Voice sample:");
     expect(moreWordsNote(12, 25, "Your early take")).toMatch(/^Give me a little more\. /);
   });
 
-  it("every question has a placeholder in Pau's voice; the voice sample is mentioned once", () => {
+  it("every question has a placeholder in Pau's voice; Stage 1 never asks for a writing sample (PC-32)", () => {
     for (const id of ["interest_1", "interest_2", "bg_comfort", "coaching_take", "personal_1", "fallback_voice", "stance_early"]) {
       expect(PLACEHOLDERS[id]).toBeTruthy();
     }
-    expect(INTRO_BUBBLES.filter((b) => /how you write/.test(b))).toHaveLength(1);
+    expect(INTRO_BUBBLES.filter((b) => /how you write|own words|voice/i.test(b))).toHaveLength(0);
   });
 
   it("keeps the composer above the keyboard and scrolls to the newest bubble", () => {

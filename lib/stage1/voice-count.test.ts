@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readyVoiceLine, tallyVoiceWords } from "@/lib/stage1/voice";
+import { tallyVoiceWords } from "@/lib/stage1/voice";
+import * as voiceLib from "@/lib/stage1/voice";
 import { answersAfterSkippingInterest } from "@/lib/stage1/intake-resume";
 
 const words = (count: number) => "word ".repeat(count).trim();
@@ -20,9 +21,8 @@ describe("stage 1 voice tally", () => {
     expect(tallyVoiceWords(kept.map((answer) => ({ ...answer })))).toBe(146);
   });
 
-  it("shows the ready line only at the 200 word minimum", () => {
-    expect(readyVoiceLine(194)).toBeNull();
-    expect(readyVoiceLine(199)).toBeNull();
-    expect(readyVoiceLine(200)).toMatch(/enough of your voice/);
+  it("PC-32: no ready line or voice minimum any more (voice is captured in the background)", () => {
+    expect("readyVoiceLine" in voiceLib).toBe(false);
+    expect("evaluateStage1VoiceMinimum" in voiceLib).toBe(false);
   });
 });

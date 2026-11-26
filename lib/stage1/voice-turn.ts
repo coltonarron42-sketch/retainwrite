@@ -2,7 +2,7 @@
  * Stage 1 on Grok Voice (Colton t159u, Nov 23): what the app shows right now,
  * as data for Pau on the call, and how spoken words join the answer box.
  * The student's spoken words are their verbatim transcript; nothing the model
- * says is ever written into an answer (the voice sample stays theirs).
+ * says is ever written into an answer (their answers stay theirs).
  */
 import { SOURCE_QUALITY } from "@/lib/coach/source-quality.config";
 import { rulesStanceIntent } from "@/lib/stages/stance-intent";

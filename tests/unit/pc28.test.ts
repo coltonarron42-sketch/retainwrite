@@ -213,7 +213,7 @@ describe("QA 1:11 AM #7: Stance recap lists both picks", () => {
   it("names servant and transformational", () => {
     const opts = [{ label: "Transformational", why: "" }, { label: "Servant", why: "" }];
     const line = stage2Earlier({ question: "", pick: "Transformational", answer: "I think Sam Walton shows servant and transformational leadership because he listened to his workers.", at: 0 }, null, opts)!;
-    expect(line).toMatch(/Servant and Transformational/);
+    expect(line).toMatch(/servant and transformational leadership/);
   });
 });
 

@@ -150,7 +150,9 @@ describe("4. skip", () => {
   });
   it("the server gate rejects a skipped-through north-star Stage 1", () => {
     const route = src("app/api/papers/[paperId]/intake/complete/route.ts");
-    expect(route).toContain("northstarGateFrom(");
+    // PC-32 (Colton t221u): north-star papers need the confirmed read-back (and card); older papers
+    // keep the early-take and story gates.
+    expect(route).toContain('reasons: ["readback"]');
     expect(route).toContain('"Early stance needs at least 25 words"');
     expect(route).toContain('"Pick a story angle before finishing Stage 1"');
   });
@@ -184,7 +186,8 @@ describe("6. duplicates", () => {
     expect(src("components/stages/stage1/assignment-intake.tsx")).toContain("finishCoaching(answersAfterSkippingInterest(answers));");
   });
   it("material shown before the confirm is never re-asked", () => {
-    expect(src("components/stages/stage1/assignment-intake.tsx")).toContain('if (!brief?.materialShown || has("material_check"))');
+    // PC-32: the short Stage 1 has no "have you read it?" question at all.
+    expect(src("components/stages/stage1/assignment-intake.tsx")).not.toContain('id: "material_check",');
   });
 });
 
@@ -192,7 +195,7 @@ describe("7. polish", () => {
   it("Stage 2 paraphrases the decision", () => {
     expect(toSecondPerson("I think my team")).toBe("you think your team");
     expect(stage2Earlier({ question: "q", pick: "Transformational leadership", answer: "I'd pick transformational because I think it helps my team buy into change", at: 1 }, { question: "q", pick: "Satya Nadella", answer: "x", at: 1 })).toBe(
-      "Earlier you picked Transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change. That's a solid reason to build on.",
+      "Earlier you picked transformational leadership with Satya Nadella as your example, because you think it helps your team buy into change. That's a solid reason to build on.",
     );
   });
   it("an argument essay isn't labeled Lesson", () => {
@@ -316,8 +319,7 @@ describe("preview walk follow-ups (56237e1)", () => {
 describe("preview walk follow-ups (7a11df1)", () => {
   it("a prepared or skip-all student is never parked on the left-out voice question", () => {
     const intake = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(intake).toContain("const fallbackOff = Boolean(brief?.northstar);");
-    expect(intake.match(/!fallbackOff &&/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(intake).toContain("voice.needsFallback && !fallbackOff");
+    // PC-32 (Colton t219u): there is no extra voice question for anyone, so nothing can park on it.
+    expect(intake).not.toMatch(/needsFallback|fallbackOff|setNeedFallback/);
   });
 });

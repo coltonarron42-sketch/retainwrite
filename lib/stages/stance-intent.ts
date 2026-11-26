@@ -26,10 +26,65 @@ const LOOKUP_REQUEST =
 
 /** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
 export const WRITE_REQUEST =
-  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
+  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|that|my|the|a|an)(?: \w+){0,2} for me\b/i;
+
+/**
+ * QA 5:51 PM / 6:15 PM: the shared write-it-for-me detector. "Just give me the intro paragraph",
+ * "Write my body paragraph about Walton", "draft a conclusion", "send me my thesis".
+ */
+const PART = "(?:intro(?:duction)?(?: paragraph)?|paragraph|conclusion(?: paragraph)?|thesis(?: statement)?|body(?: paragraph)?|sentence|section|essay|paper|topic sentence|opening|closing)s?";
+const GIVE_REQUEST = new RegExp(
+  `^(?:(?:can|could|would|will) you\\s+|please\\s+|pls\\s+|ok(?:ay)?,?\\s+|so,?\\s+|now,?\\s+|hey,?\\s+|just\\s+)*(?:(?:give|send|hand|show)\\s+me|(?:write|draft|compose|type up)(?:\\s+me)?)\\s+(?:the|my|an?|a full|a whole|your|this|that|one|our)?\\s*(?:\\w+\\s+){0,2}${PART}\\b`,
+  "i",
+);
+const WRITE_ABOUT_FOR_ME = /\b(?:write|draft)\b[^.?!]{0,60}\bfor me\b/i;
+const TEACHING = /\b(example|examples|sample|what (?:a|an) good|how (?:to|do i|should i))\b/i;
 
 export function isWriteRequest(text: string): boolean {
-  return WRITE_REQUEST.test(text.replace(/\s+/g, " "));
+  const t = text.replace(/\s+/g, " ").trim();
+  if (WRITE_REQUEST.test(t)) return true;
+  // "Show me an example outline line" / "give me an example sentence" is teaching, not their part.
+  return (GIVE_REQUEST.test(t) || WRITE_ABOUT_FOR_ME.test(t)) && !TEACHING.test(t);
+}
+
+/** What part they asked for ("body paragraph", "introduction", "thesis"), else the section's own name. */
+function askedPart(text: string, sectionTitle: string): string {
+  const t = text.toLowerCase();
+  if (/thesis/.test(t)) return "thesis";
+  if (/\bintro/.test(t)) return "introduction";
+  if (/conclusion/.test(t)) return "conclusion";
+  if (/\bbody\b/.test(t)) return "body paragraph";
+  if (/topic sentence/.test(t)) return "topic sentence";
+  if (/paragraph/.test(t)) return "paragraph";
+  if (/sentence/.test(t)) return "sentence";
+  return lowerTitle(sectionTitle || "this section");
+}
+
+/** "…about Walton" / "…on Sam Walton's profit sharing": the subject they named, if any. */
+function aboutWhat(text: string): string | null {
+  const m = text.match(/\b(?:about|on)\s+([^.?!,]{2,50}?)(?:\s+(?:for me|please|pls|now|real quick))*\s*[.?!]*$/i);
+  const x = m?.[1]?.trim() ?? "";
+  if (!x || /^(?:it|this|that|them|my|the topic|my topic|leadership|what|how)$/i.test(x)) return null;
+  return x;
+}
+
+/** The decline for any write-it-for-me request (thesis, intro, body, conclusion, paragraph, sentence): one question. */
+export function writeRequestReply(sectionTitle: string, text = ""): string[] {
+  const asked = askedPart(text, sectionTitle);
+  const about = aboutWhat(text);
+  const q =
+    asked === "thesis"
+      ? "What's your answer to the prompt, in one plain sentence?"
+      : about
+        ? `What's the one thing you want that ${asked} to show about ${about}?`
+        : asked === "introduction"
+          ? "What's your answer to the prompt, in one plain sentence?"
+          : asked === "conclusion"
+            ? "If a reader remembers one thing from your paper, what should it be?"
+            : /paragraph|sentence/.test(asked)
+              ? `What's the main point that ${asked} has to make?`
+              : (probingQuestions({ title: sectionTitle || "section" })[1] ?? "What's your main point here?");
+  return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${asked} says, though. ${q}`];
 }
 
 /** Rule fallback. Long, substantive text is content even if it mentions "questions". */
@@ -129,10 +184,7 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
 
 /** Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
-  if (ctx.text && isWriteRequest(ctx.text)) {
-    const part = lowerTitle(ctx.section.title);
-    return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
-  }
+  if (ctx.text && isWriteRequest(ctx.text)) return writeRequestReply(ctx.section.title, ctx.text);
   const qs = probingQuestions(ctx.section);
   // QA 1:11 AM #5: one question per turn (never a numbered list of three); another comes on request.
   const one = qs[0] ?? "What's the one thing this part needs to say?";

@@ -82,11 +82,12 @@ describe("2: a correction overwrites the old value everywhere", () => {
     expect(withYear("12/3", now)).toBe("Dec 3, 2026");
     expect(withYear("Dec 3, 2027", now)).toBe("Dec 3, 2027");
     const next = applyConfirmUpdates(sheet(), { ...emptyUpdates(), dueDate: "Dec 3" });
-    expect(next.dueDate.value).toMatch(/^Dec 3, 20\d\d$/);
-    expect(reconfirmParas(next, null).join(" ")).toMatch(/due Dec 3, 20\d\d/);
+    // QA (Nov 25, 2026): never assume a year; the date stays exactly as they said it.
+    expect(next.dueDate.value).toBe("Dec 3");
+    expect(reconfirmParas(next, null).join(" ")).not.toMatch(/Dec 3, 20\d\d/);
   });
-  it("the read-back says a due date with its year", () => {
-    expect(pauPauSummaryBubbles(sheet(), { seed: 0 }).join(" ")).toMatch(/It's due Nov 30, 20\d\d\./);
+  it("the read-back says the due date as given, never an assumed year (QA Nov 25)", () => {
+    expect(pauPauSummaryBubbles(sheet(), { seed: 0 }).join(" ")).toMatch(/It's due Nov 30\./);
   });
 });
 

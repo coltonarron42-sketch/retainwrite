@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { chosenStyles } from "@/lib/stage1/north-turns";
-import { northstarChecklist, voiceShortNote } from "@/lib/stage1/intake-resume";
+import { northstarChecklist } from "@/lib/stage1/intake-resume";
 import * as notes from "@/lib/copy/voiceNotes";
 
 const decision = (styles: string[] | undefined, style?: string) =>
@@ -31,17 +31,17 @@ describe("gate decision line lists every chosen style", () => {
 });
 
 describe("voice-amount lines are Pau speaking (first person)", () => {
-  const lines = [voiceShortNote({ voiceOk: false })!, ...(Object.values(notes) as unknown[]).filter((v): v is string => typeof v === "string")];
+  const lines = [...(Object.values(notes) as unknown[]).filter((v): v is string => typeof v === "string")];
   it("no 'the coach', 'Pau', 'us' or 'we'", () => {
-    expect(lines.length).toBeGreaterThanOrEqual(7);
+    expect(lines.length).toBeGreaterThanOrEqual(6);
     for (const l of lines) {
       expect(l).not.toMatch(/\b(the coach|Pau|us|we|We)\b/);
       expect(l).toMatch(/\b(I|I'll|me)\b/);
     }
   });
-  it("the gate's voice sample line too", () => {
+  it("PC-32: the Stage 1 gate has no voice sample line at all", () => {
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
-    expect(src).not.toMatch(/helps Pau match your voice/);
-    expect(src).toMatch(/helps me match your voice/);
+    expect(src).not.toMatch(/match your voice/);
+    expect(src).not.toMatch(/Voice sample/);
   });
 });

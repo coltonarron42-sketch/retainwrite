@@ -220,7 +220,7 @@ describe("QA 11:26: the Stage 2 recap keeps Walton after the voice merge", () =>
     const p = parseStance(answer, opts, [] as never);
     expect(p?.leader).toMatch(/Walton/);
     const s = stage2Earlier({ question: "q", pick: "Servant", answer, at: 1 } as never, { pick: p!.leader! } as never, opts);
-    expect(s).toMatch(/^Earlier you picked Servant and Transformational with Sam Walton as your example, because/);
+    expect(s).toMatch(/^Earlier you picked servant and transformational leadership with Sam Walton as your example, because/);
   });
 });
 

@@ -12,7 +12,6 @@ import { emptyRequirements } from "@/lib/assignment/schema";
 import { indefiniteArticle, withArticle } from "@/lib/copy/articles";
 import type { AssignmentRequirements } from "@/lib/assignment/schema";
 import { isPlaceholderTopic } from "@/lib/assignment/parse-fallback";
-import { withYear } from "@/lib/copy/due-date";
 import { asQuestion, cleanTopic, isQuestionTopic, topicMidSentence } from "@/lib/copy/topic-phrase";
 
 import { displayWork, namedWorksFrom, readingsLine } from "@/lib/stage1/readings";
@@ -347,7 +346,8 @@ export function pauPauSummaryBubbles(full: AssignmentRequirements, opts: Summary
 
   const whenWhat: string[] = [];
   const due = req.dueDate.value?.trim();
-  if (due && due.length <= 60) whenWhat.push(`It's due ${withYear(due.replace(/^due:?\s*/i, "")) ?? due}.`);
+  // QA (Nov 25): never assume a year; say the date exactly as the sheet gives it.
+  if (due && due.length <= 60) whenWhat.push(`It's due ${due.replace(/^due:?\s*/i, "")}.`);
   const topic = topicLine(req);
   if (topic) whenWhat.push(topic);
 
