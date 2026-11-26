@@ -7,7 +7,7 @@ describe("F: Pau introduces leads in her own voice, then links", () => {
     const lead = createLead({ name: "A practitioner voice", whyAssignment: "x", searchTerms: leadSearchTerms("Should high schools start later?") });
     const links = leadLinks(lead);
     expect(links.map((l) => l.kind)).toEqual(["articles", "news", "videos"]);
-    expect(links[0]!.href).toBe("https://scholar.google.com/scholar?q=Should%20high%20schools%20start%20later");
+    expect(links[0]!.href).toBe("https://scholar.google.com/scholar?q=high%20schools%20start%20later");
     expect(links[2]!.href).toContain("youtube.com/results?search_query=");
   });
   it("interest-steered leads search the interest with the topic; older leads fall back to the topic", () => {
@@ -26,8 +26,7 @@ describe("F: Pau introduces leads in her own voice, then links", () => {
     expect(src).toContain("const leadsBubbles = leadsShown ? [LEADS_INTRO, leadsList] : [];");
     expect(src).not.toContain("<PauPauGroup bubbles={[LEADS_INTRO]}>");
     const gate = src.slice(src.indexOf('headingId="gate-ask"') - 1500, src.indexOf('headingId="gate-ask"'));
-    // PC-32: the short Stage 1 wrap-up adds the starting-point acknowledgment before "That's everything".
-    expect(gate).toMatch(/bubbles=\{\[\s*\.\.\.leadsBubbles,\s*\.\.\.\(startingNow \? \[ideasAck\(startingNow\), SHORT_GATE_LINE\]/);
+    expect(gate).toMatch(/bubbles=\{\[\s*\.\.\.leadsBubbles,\s*"That's everything for Stage 1/);
     expect(gate).toContain("headingIndex={leadsBubbles.length}");
     const ask = src.slice(src.lastIndexOf('headingId="coach-question"') - 900, src.lastIndexOf('headingId="coach-question"'));
     expect(ask).toContain("...leadsBubbles,");
