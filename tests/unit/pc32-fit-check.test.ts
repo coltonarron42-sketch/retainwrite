@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { betterExamples, fitKey, fitPairIn, fitReply, knownFit, parseFitVerdict } from "@/lib/stage2/fit-check";
+import { betterExamples, fitKey, fitPairForNote, fitPairFromContext, fitPairIn, fitReply, knownFit, parseFitVerdict } from "@/lib/stage2/fit-check";
 
 const src = (p: string) => readFileSync(p, "utf8");
 const words = (paras: string[]) => paras.join(" ").split(/\s+/).filter(Boolean).length;
@@ -67,5 +67,35 @@ describe("PC-32 FIT CHECK: style + leader (Colton t227u)", () => {
     expect(route).toContain("ghostLeakCheck");
     expect(route).toContain("assertCoachingOnly");
     expect(src("lib/stage2/fit-check.ts")).not.toMatch(/from "@\/lib\/(?:server\/)?ghost/);
+  });
+});
+
+describe("PC-32 FIT CHECK fires on Stage 2 entry and on a changed pair (QA 4:57 PM)", () => {
+  it("finds the pair they gave in Stage 1 (ideas or an older pick)", () => {
+    expect(fitPairFromContext({ startingPoint: { ideas: "Elon Musk, servant leadership" } })).toEqual({ style: "servant", leader: "Elon Musk" });
+    expect(fitPairFromContext({ startingPoint: { ideas: "Sam Walton at Walmart and how he served his people", followUp: "servant leadership mostly" } })).toEqual({ style: "servant", leader: "Sam Walton" });
+    expect(fitPairFromContext({ decision: { pick: "Servant", answer: "Servant" }, leader: { pick: "Elon Musk", answer: "Elon Musk" } })).toEqual({ style: "servant", leader: "Elon Musk" });
+    // A confirm phrase never feeds the pair; no style or no leader → no check.
+    expect(fitPairFromContext({ startingPoint: { ideas: "Elon Musk", followUp: "Yes, that's right" } })).toBeNull();
+    expect(fitPairFromContext({ startingPoint: { ideas: "servant leadership in general" } })).toBeNull();
+    expect(fitPairFromContext(null)).toBeNull();
+  });
+  it("a later note that introduces or changes the pair is checked; a confirm phrase is not", () => {
+    const known = { style: "servant", leader: "Elon Musk" };
+    expect(fitPairForNote("Actually I'll switch to Herb Kelleher", known)).toEqual({ style: "servant", leader: "Herb Kelleher" });
+    expect(fitPairForNote("maybe transformational fits him better", known)).toEqual({ style: "transformational", leader: "Elon Musk" });
+    expect(fitPairForNote("Yes, that's right", known)).toBeNull();
+    expect(fitPairForNote("he really listens to the team", known)).toBeNull();
+    expect(fitKey(fitPairForNote("Elon Musk and servant leadership", known)!)).toBe(fitKey(known));
+  });
+  it("runs once on entry, inline with the opener before the Intro, and the server keeps each result (reload-safe)", () => {
+    const loop = src("components/stages/loop/coaching-loop.tsx");
+    expect(loop).toContain("if (live && d?.ok && stage === 2) await entryFitCheck(d, () => live);");
+    expect(loop).toContain("fit: entryFit,");
+    const chat = src("components/stages/loop/stance-chat.tsx");
+    expect(chat).toMatch(/\.\.\.\(intro\.earlier \? \[intro\.earlier\] : \[\]\),\n\s+\.\.\.\(intro\.fit \?\? \[\]\),/);
+    const route = src("app/api/papers/[paperId]/coach/fit/route.ts");
+    expect(route).toContain('const FIT_FIELD = "server:fit_checks";');
+    expect(route).toContain("cached: true");
   });
 });

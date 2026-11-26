@@ -22,6 +22,9 @@ import {
 } from "@/lib/ghost/script";
 import {
   IDEAS_CHECK_ASK,
+  isConfirmOnly,
+  isUnclearIdea,
+  ideaGist,
   IDEAS_CHECK_ID,
   MAX_IDEA_TURNS,
   classifyStartingPoint,
@@ -200,7 +203,7 @@ describe("PC-32 short Stage 1: starting point (Colton t221u)", () => {
     const items = shortStage1Checklist({ confirmed: true, kind: "no_clue" });
     expect(items.every((i) => i.done)).toBe(true);
     expect(items[1]!.label).toMatch(/fresh \(totally fine\)/);
-    expect(ideasAck({ kind: "no_clue" })).toMatch(/Totally fine/);
+    expect(ideasAck({ kind: "no_clue" })).toBe("That's totally fine, we'll find one together in Stage 2.");
   });
   it("Stage 2 meets them where they are", () => {
     expect(stage2StartingLine({ kind: "has_ideas", ideas: "I'm thinking about my manager at work", readMaterial: false, at: 1 })).toBe(
@@ -265,7 +268,7 @@ describe("PC-32 Stage 1 ideas: acknowledge, summarize back, note, move on (Colto
       "that's it for now",
     ]);
     expect(plan.map((s) => s.kind)).toEqual(["ask", "confirm", "confirm", "confirm"]);
-    expect(plan[2]!.text).toMatch(/^Got it, I noted that too: also she trained every new hire herself/);
+    expect(plan[2]!.text).toMatch(/^Got it, I noted that too: she trained every new hire herself/);
     expect(plan.length).toBeLessThanOrEqual(1 + MAX_IDEA_TURNS);
     const long = say([], ["I want to write about my coach and the way she ran practice", ...Array.from({ length: 10 }, (_, i) => `more detail number ${i} about practice drills and teamwork`)]);
     expect(long.plan.length).toBe(1 + MAX_IDEA_TURNS);
@@ -315,5 +318,44 @@ describe("QA Nov 25 (main): read-back facts only", () => {
   });
   it("(c) a second style chip replaces an untouched chip prefill", () => {
     expect(src("components/stages/stage1/assignment-intake.tsx")).toContain("/^I'd pick [^.]{1,60} because\\s*$/.test(d) ? `I'd pick ${o.label} because ` : d");
+  });
+});
+
+describe("PC-32 QA 4:57 PM: terse ideas, confirm phrases, no ideas", () => {
+  const says = (...a: string[]) => a.map((answerText, i) => ({ questionId: i === 0 ? IDEAS_CHECK_ID : ideaStepId(i), answerText }));
+  it("a yes / no / confirm phrase is NEVER stored as idea content (shared guard)", () => {
+    for (const t of ["Yes, that's right", "yep", "Correct!", "no", "nope", "sounds good", "That's it for now", "yes exactly", "Yeah, you got it"]) {
+      expect(isConfirmOnly(t), t).toBe(true);
+      expect(hasIdea(t), t).toBe(false);
+    }
+    expect(isConfirmOnly("Yes, Elon Musk and servant leadership")).toBe(false);
+    expect(isConfirmOnly("Elon Musk, servant leadership")).toBe(false);
+    expect(ideasSaid(says("Elon Musk, servant leadership", "Yes, that's right"))).toEqual({ ideas: "Elon Musk, servant leadership", followUp: null });
+    expect(classifyStartingPoint({ ideas: "Yes, that's right" }).kind).toBe("no_clue");
+    expect(classifyStartingPoint({ ideas: "Elon Musk, servant leadership", followUp: "yep" }).followUp).toBeUndefined();
+  });
+  it("a terse but concrete idea is summarized back and confirmed, never drilled", () => {
+    expect(isUnclearIdea("Elon Musk, servant leadership")).toBe(false);
+    expect(isUnclearIdea("Sam Walton")).toBe(false);
+    const plan = ideasPlan(says("Elon Musk, servant leadership", "Yes, that's right"));
+    expect(plan.map((s) => s.kind)).toEqual(["ask", "confirm"]);
+    expect(plan[1]!.text).toBe("Ooh, I like that. So you're thinking: Elon Musk, servant leadership. Did I get that right?");
+    expect(plan.some((s) => /what's the part/.test(s.text))).toBe(false);
+  });
+  it("no ideas yet: no reflection, no praise", () => {
+    for (const t of ["I don't have any ideas yet", "no ideas yet", "I haven't thought of anything", "nothing yet"]) {
+      expect(hasIdea(t), t).toBe(false);
+      expect(ideasPlan(says(t)).map((s) => s.kind), t).toEqual(["ask"]);
+      expect(classifyStartingPoint({ ideas: t }).kind, t).toBe("no_clue");
+    }
+    const ack = ideasAck({ kind: "no_clue" });
+    expect(ack).not.toMatch(/Ooh|Love it|I like that|you're thinking/);
+  });
+  it("the wrap-up is a button, not a question; the echo drops a leading 'also'", () => {
+    const intake = src("components/stages/stage1/assignment-intake.tsx");
+    expect(intake).toContain(`const SHORT_GATE_LINE = "That's everything for Stage 1. Tap Start Stage 2 whenever you're ready.";`);
+    expect(intake).not.toContain("Ready for Stage 2?");
+    expect(ideaGist("also she trained every new hire")).toBe("she trained every new hire");
+    expect(ideaGist("and also the team got better")).toBe("the team got better");
   });
 });
