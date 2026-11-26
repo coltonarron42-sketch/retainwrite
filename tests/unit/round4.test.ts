@@ -229,7 +229,7 @@ describe("QA 11:08 must-fix (live): the decline is never a reading question", ()
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("components/stages/stage1/assignment-intake.tsx", "utf8");
     expect(src).toContain("if (typed && !offerAnswered && isSkipSaying(typed)) {");
-    expect(src).toMatch(/text &&\s*!offerAnswered &&\s*brief\?\.northstar &&\s*q\.id !== "stance_early"/);
+    expect(src).toMatch(/text &&\s*!offerAnswered &&\s*brief\?\.northstar &&\s*!\(q\.id === "material_check" && materialLost\(text\)\) &&\s*\(\(q\.id !== "stance_early"/);
   });
 });
 

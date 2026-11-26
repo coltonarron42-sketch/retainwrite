@@ -61,8 +61,8 @@ describe("Stage 1 on-screen prompt, word for word", () => {
 
   it("her Stage 1 rules: the app says prompts itself; her replies never ask their own question", () => {
     const s1 = buildStage1Instructions("state");
-    expect(s1).toContain("The app says each on-screen prompt aloud itself, word for word");
-    expect(s1).toContain("Never make up a question of your own");
+    expect(s1).toContain("the app says each on-screen prompt aloud itself, word for word");
+    expect(s1).toContain("end without a question of their own");
     expect(s1).toContain("never recap or summarize it out loud");
     expect(s1).not.toContain("ask the on-screen question in your own natural words");
   });

@@ -37,3 +37,20 @@ export function affirmsStyle(text: string, word: string): boolean {
 export function rejectsStyle(text: string, word: string): boolean {
   return new RegExp(`\\b${esc(word)}`, "i").test(String(text ?? "")) && !affirmsStyle(text, word);
 }
+
+/** The style words a reflection could name (kept in step with north-turns' KNOWN_STYLE). */
+export const STYLE_WORDS = ["transformational", "transactional", "servant", "situational", "democratic", "autocratic", "authoritarian", "authentic", "charismatic", "laissez-faire", "participative", "adaptive", "visionary", "affiliative", "pacesetting"] as const;
+
+/** The styles the student named only to set aside ("Servant, not transformational" → ["transformational"]). */
+export function setAsideStyles(said: string): string[] {
+  return STYLE_WORDS.filter((w) => rejectsStyle(said, w));
+}
+
+/**
+ * QA retest (da13848, paper 8c1b541b): a reflection written by Pau (the PC-31 story turn) must keep
+ * #75's rule: a style they set aside is never reflected back as theirs. True when `reply` names one
+ * as chosen ("Walton, showing servant and transformational leadership").
+ */
+export function reflectsSetAside(reply: string, said: string): boolean {
+  return setAsideStyles(said).some((w) => affirmsStyle(reply, w));
+}

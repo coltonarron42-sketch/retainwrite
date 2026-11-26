@@ -110,7 +110,11 @@ import {
   stanceTurnFor,
   type LoopLine,
 } from "@/lib/stages/stance-turn";
-import { finalStanceIntent, intentReply, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { finalStanceIntent, intentReply, isWriteRequest, needsModel, rulesStanceIntent, type IntentTurn, type StanceIntent } from "@/lib/stages/stance-intent";
+import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
+import { sourcesLine } from "@/lib/coach/sources-line";
+import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
+import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
 import { oneQuip } from "@/lib/coach/quips";
 import { pickPhrase, pickedLeader, isLostSaying, isOptionsRequest, STAGE_PURPOSE, summaryLabel, type MaterialSummary, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 import { useStage1Past, withEarlier } from "@/components/stages/focus-panels";
@@ -398,6 +402,8 @@ export function CoachingLoop({
   const relevance = useRef<{ key: string; verdict: Promise<boolean | null> } | null>(null);
   const [checkingLogic, setCheckingLogic] = useState(false);
   const [answering, setAnswering] = useState(false);
+  /** PC-31 t213u: her live "thinking" line while an answer streams in. */
+  const [answerStatus, setAnswerStatus] = useState<string | null>(null);
   const syncChain = useRef<Promise<unknown>>(Promise.resolve());
   /** Intent checks by section|ask|text; a pause in typing starts one, the send reuses it. */
   const intentCache = useRef(new Map<string, Promise<StanceIntent>>());
@@ -865,25 +871,18 @@ export function CoachingLoop({
     return [...cur.answers.map((x) => x.text), ...cur.sections.flatMap((x) => keptIdeas(x.ideas))].join("\n");
   }
 
-  async function coachAnswer(mode: "answer" | "lost" | "vague", message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
+  async function coachAnswer(mode: CoachMode, message: string, sectionTitle: string, ask: string): Promise<string[] | null> {
     try {
-      const controller = new AbortController();
-      // A blocked first draft is retried once on the server (PC-32 QA 5:15 PM), so allow for two calls.
-      const timer = setTimeout(() => controller.abort(), 16000);
-      const res = await fetch(`/api/papers/${paperId}/coach/answer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000), notes: studentNotes().slice(0, 8000) }),
-        signal: controller.signal,
-      });
-      // The cap covers reading the body too (a stalled body kept the buttons busy).
-      if (!res.ok) {
-        clearTimeout(timer);
-        return null;
-      }
-      const d = (await res.json()) as { paras?: string[] };
-      clearTimeout(timer);
-      return d.paras?.length ? d.paras.map((p) => oneQuip(p)) : null;
+      // PC-31 t213u: streamed, with her live steps as the busy line ("Searching for …", "Reading …").
+      const d = await fetchPauAnswer(
+        `/api/papers/${paperId}/coach/answer`,
+        { mode, message: message.slice(0, 2000), stage: stage === 3 ? 3 : 2, section: sectionTitle, ask: ask.slice(0, 1000), notes: studentNotes().slice(0, 8000) },
+        { kind: statusKindFor(mode), idleMs: 22_000, maxMs: 55_000, onStatus: (line) => setAnswerStatus(line) },
+      );
+      setAnswerStatus(null);
+      if (!d?.paras?.length) return null;
+      const src = sourcesLine(d.sources);
+      return [...d.paras.map((p) => oneQuip(p)), ...(src ? [src] : [])];
     } catch {
       return null;
     }
@@ -949,7 +948,11 @@ export function CoachingLoop({
   }
 
   /** Which answer mode a non-content message gets (QA 11/23: answer content, turn "idk" into points/options). */
-  function answerModeFor(intent: StanceIntent, text: string): "answer" | "lost" | null {
+  function answerModeFor(intent: StanceIntent, text: string): CoachMode | null {
+    // PC-31: "write my intro" gets her reframe (a question about their point); "find me examples" gets real research.
+    if (isWriteRequest(text)) return "reframe";
+    if (RESEARCH_ASK.test(text)) return "research";
+    if (SUMMARY_ASK.test(text)) return "summary";
     if (intent === "content_question") return "answer";
     if (intent === "request_help" || isLostSaying(text)) return "lost";
     return null;
@@ -1556,6 +1559,7 @@ export function CoachingLoop({
           classify={classifyIntent}
           onAside={onAside}
           busy={checkingLogic || answering}
+          busyNote={answering ? answerStatus : null}
           idea={idea}
           onIdea={(value) => {
             paste.onChange(idea, value);
