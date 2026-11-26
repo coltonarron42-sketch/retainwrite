@@ -139,7 +139,9 @@ export function supportedBy(bullet: string, evidence: string): boolean {
   if (ev.trim().length < 3) return false;
   const { entities, words } = keyTerms(bullet);
   const has = (t: string) => ev.includes(` ${t} `);
-  if (entities.length) return entities.some((e) => e.split(" ").every(has));
+  // QA retest (bd66554): the bullet's lead name (the leader it's about) must be on the page; a page that only
+  // mentions "Microsoft" in a download link doesn't back a Satya Nadella bullet.
+  if (entities.length) return entities[0]!.split(" ").every(has);
   if (!words.length) return false;
   const hit = words.filter(has).length;
   return hit >= Math.min(3, Math.ceil(words.length * 0.5));

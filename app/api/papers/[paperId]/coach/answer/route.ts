@@ -195,7 +195,8 @@ export async function POST(request: Request, ctx: Ctx) {
           q = (await verify(r)).q;
           // She read a good page but leaned on weak or unsupported ones: one more pass restricted to the good pages.
           // QA 4:08: only when nothing survived (a kept, supported bullet beats another search).
-          if (qmode === "research" && q.kept === 0 && q.goodUnused.length && turnSearchCap(paperUsed + searches, 1) > 0) {
+          // QA retest: the retry stays inside the turn's cap (≤2 searches a turn, retry included).
+          if (qmode === "research" && q.kept === 0 && q.goodUnused.length && searches < searchCap && turnSearchCap(paperUsed + searches, 1) > 0) {
             retried = true;
             emit("Finding sources you can cite…");
             const r2 = await grokResearch({
@@ -203,7 +204,7 @@ export async function POST(request: Request, ctx: Ctx) {
               user: userJson,
               effort: "low",
               search: true,
-              maxSearches: 1,
+              maxSearches: Math.max(1, searchCap - searches),
               allowedDomains: q.goodUnused.slice(0, 5),
               timeoutMs: 22_000,
               onStatus: streaming ? emit : undefined,

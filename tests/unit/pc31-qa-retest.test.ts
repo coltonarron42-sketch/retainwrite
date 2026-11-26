@@ -96,3 +96,12 @@ describe("QA retest (d3159a3 walk): student-blog platforms on .edu are weak", ()
     expect(sourceTier("https://trace.tennessee.edu/utk_libpub/13")).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("QA retest (bd66554 walk): the lead name must be on the page", () => {
+  it("'Microsoft' in a download link doesn't back a Satya Nadella bullet", async () => {
+    const { supportedBy } = await import("@/lib/coach/source-quality");
+    const line = "• Satya Nadella at Microsoft ran a listening tour [fortune.com]";
+    expect(supportedBy(line, "Rapid Organizational Change Through Servant Leadership. Download Microsoft Word file")).toBe(false);
+    expect(supportedBy(line, "How Satya Nadella changed Microsoft's culture")).toBe(true);
+  });
+});
