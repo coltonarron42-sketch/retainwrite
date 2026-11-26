@@ -6,6 +6,7 @@
  * The model decides when it can; these rules are the fallback and the fast path.
  * // SOP: coaching only, never generate submission text
  */
+import { lowerTitle } from "@/lib/copy/name-case";
 import { wordCount } from "@/lib/utils";
 import { isContentQuestion } from "@/lib/coach/answer";
 
@@ -25,24 +26,10 @@ const LOOKUP_REQUEST =
 
 /** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
 export const WRITE_REQUEST =
-  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|that|my|the|a|an)(?: \w+){0,2} for me\b/i;
-
-/** QA 5:51 PM: "Just give me the intro paragraph", "give me a conclusion", "send me my body paragraph". */
-const GIVE_REQUEST =
-  /^(?:(?:can|could|would|will) you\s+|please\s+|pls\s+|ok(?:ay)?,?\s+|so,?\s+|now,?\s+)*(?:just\s+)?(?:give|send|hand|show)\s+me\s+(?:the|my|an?|a full|a whole|your)?\s*(?:\w+\s+){0,2}(?:intro(?:duction)?|paragraph|conclusion|thesis(?: statement)?|body(?: paragraph)?|sentence|section|essay|paper|topic sentence|opening|closing)\b/i;
+  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
 
 export function isWriteRequest(text: string): boolean {
-  const t = text.replace(/\s+/g, " ");
-  if (WRITE_REQUEST.test(t)) return true;
-  // "Show me an example outline line" / "give me an example sentence" is teaching, not their part.
-  return GIVE_REQUEST.test(t) && !/\b(example|examples|sample|what (?:a|an) good|how (?:to|do i))\b/i.test(t);
-}
-
-/** The decline for any write-it-for-me request (thesis, intro, body, conclusion, paragraph, sentence): one question. */
-export function writeRequestReply(sectionTitle: string, text = ""): string[] {
-  const asked = /thesis/i.test(text) ? "thesis" : (sectionTitle || "this section").toLowerCase();
-  const q = probingQuestions({ title: sectionTitle || "section" })[1] ?? "What's your main point here?";
-  return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${asked} says, though. ${q}`];
+  return WRITE_REQUEST.test(text.replace(/\s+/g, " "));
 }
 
 /** Rule fallback. Long, substantive text is content even if it mentions "questions". */
@@ -106,7 +93,7 @@ export type IntentTurn = "teach_card" | "mirror" | "probe" | "name_lead" | "pick
 
 /** Coaching questions for the section (never sentences for the paper). */
 export function probingQuestions(section: { title: string; needs?: string | null }): string[] {
-  const part = section.title.toLowerCase();
+  const part = lowerTitle(section.title);
   if (/intro/.test(part)) {
     return [
       "What's the one thing a reader should know before your argument starts?",
@@ -137,18 +124,21 @@ export const OUTLINE_FOLLOW_UP = "When you're ready, put your notes into short o
 /** Her next ask after any aside, so the opener question is never repeated. */
 export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: string): string {
   if (intent === "request_probe" || intent === "request_help") return ASIDE_FOLLOW_UP;
-  return `When you're ready, tell me your idea for your ${sectionTitle.toLowerCase()} in your own words.`;
+  return `When you're ready, tell me your idea for your ${lowerTitle(sectionTitle)} in your own words.`;
 }
 
 /** Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
-  if (ctx.text && isWriteRequest(ctx.text)) return writeRequestReply(ctx.section.title, ctx.text);
+  if (ctx.text && isWriteRequest(ctx.text)) {
+    const part = lowerTitle(ctx.section.title);
+    return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
+  }
   const qs = probingQuestions(ctx.section);
   // QA 1:11 AM #5: one question per turn (never a numbered list of three); another comes on request.
   const one = qs[0] ?? "What's the one thing this part needs to say?";
   switch (intent) {
     case "request_probe":
-      return [`Sure. Let's start with one for your ${ctx.section.title.toLowerCase()}: ${one}`];
+      return [`Sure. Let's start with one for your ${lowerTitle(ctx.section.title)}: ${one}`];
     case "request_help":
       return [`Happy to help. Start small: you don't need the whole section, just one idea. ${one}`];
     case "question": {
@@ -156,10 +146,10 @@ export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; secti
         ctx.turn === "name_lead" || ctx.turn === "pick_lead"
           ? "I'm asking which source, person or example you want to look into for this section. You'll check it yourself later."
           : ctx.turn === "choice"
-            ? `I'm checking that you're happy with this idea for your ${ctx.section.title.toLowerCase()}. Tap one of the choices in my message to keep going; you can change it later.`
+            ? `I'm checking that you're happy with this idea for your ${lowerTitle(ctx.section.title)}. Tap one of the choices in my message to keep going; you can change it later.`
           : ctx.turn === "outline"
             ? "I'm asking you to put your notes for this section into short outline lines, one point per line, in your own words."
-            : `I'm asking what you want your ${ctx.section.title.toLowerCase()} to say. One or two sentences in your own words is plenty.`;
+            : `I'm asking what you want your ${lowerTitle(ctx.section.title)} to say. One or two sentences in your own words is plenty.`;
       return [`${what} If you'd like, say "ask me questions" and I'll walk you through it.`];
     }
     case "content_question":
