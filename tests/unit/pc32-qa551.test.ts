@@ -44,6 +44,18 @@ describe("MUST-FIX 1: readings and general background stay apart (no invented li
     expect(r.join(" ")).not.toMatch(/Northouse/);
     expect(r).toEqual(["What do you think?"]);
   });
+  it("QA walk f804c567: pronoun follow-ups and commentary about the leader go under the label too; a question left in background is still the one ask", () => {
+    const r = shapeContentAnswer({
+      paras: ["He also introduced profit-sharing so employees felt ownership in the company's success. These actions focused on people first while still driving business growth."],
+      background: ["Sam Walton showed servant leadership by regularly visiting stores and listening to associates.", "Which of those do you want to use?"],
+      block: BLOCK,
+      leader: "Sam Walton",
+      message: "How did Sam Walton show servant leadership?",
+    });
+    expect(r).toHaveLength(2);
+    expect(r[0]).toMatch(/^From general background \(check before citing\): Sam Walton showed servant leadership by regularly visiting stores and listening to associates\. He also introduced profit-sharing/);
+    expect(r[1]).toBe("Which of those do you want to use?");
+  });
   it("no reading part when none is relevant: only background and the question", () => {
     const r = shapeContentAnswer({ paras: ["Which habit do you want to start with?"], background: ["Walton flew his own plane to visit stores."], block: BLOCK, leader: "Sam Walton" });
     expect(r).toEqual([`${BACKGROUND_LABEL} Walton flew his own plane to visit stores.`, "Which habit do you want to start with?"]);

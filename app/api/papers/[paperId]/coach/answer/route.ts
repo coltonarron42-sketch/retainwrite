@@ -112,7 +112,7 @@ export async function POST(request: Request, ctx: Ctx) {
         const j = JSON.parse(res.text) as { paras?: unknown; background?: unknown };
         const cleaned = cleanCoachAnswer(j.paras, { mode: body.mode, message: body.message });
         // QA 5:51 PM: readings part, then labelled general background, then exactly one question.
-        out = body.mode === "answer" ? shapeContentAnswer({ paras: cleaned, background: j.background, block, leader: leader ?? leaderAcross([body.message], "") }) : oneQuestion(cleaned);
+        out = body.mode === "answer" ? shapeContentAnswer({ paras: cleaned, background: j.background, block, leader: leader ?? leaderAcross([body.message], ""), message: body.message }) : oneQuestion(cleaned);
       } catch {
         out = [];
       }
