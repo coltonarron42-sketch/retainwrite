@@ -7,6 +7,7 @@
 import { dropInventedRestriction } from "@/lib/stage1/readback-tidy";
 import { grokChatJson, MODEL_FAST } from "@/lib/ai/grok";
 import { wellKnownWork } from "@/lib/stage1/well-known";
+import { mustWithReadings } from "@/lib/stage1/readings";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { checkLinks } from "@/lib/voice/realtime/links";
 import { fetchPageText } from "@/lib/server/paper-context/fetch-page";
@@ -82,6 +83,8 @@ export async function generateReadback(a: AssignmentBasics): Promise<ReadbackPla
   if (!r.ok) return null;
   try {
     const o = JSON.parse(r.text) as { ask?: string; mustInclude?: unknown; graded?: unknown };
+    // QA #84: every named work is in "must include", in the parse's own words (deterministic, after the model).
+    o.mustInclude = mustWithReadings(cleanPoints(o.mustInclude, 4), a.namedWorks);
     // PC-29b: a limit the sheet never states ("using only Chapter 4…") is dropped, word for word.
     const sheet = basicsText(a);
     const ask = dropInventedRestriction(clip(o.ask, 320), sheet);

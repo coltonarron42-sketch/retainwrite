@@ -43,9 +43,39 @@ function workOf(raw: string): string {
 }
 const authorOf = (work: string) => new RegExp(String.raw`^(${NAME_RUN}),\s`).exec(work)?.[1] ?? null;
 
+const CH = String.raw`(?:[Cc]hapter|CHAPTER|[Cc]hap\.?|[Cc]h\.?)`;
+
+/**
+ * QA #84 (e1dd9fff, b3d40615): the parse copies the sheet's instruction ("Readings: …", "Use
+ * Northouse, …", "Read and cite Goleman, …"). The label is built from the work alone.
+ */
+export function stripLead(item: string): string {
+  let t = item.replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 3; i++) {
+    const before = t;
+    t = t
+      .replace(/^(?:(?:required|assigned|course|key)\s+)?(?:readings?|texts?|sources?|materials?|works?)(?:\s+to\s+(?:use|read|cite))?\s*[:–—-]\s*/i, "")
+      .replace(/^(?:required|must use|must cite|must include)\s*:\s*/i, "")
+      .replace(/^(?:you\s+(?:must|should|will)\s+|please\s+|be sure to\s+|make sure to\s+)?(?:use|read|cite|include|reference|consult|review|incorporate|draw\s+(?:on|from)|refer\s+to|engage\s+with|apply|discuss)(?:\s+(?:and|&)\s+(?:use|read|cite|reference|discuss|apply))?\s+(?=\S)/i, "");
+    if (t === before) break;
+  }
+  return t;
+}
+
+/** Article titles HBR and leadership courses assign most often. */
+const KNOWN_ARTICLES = /^(?:what makes a leader\??|leadership that gets results|what leaders really do|level 5 leadership|the work of leadership|discovering your authentic leadership|primal leadership|why should anyone be led by you\??|the focused leader|managing oneself)$/i;
+/** An article, not a book: a question title, a journal or magazine (HBR), or a known article. */
+function isArticle(title: string, source: string | null, item: string): boolean {
+  const t = title.replace(/[‘’“”"']/g, "").trim();
+  if (KNOWN_ARTICLES.test(t)) return true;
+  if (/\?$/.test(t)) return true;
+  if (source && /^(?:HBR|SMR|MIT|NYT|WSJ|APA|JAMA|NEJM)$/.test(source)) return true;
+  return /\b(?:HBR|Harvard Business Review|journal|review|magazine|quarterly|article)\b/i.test(item);
+}
+
 /** Type, title and author out of one assigned-reading item, however the parse worded it. */
 export function readingFields(item: string): ReadingFields | null {
-  let t = item.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
+  let t = stripLead(item.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, ""));
   t = t.replace(/^(?:the|a|an|our|your)\s+(?:(?:assigned|required|attached|provided)\s+)?/i, "").replace(/^(?:assigned|required|attached|provided)\s+/i, "");
   // "The assigned chapter: Chapter 4 of …" / "The assigned article: ‘…’" (already pinned): read past the label.
   const pinned = /^(chapter|article|reading|handout|book|essay|textbook|report|case study)\s*:\s*/i.exec(t);
@@ -53,7 +83,7 @@ export function readingFields(item: string): ReadingFields | null {
   const tailSrc = /\s+\(([A-Z]{2,6})\)$/.exec(t);
   if (tailSrc) t = t.slice(0, tailSrc.index);
   // A chapter keeps the sheet's own wording: "Chapter 4 of Northouse, Leadership: Theory and Practice".
-  const chap = /^(?:[Cc]hapter|[Cc]h\.?)\s*(\d{1,2})\b(.*)$/.exec(t);
+  const chap = new RegExp(String.raw`^${CH}\s*(\d{1,2})\b(.*)$`).exec(t);
   if (chap) {
     const rest = chap[2]!.replace(/^\s*\(([^)]*)\)/, " ($1)").trim();
     const author = /^(?:of|in|from)\s+(?:the\s+|our\s+)?(?:textbook\s+)?\(?([A-Z][\w-]+)(?:,|'s|’s|'|’)/.exec(rest)?.[1] ?? null;
@@ -68,22 +98,26 @@ export function readingFields(item: string): ReadingFields | null {
     return { type: "reading", chapter: null, pages: pagesOf(pagesAt[1]!), author: authorOf(work), title: null, asWritten: work };
   }
   if (!/[“"‘']/.test(t)) {
-    const chIn = /(?:\s*[,;:–—-]\s*|\s+|\s*\(\s*)(?:[Cc]hapter|[Cc]h\.?)\s*(\d{1,2})\s*\)?/.exec(t);
+    const chIn = new RegExp(String.raw`(?:\s*[,;:–—-]\s*|\s+|\s*\(\s*)${CH}\s*(\d{1,2})\s*\)?`).exec(t);
     const ppIn = /(?:\s*[,;:–—-]\s*|\s+|\s*\(\s*)(pp?\.\s*\d+\s*[-–]\s*\d+)\s*\)?/i.exec(t);
     const marks = [chIn, ppIn].filter((m): m is RegExpExecArray => Boolean(m) && m!.index > 0).sort((a, b) => b.index - a.index);
     if (marks.length) {
       let w = t;
       for (const m of marks) w = `${w.slice(0, m.index)} ${w.slice(m.index + m[0].length)}`;
       const work = workOf(w);
-      if (/[A-Z]/.test(work) && work.split(" ").length >= 2) {
+      // A bare author is a work too ("Northouse ch. 4, pp. 45-70" → "… of Northouse").
+      if (/[A-Z]/.test(work) && (work.split(" ").length >= 2 || /^[A-Z][\w'’-]+$/.test(work))) {
         const ch = chIn && chIn.index > 0 ? chIn[1]! : null;
         return { type: ch ? "chapter" : "reading", chapter: ch, pages: ppIn && ppIn.index > 0 ? pagesOf(ppIn[1]!) : null, author: authorOf(work), title: null, asWritten: work };
       }
     }
     // A bare "Northouse, Leadership: Theory and Practice": an author, then a capitalized title.
     const bare = new RegExp(String.raw`^(${NAME_RUN}),\s+([A-Z][^,]{3,})$`).exec(t);
-    if (bare && (bare[2]!.match(/\b[A-Z][a-z]+/g) ?? []).length >= 2 && !/\b(?:APA|MLA|format|words?|pages?|font|due)\b/i.test(t))
-      return { type: "reading", chapter: null, pages: null, author: bare[1]!, title: null, asWritten: t };
+    if (bare && (bare[2]!.match(/\b[A-Z][a-z]+/g) ?? []).length >= 2 && !/\b(?:APA|MLA|format|words?|pages?|font|due)\b/i.test(t)) {
+      // QA #84 (e1dd9fff): "Goleman, What Makes a Leader? (HBR)" is an article, not a generic reading.
+      if (isArticle(bare[2]!, tailSrc?.[1] ?? null, item)) return { type: "article", chapter: null, pages: null, author: bare[1]!, title: bare[2]!.trim(), source: tailSrc?.[1] ?? null };
+      return { type: "reading", chapter: null, pages: null, author: bare[1]!, title: null, asWritten: t, source: tailSrc?.[1] ?? null };
+    }
   }
   // Title: the quoted part (straight or curly; a title's own apostrophe or "?" stays in it).
   const q = /(?<=^|[\s(])[“"‘']([^“”"]{3,120}?)[”"’'](?=\s|$|[,.;:)])/.exec(t);
@@ -100,6 +134,9 @@ export function readingFields(item: string): ReadingFields | null {
     author = poss[1]!.trim();
     rest = rest.slice(poss[0].length).trim();
   }
+  // QA #84: an unquoted article title with its author ("What Makes a Leader? by Daniel Goleman").
+  if (!title && author && !pinned && !new RegExp(String.raw`^${READING_TYPE}\b`, "i").test(rest) && (rest.match(/\b[A-Z][a-z]+/g) ?? []).length >= 2 && isArticle(rest, tailSrc?.[1] ?? null, item))
+    return { type: "article", title: rest.replace(/[,;:\s]+$/, ""), author, chapter: null, source: tailSrc?.[1] ?? null };
   const typed = new RegExp(String.raw`^(${READING_TYPE})\b`, "i").exec(rest)?.[1] ?? (pinned && !/^chapter$/i.test(pinned[1]!) ? pinned[1]! : null);
   if (!typed && !title) return null;
   if (!typed && !author) return null;
@@ -144,4 +181,14 @@ export function checklistLabel(item: string, sheet: string): string {
   const f = readingFields(item);
   const out = f ? readingLabel(f) : asOnSheet(item, sheet);
   return out.replace(/^the\b/, "The");
+}
+
+/** QA #84: is this requirement an assigned reading (so it is labeled, and never dropped from a list)? */
+export function isReadingItem(item: string): boolean {
+  return Boolean(readingFields(item));
+}
+
+/** The same pinned label, for the middle of a sentence ("A strong answer needs the assigned chapter: …"). */
+export function inlineLabel(item: string): string {
+  return isReadingItem(item) ? checklistLabel(item, "").replace(/^The\b/, "the") : item;
 }
