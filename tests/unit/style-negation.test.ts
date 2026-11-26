@@ -109,3 +109,20 @@ describe("QA prod smoke 51dddefe: nudges match the question on screen", () => {
     expect(moreWordsNote(1, 25, "Your early take", "he went to stores", 0, "case")).toContain("Tie it to your pick");
   });
 });
+
+
+describe("QA #76 re-verify: a known leader is never a style", () => {
+  it("Sam Walton, servant leadership lists servant only, never walton as a style", () => {
+    const t = "Sam Walton, servant leadership";
+    expect(stylesIn(t)).toEqual(["servant"]);
+    expect(stylesIn(t, "Sam Walton")).toEqual(["servant"]);
+    expect(chosenStyles([t, "yes"])).toEqual(["servant"]);
+    const turn = informedAffirm(t, { leader: "Sam Walton", mustInclude: [], needsPerson: true }).join("\n");
+    expect(turn).toMatch(/✓ Your style: servant/);
+    expect(turn).not.toMatch(/Your styles: walton and servant/i);
+    expect(turn).not.toMatch(/walton and servant/i);
+    expect(turn).toMatch(/✓ A real leader as your example: Sam Walton/);
+    expect(informedNext(t, "Sam Walton")).toMatch(/servant leadership/);
+    expect(informedNext(t, "Sam Walton")).not.toMatch(/walton and servant/i);
+  });
+});

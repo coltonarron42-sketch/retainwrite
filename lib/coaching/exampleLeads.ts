@@ -6,7 +6,7 @@ import { clipWords } from "@/lib/copy/clip";
 
 import type { LeadCandidate } from "@/lib/coaching/leadBatch";
 import { keptIdeas } from "@/lib/coaching/thin";
-import { isConfirmOnly } from "@/lib/stages/confirm-only";
+import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
 
 const GENERIC_TITLES = [
   "a source your field usually cites",
@@ -156,7 +156,8 @@ function exampleLeadBatchRaw(input: {
   const ref = input.rubricRef;
   if (input.section) {
     // A clipped "how did…" prompt reads badly mid-sentence; call it "your question".
-    const ideaForCards = idea && !isUnquotableLeadIdea(idea) && !isUnquotableLeadIdea(noteFocus(idea)) ? idea : "";
+    const cleanedIdea = idea ? stripReplyFillers(idea) : "";
+    const ideaForCards = cleanedIdea && !isUnquotableLeadIdea(cleanedIdea) && !isUnquotableLeadIdea(noteFocus(cleanedIdea)) ? cleanedIdea : "";
     return sectionLeadBatch({ section: input.section, subject, question: question || isClauseTopic(rawSubject), search, idea: ideaForCards, ref, searchTerm: input.searchTerm ?? null, topicSource: input.concept?.trim() || input.assignmentText || rawSubject });
   }
   const candidates: LeadCandidate[] = [
@@ -222,8 +223,8 @@ export function isQuotedStudentQuestion(text: string): boolean {
 
 /** Fragments and interjections ("Ooh, honestly both!") are not claims to quote on a card. */
 export function isUnquotableLeadIdea(text: string): boolean {
-  const t = (text ?? "").replace(/\s+/g, " ").trim();
-  if (!t) return true;
+  const t = stripReplyFillers((text ?? "").replace(/\s+/g, " ").trim());
+  if (!t || isConfirmOnly(text) || isConfirmOnly(t)) return true;
   if (isQuotedStudentQuestion(t)) return true;
   const words = t.split(/\s+/).filter(Boolean);
   if (/^(ooh|hmm+|huh|wow|lol)[,.!]*/i.test(t)) return true;
@@ -233,7 +234,7 @@ export function isUnquotableLeadIdea(text: string): boolean {
 
 /** The student's note as a short focus: “Social Security made the federal government…”. */
 export function noteFocus(idea: string, words = 24): string {
-  const t = idea.replace(/\s+/g, " ").trim().replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
+  const t = stripReplyFillers(idea.replace(/\s+/g, " ").trim()).replace(NOTE_LEAD_IN, "").replace(NOTE_LEAD_IN, "");
   if (!t) return "";
   // The whole first sentence, with the student's own end mark (QA 2:31 #3b):
   // never cut at a comma mid-thought.
@@ -267,13 +268,15 @@ function sectionLeadBatch(ctx: {
     : cardTopicPhrase(ctx.topicSource || subject);
   const part = section.title.toLowerCase();
   const role = sectionRole(section);
-  const rawFocus = idea ? noteFocus(idea) : "";
-  const focus = rawFocus && !isUnquotableLeadIdea(rawFocus) && !isUnquotableLeadIdea(idea) ? rawFocus : "";
+  const cleanedIdea = idea ? stripReplyFillers(idea) : "";
+  const rawFocus = cleanedIdea ? noteFocus(cleanedIdea) : "";
+  const focus = rawFocus && !isUnquotableLeadIdea(rawFocus) && !isUnquotableLeadIdea(cleanedIdea || idea) ? rawFocus : "";
   // A student quote keeps exactly their own punctuation (QA 3:35 D: nothing is
   // added inside the marks) and is never last in a question, so a template '?'
   // can't turn it into one (QA 2:31 #3a). One framing rule for every section:
   // the first title opens with "You wrote “…”" and every later mention of the
-  // note says "your point".
+  // note says "your point". Leading yes/also/so/and fillers are stripped first
+  // so a confirm-plus-claim is never quoted raw (QA #76 default Body path).
   // No mark is added after the closing quote either (QA 4:42 #4): a dash joins
   // the quote to the question instead of a stray "”.".
   const quoted = focus ? `“${focus}”` : "";

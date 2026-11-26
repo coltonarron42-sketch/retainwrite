@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { moderateConcern, STOCK_POOLS } from "@/components/stages/loop/stance-chat";
 import { LESSON_PROBE_OPENER, MEMORY_PROBE_OPENER } from "@/lib/coaching/memoryPath";
-import { logicCheckFromNotes } from "@/lib/coaching/logicCheck";
+import { finalizeLogicCheck, logicCheckFromNotes, notesOnPrompt } from "@/lib/coaching/logicCheck";
 import {
   asCounterpoint,
   exploreNote,
@@ -23,11 +23,14 @@ import {
   pressureTestLine,
   specificPressureTest,
   stripLeadIns,
+  applyOnTopicPressureTest,
+  sectionClaimSummary,
+  fallbackParaphrase,
 } from "@/lib/stages/explore-intent";
 import { isUnquotableLeadIdea, visibleSourceLead, exampleLeadBatch } from "@/lib/coaching/exampleLeads";
 import { assembleLeadBatch } from "@/lib/coaching/leadBatch";
 import { afterMirror, afterProbe, officialLeadName, outlineSectionsForContinue, stanceTurnFor, substantiveNote } from "@/lib/stages/stance-turn";
-import { isConfirmOnly } from "@/lib/stages/confirm-only";
+import { isConfirmOnly, looksLikeNewPoint, stripReplyFillers } from "@/lib/stages/confirm-only";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { replaceClaim } from "@/lib/coaching/logicRevision";
 
@@ -477,7 +480,7 @@ describe("PC-33: clean claim, paraphrase, confirm, and specific pressure test", 
     const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
     const onListen = loop.slice(loop.indexOf("async function onListen"), loop.indexOf("function onTeachSkip"));
     expect(onListen).toContain("patch.logicRevealed = true");
-    expect(onListen).toContain("specificPressureTest");
+    expect(onListen).toMatch(/applyOnTopicPressureTest|specificPressureTest/);
     expect(onListen).not.toContain('loopStep = "summarize"');
     expect(onListen).not.toContain("that's a start");
   });
@@ -608,5 +611,138 @@ describe("isConfirmOnly covers every lock and claim write path", () => {
     expect(leads).toMatch(/isConfirmOnly\(text\)/);
     expect(revision).toMatch(/isConfirmOnly\(text\)/);
     expect(explore).toMatch(/isConfirmOnly\(t\)/);
+  });
+});
+
+describe("QA re-verify of #76: default Body path (not just listening)", () => {
+  const sheet =
+    "BUS 210 Leadership essay for Prof. Kim. Using Chapter 4 of our textbook (Northouse, Leadership: Theory and Practice) and the assigned HBR article 'What Makes a Leader?' by Daniel Goleman, write 1,200-1,500 words arguing which leadership style is most effective for leading a team through change, using one real leader as your example. APA 7. Due Dec 10.";
+  const prompt = "which leadership style is most effective for leading a team through change, using one real leader as your example";
+  const first = "Yes, Walton visiting stores is my body example.";
+  const fuller = "Also he shared profits with associates.";
+  const done = "yeah that's what I want for now";
+  const thesis = "Sam Walton, servant leadership";
+  const body = { key: "body", title: "Body" } as const;
+
+  it("strips leading yes/also/so/and and synthesizes a paraphrased Lead, never quoting the raw reply", () => {
+    expect(isConfirmOnly(first)).toBe(false);
+    expect(stripReplyFillers(first)).toBe("Walton visiting stores is my body example.");
+    expect(officialLeadName(first)).toBe("Walton visiting stores is my body example.");
+    expect(stripReplyFillers(fuller)).toMatch(/^He shared profits/i);
+    expect(officialLeadName(fuller)).toMatch(/^He shared profits/i);
+    const probed = afterProbe({ ideas: [], searchStatus: "required" }, first, false);
+    expect(probed.ideas.join(" ")).toBe("Walton visiting stores is my body example.");
+    expect(probed.ideas.join(" ")).not.toMatch(/^Yes,/);
+    const claim = listeningClaim(probed.ideas, "Body");
+    expect(claim).toBeTruthy();
+    expect(claim!).not.toMatch(/^Yes,/i);
+    expect(claim!).toMatch(/Walton visiting stores/i);
+    const batch = exampleLeadBatch({
+      concept: prompt,
+      assignmentText: sheet,
+      studentIdea: first,
+      rubricRef: "prompt",
+      section: body,
+    });
+    const blob = JSON.stringify(batch);
+    expect(blob).not.toMatch(/You wrote “Yes, Walton visiting stores is my body example/);
+    expect(blob).not.toContain("Yes, Walton visiting stores is my body example.");
+    expect(batch.candidates[0]!.name).not.toMatch(/^You wrote “Yes,/);
+    expect(batch.candidates[0]!.name).toMatch(/^You wrote “Walton visiting stores is my body example/);
+    const synth = listeningClaim([stripReplyFillers(first)], "Body");
+    expect(synth).toBeTruthy();
+    expect(synth!).not.toMatch(/^Yes,/i);
+  });
+
+  it("a new fuller point is saved as a note, not as a verbatim Lead, and the cards refresh to it", () => {
+    expect(looksLikeNewPoint(fuller)).toBe(true);
+    expect(looksLikeNewPoint(done)).toBe(false);
+    const firstSaved = afterProbe({ ideas: [], searchStatus: "required" }, first, false);
+    const next = afterProbe({ ideas: firstSaved.ideas, searchStatus: "required" }, fuller, false);
+    expect(next.ideas.some((i) => /^Also /i.test(i))).toBe(false);
+    expect(next.ideas.join(" ")).toMatch(/shared profits/i);
+    const claim = listeningClaim(next.ideas, "Body");
+    expect(claim!).toMatch(/shared profits/i);
+    expect(claim!).not.toMatch(/^Also /i);
+    const oldBatch = JSON.stringify(exampleLeadBatch({ concept: prompt, assignmentText: sheet, studentIdea: firstSaved.ideas.at(-1) ?? "", rubricRef: "prompt", section: body }));
+    const newBatch = JSON.stringify(exampleLeadBatch({ concept: prompt, assignmentText: sheet, studentIdea: next.ideas.at(-1) ?? "", rubricRef: "prompt", section: body }));
+    expect(newBatch).toMatch(/shared profits/i);
+    expect(newBatch).not.toBe(oldBatch);
+    expect(readFileSync("components/stages/loop/coaching-loop.tsx", "utf8")).toMatch(/keptIdeas\(section\.ideas\)\.at\(-1\)/);
+    expect(fallbackParaphrase(stripReplyFillers(fuller))).not.toMatch(/^Also /i);
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    expect(loop).toMatch(/function onNewPoint/);
+    expect(chat).toMatch(/h\.newPoint/);
+    expect(chat).toMatch(/looksLikeNewPoint/);
+  });
+
+  it("yeah that's what I want for now summarizes the claim, it does not only ask if they're happy", () => {
+    expect(isExploreDone(done)).toBe(true);
+    const ideas = afterProbe(
+      { ideas: afterProbe({ ideas: [], searchStatus: "required" }, first, false).ideas, searchStatus: "required" },
+      fuller,
+      false,
+    ).ideas;
+    const claim = listeningClaim(ideas, "Body")!;
+    const summary = sectionClaimSummary(claim, "Body");
+    expect(summary).toMatch(/Here's what I have for your body/i);
+    expect(summary).toMatch(/shared profits|visiting stores/i);
+    expect(summary).not.toMatch(/I'm checking that you're happy with this idea/i);
+    const chat = readFileSync("components/stages/loop/stance-chat.tsx", "utf8");
+    const loop = readFileSync("components/stages/loop/coaching-loop.tsx", "utf8");
+    expect(chat).toMatch(/doneCue/);
+    expect(loop).toMatch(/sectionClaimSummary/);
+    expect(loop).toMatch(/listeningClaim\(kept/);
+  });
+
+  it("a thin but on-topic Walton store-visit claim gets the pressure test, not a red logic alert", () => {
+    const notes = "Walton visiting stores is my body example.";
+    expect(notesOnPrompt(notes, prompt, sheet, thesis)).toBe(true);
+    const pizza = "The cafeteria pizza is the best part of any school day.";
+    expect(notesOnPrompt(pizza, prompt, sheet, thesis)).toBe(false);
+    const onTopic = logicCheckFromNotes({
+      notes,
+      thesis,
+      assignmentText: sheet,
+      rubricRef: "prompt",
+      mode: "lesson",
+      confirmedPrompt: prompt,
+    });
+    expect(onTopic.reason).not.toMatch(/doesn't answer the question your prompt asks/);
+    const soft = applyOnTopicPressureTest(
+      finalizeLogicCheck(onTopic, {
+        assignmentText: sheet,
+        studentNotes: notes,
+        mode: "lesson",
+        rubricRequiresCounterargument: false,
+        validRubricRefs: ["prompt"],
+      }),
+      notes,
+    );
+    expect(soft.result.tier).toBe("moderate");
+    expect(soft.result.reason).toMatch(/^A reader might counter that /);
+    expect((soft.result.reason.match(/\?/g) ?? []).length).toBe(1);
+    const off = logicCheckFromNotes({
+      notes: pizza,
+      thesis,
+      assignmentText: sheet,
+      rubricRef: "prompt",
+      mode: "lesson",
+      confirmedPrompt: prompt,
+    });
+    expect(off.reason).toMatch(/doesn't answer the question your prompt asks/);
+    const kept = applyOnTopicPressureTest(
+      finalizeLogicCheck(off, {
+        assignmentText: sheet,
+        studentNotes: pizza,
+        mode: "lesson",
+        rubricRequiresCounterargument: false,
+        validRubricRefs: ["prompt"],
+      }),
+      pizza,
+    );
+    expect(kept.result.tier).toBe("strong");
+    expect(kept.result.reason).toMatch(/doesn't answer the question your prompt asks/);
   });
 });

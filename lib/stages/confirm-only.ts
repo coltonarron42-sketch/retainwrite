@@ -57,7 +57,35 @@ export function isConfirmOnly(text: string | null | undefined): boolean {
 
 /** A student-named lead, or null when the text is only a confirm phrase. */
 export function officialLeadName(text: string | null | undefined): string | null {
-  const t = (text ?? "").trim();
+  const raw = (text ?? "").trim();
+  if (!raw || isConfirmOnly(raw)) return null;
+  const t = stripReplyFillers(raw);
   if (!t || isConfirmOnly(t)) return null;
   return t;
+}
+
+const REPLY_FILLER =
+  /^(?:yes|yeah|yep|yup|ya|sure|ok(?:ay)?)[,.]?\s+|^\s*(?:also|and|plus|then|so|well|anyway|besides)[,.]?\s+/i;
+
+/** Leading yes/also/so/and fillers on a real claim, peeled so they are never locked or quoted raw. */
+export function stripReplyFillers(text: string | null | undefined): string {
+  let t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  for (let i = 0; i < 4; i++) {
+    const next = t.replace(REPLY_FILLER, "").trim();
+    if (next === t) break;
+    t = next;
+  }
+  return t;
+}
+
+/** A new, fuller point (not a short source name, not a confirm). */
+export function looksLikeNewPoint(text: string | null | undefined): boolean {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || isConfirmOnly(t)) return false;
+  if (/^(?:also|and|plus|then|besides|another|moreover|further)\b/i.test(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length >= 8) return true;
+  if (/[.!]/.test(t) && words.length >= 6) return true;
+  return false;
 }

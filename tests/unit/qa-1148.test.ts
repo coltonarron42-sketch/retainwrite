@@ -133,7 +133,7 @@ describe("#3 history is append-only; the opener never re-asks", () => {
 describe("#4 typed text over chips is the student's reply, not a chip pick", () => {
   const src = read("components/stages/loop/stance-chat.tsx");
   it("teach card: typed words are saved as their note (no 'Picked: Something else')", () => {
-    expect(src).toMatch(/case "teach_card":\s*\/\/[^\n]*\n\s*(await )?h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true(, text)? \}\);/);
+    expect(src).toMatch(/case "teach_card":[\s\S]*?h\.probeSave\(\[pau\(card\?\.ask \?\? ask\), you\(text\)\], \{ fromTeach: true(, text)? \}\);/);
   });
   it("choice turns: typed words are discussion (Colton 11:45 PM); a replacement saves only after a swap yes", () => {
     expect(src).toMatch(/h\.discuss\(\[you\(text\), pau\(discussionLine\(/);

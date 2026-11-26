@@ -1,5 +1,6 @@
 "use client";
 
+import { lowerTitle } from "@/lib/copy/name-case";
 import { SourceHintCard } from "@/components/stages/source-hint";
 import { sourceHintsFor } from "@/lib/coaching/source-hints";
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
@@ -36,7 +37,8 @@ import { MEMORY_TRIGGER_INTRO, SCRIPTED_MEMORY_FOLLOW_UP, type MemoryTrigger } f
 import { lessonLinkFor } from "@/lib/coaching/sourceCard";
 import { KNOW_THIS_ONE, SOMETHING_ELSE, TEACH_FOOTER, type TeachCard } from "@/lib/coaching/teach";
 import { discussionLine, isConfirmOnly, isPlainYes, isSpokenYes, isSwapNo, isSwapYes, replacementText, substantiveNote, SWAP_ASK, type LoopLine, type StanceTurnKind } from "@/lib/stages/stance-turn";
-import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint, listenConfirmOffer, specificPressureTest } from "@/lib/stages/explore-intent";
+import { looksLikeNewPoint, stripReplyFillers } from "@/lib/stages/confirm-only";
+import { isClosingPhrase, isExploreDone, isExploreIntent, isExploreLock, isGenericPressureReason, keepAngleSummary, officialListenNote, oneOptionLeadBatch, pressureTestLine, asCounterpoint, listenConfirmOffer, specificPressureTest, fallbackParaphrase } from "@/lib/stages/explore-intent";
 import { fetchListenReply } from "@/lib/stages/listen-client";
 import { keptIdeas } from "@/lib/coaching/thin";
 import { wordCount } from "@/lib/utils";
@@ -106,6 +108,8 @@ export type StanceHandlers = {
   triggersSkip: () => void;
   nameLead: (text: string, lines: LoopLine[]) => void;
   pickLead: (lead: PreparedLead, lines: LoopLine[]) => void;
+  /** A new substantive point: save it, reflect, and regenerate the cards. */
+  newPoint: (text: string, lines: LoopLine[]) => void | Promise<unknown>;
   confirm: (lines: LoopLine[]) => void;
   logicOpener: (choice: "yes" | "tweak", lines: LoopLine[]) => void;
   logicResult: (choice: LogicChoice | "pass", lines: LoopLine[]) => void;
@@ -239,7 +243,7 @@ export function quipSlotFor(index: number | undefined): "pick_lead" | "logic_ope
 
 /** The probe opener: a first-section start, a short hand-off for later sections. */
 export function probeLead(index: number | undefined, title: string): string {
-  const part = title.toLowerCase();
+  const part = lowerTitle(title);
   return index === undefined || index <= 0 ? `Let's start with your ${part}.` : `On to your ${part}.`;
 }
 
@@ -276,7 +280,7 @@ function stanceTurnParasRaw(
     case "pick_lead":
     {
       const q = quipSlotFor(ctx.index) === "pick_lead" && !(ctx.lastNote && isVagueNote(ctx.lastNote)) ? quipFor(ctx.seed, ctx.index, "pick_lead") : null;
-      return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", section.title.toLowerCase()).replace("{q}", q ? ` ${q}` : "")];
+      return [stockLine("pick_lead", ctx.seed, ctx.index).replace("{x}", lowerTitle(section.title)).replace("{q}", q ? ` ${q}` : "")];
     }
     case "confirm": {
       const link = section.concept && !/^(the )?(assigned )?concept$/i.test(section.concept) ? `Lesson link: ${lessonLinkFor(section.concept)}` : null;
@@ -320,7 +324,7 @@ export function moderateConcern(r: { reason?: string; alternativeAngles?: { ques
   const reason = (r.reason ?? "").trim();
   const ask = r.alternativeAngles?.[0]?.question?.trim();
   const counter = asCounterpoint(ask);
-  const part = title.toLowerCase();
+  const part = lowerTitle(title);
   if (note && isVagueNote(note) && !reason) return `Your ${part} note is still general, so a reader can't tell what it'll prove yet. Which specific example, person or idea would show it?`;
   if (note || isGenericPressureReason(reason) || counter) {
     const line = pressureTestLine({ claim: note, reason, counterpoint: counter || ask });
@@ -492,8 +496,9 @@ export function StanceChat(props: Props) {
     };
     setHint(null);
     // A clear spoken yes ("Yes, lock it in") is the same as typing yes: same handler, same gate.
-    const yes = isPlainYes(text) || isConfirmOnly(text) || (fromVoice && isSpokenYes(text));
     const lastPau = [...transcript].reverse().find((l) => l.who === "pau" && l.k === section.key)?.text ?? ask;
+    const doneCue = isExploreDone(text, lastPau) || isClosingPhrase(text);
+    const yes = isPlainYes(text) || isConfirmOnly(text) || doneCue || (fromVoice && isSpokenYes(text));
     // Exploring an option (QA prod walk): listen, don't lock, and don't open a new menu.
     if (kind === "listening" || isExploreIntent(text)) {
       const done = isExploreDone(text, lastPau);
@@ -555,16 +560,38 @@ export function StanceChat(props: Props) {
     switch (kind) {
       case "teach_card":
         // Typed words are their reply (never a "Something else" chip): saved as the note.
+        if (yes && keptIdeas(section.ideas ?? []).length) {
+          clearSent();
+          h.confirm([pau(card?.ask ?? ask), you(text)]);
+          return "saved";
+        }
         await h.probeSave([pau(card?.ask ?? ask), you(text)], { fromTeach: true, text });
         return "saved";
       case "mirror":
         await h.mirrorSave([pau(ask), you(text)], text);
         return "saved";
       case "probe":
+        if (yes && keptIdeas(section.ideas ?? []).length) {
+          clearSent();
+          h.confirm([pau(paras[0] ?? ""), you(text)]);
+          return "saved";
+        }
         await h.probeSave([pau(paras[0] ?? ""), you(text)], { text });
         return "saved";
       case "name_lead":
       case "pick_lead":
+        if (yes && keptIdeas(section.ideas ?? []).length) {
+          clearSent();
+          h.confirm([pau(paras[0] ?? ""), you(text)]);
+          return "saved";
+        }
+        if (looksLikeNewPoint(text)) {
+          const point = stripReplyFillers(text);
+          const reflect = fallbackParaphrase(point);
+          clearSent();
+          void h.newPoint(text, [pau(paras[0] ?? ""), you(text), pau(`${reflect} I'll add that to your ${section.title.toLowerCase()}.`)]);
+          return "saved";
+        }
         h.nameLead(text, [pau(paras[0] ?? ""), you(text)]);
         return "saved";
       case "confirm":
@@ -599,6 +626,13 @@ export function StanceChat(props: Props) {
     // QA 7:11 AM: a new, substantive answer over the confirm is added to their note, never
     // turned away ("Your note is still the one above…"). Replacing still asks first.
     if ((kind === "confirm" || kind === "logic_opener") && substantiveNote(text) && !isVagueNote(text)) {
+      if (kind === "confirm" && looksLikeNewPoint(text)) {
+        const point = stripReplyFillers(text);
+        const reflect = fallbackParaphrase(point);
+        clearSent();
+        void h.newPoint(text, [pau(paras[0] ?? ""), you(text), pau(`${reflect} I'll add that to your ${section.title.toLowerCase()}.`)]);
+        return "saved";
+      }
       clearSent();
       await h.probeSave([pau(kind === "confirm" ? paras[0] ?? "" : logicAsk), you(text), pau(ADDED_NOTE)], { text, append: true });
       return "saved";

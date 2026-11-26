@@ -6,7 +6,7 @@
  * done. Coaching only: she never writes their sentences.
  */
 import { wordCount } from "@/lib/utils";
-import { isConfirmOnly } from "@/lib/stages/confirm-only";
+import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
 
 /** Quote the student's words on a word boundary. Never cut a mid-word. */
 function quoteOnWordBoundary(text: string, max = 160): string {
@@ -162,7 +162,7 @@ const LEAD_IN =
 
 /** Strip colons, "maybe", "hear me out", "I think", and similar lead-ins. */
 export function stripLeadIns(text: string): string {
-  let t = (text ?? "").replace(/\s+/g, " ").trim();
+  let t = stripReplyFillers((text ?? "").replace(/\s+/g, " ").trim());
   t = t.replace(/\s*;:\s*/g, " ").replace(/;:/g, " ");
   t = t.replace(/^[:;,\s—–…-]+/, "");
   for (let i = 0; i < 4; i++) {
@@ -402,6 +402,17 @@ export function keepAngleSummary(note: string, title: string): string {
 }
 
 /** Official section note for recaps and pressure tests; never a confirm/closing phrase. */
+
+/** Default-path confirm: summarize the synthesized claim, then invite the lock. */
+export function sectionClaimSummary(claim: string, sectionTitle = ""): string {
+  const part = (sectionTitle || "this section").toLowerCase();
+  const summary = (claim ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
+  if (summary && !isClosingPhrase(summary) && !isNoteFragment(summary)) {
+    return `Here's what I have for your ${part}: ${finishSentence(summary)} If that sounds right, we can pressure-test it.`;
+  }
+  return `Here's what I have for your ${part} so far. If that sounds right, we can pressure-test it.`;
+}
+
 export function officialListenNote(sectionIdeas: string[] | undefined, lastYou = ""): string {
   const kept = (sectionIdeas ?? []).map((n) => n.replace(/\s+/g, " ").trim()).filter((n) => n && !isClosingPhrase(n) && !isNoteFragment(n));
   if (kept.length) return kept.join(" ");
@@ -437,6 +448,42 @@ export function specificPressureTest(claim: string): string {
 }
 
 /** After a confirm phrase: summarize the idea once, then the pressure-test offer. */
+
+type LogicLike = {
+  result: {
+    tier: string;
+    basis: string;
+    reason?: string | null;
+  };
+};
+
+/**
+ * Thin but on-topic claims get a one-statement, one-question pressure test
+ * (Keep my angle | Adjust it). The red logic alert is only for a truly
+ * off-prompt claim.
+ */
+export function applyOnTopicPressureTest<T extends LogicLike>(logic: T, claim: string): T {
+  const reason = logic.result.reason ?? "";
+  const off = logic.result.basis === "off_prompt" || /^This doesn't answer the question your prompt asks/.test(reason);
+  if (off) return logic;
+  if (logic.result.tier === "pass") return logic;
+  const keepNamed =
+    logic.result.tier === "moderate" &&
+    (logic.result.basis === "defies_logic" || logic.result.basis === "contradicts_assignment") &&
+    !isGenericPressureReason(reason);
+  if (keepNamed) return logic;
+  if (logic.result.tier === "strong" && logic.result.basis !== "weak_support") return logic;
+  return {
+    ...logic,
+    result: {
+      ...logic.result,
+      tier: "moderate",
+      basis: logic.result.basis === "contradicts_assignment" ? "debatable_interpretation" : logic.result.basis,
+      reason: specificPressureTest(claim),
+    },
+  };
+}
+
 export function listenConfirmOffer(claim: string, _title = ""): string {
   void _title;
   const summary = (claim ?? "").replace(/\s+/g, " ").trim().replace(/[.]+$/, "");

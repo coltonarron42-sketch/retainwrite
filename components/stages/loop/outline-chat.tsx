@@ -1,5 +1,6 @@
 "use client";
 
+import { lowerTitle } from "@/lib/copy/name-case";
 import { SourceHintCard } from "@/components/stages/source-hint";
 import { sourceHintsFor } from "@/lib/coaching/source-hints";
 import type { MaterialSummary } from "@/lib/stage1/paper-context";
@@ -93,7 +94,7 @@ export function outlineIntroLine(pick: string | null = null, leader: string | nu
 
 /** The section intro line (once per section in the conversation). */
 export function sectionIntroLine(section: OutlineSectionView): string {
-  return `Let's shape your ${section.title.toLowerCase()} (${section.needs.toLowerCase()}).`;
+  return `Let's shape your ${lowerTitle(section.title)} (${lowerTitle(section.needs)}).`;
 }
 
 /** What this section is for, taught before she asks (north star E; QA 11/23 #4). */

@@ -12,9 +12,9 @@
  */
 import { keptIdeas } from "@/lib/coaching/thin";
 import { replaceClaim } from "@/lib/coaching/logicRevision";
-import { isConfirmOnly } from "@/lib/stages/confirm-only";
+import { isConfirmOnly, stripReplyFillers } from "@/lib/stages/confirm-only";
 
-export { isConfirmOnly, officialLeadName } from "@/lib/stages/confirm-only";
+export { isConfirmOnly, officialLeadName, stripReplyFillers, looksLikeNewPoint } from "@/lib/stages/confirm-only";
 
 export type StanceTurnKind =
   | "teach_card"
@@ -78,17 +78,19 @@ export function afterProbe(
   idea: string,
   replacing: boolean,
 ): { ideas: string[]; loopStep: "summarize" | "search" } {
-  const ideas = isConfirmOnly(idea)
+  const note = stripReplyFillers(idea);
+  const ideas = !note || isConfirmOnly(idea) || isConfirmOnly(note)
     ? keptIdeas(section.ideas)
     : replacing
-      ? replaceClaim(section.ideas, idea)
-      : [...keptIdeas(section.ideas), idea];
+      ? replaceClaim(section.ideas, note)
+      : [...keptIdeas(section.ideas), note];
   return { ideas, loopStep: section.searchStatus === "not_needed" ? "summarize" : "search" };
 }
 
 /** The step after the memory mirror (old "Save what it means to you"). */
 export function afterMirror(section: { ideas: string[] }, idea: string): { ideas: string[]; loopStep: "probe" } {
-  const ideas = isConfirmOnly(idea) ? keptIdeas(section.ideas) : [...keptIdeas(section.ideas), idea];
+  const note = stripReplyFillers(idea);
+  const ideas = !note || isConfirmOnly(idea) || isConfirmOnly(note) ? keptIdeas(section.ideas) : [...keptIdeas(section.ideas), note];
   return { ideas, loopStep: "probe" };
 }
 
