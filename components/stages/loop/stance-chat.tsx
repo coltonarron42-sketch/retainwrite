@@ -343,6 +343,8 @@ export function StanceChat(props: Props) {
   const ideaRef = useRef(idea);
   ideaRef.current = idea;
   const [lookupNote, setLookupNote] = useState<string | null>(null);
+  /** QA 6:44 PM: what they just sent, on screen the moment it's sent (until it's in the stored turns). */
+  const [echo, setEcho] = useState<string | null>(null);
   // One send at a time, set synchronously (state lags a tap): a second send
   // waits in the composer's queue and never doubles her reply (QA 2:08 #4).
   const inFlight = useRef(false);
@@ -450,6 +452,7 @@ export function StanceChat(props: Props) {
     // QA 7:02 AM: "Digging it up…" at send time for anything that may need a lookup.
     // QA 8:31 AM: optimistic, same tick as send, never waiting on the server.
     setLookupNote(mayNeedLookup(text) ? "Digging it up…" : "Thinking…");
+    setEcho(text);
     try {
       await sendNow(text);
     } finally {
@@ -685,7 +688,14 @@ export function StanceChat(props: Props) {
     { key: `s2:${section.key}:${kind}:${transcript.length}`, text: [...trailing, ...asideParas, ...paras].join(" "), turn: true },
   ];
   const showIntro = allGroups.length > 0 && allGroups[0]!.k === section.key && groups[0]?.start === 0 && !focus.focused;
-  const history = groups.map((group, i) => {
+  // QA 6:44 PM: the focused view (#63) is one exchange: their latest message, then her reply.
+  // From the stored turns, so it survives the reply and a reload (the 80-line cap made the
+  // since-mount history empty on long papers).
+  const lastGroup = allGroups[allGroups.length - 1];
+  const latestYou = lastGroup && lastGroup.who === "you" && lastGroup.k === section.key ? lastGroup.texts[lastGroup.texts.length - 1]! : null;
+  const pendingEcho = echo && (checking || props.busy) && echo.trim() !== (latestYou ?? "").trim() ? echo : null;
+  const latestEcho = latestYou ? <StudentBubble key="latest-you" message={{ text: latestYou, files: [], at: 0 }} /> : null;
+  const historyAll = groups.map((group, i) => {
     const head = i === 0 ? sections.find((item) => item.key === group.k)?.title : null;
     const first = i === 0 && group.who === "pau" && showIntro;
     return (
@@ -703,6 +713,7 @@ export function StanceChat(props: Props) {
       </div>
     );
   });
+  const history = focus.focused ? latestEcho : historyAll;
 
   return (
     <div ref={rootRef} className="mx-auto max-w-[680px] font-ds-sans text-ds-ink" data-stage-chat="2">
@@ -1003,6 +1014,7 @@ export function StanceChat(props: Props) {
         {rtMode ? <LiveTurns rows={rt.live} /> : null}
         <ScrollToNewest signal={`${transcript.length}:${kind}:${active}:${props.thinNote ?? ""}:${hint ?? ""}:${rt.live.length}`} />
         <IntentWarm idea={isPlainYes(idea) ? "" : idea} ask={ask} classify={props.classify} />
+        {pendingEcho ? <StudentBubble message={{ text: pendingEcho, files: [], at: 0 }} /> : null}
         {lookupNote && (checking || props.busy) ? (
           <p className="text-[13px] leading-[1.6] text-ds-muted" role="status" aria-live="polite" data-lookup-status>
             {lookupNote}
