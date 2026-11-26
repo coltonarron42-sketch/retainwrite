@@ -60,6 +60,17 @@ export function askTopic(message: string): string | null {
 }
 
 export const WRITING_LINE = "Pulling it together…";
+
+/**
+ * QA 5:32: status lines run in one fixed order: searching (1), then reading/checking (2), then writing (3).
+ * The client never shows a line from an earlier phase than one already shown.
+ */
+export function statusPhase(line: string): number {
+  if (/^(?:Searching|Looking (?:that up|into that|for your reading))/i.test(line)) return 1;
+  if (/^(?:Reading|Checking|Double-checking|Seeing|Finding sources|Going over)/i.test(line)) return 2;
+  if (/^(?:Pulling it together|Picking out|Tying it back|Writing)/i.test(line)) return 3;
+  return 0;
+}
 export const CHECKING_LINE = "Double-checking the sources…";
 
 type Ev = Record<string, unknown>;
@@ -95,6 +106,7 @@ export function statusFromEvent(
       const line = readingLine(obj(s)?.url);
       const host = line ? line.slice(8, -1) : null;
       if (line && host && !seen.hosts?.has(host)) {
+        if (!(seen.lines ?? 0)) searchLine(seen.topic ?? null);
         seen.hosts?.add(host);
         out.push(line);
       }
@@ -109,10 +121,11 @@ export function statusFromEvent(
     }
   }
   const ann = obj(ev.annotation);
-  if (ann && ann.type === "url_citation") {
+  if (ann && ann.type === "url_citation" && !seen.writing) {
     const line = readingLine(ann.url);
     const host = line ? line.slice(8, -1) : null;
     if (line && host && !seen.hosts?.has(host)) {
+      if (!(seen.lines ?? 0)) searchLine(seen.topic ?? null);
       seen.hosts?.add(host);
       out.push(line);
     }

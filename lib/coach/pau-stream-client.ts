@@ -3,7 +3,7 @@
  * stream: true, shows each real step the server sends ("Searching for …", "Reading strategypunk.com…",
  * "Pulling it together…"), and fills gaps with short rotating lines so she never looks frozen.
  */
-import { STATUS_ROTATION, type StatusKind } from "@/lib/coach/thinking-status";
+import { STATUS_ROTATION, statusPhase, type StatusKind } from "@/lib/coach/thinking-status";
 
 export type PauAnswer = { paras?: string[]; sources?: { title: string; url: string }[]; spoken?: { text: string; sig: string } | null; mode?: string; effort?: string; gated?: boolean };
 
@@ -48,7 +48,12 @@ export async function fetchPauAnswer(
   let lastAt = Date.now();
   let rot = 0;
   const shown = new Set<string>();
+  let phase = 0;
   const show = (line: string) => {
+    // QA 5:32: searching → reading → writing, never back to an earlier step.
+    const ph = statusPhase(line);
+    if (ph && ph < phase) return;
+    if (ph) phase = ph;
     lastAt = Date.now();
     shown.add(line);
     o.onStatus?.(line);

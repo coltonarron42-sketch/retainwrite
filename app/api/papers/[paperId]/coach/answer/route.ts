@@ -8,7 +8,7 @@ import { fetchEvidence } from "@/lib/coach/page-evidence";
 import { addPaperSearches, paperSearchesUsed, turnSearchCap } from "@/lib/ai/search-budget";
 import { getCachedResearch, putCachedResearch, researchCacheKey, searchCacheOn } from "@/lib/ai/research-cache";
 import { dropBlocked, unreadReadingNames, withUploadInvite } from "@/lib/coach/reading-sources";
-import { askTopic, CHECKING_LINE, STATUS_ROTATION } from "@/lib/coach/thinking-status";
+import { askTopic, CHECKING_LINE, STATUS_ROTATION, WRITING_LINE } from "@/lib/coach/thinking-status";
 import { assertCoachingOnly } from "@/lib/ai/guard";
 import { getDemoSession } from "@/lib/demo/session-server";
 import { hasSupabaseConfig } from "@/lib/env";
@@ -125,7 +125,7 @@ export async function POST(request: Request, ctx: Ctx) {
     let path = "chat";
     let cache: "off" | "hit" | "miss" | "bypass" = "off";
     let quality:
-      | { kept: number; dropped: string[]; retried: boolean; none: boolean; capped: boolean; checks: string[] }
+      | { kept: number; dropped: string[]; retried: boolean; grounded?: boolean; none: boolean; capped: boolean; checks: string[] }
       | undefined;
     if (wantsSearch || mode === "summary") {
       path = search ? "responses+web_search" : "responses";
@@ -154,7 +154,9 @@ export async function POST(request: Request, ctx: Ctx) {
           search,
           maxSearches: searchCap,
           timeoutMs: 45_000,
-          onStatus: streaming ? emit : undefined,
+          // QA 5:32: on a research turn her first draft isn't the answer (the grounded pass writes it), so its
+          // "Pulling it together…" waits until the checking step is done: searching → reading → writing.
+          onStatus: streaming ? (line: string) => (mode !== "reading" && line === WRITING_LINE ? undefined : emit(line)) : undefined,
           topic: askTopic(body.message),
         });
         searches = r.searches ?? 0;
@@ -170,30 +172,53 @@ export async function POST(request: Request, ctx: Ctx) {
         };
         let q: QualityResult | null = null;
         const retried = false;
+        let groundedUsed = false;
         let capped = false;
-        // Hard per-turn cap hit: answer from the good pages she'd already opened, no more searching.
-        const fromReadPages = async (read: string[], titles?: Map<string, string>): Promise<QualityResult | null> => {
-          const good = [...new Set(read)].filter((u) => sourceTier(u) >= 2).slice(0, 4);
-          if (!good.length) return null;
-          emit("Pulling it together…");
-          const fetched = await fetchEvidence(good, { timeoutMs: 3_500, max: 4 });
-          const pages = [...fetched.values()].filter((f) => f.text.length > 200).map((f) => ({ url: f.url, site: sourceHost(f.url), title: f.title, excerpt: bestExcerpt(f.text, topicWords, 1500) }));
+        // QA 5:32: grounded extraction. After the (max 2) searches, the example bullets are written ONLY from the
+        // fetched text of passing pages, each tied to its page; the lead-name-on-page check stays as the final guard.
+        const offTopicOf = (f: Map<string, { url: string; title: string; text: string }>) => (qmode === "research" ? offTopicPages(f, topicTerms(askTopic(body.message) ?? body.message)) : undefined);
+        const EXAMPLE_WORDS = [...topicWords, "ceo", "led", "leader", "company", "employees", "team", "president", "founder"];
+        const grounded = async (
+          read: string[],
+          titles: Map<string, string> | undefined,
+          pre?: Map<string, { url: string; title: string; text: string }>,
+        ): Promise<QualityResult | null> => {
+          const fetched = pre ?? (await fetchEvidence([...new Set(read)].filter((u) => sourceTier(u) >= 2).slice(0, 6), { timeoutMs: 3_500, max: 6 }));
+          const offTopic = offTopicOf(fetched);
+          const pages = [...fetched.values()]
+            .filter((f) => f.text.length > 200 && sourceTier(f.url) >= 2 && !offTopic?.has(f.url))
+            .map((f) => ({ url: f.url, site: sourceHost(f.url), title: f.title, excerpt: bestExcerpt(f.text, EXAMPLE_WORDS, 1800) }))
+            .sort((x, y) => sourceTier(y.url) - sourceTier(x.url))
+            .slice(0, 4);
           if (!pages.length) return null;
+          emit(WRITING_LINE);
           const r3 = await grokResearch({
-            system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search isn't available for the rest of this turn. Use ONLY the pages in "pages" (their excerpts are what they say) and tag each bullet with that page's site in square brackets.`,
+            system: `${coachAnswerSystem(mode, { plain: true })}\nWeb search is done for this turn. Write 1-3 example bullets using ONLY facts stated in the excerpts in "pages". Each bullet comes from one page: name the real leader and organization exactly as that excerpt does, say in one sentence what they did and how it fits the style asked about, and end with that page's site in square brackets, like [hbr.org]. Skip a page that has no named real-world example. Never add a fact, name, number or date that isn't in the excerpt. If no excerpt has a named example, write no bullets. Then one short question about their paper.`,
             user: JSON.stringify({ ...JSON.parse(userJson), pages }),
             effort: "low",
             search: false,
-            timeoutMs: 15_000,
+            timeoutMs: 9_000,
           });
-          return r3.ok ? applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles }) : null;
+          if (!r3.ok) return null;
+          return applySourceQuality(r3.raw, { mode: qmode, sources: pages.map((x) => ({ url: x.url, title: x.title || x.site })), read: pages.map((x) => x.url), fetched, titles, offTopic });
         };
         if (!r.ok && r.reason === "capped" && search) {
           capped = true;
-          q = await fromReadPages(r.read ?? [], r.titles);
+          q = await grounded(r.read ?? [], r.titles);
         } else if (r.ok && search) {
-          q = (await verify(r)).q;
-          // QA 5:13: no second search pass. When nothing passes, she goes straight to labeled general background (turn stays under ~25s).
+          if (qmode === "research") {
+            const cands = [...new Set([...lineUrls(r.raw), ...r.sources.map((x) => x.url), ...r.read])].filter((u) => sourceTier(u) >= 2);
+            emit(CHECKING_LINE);
+            const fetched = await fetchEvidence(cands, { timeoutMs: 3_500, max: 8 });
+            // Her own tagged draft, checked (the fallback), and the grounded rewrite from the pages (preferred).
+            const tagged = applySourceQuality(r.raw, { mode: qmode, sources: r.sources, read: r.read, fetched, titles: r.titles, offTopic: offTopicOf(fetched) });
+            const fromPages = await grounded(r.read, r.titles, fetched);
+            q = fromPages && fromPages.kept > 0 && fromPages.kept >= Math.min(tagged.kept, 1) ? fromPages : tagged;
+            groundedUsed = q === fromPages;
+          } else {
+            q = (await verify(r)).q;
+          }
+          // QA 5:13: no second search pass. When nothing passes, she goes straight to labeled general background.
         }
         if (q) {
           const none = qmode === "research" && q.kept === 0;
@@ -201,6 +226,7 @@ export async function POST(request: Request, ctx: Ctx) {
             kept: q.kept,
             dropped: [...new Set(q.dropped.map((d) => `${d.why ?? "weak"}:${d.hosts.join("+")}`))].slice(0, 8),
             retried,
+            grounded: groundedUsed,
             none,
             capped,
             checks: q.checks.map((c) => `${c.supported ? (c.retagged ? "RETAGGED" : "OK") : "DROPPED"} | ${c.bullet.slice(0, 90)} | tag ${c.tag} | ${c.page} | "${c.pageTitle.slice(0, 90)}"`),

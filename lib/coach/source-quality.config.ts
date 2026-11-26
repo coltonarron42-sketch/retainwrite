@@ -30,6 +30,12 @@ export const SOURCE_QUALITY = {
     "greenleaf.org", "shrm.org", "brookings.edu", "rand.org", "oecd.org", "worldbank.org", "who.int", "un.org", "britannica.com",
   ],
   blocked: [
+    // QA 5:32: hosting, app and dev domains (anyone's demo or side project, never a source)
+    "digitalocean.com", "digitaloceanspaces.com", "ondigitalocean.app", "herokuapp.com", "vercel.app", "netlify.app", "netlify.com",
+    "github.io", "githubusercontent.com", "gitlab.io", "pages.dev", "workers.dev", "web.app", "firebaseapp.com", "glitch.me",
+    "repl.co", "replit.app", "onrender.com", "fly.dev", "railway.app", "azurewebsites.net", "appspot.com", "cloudfront.net",
+    "amazonaws.com", "surge.sh", "now.sh", "wixsite.com", "weebly.com", "square.site", "carrd.co", "notion.site", "webflow.io",
+    "framer.app", "godaddysites.com", "ngrok.io", "ngrok-free.app", "localhost",
     // content farms, summary services, listicle and "examples" sites
     "shortform.com", "helpfulprofessor.com", "strategypunk.com", "jointhecollective.com", "peoplemanagingpeople.com",
     "blinkist.com", "getabstract.com", "sorryonmute.com", "modernservantleader.com", "toolshero.com", "mindtools.com",
