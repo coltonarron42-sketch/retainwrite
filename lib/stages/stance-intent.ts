@@ -26,10 +26,24 @@ const LOOKUP_REQUEST =
 
 /** "Can you just write my intro?": a request for their sentences. She declines warmly and coaches instead. */
 export const WRITE_REQUEST =
-  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|my \w+) for me\b/i;
+  /\b(?:(?:can|could|would|will) you|please|just|pls)\b[^.?!]{0,30}\b(?:write|draft|do|make|finish|type)\b[^.?!]{0,25}\b(?:my|the|this|an?|it)\b[^.?!]{0,25}\b(?:intro(?:duction)?|paragraph|paper|essay|conclusion|thesis|section|sentence|outline|body|for me)\b|\bwrite (?:it|this|that|my|the|a|an)(?: \w+){0,2} for me\b/i;
+
+/** QA 5:51 PM: "Just give me the intro paragraph", "give me a conclusion", "send me my body paragraph". */
+const GIVE_REQUEST =
+  /^(?:(?:can|could|would|will) you\s+|please\s+|pls\s+|ok(?:ay)?,?\s+|so,?\s+|now,?\s+)*(?:just\s+)?(?:give|send|hand|show)\s+me\s+(?:the|my|an?|a full|a whole|your)?\s*(?:\w+\s+){0,2}(?:intro(?:duction)?|paragraph|conclusion|thesis(?: statement)?|body(?: paragraph)?|sentence|section|essay|paper|topic sentence|opening|closing)\b/i;
 
 export function isWriteRequest(text: string): boolean {
-  return WRITE_REQUEST.test(text.replace(/\s+/g, " "));
+  const t = text.replace(/\s+/g, " ");
+  if (WRITE_REQUEST.test(t)) return true;
+  // "Show me an example outline line" / "give me an example sentence" is teaching, not their part.
+  return GIVE_REQUEST.test(t) && !/\b(example|examples|sample|what (?:a|an) good|how (?:to|do i))\b/i.test(t);
+}
+
+/** The decline for any write-it-for-me request (thesis, intro, body, conclusion, paragraph, sentence): one question. */
+export function writeRequestReply(sectionTitle: string, text = ""): string[] {
+  const asked = /thesis/i.test(text) ? "thesis" : lowerTitle(sectionTitle || "this section");
+  const q = probingQuestions({ title: sectionTitle || "section" })[1] ?? "What's your main point here?";
+  return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${asked} says, though. ${q}`];
 }
 
 /** Rule fallback. Long, substantive text is content even if it mentions "questions". */
@@ -129,10 +143,7 @@ export function asideFollowUp(intent: StanceIntent | undefined, sectionTitle: st
 
 /** Pau's reply to a request or question. It rides inside her current turn. */
 export function intentReply(intent: StanceIntent, ctx: { turn: IntentTurn; section: { title: string; needs?: string | null }; text?: string }): string[] {
-  if (ctx.text && isWriteRequest(ctx.text)) {
-    const part = lowerTitle(ctx.section.title);
-    return [`That part's yours to write, and it'll sound like you because of it. I'll help you figure out what your ${part} says, though. ${probingQuestions(ctx.section)[1] ?? "What's your main point here?"}`];
-  }
+  if (ctx.text && isWriteRequest(ctx.text)) return writeRequestReply(ctx.section.title, ctx.text);
   const qs = probingQuestions(ctx.section);
   // QA 1:11 AM #5: one question per turn (never a numbered list of three); another comes on request.
   const one = qs[0] ?? "What's the one thing this part needs to say?";
