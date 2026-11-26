@@ -348,7 +348,10 @@ export function noGoodSourcesParas(
   const unsupported = dropped.length > 0 && dropped.every((d) => d.why === "unsupported");
   // QA retest (da13848): never promise background and deliver nothing. The dropped bullets' gist, else
   // general background written without any sources (concepts only, no names, numbers or studies), else no promise.
+  // QA 5:13 walk: only bullets from a real but non-citable page (weak) show as background; one no page
+  // backed (unsupported) never does, since its specifics may be wrong.
   const gist = dropped
+    .filter((d) => d.why !== "unsupported")
     .slice(0, 3)
     .map((d) => `• ${stripCites(d.line.replace(BULLET, "")).replace(/\.$/, "")}.`)
     .filter((l) => l.length > 12);
@@ -370,8 +373,8 @@ export function noGoodSourcesParas(
 }
 
 /** True when noGoodSourcesParas would have nothing to show under its lead (so the route writes general background). */
-export function needsBackground(dropped: { line: string }[]): boolean {
-  return !dropped.slice(0, 3).some((d) => stripCites(d.line.replace(BULLET, "")).length > 10);
+export function needsBackground(dropped: { line: string; why?: "weak" | "unsupported" }[]): boolean {
+  return !dropped.filter((d) => d.why !== "unsupported").slice(0, 3).some((d) => stripCites(d.line.replace(BULLET, "")).length > 10);
 }
 
 const TOPIC_GENERIC = new Set(["leadership", "leader", "leaders", "example", "examples", "style", "styles", "theory", "theories", "management", "manager", "business", "company", "companies", "research", "sources", "about", "their", "which", "where", "there", "find", "other", "should", "would", "could", "practice", "approach", "approaches"]);

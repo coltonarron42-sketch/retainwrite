@@ -105,3 +105,17 @@ describe("QA retest (bd66554 walk): the lead name must be on the page", () => {
     expect(supportedBy(line, "How Satya Nadella changed Microsoft's culture")).toBe(true);
   });
 });
+
+describe("QA 5:13 walk: unsupported bullets never show as background", () => {
+  it("weak-site gist shows; an unsupported one is left out; all-unsupported writes concept background", () => {
+    const d = [
+      { line: "• Cheryl Bachelder at Popeyes focused on franchisees [hbr.org]", why: "unsupported" as const },
+      { line: "• Herb Kelleher at Southwest put employees first [online.ben.edu]", why: "weak" as const },
+    ];
+    const p = noGoodSourcesParas(d, null);
+    expect(p.join(" ")).toMatch(/Kelleher/);
+    expect(p.join(" ")).not.toMatch(/Bachelder/);
+    expect(needsBackground([d[0]!])).toBe(true);
+    expect(needsBackground(d)).toBe(false);
+  });
+});
