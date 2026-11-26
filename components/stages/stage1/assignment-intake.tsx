@@ -2653,6 +2653,8 @@ export function AssignmentIntake({
             concept: brief?.options?.concept ?? null,
             // QA ethos (after #77): the two offered are grounded in what they've said (their words only).
             said: [materialAnswerNow, ...qaAsides.filter((x) => x.qid === q.id).map((x) => x.said), text].filter(Boolean).join("\n"),
+            // QA (after #80): the parsed assignment focus, for a real reason behind the two.
+            focus: requirements?.promptQuestion.value || requirements?.topic.value || null,
           });
       lastProbe.current[q.id] = esc.paras.join("\n");
       // QA round 6: "think of someone who led a team you were on" is the boss/coach/teacher ask: their answer starts the interview.
