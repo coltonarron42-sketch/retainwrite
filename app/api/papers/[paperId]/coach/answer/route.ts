@@ -88,6 +88,8 @@ export async function POST(request: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const started = Date.now();
+  // QA 7:00 #1: the paper's search count is read alongside the context load (one less wait before research starts).
+  const usedEarly = paperSearchesUsed(paperId).catch(() => 0);
   // QA 6:35 #3: research turns aim for ~20s; optional passes (rescue, background model) only run inside it.
   const TURN_BUDGET_MS = 19_000;
   let block = "";
@@ -151,7 +153,7 @@ export async function POST(request: Request, ctx: Ctx) {
     // Research and reading turns search. Summaries of uploaded pages work from them (no search).
     // t218u: per-turn cap (2 research / 3 reading) plus a per-paper soft budget.
     const wantsSearch = mode === "research" || mode === "reading";
-    const paperUsed = wantsSearch ? await paperSearchesUsed(paperId).catch(() => 0) : 0;
+    const paperUsed = wantsSearch ? await usedEarly : 0;
     const searchCap = wantsSearch ? turnSearchCap(paperUsed, mode === "reading" ? READING_SEARCH_CALLS : RESEARCH_SEARCH_CALLS) : 0;
     const search = wantsSearch && searchCap > 0;
     // QA 3:46/4:08 speed: research and reading synthesis run at low (source filter, support check and grounding are in code).
@@ -268,7 +270,8 @@ export async function POST(request: Request, ctx: Ctx) {
         // asked only for a style that isn't there, with whatever time is left in the ~20s budget.
         const style = askedStyle(body.message, [paperCtx?.decision?.pick, paperCtx?.decision?.answer]);
         const knownExamples = async (): Promise<string[]> => {
-          const table = knownExamplesFor(style);
+          // QA 7:00 #3: rotate by the paper's research turns (≈2 searches each), never their own leader.
+          const table = knownExamplesFor(style, Math.floor(paperUsed / 2), [paperCtx?.leader?.pick ?? ""]);
           if (table.length) return table;
           const left = TURN_BUDGET_MS - (Date.now() - started);
           if (left < 3_000) return [];
