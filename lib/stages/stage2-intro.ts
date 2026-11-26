@@ -5,7 +5,7 @@ import { dropHedges } from "@/lib/copy/tidy";
  * (never "idk"), and the Stage 1 options reused when they ask for options.
  * // SOP: coaching only, never generate submission text
  */
-import { namedPerson } from "@/lib/stage1/north-turns";
+import { chosenStyles, namedPerson } from "@/lib/stage1/north-turns";
 import { notAlreadyNamed } from "@/lib/stage1/readback-tidy";
 import { andList, answerNamesOption, decisionHasReason, decisionLabel, pickedStyles, type DecisionOption, type PaperContext, type ReadbackPlain } from "@/lib/stage1/paper-context";
 
@@ -113,10 +113,36 @@ export function stage2Earlier(
     const ex = who ? ` with ${who} as your example` : "";
     return label ? `Earlier you picked ${styleText(label)}${ex}, because ${reason}. That's a solid reason to build on.` : `Earlier you told me your reason: ${reason}.${who ? ` Your example: ${who}.` : ""}`;
   }
+  // QA 6:53 PM (qa8 b3d40615): "satya Nadella. I like transformational, because he rebuilt…" was
+  // pasted in raw ("Earlier you told me satya Nadella. you like…"). A style and a leader are
+  // synthesized in her own words, names capitalized.
+  const style1 = chosenStyles([said])[0] ?? null;
+  const lead1 = who ?? leadingName(said);
+  if (style1 && lead1) {
+    const why = reason ? (/^(he|she|they)\b/i.test(reason) ? `, mainly for how ${reason}` : `, mainly because ${reason}`) : "";
+    return `You picked ${titleName(lead1)} as ${/^[aeiou]/i.test(style1) ? "an" : "a"} ${style1.toLowerCase()} leader${why}.`;
+  }
   const headRaw = m && m.index! > 0 ? said.slice(0, m.index).replace(/[\s.!,;:]+$/, "") : said;
   const told0 = tidy(headRaw).replace(/^(yeah|yes|ok(?:ay)?|so|um+|well|honestly),?\s+/i, "");
   const told = m && m.index! > 0 && reason ? `${told0}, because ${reason}` : told0;
-  return `Earlier you told me ${told.charAt(0).toLowerCase()}${told.slice(1).replace(/…$/, "")}${/…$/.test(told) ? "…" : "."}${who && !new RegExp(who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(said) ? ` Your example: ${who}.` : ""}`;
+  // Only a common first word drops its capital ("You think…" → "you think…"); a name keeps it.
+  const lower = /^(?:You|Your|You're|You've|You'd|The|A|An|It|It's|That|This|There|Maybe|Probably|Leaders?|Being|Having)\b/.test(told) ? `${told.charAt(0).toLowerCase()}${told.slice(1)}` : told;
+  return `Earlier you told me ${lower.replace(/([.!?]\s+)([a-z])/g, (_x, a: string, b: string) => a + b.toUpperCase()).replace(/…$/, "")}${/…$/.test(told) ? "…" : "."}${who && !new RegExp(who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(said) ? ` Your example: ${who}.` : ""}`;
+}
+
+/** "Satya Nadella" from "satya nadella", keeping inner capitals ("McDonald"). */
+export function titleName(name: string): string {
+  return name.replace(/\s+/g, " ").trim().split(" ").map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
+}
+
+/** A short name fragment their answer opens with ("satya Nadella. I like…"): 2-3 words, one capitalized. */
+function leadingName(said: string): string | null {
+  const first = said.split(/[.!?;:,]/)[0]?.trim() ?? "";
+  const words = first.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 3) return null;
+  if (!words.some((w) => /^[A-Z][a-z'’-]+$/.test(w))) return null;
+  if (words.some((w) => /^(i|my|the|a|an|is|was|he|she|they|like|think|pick|want|because|leadership|servant|transformational|situational)$/i.test(w))) return null;
+  return titleName(words.join(" "));
 }
 
 /** The opener's heading and body: the read-back's plain words win over a parsed topic. */

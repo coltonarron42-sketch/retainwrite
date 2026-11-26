@@ -138,7 +138,7 @@ import {
   shortNoteNudge,
   shortStage1Checklist,
 } from "@/lib/stage1/intake-resume";
-import { classifyStartingPoint, ideasAck, ideasPlan, ideasSaid } from "@/lib/stage1/starting-point";
+import { classifyStartingPoint, IDEAS_CHECK_ID, IDEAS_NUDGE_ID, ideasAck, ideasPlan, ideasSaid, ideaStepId, isIdeasStepId, MAX_IDEA_TURNS } from "@/lib/stage1/starting-point";
 import { computeStyleMetrics } from "@/lib/style/metrics";
 import { buildVoiceCorpus, collectVoicePieces } from "@/lib/style/voice-capture";
 import { cn, wordCount } from "@/lib/utils";
@@ -1035,7 +1035,7 @@ export function AssignmentIntake({
       // light "have you thought about what to write?" and, only if they share an idea, a reflect-back
       // to confirm (at most one light clarifying question). No material quiz, pick, leader, story or
       // early take here any more: those live in Stage 2's stance interview.
-      for (const step of ideasPlan(answers)) plan.push({ id: step.id, kind: "coaching", text: step.text });
+      for (const step of ideasPlan(answers, nudgeContext(brief))) plan.push({ id: step.id, kind: "coaching", text: step.text });
       return plan;
     }
     const prepared = false;
@@ -2584,8 +2584,13 @@ export function AssignmentIntake({
     const isVoice = !opts?.skip;
 
     const existing = answers.find((a) => a.questionId === q.id);
+    // QA prod smoke 6:50 PM: an edited ideas answer starts the ideas turns over from it, so it gets
+    // the summarize-confirm ("Did I get that right?"), never a straight "Love it. I saved that…".
+    const editIdeas = Boolean(editReturn) && shortStage1 && isIdeasStepId(q.id) && !opts?.skip;
+    const ideasOrder = [IDEAS_CHECK_ID, IDEAS_NUDGE_ID, ...Array.from({ length: MAX_IDEA_TURNS }, (_, i) => ideaStepId(i + 1))];
+    const clearIds = editIdeas ? ideasOrder.slice(ideasOrder.indexOf(q.id) + 1).filter((id) => answers.some((a) => a.questionId === id)) : [];
     const nextAnswers = [
-      ...answers.filter((a) => a.questionId !== q.id),
+      ...answers.filter((a) => a.questionId !== q.id && !clearIds.includes(a.questionId)),
       ...(opts?.skip
         ? existing
           ? [existing]
@@ -2749,6 +2754,7 @@ export function AssignmentIntake({
         questionKind: q.kind,
         sequence: qIndex,
         skipInterest: skippedInterest || undefined,
+        clearQuestionIds: clearIds.length ? clearIds : undefined,
         inputMeta: {
           pastedChars: pasteMeta.meta.pastedChars,
           typedChars: pasteMeta.meta.typedChars,
@@ -2786,16 +2792,22 @@ export function AssignmentIntake({
       setLeads(suggested);
     }
 
-    // An edited earlier answer: straight back to where the student was.
-    if (back) {
+    // An edited earlier answer: straight back to where the student was (an edited ideas answer
+    // goes through its summarize-confirm first, below).
+    if (back && !editIdeas) {
       returnFromEdit(nextAnswers);
       return;
+    }
+    if (editIdeas) {
+      setEditReturn(null);
+      setRecovering(false);
+      for (const id of clearIds) clearLocalDraft(paperId, `stage1:${id}`);
     }
 
     // Short Stage 1: the ideas steps grow from this very answer, so read the plan from it (not the
     // previous render's plan). No more steps (no idea, or "that's it"): the wrap-up.
     if (shortStage1) {
-      const fresh = ideasPlan(nextAnswers);
+      const fresh = ideasPlan(nextAnswers, nudgeContext(briefRef.current ?? brief));
       const open = fresh.findIndex((s) => !nextAnswers.some((a) => a.questionId === s.id && a.answerText.trim()));
       if (open >= 0 && open !== qIndex) {
         setBoxUnlessTyped("", sentBox);
@@ -5098,4 +5110,9 @@ function ListTextarea({ value, onChange }: { value: string; onChange: (raw: stri
       }}
     />
   );
+}
+
+/** What the no-ideas nudge can name: the brief's example leaders and the plain-words assignment. */
+function nudgeContext(b: { options?: { people?: { label: string }[] } | null; readback?: { ask?: string } | null } | null | undefined) {
+  return { people: (b?.options?.people ?? []).map((p) => p.label), ask: b?.readback?.ask ?? null };
 }
