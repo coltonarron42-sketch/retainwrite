@@ -320,11 +320,14 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
     const sents = sentencesOf(t).filter((x) => !isQuestion(x) && !THESIS_FOR_THEM.test(x));
     // Never the leader tied to a reading that doesn't discuss them; chapter contents only with chapter text.
     const ok = sents.filter((x) => !(leader && namesLeader(x) && !namesLeader(r.points)) && !(/\bchapter\s+\d+/i.test(x) && !/\bchapter\s+\d+/i.test(r.points)));
-    t = ok.join(" ").trim();
-    if (t.split(/\s+/).length < 4) return;
+    // Short and not repeated: at most two sentences per reading, near-duplicates dropped.
     const list = readingOut.get(r.id) ?? [];
-    if (!list.some((y) => y === t)) list.push(capFirst(t));
-    readingOut.set(r.id, list);
+    for (const x of ok) {
+      if (x.split(/\s+/).length < 4 || list.length >= 2) continue;
+      if (list.some((y) => overlap(y, x) >= 0.5)) continue;
+      list.push(capFirst(endStop(x)));
+    }
+    if (list.length) readingOut.set(r.id, list);
   };
   for (const it of Array.isArray(raw.readingPoints) ? raw.readingPoints : []) {
     const r = byId.get(String((it as { readingId?: unknown })?.readingId ?? ""));
@@ -332,7 +335,8 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
     addReading(r, String((it as { text?: unknown })?.text ?? ""));
   }
   // A claim crediting an assigned reading's author (outside a leader question) is a READING point, never background.
-  const creditTo = (x: string) => readings.find((r) => r.author && new RegExp(`\\b${r.author}(?:'s|’s)?\\b`).test(x) && (ATTRIB.test(x) || new RegExp(`according to ${r.author}|${r.author}(?:'s|’s)\\b`).test(x)));
+  // QA 6:15 walk: "Goleman focuses on…" / "Goleman names five…" is a reading claim too, whatever the verb.
+  const creditTo = (x: string) => readings.find((r) => r.author && new RegExp(`\\b${r.author}(?:'s|’s)?\\b`).test(x));
   const facts: string[] = [];
   for (const f of Array.isArray(raw.leaderFacts) ? raw.leaderFacts : []) {
     const x = cleanItem(f);
@@ -369,6 +373,17 @@ export function shapeStructuredAnswer(input: { raw: StructuredAnswer; readings: 
   if (facts.length) paras.push(`${BACKGROUND_LABEL} ${facts.slice(0, 4).join(" ")}`);
   paras.push(fittingQuestion(raw.question, { items, facts: facts.length, readings: readingParas.length, explain: explain.length > 0 }));
   return { paras: paras.slice(-4), leaderFacts: leaderFactCount, readingPoints: readingParas.length, aboutLeader };
+}
+
+/** Share of content words two sentences have in common (near-duplicate check). */
+function overlap(a: string, b: string): number {
+  const w = (t: string) => new Set(t.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+  const A = w(a);
+  const B = w(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0;
+  for (const x of A) if (B.has(x)) n++;
+  return n / Math.min(A.size, B.size);
 }
 
 /** ONE question that fits the content: "Which of those…" only after a list (QA 6:15 PM). */

@@ -126,6 +126,28 @@ describe("QA 6:15 PM: 'main leadership styles' puts Goleman under readings, not 
     expect(text).not.toContain(BACKGROUND_LABEL);
     expect(o.paras.at(-1)).toBe("Which of those styles fits the leader you have in mind?");
   });
+  it("walk 6:23 PM: 'Goleman focuses on…' in explain moves under his reading; near-duplicates and long dumps are trimmed", () => {
+    const o = shapeStructuredAnswer({
+      raw: {
+        explain: "Goleman focuses on emotional intelligence, naming five parts: self-awareness, self-regulation, motivation, empathy, and social skill.",
+        readingPoints: [
+          { text: "The book surveys the major approaches: trait and skills, behavioral (task vs. relationship), situational, transformational, servant and authentic leadership.", readingId: northouse.id },
+          { text: "Northouse's book surveys several main leadership approaches: trait, skills, behavioral (task versus relationship), situational, transformational, servant, and authentic leadership.", readingId: northouse.id },
+          { text: "Each approach is explained, then weighed by its research support. It pairs each approach with real cases.", readingId: northouse.id },
+        ],
+        leaderFacts: [],
+        question: "Which of those styles fits the leader you have in mind?",
+      },
+      readings,
+      leader: "Sam Walton",
+      message: "What are the main leadership styles?",
+    });
+    expect(o.paras[0]).toMatch(/^From your Northouse chapter: The book surveys/);
+    expect(o.paras[0]).not.toMatch(/several main leadership approaches/);
+    expect(o.paras[0]!.match(/[.!?](\s|$)/g)!.length).toBeLessThanOrEqual(2);
+    expect(o.paras[1]).toMatch(/^From your Goleman article: Goleman focuses on emotional intelligence/);
+    expect(o.paras.join(" ")).not.toContain(BACKGROUND_LABEL);
+  });
   it("an unknown reading id is dropped", () => {
     const o = shapeStructuredAnswer({
       raw: { explain: "", readingPoints: [{ text: "Kotter lists eight steps for leading change.", readingId: "r9" }], leaderFacts: [], question: "" },
