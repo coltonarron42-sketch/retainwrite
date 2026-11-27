@@ -11,6 +11,9 @@ import { getGrokClient } from "@/lib/ai/grok";
 import { MODEL_FAST } from "@/lib/config";
 import { statusFromEvent } from "@/lib/coach/thinking-status";
 
+/** QA 7:00 #2: excluded from every web_search call (max 5 on xAI). */
+export const SEARCH_EXCLUDED_DOMAINS = ["homeworkforyou.com", "coursehero.com", "studocu.com", "chegg.com", "ivypanda.com"];
+
 export type ResearchSource = { title: string; url: string };
 
 export type ResearchResult =
@@ -132,7 +135,9 @@ export async function grokResearch(opts: {
     input: [{ role: "user", content: opts.user }],
     ...(opts.search
       ? {
-          tools: [{ type: "web_search", ...(opts.allowedDomains?.length ? { filters: { allowed_domains: opts.allowedDomains.slice(0, 5) } } : {}) }],
+          // QA 7:00 #2: the essay-mill / homework-help hosts seen most are excluded from the search itself (xAI allows 5);
+          // the full blocklist (source-quality.config.ts) still drops any other from Reading lines and citations.
+          tools: [{ type: "web_search", filters: opts.allowedDomains?.length ? { allowed_domains: opts.allowedDomains.slice(0, 5) } : { excluded_domains: SEARCH_EXCLUDED_DOMAINS } }],
           max_tool_calls: opts.maxSearches ?? MAX_SEARCH_CALLS,
         }
       : {}),

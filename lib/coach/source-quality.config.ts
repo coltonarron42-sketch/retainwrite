@@ -38,6 +38,8 @@ export const SOURCE_QUALITY = {
     "ijcrt.org", "ijariie.com", "ijtsrd.com", "iosrjournals.org", "eajournals.org", "academicjournals.org", "sciencepublishinggroup.com",
     "ijmra.us", "granthaalayahpublication.org", "gssrr.org", "researchleap.com", "ijbmi.org", "ijhssi.org", "researchgate.net",
     "semanticscholar.org", "ssrn.com",
+    // QA 7:00 #2: seen live, not citable
+    "sophianetwork.net", "babyboomer.org",
   ],
   /** Unlisted journal-style hosts ("ijbm.org", "xyzjournals.org", "journalofleadership.com") are weak too. */
   weakJournalLabel: /^(?:ij[a-z]{2,8}|[a-z]*journals?[a-z]*|[a-z]*publish(?:ing|ers?)?[a-z]*)$/i,
@@ -58,6 +60,14 @@ export const SOURCE_QUALITY = {
     "coursehero.com", "studocu.com", "ukessays.com", "ivypanda.com", "bartleby.com", "gradesaver.com", "sparknotes.com", "cliffsnotes.com",
     "studycorgi.com", "edubirdie.com", "papersowl.com", "essaypro.com", "123helpme.com", "antiessays.com", "chegg.com", "quizlet.com",
     "brainly.com", "studylib.net", "studymoose.com", "gradesfixer.com", "writix.com", "essaysauce.com", "phdessay.com", "nerdyseal.com",
+    // QA 7:00 #2: homework-help and essay-writing services (homeworkforyou.com seen live)
+    "homeworkforyou.com", "homeworkmarket.com", "homework.study.com", "study.com", "numerade.com", "transtutors.com", "studypool.com",
+    "sweetstudy.com", "essayshark.com", "grademiners.com", "myassignmenthelp.com", "assignmenthelp.net", "assignmentexpert.com",
+    "essaywritingservice", "essay-writing", "writemypaper", "write-my-essay", "paperhelp.org", "speedypaper.com", "essayusa.com",
+    "kingessays.com", "essaybox.org", "essayhub.com", "essayforum.com", "essaytyper.com", "customwritings.com", "bestessays.com",
+    "ukwritings.com", "essaywriter.org", "paperial.com", "studyfy.com", "samplius.com", "eduzaurus.com", "artscolumbia.org",
+    "freeessays", "termpaperwarehouse.com", "majortests.com", "cram.com", "kibin.com", "paperdue.com",
+    "enotes.com", "litcharts.com", "shmoop.com", "brainmass.com", "solutioninn.com", "homeworklib.com", "essaydocs.org",
     "academia.edu", "scribd.com", "slideshare.net", "issuu.com", "yumpu.com", "fliphtml5.com", "anyflip.com", "pdfslide.net",
     // pirated PDFs and document dumps
     "libgen", "z-lib", "zlibrary", "z-library", "singlelogin", "1lib", "b-ok", "pdfdrive", "pdfroom", "dokumen.pub", "vdoc.pub", "ebin.pub",

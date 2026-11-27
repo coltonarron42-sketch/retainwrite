@@ -1200,7 +1200,9 @@ export function alreadyAnswered(transcript: LoopLine[], key: string, text: strin
 
 /** QA 5:51 PM: the latest line in this section is hers and already asks something. */
 export function lastLineAsks(transcript: LoopLine[], key: string): boolean {
-  const mine = transcript.filter((l) => l.k === key);
+  // QA 7:00 #4: a research answer ends "Which of these…?" then its Sources line: the question still counts as last
+  // (no extra "When you're ready, tell me your idea…" nudge after her closer).
+  const mine = transcript.filter((l) => l.k === key && !(l.who === "pau" && /^Sources?:/i.test(l.text.trim())));
   const last = mine[mine.length - 1];
   return Boolean(last && last.who === "pau" && /\?["”’)]*\s*$/.test(last.text.trim()));
 }

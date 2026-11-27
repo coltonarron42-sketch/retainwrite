@@ -42,7 +42,7 @@ describe("QA 6:35 #2: the background block on an obscure ask", () => {
     expect(askedStyle("anything on my leader's co-op?", ["servant"])).toBe("servant");
   });
   it("every table entry passes the background filter (named person, no figures)", () => {
-    for (const v of Object.values(KNOWN_EXAMPLES)) expect(backgroundExamples(v)).toHaveLength(v.length);
+    for (const v of Object.values(KNOWN_EXAMPLES)) for (const line of v) expect(backgroundExamples([line]), line).toHaveLength(1);
   });
   it("nothing widely documented: no label and no list-implying question", () => {
     const p = researchCloser(noGoodSourcesParas([], "Which of these fits your story?", []), "Sam Walton");

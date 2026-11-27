@@ -122,7 +122,7 @@ import { buildStoryAngleFallback, styleWordFrom } from "@/lib/stage1/story-angle
 import { isContentQuestion } from "@/lib/coach/answer";
 import { isWriteRequest } from "@/lib/stages/stance-intent";
 import { reflectsSetAside, setAsideStyles } from "@/lib/stage1/style-negation";
-import { RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
+import { isExamplesAsk, RESEARCH as RESEARCH_ASK, SUMMARY as SUMMARY_ASK } from "@/lib/coach/effort";
 import { sourcesLine, type SourceRef } from "@/lib/coach/sources-line";
 import { fetchPauAnswer, statusKindFor } from "@/lib/coach/pau-stream-client";
 import type { PauTextMode as CoachMode } from "@/lib/coach/pau-prompt";
@@ -2363,6 +2363,14 @@ export function AssignmentIntake({
     let typed = opts?.skip ? "" : (opts?.text ?? draftAnswer).trim();
     const sentBox = (opts?.text ?? draftAnswer).trim();
     let offerAnswered = false;
+    // QA 7:00 #1: an explicit request for examples ("Not transformational, just servant examples please.") goes
+    // straight to research, before the story reflection or any other model call.
+    if (typed && !opts?.skip && brief?.northstar && isExamplesAsk(typed) && !looksLikePastedReading(typed, pasteMeta.meta.pasteRatio)) {
+      dropSent(sentBox);
+      setError(null);
+      await answerAside(q.id, q.text, typed);
+      return;
+    }
     // t204u: their own story (or a request to build on it / be interviewed / be caught up) comes first.
     if (typed && !opts?.skip && q.kind !== "interest" && catchUpOffer !== q.id && (await storyTurn(q, typed, sentBox))) return;
     // QA 7:02 AM: "skip the get-to-know-you questions" skips every one of them.
@@ -3024,16 +3032,16 @@ export function AssignmentIntake({
       if (!spoken) setDraftAnswer("");
       return;
     }
-    if (fresh && (await storyTurn({ id: "stance_early", text: earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }) }, fresh, (spoken ?? draftAnswer).trim()))) {
-      if (prevShort) setShortEcho(prevShort);
-      return;
-    }
-    // PC-31: "write my take for me" or "find me examples…" on the early take is a request to her, never their take.
-    if (fresh && brief?.northstar && (isWriteRequest(fresh) || (RESEARCH_ASK.test(fresh) && fresh.split(/\s+/).length <= 30))) {
+    // PC-31 (QA 7:00 #1: before the story turn, so research starts first): "write my take for me" or "find me examples…" on the early take is a request to her, never their take.
+    if (fresh && brief?.northstar && (isWriteRequest(fresh) || isExamplesAsk(fresh))) {
       if (prevShort) setShortEcho(prevShort);
       if (!spoken) setDraftAnswer("");
       setError(null);
       await answerAside("stance_early", earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }), fresh);
+      return;
+    }
+    if (fresh && (await storyTurn({ id: "stance_early", text: earlyStanceQuestion({ topic: requirements?.topic.value, promptQuestion: requirements?.promptQuestion.value }) }, fresh, (spoken ?? draftAnswer).trim()))) {
+      if (prevShort) setShortEcho(prevShort);
       return;
     }
     const joined = prevShort && fresh && !fresh.includes(prevShort) ? `${prevShort}\n${fresh}` : fresh || prevShort;
